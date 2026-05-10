@@ -51,6 +51,18 @@ No iSCSI. No Ceph. No local-path for persistent data. All K3s PersistentVolumes 
 **No memory ballooning.**
 All VMs use fixed memory allocation for predictability.
 
+**Identity: named users, no root SSH, full audit trail.**
+Every host has a named personal admin user and an `ansible` service account. Root SSH is disabled after bootstrap. When `ansible` appears in auth logs it was AWX. When the personal username appears it was a human. These two identities must always be distinguishable. Do not suggest running anything as root or using root SSH keys.
+
+**Ansible control plane: AWX (in K3s).**
+AWX replaces a dedicated Ansible LXC. It provides centralised audit trail, scheduled reconciliation every 30 minutes, and Vault-backed credential management. The `ansible` service account SSH key lives in AWX credential store backed by Vault — never on disk. During Phases 4 and 5 (before K3s exists), playbooks run directly from the workstation using the same playbooks AWX will later execute. Do not suggest Semaphore, Rundeck, or a standalone Ansible LXC — AWX is the chosen tool.
+
+**Configuration drift: AWX scheduled reconciliation.**
+AWX runs full playbooks on a 30-minute schedule. Ansible idempotency means it only changes what has actually drifted. This is the infrastructure equivalent of Flux — Git is the source of truth, AWX continuously reconciles toward it. Do not suggest manual Ansible runs as the primary workflow.
+
+**Secrets: Vault (self-hosted in K3s) + AWS KMS auto-unseal.**
+This is the production pattern — not a homelab shortcut. Vault runs as a K3s StatefulSet. AWS KMS (eu-west-1, existing account, ~$1/month) handles auto-unseal. External Secrets Operator delivers secrets to pods. Sealed Secrets is used only for the one-time Vault bootstrap. Ansible Vault handles must-run LXC secrets and Terraform secrets. The repo is public — nothing sensitive ever touches Git. Do not suggest Sealed Secrets as a long-term secrets solution, do not suggest putting secrets in ConfigMaps, do not suggest committing encrypted secrets using any method other than Ansible Vault or Sealed Secrets for the bootstrap case.
+
 **Monitoring split: Zabbix for infra, Prometheus+Grafana for K3s.**
 Zabbix (in an LXC, outside K3s) monitors the infrastructure layer — Proxmox nodes, LXCs, Synology, network. Prometheus+Grafana inside K3s monitors workloads. The owner knows Zabbix from their career — do not suggest replacing it.
 
@@ -75,34 +87,49 @@ Learning environment. Failure here has no consequence. This is where complexity 
 
 6 VMs: 3 control plane (one per node) + 3 workers (one per node), co-located. K3s embedded etcd for HA control plane.
 
-Planned workloads: Authentik, Outline, Immich, n8n, Jellyfin, Homepage, Komga, Startpage, Wallpaper gallery, phpIPAM, Privatebin, Prometheus, Grafana.
+Planned workloads: AWX, Authentik, Vault, Outline, Immich, n8n, Jellyfin, Homepage, Komga, Startpage, Wallpaper gallery, phpIPAM, Privatebin, Prometheus, Grafana.
 
 ---
 
 ## Network
 
-Flat physical network: `192.168.2.0/24`, ISP router at `.1`.
-Managed switch (TP-Link TL-SG108E) provides VLAN support — router does not need VLAN awareness.
+Physical router: **GL.iNet GL-MT2500** (~€50) sits between KPN router and homelab. KPN router is untouched — family devices unchanged. GL-MT2500 handles routing, firewall, VLAN tagging, Tailscale OOB, and DHCP for all homelab devices. No managed switch — Proxmox and DSM handle VLAN tagging in software, dumb switches pass tagged frames transparently.
 
-### VLANs
-| ID | Name | Purpose |
-|----|------|---------|
-| 1 | uplink | Main LAN, internet access |
-| 10 | must-run | Must-run LXCs |
-| 20 | k3s | K3s VMs |
-| 30 | storage | NFS traffic |
+```
+KPN router (192.168.2.0/24, untouched)
+  └── GL-MT2500 WAN
+        ├── LAN 1 → Dumb switch → Proxmox nodes + Synology
+        └── LAN 2 → Dumb switch upstairs → MacBook dock + game PC
+```
 
-### IP ranges (homelab: `.100–.200`)
-- `.100–.103` — physical nodes + NAS
-- `.110–.119` — VIPs (keepalived, MetalLB)
-- `.120–.134` — LXCs
-- `.150–.159` — K3s VMs (`.150–.152` control plane, `.153–.155` workers)
-- `.160–.179` — MetalLB LoadBalancer pool
-- `.180–.200` — unallocated buffer
+MacBook connects via dock (wired, VLAN 60) when at desk. Uses KPN WiFi + Tailscale when undocked. Game PC wired on VLAN 60, split-tunnel Tailscale for homelab routes only.
 
-### DNS naming convention
-- `app.xiiisins.com` — user-facing apps (internal + Cloudflare Tunnel for external)
-- `infra.xiiisins.com` — infrastructure tooling, internal only, never in public DNS
+### VLANs — VLAN ID = third octet (self-documenting)
+
+| VLAN | Subnet | Name | Contents |
+|------|--------|------|----------|
+| 10 | `10.0.10.0/24` | must-run | Must-run LXCs |
+| 20 | `10.0.20.0/24` | k3s | K3s VMs |
+| 30 | `10.0.30.0/24` | storage | NFS traffic |
+| 40 | `10.0.40.0/24` | services | MetalLB pool |
+| 60 | `10.0.60.0/24` | personal | MacBook + game PC |
+| 254 | `10.0.254.0/24` | management | GL-MT2500, Proxmox nodes, Synology |
+
+### Key IPs
+- `10.0.254.1` — GL-MT2500 (gateway)
+- `10.0.254.100/101/102` — skadi/sigyn/sylvi
+- `10.0.254.103` — Synology
+- `10.0.10.110` — Pi-hole VIP
+- `10.0.10.120–.129` — must-run LXCs
+- `10.0.20.150–.155` — K3s VMs (150-152 CP, 153-155 workers)
+- `10.0.40.160–.179` — MetalLB pool
+
+### OOB access
+Tailscale on GL-MT2500 advertises `10.0.0.0/8`. Survives complete homelab failure. Break-glass `recovery` user on Proxmox nodes only, SSH key in 1Password. From a Proxmox node, `pct enter` / `qm terminal` reaches any LXC/VM without SSH.
+
+### DNS naming
+- `app.xiiisins.com` — user-facing apps (Cloudflare Tunnel external, Pi-hole internal)
+- `infra.xiiisins.com` — internal only, never in public DNS
 - `svc.xiiisins.com` — non-HTTP services (Teamspeak SRV, Factorio A record)
 
 ---
@@ -119,10 +146,11 @@ homelab/
 ├── ansible/
 │   ├── inventory/
 │   ├── roles/
-│   └── playbooks/
+│   ├── playbooks/
+│   └── group_vars/    # Ansible Vault encrypted vars
 ├── k8s/               # Flux-managed manifests
 │   ├── flux-system/
-│   ├── infrastructure/ # MetalLB, Traefik, Authentik, cert-manager
+│   ├── infrastructure/ # MetalLB, Traefik, Authentik, cert-manager, Vault, ESO
 │   └── apps/          # Application workloads
 └── docs/
     └── homelab-design.md
