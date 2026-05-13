@@ -1,0 +1,2 @@
+proxmox_api_token = "root@pam!terraform=<token-secret>"
+ssh_public_key    = "ssh-ed25519 <your-public-key>"
