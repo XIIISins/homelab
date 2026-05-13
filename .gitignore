@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ansible
+*.retry
+ansible/group_vars/**/vault.yml
+!ansible/group_vars/**/*.example.yml
+
+# Kubernetes / Flux
+kubeconfig
+*.kubeconfig
+
+# Secrets (belt-and-suspenders)
+*.key
+*.pem
+*.p12
+*.pfx
+*secret*
+*password*
+*credential*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Misc
+.env
+.env.*
+!.env.example
