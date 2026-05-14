@@ -31,10 +31,18 @@ spec:
       name: synology-csi
     storageClasses:
       nfs-retain:
+        disabled: true
+      nfs-delete:
+        disabled: true
+      iscsi-retain:
         isDefault: true
         parameters:
-          protocol: nfs
+          protocol: iscsi
           dsm: "10.0.254.20"
-          location: "/volume1/k3s-core-data"
-          mountPermissions: "0770"
         reclaimPolicy: Retain
+      iscsi-delete:
+        disabled: true
+      smb-retain:
+        disabled: true
+      smb-delete:
+        disabled: true

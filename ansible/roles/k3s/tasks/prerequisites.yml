@@ -20,14 +20,21 @@
       - iptables
       - nftables
       - k3s-selinux
+      - iscsi-initiator-utils
     state: present
+
+- name: Enable and start iscsid
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
 
 - name: Disable firewalld
   ansible.builtin.systemd:
     name: firewalld
     state: stopped
     enabled: false
-  ignore_errors: true  # might not be installed on minimal image
+  ignore_errors: true # might not be installed on minimal image
 
 - name: Load br_netfilter kernel module
   # Bridge netfilter module — needed for iptables to see bridged traffic
