@@ -35,5 +35,6 @@ spec:
         parameters:
           protocol: nfs
           dsm: "10.0.254.20"
+          location: "/volume1/k3s-core-data"
           mountPermissions: "0770"
         reclaimPolicy: Retain
