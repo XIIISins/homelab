@@ -19,3 +19,7 @@ spec:
     - must-run
   interfaces:
     - eth1
+  nodeSelectors:
+    - matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: DoesNotExist
