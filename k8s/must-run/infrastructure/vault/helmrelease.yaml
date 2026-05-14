@@ -63,8 +63,6 @@ spec:
             seal "awskms" {}
 
             service_registration "kubernetes" {}
-      extraEnvironmentVars:
-        SKIP_CHOWN: "false"
       extraSecretEnvironmentVars:
         - envName: AWS_ACCESS_KEY_ID
           secretName: vault-unseal
