@@ -1,0 +1,21 @@
+# k8s/must-run/infrastructure-config/metallb-config.yaml
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: must-run
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.0.20.11-10.0.20.99
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: must-run
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - must-run
+  interfaces:
+    - eth1
