@@ -92,7 +92,7 @@ spec:
       extraInitContainers:
         - name: vault-data-chown
           image: busybox
-          commands:
+          command:
             [
               "sh",
               "-c",
