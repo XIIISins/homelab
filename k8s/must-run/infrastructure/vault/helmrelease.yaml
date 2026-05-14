@@ -31,10 +31,8 @@ spec:
       enabled: true
 
     server:
-      # 3 replicas for HA with Raft storage
       replicas: 3
 
-      # Resource limits — small for homelab
       resources:
         requests:
           memory: 256Mi
@@ -43,7 +41,6 @@ spec:
           memory: 512Mi
           cpu: 500m
 
-      # Raft integrated storage — no external etcd needed
       ha:
         enabled: true
         replicas: 3
@@ -63,14 +60,10 @@ spec:
               path = "/vault/data"
             }
 
-            seal "awskms" {
-              region     = "eu-west-1"
-              kms_key_id = env("VAULT_AWSKMS_SEAL_KEY_ID")
-            }
+            seal "awskms" {}
 
             service_registration "kubernetes" {}
 
-      # Inject AWS credentials from the SealedSecret
       extraEnvVars:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
@@ -93,13 +86,11 @@ spec:
               name: vault-unseal
               key: VAULT_AWSKMS_SEAL_KEY_ID
 
-      # Persistent storage for Raft
       dataStorage:
         enabled: true
         size: 5Gi
-        storageClass: "synologi-csi-nfs-retain" # uses default — we'll configure Synology CSI later
+        storageClass: "synology-csi-nfs-retain"
 
-      # Anti-affinity — spread Vault pods across nodes
       affinity: |
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -109,11 +100,9 @@ spec:
                   component: server
               topologyKey: kubernetes.io/hostname
 
-    # Disable injector for now — add later if needed
     injector:
       enabled: false
 
-    # Disable UI ingress for now — expose via MetalLB
     ui:
       enabled: true
       serviceType: LoadBalancer
