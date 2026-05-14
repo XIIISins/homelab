@@ -1,40 +1,5 @@
-# k8s/must-run/infrastructure/synology-csi/helmrelease.yaml
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+apiVersion: v1
+kind: Namespace
 metadata:
   name: synology-csi
-  namespace: flux-system
-spec:
-  interval: 24h
-  url: https://synology.github.io/synology-csi
----
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: synology-csi
-  namespace: synology-csi
-spec:
-  interval: 30m
-  chart:
-    spec:
-      chart: synology-csi
-      version: "1.x"
-      sourceRef:
-        kind: HelmRepository
-        name: synology-csi
-        namespace: flux-system
-  install:
-    createNamespace: false
-  values:
-    clientInfoSecret:
-      name: synology-csi
-      namespace: synology-csi
-    storageClasses:
-      - name: synology-nfs
-        isDefault: true
-        reclaimPolicy: Retain
-        parameters:
-          protocol: nfs
-          dsm: "10.0.254.20"
-          location: "/volume1/k3s-core-data"
