@@ -6,9 +6,9 @@ locals {
   }
 
   workers = {
-    einherjar-urd   = { node = "urd",   vmid = 2101, ip = "10.0.21.21", template_node = "verd",  template_id = 10002 }
-    einherjar-verd  = { node = "verd",  vmid = 2102, ip = "10.0.21.22", template_node = "verd",  template_id = 10002 }
-    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", template_node = "skuld", template_id = 10004 }
+    einherjar-urd   = { node = "urd",   vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "verd",  template_id = 10002 }
+    einherjar-verd  = { node = "verd",  vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd",  template_id = 10002 }
+    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004 }
   }
 }
 
@@ -26,12 +26,12 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   }
 
   cpu {
-    cores = 2
+    cores = 1
     type  = "host"
   }
 
   memory {
-    dedicated = 4096
+    dedicated = 2048
   }
 
   disk {
@@ -98,11 +98,21 @@ resource "proxmox_virtual_environment_vm" "worker" {
     vlan_id = 21
   }
 
+  network_device {
+    bridge  = "vmbr0"
+    vlan_id = 20
+  }
+
   initialization {
     ip_config {
       ipv4 {
         address = "${each.value.ip}/24"
         gateway = "10.0.21.1"
+      }
+    }
+    ip_config {
+      ipv4 {
+        address = "${each.value.ip_vlan20}/24"
       }
     }
     user_account {
