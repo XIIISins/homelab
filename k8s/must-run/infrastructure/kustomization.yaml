@@ -4,3 +4,6 @@ kind: Kustomization
 resources:
   - sealed-secrets/namespace.yaml
   - sealed-secrets/helmrelease.yaml
+  - vault/namespace.yaml
+  - vault/vault-unseal-secret.yaml
+  - vault/helmrelease.yaml
