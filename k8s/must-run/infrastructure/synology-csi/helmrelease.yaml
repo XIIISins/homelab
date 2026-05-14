@@ -7,7 +7,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 24h
-  url: https://synology.github.io/synology-csi
+  url: https://christian-schlichtherle.github.io/synology-csi-chart
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -29,11 +29,8 @@ spec:
   values:
     clientInfoSecret:
       name: synology-csi
-      namespace: synology-csi
     storageClasses:
-      - name: synology-nfs
-        isDefault: true
-        reclaimPolicy: Retain
+      retain:
         parameters:
           protocol: nfs
           dsm: "10.0.254.20"
