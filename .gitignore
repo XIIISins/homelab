@@ -32,7 +32,7 @@ kubeconfig
 *.pem
 *.p12
 *.pfx
-*secret*
+# *secret*
 *password*
 *credential*
 
