@@ -8,11 +8,17 @@ kind: Installation
 metadata:
   name: default
 spec:
-  # Use the pod CIDR we configured in K3s
   calicoNetwork:
+    # Pin node IP autodetection to the VLAN 21 cluster subnet.
+    # Workers have a second NIC on VLAN 20 (eth1, MetalLB pool); the default
+    # firstFound autodetection bound the overlay to eth1 on the workers,
+    # breaking cross-node vxlan. Pinning by CIDR forces the VLAN 21 address.
+    nodeAddressAutodetectionV4:
+      cidrs:
+        - "10.0.21.0/24"
     ipPools:
       - blockSize: 26
-        cidr: "{{ k3s_pod_cidr }}"
+        cidr: "10.42.0.0/16"
         encapsulation: VXLANCrossSubnet
         natOutgoing: Enabled
         nodeSelector: all()
@@ -22,4 +28,3 @@ kind: APIServer
 metadata:
   name: default
 spec: {}
-

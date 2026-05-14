@@ -31,7 +31,6 @@
       install squashfs /bin/true
       install udf /bin/true
     mode: "0644"
-
 - name: Set secure kernel parameters
   ansible.posix.sysctl:
     name: "{{ item.name }}"
@@ -40,9 +39,13 @@
     sysctl_set: true
     reload: true
   loop:
-    # Prevent IP spoofing
-    - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
-    - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+    # Reverse-path filtering: LOOSE mode (2), not strict (1).
+    # These nodes are multi-homed (eth0 = VLAN 21 cluster, eth1 = VLAN 20
+    # MetalLB) and run Calico, both of which create legitimate asymmetric
+    # paths. Strict rp_filter silently drops MetalLB LoadBalancer traffic
+    # arriving on eth1. Loose mode still drops genuinely unroutable sources.
+    - { name: "net.ipv4.conf.all.rp_filter", value: "2" }
+    - { name: "net.ipv4.conf.default.rp_filter", value: "2" }
     # Disable ICMP redirects
     - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
     - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
