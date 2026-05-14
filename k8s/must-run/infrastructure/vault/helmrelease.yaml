@@ -63,29 +63,19 @@ spec:
             seal "awskms" {}
 
             service_registration "kubernetes" {}
-
-      extraEnvVars:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: vault-unseal
-              key: AWS_ACCESS_KEY_ID
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: vault-unseal
-              key: AWS_SECRET_ACCESS_KEY
-        - name: AWS_REGION
-          valueFrom:
-            secretKeyRef:
-              name: vault-unseal
-              key: AWS_REGION
-        - name: VAULT_AWSKMS_SEAL_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: vault-unseal
-              key: VAULT_AWSKMS_SEAL_KEY_ID
-
+      extraSecretEnvironmentVars:
+        - envName: AWS_ACCESS_KEY_ID
+          secretName: vault-unseal
+          secretKey: AWS_ACCESS_KEY_ID
+        - envName: AWS_SECRET_ACCESS_KEY
+          secretName: vault-unseal
+          secretKey: AWS_SECRET_ACCESS_KEY
+        - envName: AWS_REGION
+          secretName: vault-unseal
+          secretKey: AWS_REGION
+        - envName: VAULT_AWSKMS_SEAL_KEY_ID
+          secretName: vault-unseal
+          secretKey: VAULT_AWSKMS_SEAL_KEY_ID
       dataStorage:
         enabled: true
         size: 5Gi
