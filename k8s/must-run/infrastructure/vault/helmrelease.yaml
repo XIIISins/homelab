@@ -79,7 +79,7 @@ spec:
       dataStorage:
         enabled: true
         size: 5Gi
-        storageClass: "synology-csi-nfs-retain"
+        storageClass: "synology-csi-iscsi-retain"
 
       affinity: |
         podAntiAffinity:
