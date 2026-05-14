@@ -1,5 +1,5 @@
 # Homelab design document
-*Last updated: 2026-05-13 — draft v3*
+*Last updated: 2026-05-14 — draft v5*
 
 ---
 
@@ -28,6 +28,11 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 | Beelink MINI-S12 | N100 | 16 GB, 1TB disk | Proxmox node 2 | **Verd** |
 | Beelink MINI-S12 | N100 | 16 GB, ~450GB LVM-thin | Proxmox node 3 | **Skuld** |
 | Synology DS223J | Realtek RTD1619B | 1 GB | NAS | **Munin** |
+
+**Hardware notes:**
+- Urd (N5095) is too weak for K3s control plane. etcd IO storms observed under load. CPs should run on Verd/Skuld only.
+- Urd long-term: dedicated Jellyfin LXC with Intel QuickSync passthrough. Currently also running Einherjar-urd (K3s worker) and temporarily Göndul (CP — to move to Verd).
+- All nodes 1 GbE. No 2.5 GbE planned.
 
 ### Naming convention
 - **Proxmox cluster:** `niflheim`
@@ -60,21 +65,23 @@ Internet
               │             ├── Game PC (VLAN 60)
               │             └── Hue bridge (VLAN 60)
               └── LAN 2 → Dumb switch (spare bedroom)
-                            ├── Urd   (10.0.254.11 → now 10.0.1.11)
-                            ├── Verd  (10.0.254.12 → now 10.0.1.12)
-                            ├── Skuld (10.0.254.13 → now 10.0.1.13)
-                            └── Munin (10.0.254.20 → now 10.0.1.20)
+                            ├── Urd   (10.0.254.11)
+                            ├── Verd  (10.0.254.12)
+                            ├── Skuld (10.0.254.13)
+                            └── Munin (10.0.254.20)
 ```
 
 ---
 
 ## Network design
 
+> **MGMT subnet is `10.0.254.0/24`.** Drafts up to v4 of this document incorrectly recorded it as `10.0.1.0/24`. The live network is and always was `10.0.254.0/24`. This error nearly caused a *correct* iSCSI portal address to be "fixed" during the 2026-05-14 incident — corrected throughout in v5.
+
 ### VLAN table
 
 | VLAN | Subnet | UCG name | Purpose |
 |------|--------|----------|---------|
-| 1 | `10.0.1.0/24` | HL-MGMT | Management — nodes, NAS, UCG-Ultra |
+| 1 | `10.0.254.0/24` | HL-MGMT | Management — nodes, NAS, UCG-Ultra |
 | 10 | `10.0.10.0/24` | HL-CORE-VIP | Must-run VIPs (keepalived) |
 | 11 | `10.0.11.0/24` | HL-CORE-SVC | Must-run LXCs |
 | 20 | `10.0.20.0/24` | HL-CORE-K3S-VIP | Must-run K3s MetalLB pool |
@@ -87,15 +94,15 @@ Internet
 
 ### IP assignments
 
-**Management VLAN 1 (10.0.1.0/24):**
+**Management VLAN 1 (10.0.254.0/24):**
 
 | Address | Role |
 |---------|------|
-| `10.0.1.1` | UCG-Ultra (gateway) |
-| `10.0.1.11` | Urd |
-| `10.0.1.12` | Verd |
-| `10.0.1.13` | Skuld |
-| `10.0.1.20` | Munin (Synology) |
+| `10.0.254.1` | UCG-Ultra (gateway) |
+| `10.0.254.11` | Urd |
+| `10.0.254.12` | Verd |
+| `10.0.254.13` | Skuld |
+| `10.0.254.20` | Munin (Synology) |
 
 **Must-run VIP VLAN 10 (10.0.10.0/24):**
 
@@ -129,18 +136,26 @@ Internet
 | `10.0.11.235` | 1135 | Skuld | HAProxy 3 |
 
 **Must-run K3s MetalLB VLAN 20 (10.0.20.0/24):**
-`10.0.20.11–.99` — LoadBalancer pool
+
+| Address | Role |
+|---------|------|
+| `10.0.20.11–.99` | LoadBalancer pool (MetalLB) |
+| `10.0.20.201` | Einherjar-urd eth1 |
+| `10.0.20.202` | Einherjar-verd eth1 |
+| `10.0.20.203` | Einherjar-skuld eth1 |
 
 **Must-run K3s nodes VLAN 21 (10.0.21.0/24):**
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
-| `10.0.21.11` | 2001 | Urd | K3s CP | Göndul |
+| `10.0.21.11` | 2001 | Urd* | K3s CP | Göndul (*move to Verd) |
 | `10.0.21.12` | 2002 | Verd | K3s CP | Hlökk |
 | `10.0.21.13` | 2003 | Skuld | K3s CP | Sigrún |
 | `10.0.21.21` | 2101 | Urd | K3s Worker | Einherjar-urd |
 | `10.0.21.22` | 2102 | Verd | K3s Worker | Einherjar-verd |
 | `10.0.21.23` | 2103 | Skuld | K3s Worker | Einherjar-skuld |
+
+*Göndul to move from Urd → Verd on next full reprovision.
 
 **Can-run K3s MetalLB VLAN 30 (10.0.30.0/24):**
 `10.0.30.11–.99` — LoadBalancer pool
@@ -164,6 +179,11 @@ Internet
 **Storage VLAN 100 (10.0.100.0/24):**
 NFS traffic only — no static assignments needed.
 
+### Cluster CIDRs
+
+- Pod CIDR: `10.42.0.0/16` — Ansible var `k3s_pod_cidr`, used for both K3s `cluster-cidr` and the Calico ipPool.
+- Service CIDR: `10.43.0.0/16` — Ansible var `k3s_service_cidr`.
+
 ### Resource ID scheme
 
 | Range | Type |
@@ -178,8 +198,7 @@ NFS traffic only — no static assignments needed.
 | Range | Group |
 |-------|-------|
 | 1101–1109 | Backup & monitoring (PBS, Zabbix) |
-| 1110–1119 | Network infrastructure (AdGuard ×3) |
-| 1113–1119 | Tailscale ×3 |
+| 1110–1119 | Network infrastructure (AdGuard ×3, Tailscale ×3) |
 | 1120–1129 | Services (Factorio, Teamspeak) |
 | 1130–1139 | Database (PostgreSQL ×3, HAProxy ×3) |
 
@@ -194,16 +213,16 @@ midgard.xiiisins.com     — publicly reachable services
 niflheim.xiiisins.com    — internal infrastructure only
 
 Examples:
-  saga.niflheim.xiiisins.com      → 10.0.11.201
-  mimir.niflheim.xiiisins.com     → 10.0.11.202
-  kvasir.niflheim.xiiisins.com    → 10.0.11.203
-  adguard.niflheim.xiiisins.com   → 10.0.11.201 (admin alias)
+  saga.niflheim.xiiisins.com        → 10.0.11.201
+  mimir.niflheim.xiiisins.com       → 10.0.11.202
+  kvasir.niflheim.xiiisins.com      → 10.0.11.203
+  adguard.niflheim.xiiisins.com     → 10.0.11.201 (admin alias)
   adguard-vip.niflheim.xiiisins.com → 10.0.10.200
-  urd.niflheim.xiiisins.com       → 10.0.1.11
-  verd.niflheim.xiiisins.com      → 10.0.1.12
-  skuld.niflheim.xiiisins.com     → 10.0.1.13
-  munin.niflheim.xiiisins.com     → 10.0.1.20
-  pbs.niflheim.xiiisins.com       → 10.0.11.20
+  urd.niflheim.xiiisins.com         → 10.0.254.11
+  verd.niflheim.xiiisins.com        → 10.0.254.12
+  skuld.niflheim.xiiisins.com       → 10.0.254.13
+  munin.niflheim.xiiisins.com       → 10.0.254.20
+  pbs.niflheim.xiiisins.com         → 10.0.11.20
 ```
 
 TLS: wildcard cert via Let's Encrypt DNS-01 using Cloudflare API. cert-manager manages lifecycle.
@@ -212,20 +231,14 @@ TLS: wildcard cert via Let's Encrypt DNS-01 using Cloudflare API. cert-manager m
 
 | From | To | Policy |
 |------|----|--------|
-| Management | Any | Allow |
-| Personal | Management | Allow |
-| Personal | Core services | Allow |
-| Personal | Internet | Allow |
-| Core services | Storage | Allow |
-| Core services | Management | Allow |
-| Core services | Internet | Allow |
-| Can-run | Storage | Allow |
-| Can-run | Core services | Allow |
-| Can-run | Management | Allow |
-| Can-run | Internet | Allow |
-| Storage | Management | Allow |
-| Untrusted | Internet | Allow |
+| Internal | Any | Allow |
+| External | Internal | Allow Return |
+| Hotspot | Internal | Allow Return |
 | Any | Any | Deny |
+
+All VLANs (MGMT, CLIENT, CORE-VIP, CORE-SVC, CORE-K3S-VIP, CORE-K3S-WRK, CR-K3S-VIP, CR-K3S-WRK, STOR) are in the Internal zone — Internal→Internal is Allow All.
+
+Node-level: `firewalld` is disabled on the K3s nodes (by the Ansible `k3s` prerequisites) — the UCG-Ultra is the firewall.
 
 ---
 
@@ -249,7 +262,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | Folder | Protocol | Purpose |
 |--------|----------|---------|
 | `proxmox-backup` | NFS | PBS datastore |
-| `k3s-core-data` | NFS | Must-run K3s PVs |
+| `k3s-core-data` | NFS | Must-run K3s PVs (legacy, iSCSI now used) |
 | `k3s-data` | NFS | Can-run K3s PVs |
 | `db-backups` | NFS | DB dumps |
 | `uploads` | NFS+SMB | Factorio SFTP |
@@ -264,7 +277,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | `downloads` | NFS | sabnzbd landing zone |
 | `immich` | NFS | Photos/videos (~500GB reserved) |
 
-~1.1TB unallocated buffer.
+**iSCSI:** SAN Manager installed. Synology CSI creates one target+LUN per PVC (`iqn.2000-01.com.synology:munin.pvc-<uuid>`). LUNs are single-session by default — see incident log / known issues re: stale sessions after ungraceful restarts. A vestigial target `iqn.2000-01.com.synology:munin.k3s-core.f954439fc46` exists from an abandoned NFS-CSI attempt — NOT in use, candidate for cleanup.
 
 **OOB:** Tailscale Docker container, subnet router for `10.0.0.0/8`.
 **K8s user:** `kubernetes` (admin) for Synology CSI driver.
@@ -297,37 +310,67 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 **AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
 
+> **Tailscale LXCs are blocked on Authentik.** Tailscale ACL/SSO integration depends on Authentik being up, and Authentik runs in the must-run K3s cluster. This is why must-run K3s is being built before the remaining LXCs.
+
 ### Must-run K3s cluster
 
 True core services — cascade failures if down. Resiliency > simplicity.
 
-| Service | Replicas | Why |
-|---------|----------|-----|
-| Vault | 3 (Raft HA) | Secrets — no local fallback |
-| Authentik server | 3 (pod anti-affinity) | OIDC + LDAP cascade |
-| Authentik worker | 1 | Background tasks |
-| Redis | 1 | Session cache, re-auth acceptable |
-| MetalLB | 1 | Stable IPs for Vault + Authentik |
-| Synology CSI (core) | 1 | PV provisioning |
+**Status (2026-05-14, end of day):** ✅ Running and stable after a major incident (see incident log). Vault 3/3 healthy, etcd healthy, overlay healthy, MetalLB working. One known unresolved issue: tigera-operator failing every reconcile on a SELinux denial (CNI functional but unmanaged).
+
+| Service | Replicas | Status |
+|---------|----------|--------|
+| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (imperatively — see below) |
+| Authentik server | 3 | 🔲 |
+| Authentik worker | 1 | 🔲 |
+| Redis | 1 | 🔲 |
+| MetalLB | DaemonSet | ✅ L2 working — VIP reachable, announcing from a worker. Required nodeSelectors + Calico/rp_filter fixes |
+| Synology CSI (core) | 1 | ✅ iSCSI, synology-csi-iscsi-retain |
+| External Secrets Operator | 1 | ✅ Deployed; ClusterSecretStore `vault` present (verify Ready post-incident) |
+| Sealed Secrets | 1 | ✅ |
+| tigera-operator (Calico) | 1 | 🔴 Failing every reconcile — SELinux `/var/lib/calico/mtu` denied. CNI works, operator does not. |
 
 **VMs:**
 
-| Name | VM ID | Node | IP | Role |
-|------|-------|------|----|------|
-| Göndul | 2001 | Urd | `10.0.21.11` | K3s CP |
-| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP |
-| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP |
-| Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker |
-| Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker |
-| Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker |
+| Name | VM ID | Node | IP | Role | Spec |
+|------|-------|------|----|------|------|
+| Göndul | 2001 | Urd* | `10.0.21.11` | K3s CP | 1vCPU/2GB/10GB |
+| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 1vCPU/2GB/10GB |
+| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 1vCPU/2GB/10GB |
+| Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/4GB/15GB |
+| Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/4GB/15GB |
+| Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/4GB/15GB |
 
-**Fallback documentation:** static HTML file on Munin with recovery procedures, IPs, and commands. Accessible even if both K3s clusters are down.
+*Göndul to move from Urd → Verd on next full reprovision.
+⚠️ **CP VM sizing (1vCPU/2GB) is unvalidated under load.** They were briefly oversized (2vCPU/4GB) during IaC iteration to speed repeated apply/destroy cycles, then reset to the intended baseline (1GB was found insufficient, raised to 2GB). The 2026-05-14 etcd storm means 1 vCPU for etcd-bearing nodes should be treated as an open question — revisit at the Göndul reprovision.
+
+**Workers have dual NICs:**
+- eth0: VLAN 21 (K3s node traffic)
+- eth1: VLAN 20 (MetalLB L2, IPs 10.0.20.201/202/203)
+- ⚠️ The second NIC is a known landmine — see incident log. It silently broke Calico autodetection (`firstFound` bound to eth1) and rp_filter (strict mode dropped MetalLB traffic on eth1). Both now explicitly configured.
+
+**K3s install (Ansible `k3s` role — fully IaC):**
+- `prerequisites.yml` — Rancher k3s-selinux repo, `iscsi-initiator-utils` + `iscsid`, `br_netfilter`/`overlay` modules (loaded + persisted), `ip_forward=1`, bridge-nf sysctls, swap off, `firewalld` disabled.
+- `install.yml` — binary from GitHub (`k3s_version`, currently `v1.33.1+k3s1`); bootstrap order init-node (`--cluster-init`) → joining CPs → workers, gated by `wait_for`/node-count checks; token slurped from init node and distributed; kubeconfig fetched to `~/.kube/niflheim-must-run.yaml`.
+- Config templates: `config-init.j2` / `config-server.j2` (CPs — disable traefik/servicelb/local-storage, `flannel-backend: none`, `disable-network-policy: true`, cluster/service CIDRs, TLS SANs, `selinux: true`) / `config-agent.j2` (workers — minimal: server + token + selinux).
+- No node taints or labels are set — CP taint is a manual pending task.
+
+**Calico CNI — NOT Flux-managed.** Installed as a K3s addon via `ansible/roles/k3s/tasks/calico.yml` (runs only on the init node): Tigera operator manifest + an `Installation` CR templated from `calico-installation.yaml.j2` to `/var/lib/rancher/k3s/server/manifests/`. Key config: `nodeAddressAutodetectionV4: cidrs: ["10.0.21.0/24"]` (pins overlay to VLAN 21), `encapsulation: VXLANCrossSubnet`, pod CIDR `10.42.0.0/16`, `calico_version` currently `v3.29.3`. The K3s addon controller *merges* the CR — removed fields can persist; verify after changes.
+
+**Flux Kustomization structure:**
+- `infrastructure` — installs HelmReleases (sealed-secrets, synology-csi, vault, external-secrets, metallb). `interval: 10m`, `prune: true`, sourceRef `GitRepository/flux-system`. No `wait`/`timeout` set.
+- `infrastructure-config` — configures CRD resources (ClusterSecretStore, IPAddressPool, L2Advertisement), `dependsOn: [infrastructure]`. Same minimal spec.
+- PENDING: split `metallb-config` out of `infrastructure-config` into its own Flux Kustomization — currently MetalLB config and the ESO ClusterSecretStore share a failure domain for no reason (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident). When writing the new Kustomization, decide consciously whether it needs `wait`/`timeout` (the existing ones don't set them).
+
+**HelmRelease chart versions** are currently `version: "0.x"` placeholders across metallb / external-secrets / vault / sealed-secrets — a deliberate temporary state. Real pinning + Renovate is planned once the homelab reaches a working "2.0" state.
+
+**Fallback documentation:** static HTML file on Munin with recovery procedures, IPs, and commands. Accessible even if both K3s clusters are down. (Not yet created — pending task.)
 
 ### Can-run K3s cluster
 
-Learning environment. Services that don't cause cascade failures.
+Learning environment. Not yet deployed.
 
-**VMs:**
+**Planned VMs:**
 
 | Name | VM ID | Node | IP | Role |
 |------|-------|------|----|------|
@@ -345,8 +388,8 @@ Learning environment. Services that don't cause cascade failures.
 ## Identity and access management
 
 - **Personal user** — Authentik LDAP + SSSD. SSH key only.
-- **`ansible` user** — local, AWX service account. Passwordless sudo.
-- **`recovery` user** — break-glass, Proxmox nodes only. SSH key in 1Password.
+- **`ansible` user** — local, AWX service account. Passwordless sudo. (This is the inventory `ansible_user`; SSH key `~/.ssh/ansible_niflheim`.)
+- **`recovery` / break-glass user** — created by the `baseline` role on all nodes: SSH-key-only, NOPASSWD sudo. SSH key in 1Password.
 - **`kubernetes` user** — Synology admin for CSI driver.
 - **Proxmox API token** — scoped for Terraform only.
 
@@ -366,16 +409,40 @@ Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) 
 
 Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 
+**AWS / KMS:** The AWS account holds exactly one KMS key (the Vault unseal key). The `vault-unseal` IAM user is scoped to decrypt-only on that key. The unseal credentials are stored in-repo as a Bitnami `SealedSecret` (`vault-unseal` in the `vault` namespace) — safe because only the cluster's sealed-secrets controller can decrypt it, and the repo is private regardless.
+
+**Vault configuration (current state):**
+- KV-v2 secrets engine at `secret/`
+- Kubernetes auth method enabled AND configured (`kubernetes_host=https://kubernetes.default.svc`; uses Vault's own SA token as reviewer — Vault SA has `system:auth-delegator` via the `vault-server-binding` ClusterRoleBinding)
+- `eso` policy: `read` on `secret/data/*`
+- `eso` role: binds SA `external-secrets` in namespace `external-secrets` → `eso` policy
+- ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`.
+- ⚠️ The auth method config was applied **imperatively** (`vault write auth/kubernetes/config`) on 2026-05-14 — it exists in no IaC. The KV engine, policy, and role were created in an earlier interactive session, also not in IaC.
+- **PENDING:** capture all Vault configuration (engines, auth methods, policies, roles) in a Terraform Vault provider config under `terraform/vault/`. Secrets values stay out of Git; structure goes in.
+- KV store is currently empty — no application secrets written yet.
+
+**Vault listener:** plaintext, `tls_disable = 1` — deliberate. No TLS on the listener or cluster traffic. Conscious homelab tradeoff; the `vault-ui` LoadBalancer (`10.0.20.11:8200`) is internal/VLAN-only. Revisit only as part of deliberate Vault hardening.
+
 ---
 
 ## IaC
 
 | Tool | Responsibility |
 |------|---------------|
-| Terraform (`bpg/proxmox`) | VMs, LXCs, DNS, AWS KMS |
-| Ansible + AWX | OS config, drift correction, audit trail |
+| Terraform (`bpg/proxmox`) | VMs, LXCs, DNS, AWS KMS — and (planned) Vault config via Vault provider |
+| Ansible + AWX | OS config, drift correction, audit trail. Also: K3s install + the Calico addon manifest |
 | Flux CD | K3s workload lifecycle |
-| Renovate | Dependency version PRs |
+| Renovate | Dependency version PRs (planned — activated at "2.0" state) |
+
+**IaC layering — explicit model:**
+- **Terraform** — anything with an API/provider: Proxmox VMs/LXCs, Cloudflare DNS, AWS KMS, Vault config.
+- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `must-run-k3s.yml` runs roles `baseline → k3s → hardening` against the `must_run_k3s` group.
+- **Flux** — in-cluster workloads: everything in `k8s/`.
+
+**Known IaC debt (2026-05-14):**
+- Vault config configured via CLI, not yet captured (see above).
+- General CLI-era K3s *workload* config from the build/troubleshooting period should be backfilled into Flux deliberately as a tracked task. (Note: the K3s *install* itself IS fully IaC'd in Ansible — the debt is the in-cluster workload layer, not the cluster bootstrap.)
+- Some manifest files have stale path-comment headers predating the `infrastructure` / `infrastructure-config` split (e.g. `clustersecretstore.yaml`).
 
 ---
 
@@ -385,12 +452,13 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 |-------|--------|-------------|
 | 1 — Design | ✅ | Complete |
 | 2 — UCG-Ultra | ✅ | VLANs, zones, firewall |
-| 3 — Synology | ✅ | Factory reset, volumes, NFS |
+| 3 — Synology | ✅ | Factory reset, volumes, NFS, iSCSI target |
 | 4 — Proxmox cluster | ✅ | Urd/Verd/Skuld, cluster niflheim formed |
 | 5a — PBS | ✅ | LXC 1101 on Skuld, connected |
 | 5b — AdGuard Home | ✅ | Saga/Mimir/Kvasir + keepalived VIP + sync |
-| 5c — Must-run K3s | 🔲 | Terraform VMs, K3s, Vault, Authentik |
-| 5d — Remaining LXCs | 🔲 | Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin |
+| 5c — Must-run K3s | 🟡 | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅. Outstanding: tigera-operator SELinux failure; Vault config not in IaC. |
+| 5d — Authentik + Redis | 🔲 | Next forward step. Blocks Tailscale LXCs. |
+| 5e — Remaining LXCs | 🔲 | Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin |
 | 6 — Can-run K3s | 🔲 | Terraform VMs, Flux, services |
 | 7 — Observability | 🔲 | VictoriaMetrics + Logs + Grafana + Zabbix |
 
@@ -402,8 +470,9 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 |----------|--------|--------|
 | Orchestrator | K3s only | Single orchestrator |
 | Two K3s clusters | Must-run (core) + Can-run | Core services isolated from experimental |
-| Core K3s services | Vault, Authentik, Redis, MetalLB, Synology CSI | Cascade failure criterion |
+| Core K3s services | Vault, Authentik, Redis, MetalLB, Synology CSI, ESO | Cascade failure criterion |
 | GitOps | Flux CD | Terminal-native |
+| Flux structure | infrastructure + infrastructure-config Kustomizations | CRD timing — CRDs must exist before dependent resources |
 | Identity | Authentik (must-run K3s) | OIDC + LDAP, cascade risk |
 | DNS | AdGuard Home (not Pi-hole) | More polished, fully free, self-hosted sync |
 | Galera | Dropped | Nothing requires MySQL — all on PostgreSQL |
@@ -414,30 +483,76 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 | Jellyfin | Privileged LXC on Urd | QuickSync /dev/dri passthrough |
 | Router | UCG-Ultra | Zone-based firewall, polished UI |
 | OOB | Tailscale on Synology | Independent of Proxmox |
-| Storage VLAN | VLAN 100 | High number = stable, won't conflict |
+| Storage | iSCSI (not NFS) for K3s PVs | NFS creates polluting shared folders on Synology |
+| StorageClass | synology-csi-iscsi-retain only | Single default class, no NFS/SMB pollution |
+| K3s storage workaround | Init container chown /vault/data | SKIP_CHOWN + iSCSI fsGroup issue |
+| Calico install method | K3s addon manifest, templated by Ansible | Not Flux-managed; addon controller applies it |
+| Calico IP autodetection | Pinned to `cidrs: [10.0.21.0/24]` | Workers are multi-homed; `firstFound` bound overlay to the VLAN 20 NIC |
+| Worker rp_filter | Loose mode (`2`) | Strict mode drops MetalLB traffic on multi-homed nodes |
+| MetalLB L2Advertisement | `nodeSelectors` exclude CP nodes | CP nodes have no eth1 — L2 election must not pick them |
+| Vault TLS | `tls_disable = 1` (no listener/cluster TLS) | Conscious homelab simplicity tradeoff — revisit at hardening |
+| Repo visibility | Private (GitHub) | Reduces exposure; SealedSecrets still used for bootstrap secrets |
 | VM naming | Valkyries (CP) + Einherjar/Drengr (workers) | Norse theme, conceptually fits K3s |
 | Node naming | Urd, Verd, Skuld (Norns) | Fate controllers = hypervisors |
 | NAS naming | Munin | Raven of memory |
 | Secrets | Vault + AWS KMS | Production pattern |
 | PBS type | Privileged LXC | NFS mount requires it |
-| Repo | Public | Secrets never in Git |
+| K3s on Urd | Worker only | N5095 too slow for etcd — causes IO storms |
+| Göndul placement | Urd (temp) → Verd (next reprovision) | Fix etcd IO issues |
 
 ---
 
-## Open questions
+## Incident log
 
-- [ ] Terraform setup for must-run K3s VMs
-- [ ] K3s version to use (latest stable)
-- [ ] VM specs finalised — CP: 2vCPU/1GB/10GB, Worker: 2vCPU/4GB/30GB
-- [ ] Tailscale LXC naming (Heimdall, Bifrost, Ratatoskr candidates)
-- [ ] Factorio + Teamspeak DRBD/LINSTOR for sub-30s recovery
-- [ ] Create AWS KMS key + vault-unseal IAM user
+### 2026-05-14 — etcd storm cascade (≈15h)
+
+**Trigger:** Adding a second NIC (VLAN 20, for MetalLB) to the worker VMs and the resulting reboot of all worker nodes. The reboot, combined with Göndul's etcd member running on the underpowered Urd (N5095), caused an etcd IO storm.
+
+**What it exposed (all latent, all pre-existing — the storm just made them fire at once):**
+- **Calico `firstFound` autodetection** bound the overlay to the workers' new eth1 (VLAN 20) instead of eth0 (VLAN 21). Broke cross-node vxlan: FDB/VTEP entries pointed at VLAN 20 addresses. → Fixed by pinning `nodeAddressAutodetectionV4` to `cidrs: ["10.0.21.0/24"]`. (Note: the K3s addon controller *merged* the CR, leaving a stale `firstFound` alongside the new `cidrs` — had to be stripped with `kubectl patch`.)
+- **Broken overlay → ESO admission webhook unreachable** from the API server → `infrastructure-config` Flux Kustomization stuck failing dry-run.
+- **iSCSI session chaos** — ungraceful reboots left stale sessions/node records; one LUN got pinned to a CP node (the Synology CSI node plugin is a DaemonSet with no CP taint, so it runs on CP nodes). Vault pods stuck `Init:0/1` unable to mount. The MGMT-subnet doc error (`10.0.1.x` vs real `10.0.254.x`) nearly caused the *correct* iSCSI portal address to be "fixed".
+- **Strict rp_filter** (set by the hardening role) silently dropped MetalLB LoadBalancer traffic arriving on the multi-homed workers' eth1. → Fixed by setting `rp_filter=2` (loose).
+- **MetalLB L2 election** could pick a CP node (no eth1) and announce nowhere. → Fixed with `nodeSelectors` excluding CP nodes.
+- **tigera-operator SELinux denial** on `/var/lib/calico/mtu` — surfaced during diagnosis; still unresolved.
+
+**Resolution:** Overlay pinned to VLAN 21, rp_filter loosened, MetalLB nodeSelectors added, iSCSI sessions cleared, Vault recovered (3/3, KMS auto-unseal), etcd healthy, Flux reconciling. Cluster stable end of day.
+
+**Root-cause pattern:** every failure was config that predated the workers' second NIC (or predated the current topology) and was never reconciled with it. Lens for the Göndul reprovision: *what here assumes a single NIC, or one role per node?*
+
+**Fixes committed:** Ansible — Calico template (`firstFound`→`cidrs`), hardening role (`rp_filter` 1→2). Terraform — worker VLAN 20 NIC, CP VM resize to 1vCPU/2GB. **Not yet committed/captured:** Vault imperative auth config.
+
+---
+
+## Open questions / pending tasks
+
+**High priority (post-incident):**
+- [ ] **tigera-operator SELinux denial** — `/var/lib/calico/mtu` permission denied; operator fails every reconcile. CNI works but is unmanaged. Diagnose via `ausearch`/reproduce-and-watch; fix into Ansible k3s/hardening role.
+- [ ] **Capture Vault config in Terraform** — auth method, `eso` policy/role, KV engine. Currently imperative-only. (`terraform/vault/`)
+- [ ] **Deploy Authentik + Redis** in must-run K3s — the next forward step; unblocks Tailscale.
+
+**Cleanup / hygiene:**
+- [ ] Split `metallb-config` into its own Flux Kustomization (separate failure domain from ESO config)
+- [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — it was hardcoded to `10.42.0.0/16` during the incident; the variable still exists and is used for K3s `cluster-cidr`, so there are now two sources of truth for the same value
+- [ ] Update stale path-comment headers in manifests (predate the infrastructure / infrastructure-config split — e.g. `clustersecretstore.yaml`)
+- [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip)
+- [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt)
+- [ ] Backfill CLI-era K3s *workload* config into Flux (deliberate, tracked — not a blocker)
+
+**Reprovision (deliberate, on a healthy cluster):**
+- [ ] Move Göndul from Urd → Verd (next full reprovision)
+- [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight. Optionally also label workers in `config-agent.j2`.
+- [ ] Revisit CP VM sizing — 1vCPU for etcd is unvalidated; consider 2vCPU and/or faster etcd disk
+
+**Standing:**
+- [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state)
+- [ ] Document the AWS KMS key ARN
 - [ ] Cloudflare Tunnel — which services get external exposure
-- [ ] Can-run K3s worker naming (Drengr confirmed, individual names TBD)
 - [ ] Fallback static HTML doc on Munin for core K3s recovery
-- [ ] AdGuard DNS records for new VMs as they're provisioned
-- [ ] VLAN 100 NFS exports configured on Munin
+- [ ] AdGuard DNS records for new VMs/services as provisioned
 - [ ] Proxmox HA for must-run LXCs
+- [ ] Can-run K3s cluster
+- [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening
 
 ---
 
