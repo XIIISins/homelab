@@ -12,3 +12,4 @@ resources:
   - vault/helmrelease.yaml
   - external-secrets/namespace.yaml
   - external-secrets/helmrelease.yaml
+  - external-secrets/clustersecretstore.yaml
