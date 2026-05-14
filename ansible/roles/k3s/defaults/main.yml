@@ -1,0 +1,25 @@
+---
+# ansible/roles/k3s/defaults/main.yml
+
+# K3s version — pin to a specific version, Renovate will update this via PR
+k3s_version: "v1.33.1+k3s1"
+
+# Cluster token — used to join nodes to the cluster
+# Set this in group_vars/all.vault.yml
+k3s_token: ""
+
+# Network CIDRs — don't change these after cluster is created
+k3s_pod_cidr: "10.42.0.0/16"
+k3s_service_cidr: "10.43.0.0/16"
+
+# CNI — we disable K3s built-in Flannel and install Calico separately
+k3s_flannel_backend: "none"
+
+# Calico version
+calico_version: "v3.29.3"
+
+# kubeconfig location on MacBook
+kubeconfig_local_path: "~/.kube/niflheim-must-run.yaml"
+
+# First control plane node — cluster is initialised here first
+k3s_init_node: "gondul"

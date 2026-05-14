@@ -1,0 +1,10 @@
+# ansible/roles/k3s/templates/config-agent.yaml.j2
+# K3s config for worker nodes ({{ inventory_hostname }})
+# Worker nodes run workloads but don't participate in etcd or the control plane
+
+server: "https://{{ hostvars[k3s_init_node]['ansible_host'] }}:6443"
+token: "{{ k3s_token }}"
+
+# SELinux support
+selinux: true
+

@@ -1,0 +1,64 @@
+---
+# ansible/roles/hardening/tasks/main.yml
+
+- name: Set SELinux to enforcing
+  # SELinux provides mandatory access control — essential for RHEL enterprise security
+  # enforcing = SELinux actively blocks violations (not just logging them)
+  ansible.posix.selinux:
+    policy: "{{ selinux_policy }}"
+    state: "{{ selinux_state }}"
+
+- name: Harden SSH configuration
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    mode: "0600"
+    owner: root
+    group: root
+    validate: sshd -t -f %s
+  notify: restart sshd
+
+- name: Disable unused filesystems
+  # Reduce attack surface — these filesystems are rarely needed
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/disable-filesystems.conf
+    content: |
+      install cramfs /bin/true
+      install freevxfs /bin/true
+      install jffs2 /bin/true
+      install hfs /bin/true
+      install hfsplus /bin/true
+      install squashfs /bin/true
+      install udf /bin/true
+    mode: "0644"
+
+- name: Set secure kernel parameters
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  loop:
+    # Prevent IP spoofing
+    - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
+    - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+    # Disable ICMP redirects
+    - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
+    - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }
+    # Disable source routing
+    - { name: "net.ipv4.conf.all.accept_source_route", value: "0" }
+    - { name: "net.ipv4.conf.default.accept_source_route", value: "0" }
+    # Log suspicious packets
+    - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+
+- name: Configure login banner
+  ansible.builtin.copy:
+    dest: /etc/issue.net
+    content: |
+      ******************************************************************
+      * This system is part of the niflheim homelab cluster.           *
+      * Unauthorized access is prohibited.                             *
+      * All activity is logged and monitored.                          *
+      ******************************************************************
+    mode: "0644"

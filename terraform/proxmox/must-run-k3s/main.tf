@@ -1,20 +1,14 @@
 locals {
-  nodes = {
-    urd   = "urd"
-    verd  = "verd"
-    skuld = "skuld"
-  }
-
   control_planes = {
-    gondul = { node = "urd",   vmid = 2001, ip = "10.0.21.11" }
-    hlokk  = { node = "verd",  vmid = 2002, ip = "10.0.21.12" }
-    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13" }
+    gondul = { node = "urd",   vmid = 2001, ip = "10.0.21.11", template_node = "verd",  template_id = 10002 }
+    hlokk  = { node = "verd",  vmid = 2002, ip = "10.0.21.12", template_node = "verd",  template_id = 10002 }
+    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004 }
   }
 
   workers = {
-    einherjar-urd   = { node = "urd",   vmid = 2101, ip = "10.0.21.21" }
-    einherjar-verd  = { node = "verd",  vmid = 2102, ip = "10.0.21.22" }
-    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23" }
+    einherjar-urd   = { node = "urd",   vmid = 2101, ip = "10.0.21.21", template_node = "verd",  template_id = 10002 }
+    einherjar-verd  = { node = "verd",  vmid = 2102, ip = "10.0.21.22", template_node = "verd",  template_id = 10002 }
+    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", template_node = "skuld", template_id = 10004 }
   }
 }
 
@@ -26,18 +20,18 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   vm_id     = each.value.vmid
 
   clone {
-    vm_id     = 10002
-    node_name = "verd"
+    vm_id     = each.value.template_id
+    node_name = each.value.template_node
     full      = true
   }
 
   cpu {
-    cores = 1
+    cores = 2
     type  = "host"
   }
 
   memory {
-    dedicated = 1024
+    dedicated = 4096
   }
 
   disk {
@@ -78,8 +72,8 @@ resource "proxmox_virtual_environment_vm" "worker" {
   vm_id     = each.value.vmid
 
   clone {
-    vm_id     = 10002
-    node_name = "verd"
+    vm_id     = each.value.template_id
+    node_name = each.value.template_node
     full      = true
   }
 

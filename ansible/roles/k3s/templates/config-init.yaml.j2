@@ -1,0 +1,30 @@
+# ansible/roles/k3s/templates/config-init.yaml.j2
+# K3s config for first control plane node ({{ inventory_hostname }})
+# This node initialises the etcd cluster with --cluster-init
+
+cluster-init: true
+token: "{{ k3s_token }}"
+
+# Disable built-in components — we use our own
+flannel-backend: "none"
+disable-network-policy: true
+disable:
+  - traefik
+  - servicelb
+  - local-storage
+
+# Network config — must match Calico installation
+cluster-cidr: "{{ k3s_pod_cidr }}"
+service-cidr: "{{ k3s_service_cidr }}"
+
+# TLS SANs — IPs that the API server cert is valid for
+tls-san:
+  - "{{ ansible_host }}"
+  - "{{ inventory_hostname }}.niflheim.xiiisins.com"
+
+# Write kubeconfig with readable permissions
+write-kubeconfig-mode: "0644"
+
+# SELinux support
+selinux: true
+

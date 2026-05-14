@@ -1,0 +1,5 @@
+---
+breakglass_user: recovery
+breakglass_ssh_public_key: ""
+rhel_subscription_username: ""
+rhel_subscription_password: ""

@@ -1,0 +1,16 @@
+---
+# ansible/roles/k3s/handlers/main.yml
+
+- name: restart k3s
+  ansible.builtin.systemd:
+    name: k3s
+    state: restarted
+    daemon_reload: true
+  when: inventory_hostname in groups['must_run_k3s_cp']
+
+- name: restart k3s-agent
+  ansible.builtin.systemd:
+    name: k3s
+    state: restarted
+    daemon_reload: true
+  when: inventory_hostname in groups['must_run_k3s_workers']

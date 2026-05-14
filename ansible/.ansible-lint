@@ -1,0 +1,14 @@
+# ansible/.ansible-lint
+profile: moderate
+
+exclude_paths:
+  - collections/
+
+skip_list:
+  - yaml[line-length]    # long lines in templates are acceptable
+  - no-changed-when      # some commands legitimately have no changed_when
+
+warn_list:
+  - experimental
+
+offline: false

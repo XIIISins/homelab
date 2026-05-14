@@ -1,0 +1,27 @@
+# ansible/roles/k3s/templates/config-server.yaml.j2
+# K3s config for additional control plane nodes ({{ inventory_hostname }})
+# These nodes join the existing cluster started by {{ k3s_init_node }}
+
+server: "https://{{ hostvars[k3s_init_node]['ansible_host'] }}:6443"
+token: "{{ k3s_token }}"
+
+# Disable built-in components — must match init node
+flannel-backend: "none"
+disable-network-policy: true
+disable:
+  - traefik
+  - servicelb
+  - local-storage
+
+# Network config — must match init node
+cluster-cidr: "{{ k3s_pod_cidr }}"
+service-cidr: "{{ k3s_service_cidr }}"
+
+# TLS SANs
+tls-san:
+  - "{{ ansible_host }}"
+  - "{{ inventory_hostname }}.niflheim.xiiisins.com"
+
+write-kubeconfig-mode: "0644"
+selinux: true
+

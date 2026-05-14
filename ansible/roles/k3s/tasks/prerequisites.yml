@@ -1,0 +1,87 @@
+---
+# ansible/roles/k3s/tasks/prerequisites.yml
+
+# Phase 1: Install packages and configure the OS for K3s
+
+- name: Add Rancher K3s SELinux repo
+  ansible.builtin.yum_repository:
+    name: rancher-k3s-common
+    description: Rancher K3s Common
+    baseurl: https://rpm.rancher.io/k3s/stable/common/centos/8/noarch
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://rpm.rancher.io/public.key
+
+- name: Install K3s prerequisites
+  ansible.builtin.dnf:
+    name:
+      - container-selinux
+      - selinux-policy-base
+      - iptables
+      - nftables
+      - k3s-selinux
+    state: present
+
+- name: Disable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  ignore_errors: true  # might not be installed on minimal image
+
+- name: Load br_netfilter kernel module
+  # Bridge netfilter module — needed for iptables to see bridged traffic
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Load overlay kernel module
+  # Required by containerd for container filesystem layers
+  community.general.modprobe:
+    name: overlay
+    state: present
+
+- name: Persist kernel modules across reboots
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: |
+      br_netfilter
+      overlay
+    mode: "0644"
+
+- name: Enable IP forwarding
+  # Required for pod-to-pod networking across nodes
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+
+- name: Enable bridge netfilter
+  # Required for Calico and K3s networking
+  ansible.posix.sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+
+- name: Enable bridge netfilter for IPv6
+  ansible.posix.sysctl:
+    name: net.bridge.bridge-nf-call-ip6tables
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+
+- name: Disable swap
+  # K3s (and Kubernetes) require swap to be disabled
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Remove swap from fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^\s*[^#].*\sswap\s'
+    state: absent

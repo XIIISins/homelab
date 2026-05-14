@@ -1,0 +1,30 @@
+# ansible/roles/k3s/templates/k3s.service.j2
+
+[Unit]
+Description=Lightweight Kubernetes
+Documentation=https://k3s.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+# Control plane nodes run k3s server
+# Worker nodes run k3s agent
+{% if inventory_hostname in groups['must_run_k3s_cp'] %}
+ExecStart=/usr/local/bin/k3s server
+{% else %}
+ExecStart=/usr/local/bin/k3s agent
+{% endif %}
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+

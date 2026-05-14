@@ -1,0 +1,19 @@
+---
+# ansible/roles/k3s/tasks/main.yml
+
+# Tasks are split into separate files for clarity
+# Each file handles one logical phase of K3s setup
+
+- name: Install prerequisites
+  ansible.builtin.import_tasks: prerequisites.yml
+  tags: k3s_prereqs
+
+- name: Install K3s
+  ansible.builtin.import_tasks: install.yml
+  tags: k3s_install
+
+- name: Install Calico CNI
+  ansible.builtin.import_tasks: calico.yml
+  tags: k3s_calico
+  # Only run on first control plane node
+  when: inventory_hostname == k3s_init_node

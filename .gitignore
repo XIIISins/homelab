@@ -21,6 +21,7 @@ override.tf.json
 *.retry
 ansible/group_vars/**/vault.yml
 !ansible/group_vars/**/*.example.yml
+ansible/collections/*
 
 # Kubernetes / Flux
 kubeconfig

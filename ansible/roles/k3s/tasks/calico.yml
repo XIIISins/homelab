@@ -1,0 +1,36 @@
+---
+# ansible/roles/k3s/tasks/calico.yml
+
+# Phase 4: Install Calico CNI
+# Runs only on the first control plane node (gondul)
+# Calico is applied as Kubernetes manifests via kubectl
+
+- name: Create Calico manifest directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    mode: "0755"
+
+- name: Download Calico operator manifest
+  # The Tigera operator manages the Calico installation
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/tigera-operator.yaml
+    mode: "0644"
+
+- name: Template Calico custom resource
+  # This tells the Tigera operator how to configure Calico
+  # Must match the pod CIDR we configured in K3s
+  ansible.builtin.template:
+    src: calico-installation.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/calico-installation.yaml
+    mode: "0644"
+
+- name: Wait for Calico pods to be running
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k3s kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=300s
+  register: calico_ready
+  retries: 5
+  delay: 30
+  until: calico_ready.rc == 0
+  changed_when: false

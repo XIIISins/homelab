@@ -1,0 +1,12 @@
+---
+# ansible/roles/hardening/defaults/main.yml
+
+# SSH hardening
+ssh_port: 22
+ssh_permit_root_login: "prohibit-password"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"
+
+# SELinux
+selinux_state: enforcing
+selinux_policy: targeted
