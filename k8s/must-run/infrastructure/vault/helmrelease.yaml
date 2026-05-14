@@ -97,7 +97,7 @@ spec:
       dataStorage:
         enabled: true
         size: 5Gi
-        storageClass: null # uses default — we'll configure Synology CSI later
+        storageClass: "synologi-csi-nfs-retain" # uses default — we'll configure Synology CSI later
 
       # Anti-affinity — spread Vault pods across nodes
       affinity: |
