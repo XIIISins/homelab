@@ -318,6 +318,8 @@ True core services — cascade failures if down. Resiliency > simplicity.
 
 **Status (2026-05-14, end of day):** ✅ Running and stable after a major incident (see incident log). Vault 3/3 healthy, etcd healthy, overlay healthy, MetalLB working. One known unresolved issue: tigera-operator failing every reconcile on a SELinux denial (CNI functional but unmanaged).
 
+**Status (2026-05-15 20:24):** Tigera-operator fixed by explicitly setting the MTU size via config in ansible. MTU workaround is suggested by maintainer in upstream issue #7851.
+
 | Service | Replicas | Status |
 |---------|----------|--------|
 | Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (imperatively — see below) |

@@ -16,6 +16,12 @@ spec:
     nodeAddressAutodetectionV4:
       cidrs:
         - "10.0.21.0/24"
+    # Set MTU explicitly to work around projectcalico/calico#7851:
+    # tigera-operator can't read /var/lib/calico/mtu under SELinux Enforcing
+    # (MCS category mismatch — file written by privileged calico-node, read
+    # by unprivileged operator). Setting mtu here means the operator never
+    # needs to read the file. 1450 = 1500 (host) - 50 (VXLAN overhead).
+    mtu: 1450
     ipPools:
       - blockSize: 26
         cidr: "10.42.0.0/16"
