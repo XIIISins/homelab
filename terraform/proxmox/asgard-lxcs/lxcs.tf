@@ -24,7 +24,7 @@ resource "proxmox_virtual_environment_container" "factorio" {
 
   node_name = "urd"
   vm_id     = 1120
-  tags      = ["must-run", "lxc", "factorio", "managed-by-terraform"]
+  tags      = ["asgard", "lxc", "factorio", "managed-by-terraform"]
 
   unprivileged  = true
   start_on_boot = true
