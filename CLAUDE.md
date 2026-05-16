@@ -270,7 +270,7 @@ homelab/
 │   │   │   ├── authentik/                    # scaffolded, not yet populated
 │   │   │   └── kustomization.yaml
 │   │   ├── infrastructure-config/
-│   │   │   ├── clustersecretstore.yaml       # ESO ClusterSecretStore (stale path header — pending cleanup)
+│   │   │   ├── clustersecretstore.yaml       # ESO ClusterSecretStore
 │   │   │   ├── metallb-config.yaml           # IPAddressPool + L2Advertisement
 │   │   │   └── kustomization.yaml
 │   │   └── apps/
