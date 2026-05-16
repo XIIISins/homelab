@@ -26,11 +26,6 @@
     - ansible_virtualization_type != 'lxc'
     - qemu_agent_install.changed | default(false)
 
-- name: Install acl (needed for Ansible become_user)
-  ansible.builtin.apt:
-    name: acl
-    state: present
-
 - name: Upgrade all packages
   ansible.builtin.apt:
     upgrade: full

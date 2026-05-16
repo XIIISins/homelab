@@ -12,11 +12,13 @@
     msg: "baseline role does not support ansible_os_family={{ ansible_os_family }}"
   when: ansible_os_family not in ["RedHat", "Debian"]
 
-# Minimal Debian images don't include sudo by default. RHEL does, but
-# package: state=present is a no-op when already installed.
-- name: Ensure sudo is installed
+# Minimal Debian images don't include sudo or acl by default. RHEL ships
+# both in @core. package: state=present is a no-op when already installed.
+- name: Ensure baseline packages are installed
   ansible.builtin.package:
-    name: sudo
+    name:
+      - sudo
+      - acl
     state: present
 
 # ----- Ansible runtime user (OS-independent) -----
