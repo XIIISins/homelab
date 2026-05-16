@@ -286,7 +286,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | `downloads` | NFS | sabnzbd landing zone |
 | `immich` | NFS | Photos/videos (~500GB reserved) |
 
-**iSCSI:** SAN Manager installed. Synology CSI creates one target+LUN per PVC (`iqn.2000-01.com.synology:munin.pvc-<uuid>`). LUNs are single-session by default — see incident log / known issues re: stale sessions after ungraceful restarts. A vestigial target `iqn.2000-01.com.synology:munin.k3s-core.f954439fc46` exists from an abandoned NFS-CSI attempt — NOT in use, candidate for cleanup.
+**iSCSI:** SAN Manager installed. Synology CSI creates one target+LUN per PVC (`iqn.2000-01.com.synology:munin.pvc-<uuid>`). LUNs are single-session by default — see incident log / known issues re: stale sessions after ungraceful restarts.
 
 **OOB:** Tailscale Docker container, subnet router for `10.0.0.0/8`.
 **K8s user:** `kubernetes` (admin) for Synology CSI driver.
@@ -679,7 +679,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 **Cleanup / hygiene:**
 - [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — hardcoded to `10.42.0.0/16` during the 2026-05-14 incident; variable still used for K3s `cluster-cidr`, so two sources of truth for the same value.
 - [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip).
-- [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt).
 
 **Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
 
