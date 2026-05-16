@@ -39,10 +39,10 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - **Hypervisor nodes:** Urd (eldest/primary, 32GB), Verd, Skuld — the three Norns
 - **NAS:** Munin — Odin's raven of memory
 - **DNS zones:** `midgard.xiiisins.com` (public) + `niflheim.xiiisins.com` (internal)
-- **Must-run K3s CP:** Göndul, Hlökk, Sigrún (Valkyries)
-- **Must-run K3s workers:** Einherjar-urd/verd/skuld (army of the Norns)
-- **Can-run K3s CP:** Rota, Hildr, Kára (Valkyries)
-- **Can-run K3s workers:** Drengr-urd/verd/skuld (heroes of the Norns)
+- **Asgard K3s CP:** Göndul, Hlökk, Sigrún (Valkyries)
+- **Asgard K3s workers:** Einherjar-urd/verd/skuld (army of the Norns)
+- **Jotunheim K3s CP:** Rota, Hildr, Kára (Valkyries)
+- **Jotunheim K3s workers:** Drengr-urd/verd/skuld (heroes of the Norns)
 - **AdGuard Home:** Saga (primary), Mimir (replica), Kvasir (replica)
 
 ### Network hardware
@@ -83,12 +83,12 @@ Internet
 | VLAN | Subnet | UCG name | Purpose |
 |------|--------|----------|---------|
 | 1 | `10.0.254.0/24` | HL-MGMT | Management — nodes, NAS, UCG-Ultra |
-| 10 | `10.0.10.0/24` | HL-CORE-VIP | Must-run VIPs (keepalived) |
-| 11 | `10.0.11.0/24` | HL-CORE-SVC | Must-run LXCs |
-| 20 | `10.0.20.0/24` | HL-CORE-K3S-VIP | Must-run K3s MetalLB pool |
-| 21 | `10.0.21.0/24` | HL-CORE-K3S-WRK | Must-run K3s nodes |
-| 30 | `10.0.30.0/24` | HL-CR-K3S-VIP | Can-run K3s MetalLB pool |
-| 31 | `10.0.31.0/24` | HL-CR-K3S-WRK | Can-run K3s nodes |
+| 10 | `10.0.10.0/24` | HL-ASG-VIP | Asgard VIPs (keepalived) |
+| 11 | `10.0.11.0/24` | HL-ASG-SVC | Asgard LXCs |
+| 20 | `10.0.20.0/24` | HL-ASG-K3S-VIP | Asgard K3s MetalLB pool |
+| 21 | `10.0.21.0/24` | HL-ASG-K3S-WRK | Asgard K3s nodes |
+| 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP | Jotunheim K3s MetalLB pool |
+| 31 | `10.0.31.0/24` | HL-JOT-K3S-WRK | Jotunheim K3s nodes |
 | 60 | `10.0.60.0/24` | HL-CLIENT | Personal devices |
 | 100 | `10.0.100.0/24` | HL-STOR | Storage / NFS — stable |
 | 222 | `10.0.222.0/24` | Untrusted | Quarantine |
@@ -105,7 +105,7 @@ Internet
 | `10.0.254.13` | Skuld |
 | `10.0.254.20` | Munin (Synology) |
 
-**Must-run VIP VLAN 10 (10.0.10.0/24):**
+**Asgard VIP VLAN 10 (10.0.10.0/24):**
 
 | Address | Role |
 |---------|------|
@@ -115,7 +115,7 @@ Internet
 | `10.0.10.203` | AdGuard eth1 — Kvasir (Skuld) |
 | `10.0.10.210` | HAProxy VIP — PostgreSQL frontend |
 
-**Must-run LXC VLAN 11 (10.0.11.0/24):**
+**Asgard LXC VLAN 11 (10.0.11.0/24):**
 
 | Address | LXC ID | Node | Role |
 |---------|--------|------|------|
@@ -136,7 +136,7 @@ Internet
 | `10.0.11.234` | 1134 | Verd | HAProxy 2 |
 | `10.0.11.235` | 1135 | Skuld | HAProxy 3 |
 
-**Must-run K3s MetalLB VLAN 20 (10.0.20.0/24):**
+**Asgard K3s MetalLB VLAN 20 (10.0.20.0/24):**
 
 | Address | Role |
 |---------|------|
@@ -145,7 +145,7 @@ Internet
 | `10.0.20.202` | Einherjar-verd eth1 |
 | `10.0.20.203` | Einherjar-skuld eth1 |
 
-**Must-run K3s nodes VLAN 21 (10.0.21.0/24):**
+**Asgard K3s nodes VLAN 21 (10.0.21.0/24):**
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
@@ -158,10 +158,10 @@ Internet
 
 *Göndul to move from Urd → Verd on next full reprovision.
 
-**Can-run K3s MetalLB VLAN 30 (10.0.30.0/24):**
+**Jotunheim K3s MetalLB VLAN 30 (10.0.30.0/24):**
 `10.0.30.11–.99` — LoadBalancer pool
 
-**Can-run K3s nodes VLAN 31 (10.0.31.0/24):**
+**Jotunheim K3s nodes VLAN 31 (10.0.31.0/24):**
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
@@ -189,9 +189,9 @@ NFS traffic only — no static assignments needed.
 
 | Range | Type |
 |-------|------|
-| 1101–1199 | Must-run LXCs (sub-grouped by function) |
-| 2001–2999 | Must-run K3s VMs |
-| 3001–3999 | Can-run K3s VMs |
+| 1101–1199 | Asgard LXCs (sub-grouped by function) |
+| 2001–2999 | Asgard K3s VMs |
+| 3001–3999 | Jotunheim K3s VMs |
 | 10001+ | Templates |
 
 ### LXC ID grouping
@@ -271,8 +271,8 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | Folder | Protocol | Purpose |
 |--------|----------|---------|
 | `proxmox-backup` | NFS | PBS datastore |
-| `k3s-core-data` | NFS | Must-run K3s PVs (legacy, iSCSI now used) |
-| `k3s-data` | NFS | Can-run K3s PVs |
+| `k3s-core-data` | NFS | Asgard K3s PVs (legacy, iSCSI now used) |
+| `k3s-data` | NFS | Jotunheim K3s PVs |
 | `db-backups` | NFS | DB dumps |
 | `uploads` | NFS+SMB | Factorio SFTP |
 | `hyper-backup` | Internal | Hyper Backup destination |
@@ -295,7 +295,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 ## Two-tier service design
 
-### Must-run LXCs
+### Asgard LXCs
 
 | LXC | ID | Node | IP | Role | Status |
 |-----|----|------|----|------|--------|
@@ -319,7 +319,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 **AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
 
-> **LXC build order — revised (2026-05-15):** The original sequence said "must-run K3s before all LXCs" because of Tailscale's dependency on Authentik. That conflates services that *don't* share that dependency. Revised sequence: Factorio (no deps, ship it standalone), then PostgreSQL + Teamspeak (no Authentik dependency), then Authentik + Redis in K3s, then Tailscale LXCs (needs Authentik for SSO).
+> **LXC build order — revised (2026-05-15):** The original sequence said "asgard K3s before all LXCs" because of Tailscale's dependency on Authentik. That conflates services that *don't* share that dependency. Revised sequence: Factorio (no deps, ship it standalone), then PostgreSQL + Teamspeak (no Authentik dependency), then Authentik + Redis in K3s, then Tailscale LXCs (needs Authentik for SSO).
 
 ### Factorio LXC architecture (deployed 2026-05-16)
 
@@ -363,7 +363,7 @@ DNS: `factorio.xiiisins.com` (Cloudflare A → WAN IP) and `factorio.niflheim.xi
 
 **LXC features.** Unprivileged, `nesting=true` (required for systemd 257 on Debian 13). 4 vCPU / 8 GB RAM / 8 GB disk on Urd. No nested containerization — `nesting` flag is for systemd's namespace ops, not Docker.
 
-### Must-run K3s cluster
+### Asgard K3s cluster
 
 Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (AWX, Tofu Controller), and services whose absence either cascades into other failures or blocks recovery. Resiliency > simplicity.
 
@@ -405,7 +405,7 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 | Netbox | 🔲 — IPAM/DCIM |
 | n8n | 🔲 — workflow automation |
 | Privatebin | 🔲 — secure paste service |
-| Startpage | 🔲 — personal browser homepage (most-used; promoted to must-run) |
+| Startpage | 🔲 — personal browser homepage (most-used; promoted to asgard) |
 
 **VMs:**
 
@@ -428,7 +428,7 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 **K3s install (Ansible `k3s` role — fully IaC):**
 - `prerequisites.yml` — Rancher k3s-selinux repo, `iscsi-initiator-utils` + `iscsid`, `br_netfilter`/`overlay` modules (loaded + persisted), `ip_forward=1`, bridge-nf sysctls, swap off, `firewalld` disabled.
-- `install.yml` — binary from GitHub (`k3s_version`, currently `v1.33.1+k3s1`); bootstrap order init-node (`--cluster-init`) → joining CPs → workers, gated by `wait_for`/node-count checks; token slurped from init node and distributed; kubeconfig fetched to `~/.kube/niflheim-must-run.yaml`.
+- `install.yml` — binary from GitHub (`k3s_version`, currently `v1.33.1+k3s1`); bootstrap order init-node (`--cluster-init`) → joining CPs → workers, gated by `wait_for`/node-count checks; token slurped from init node and distributed; kubeconfig fetched to `~/.kube/niflheim-asgard.yaml`.
 - Config templates: `config-init.j2` / `config-server.j2` (CPs — disable traefik/servicelb/local-storage, `flannel-backend: none`, `disable-network-policy: true`, cluster/service CIDRs, TLS SANs, `selinux: true`) / `config-agent.j2` (workers — minimal: server + token + selinux).
 - No node taints or labels are set — CP taint is a manual pending task.
 
@@ -443,9 +443,9 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 **Fallback documentation:** static HTML file on Munin with recovery procedures, IPs, and commands. Accessible even if both K3s clusters are down. (Not yet created — pending task.)
 
-### Can-run K3s cluster
+### Jotunheim K3s cluster
 
-Non-critical services and experiments. Failure here doesn't cascade and doesn't block recovery — downtime of hours-to-days is acceptable. Same physical-cluster shape as must-run; the distinction is *failure-domain risk*, not "experimental vs production." Most can-run services have real users — just not me-needing-them-right-now users.
+Non-critical services and experiments. Failure here doesn't cascade and doesn't block recovery — downtime of hours-to-days is acceptable. Same physical-cluster shape as asgard; the distinction is *failure-domain risk*, not "experimental vs production." Most jotunheim services have real users — just not me-needing-them-right-now users.
 
 **Status:** Not yet deployed.
 
@@ -466,10 +466,10 @@ Non-critical services and experiments. Failure here doesn't cascade and doesn't 
 |---------|--------|
 | Arr stack (Sonarr/Radarr/Prowlarr/etc.) | 🔲 — media automation |
 | Komga | 🔲 — manga server |
-| Homepage | 🔲 — service-grid dashboard (distinct from Startpage; Startpage is in must-run) |
+| Homepage | 🔲 — service-grid dashboard (distinct from Startpage; Startpage is in asgard) |
 | Wallpaper gallery | 🔲 — toy gallery for desktop wallpapers |
-| Synology CSI (can-run) | 🔲 — iSCSI, second StorageClass instance |
-| External Secrets Operator (can-run) | 🔲 — pulls from same Vault as must-run instance |
+| Synology CSI (jotunheim) | 🔲 — iSCSI, second StorageClass instance |
+| External Secrets Operator (jotunheim) | 🔲 — pulls from same Vault as asgard instance |
 
 Plus ad-hoc namespaces for genuine experiments (kubevirt trial, ArgoCD comparison, etc.).
 
@@ -496,10 +496,10 @@ Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) 
 | Layer | Tool | Consumer | Contents |
 |---|---|---|---|
 | Human-operated credentials | **1Password — "Homelab" vault** | You, via UI/mobile/CLI | Web admin passwords (Authentik admin, Grafana admin, etc.), API tokens you paste manually, LXC template root passwords, homelab-hosted DB admin credentials, TLS recovery keys, AppRole RoleID/SecretID for Ansible control nodes |
-| Machine-consumed (runtime) | **HashiCorp Vault (must-run K3s)** | K8s workloads via ESO, Ansible via AppRole, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, Ansible-pulled service passwords (e.g. `secret/ansible/sftpgo/admin-password`) |
+| Machine-consumed (runtime) | **HashiCorp Vault (asgard K3s)** | K8s workloads via ESO, Ansible via AppRole, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, Ansible-pulled service passwords (e.g. `secret/ansible/sftpgo/admin-password`) |
 | Machine-consumed (bootstrap) | **Ansible Vault** (`group_vars/all/vault.yml`) | Ansible, on a fresh node before HashiCorp Vault is reachable | `k3s_token`, `rhel_activation_key`, `rhel_org_id`, `ansible_user_ssh_public_key`, `breakglass_ssh_public_key`. Plus `aws_access_key_id` / `aws_secret_access_key` / `aws_kms_key_id` as a re-seal recovery copy (not pulled by Ansible — used manually with `kubeseal` to regenerate the vault-unseal SealedSecret; see "Bootstrap-of-bootstrap" row for the runtime path). Narrow scope: only what's needed to make a node usable up to the point HashiCorp Vault can take over. |
 | Failure-independent | **1Password — other vaults** | You, when homelab is down | Break-glass user SSH key, AWS KMS unseal token, Vault root token, Proxmox/Synology/UCG-Ultra/KPN admin |
-| Bootstrap-of-bootstrap | **SealedSecret + Ansible Vault recovery copy** | Cluster controller (sealed-secrets controller decrypts and mounts as K8s Secret; Vault pod reads as env vars) | `vault-unseal` SealedSecret in `k8s/must-run/infrastructure/vault/vault-unseal-secret.yaml` holds the AWS KMS credentials Vault uses for auto-unseal. Runtime path = SealedSecret → K8s Secret → Vault pod env. Recovery path: if the SealedSecret blob is lost (cluster rebuild, sealed-secrets key rotation), the plaintext AWS values in `group_vars/all/vault.yml` are the source to re-run `kubeseal` against. |
+| Bootstrap-of-bootstrap | **SealedSecret + Ansible Vault recovery copy** | Cluster controller (sealed-secrets controller decrypts and mounts as K8s Secret; Vault pod reads as env vars) | `vault-unseal` SealedSecret in `k8s/asgard/infrastructure/vault/vault-unseal-secret.yaml` holds the AWS KMS credentials Vault uses for auto-unseal. Runtime path = SealedSecret → K8s Secret → Vault pod env. Recovery path: if the SealedSecret blob is lost (cluster rebuild, sealed-secrets key rotation), the plaintext AWS values in `group_vars/all/vault.yml` are the source to re-run `kubeseal` against. |
 
 ### Scope rule
 
@@ -517,7 +517,7 @@ Considered and rejected:
 
 ### Why bootstrap-vs-runtime within the machine tier
 
-HashiCorp Vault lives in must-run K3s. Anything K3s itself needs to come up — `k3s_token` to join nodes to the cluster, SSH keys to even reach the nodes via Ansible — cannot live in Vault. That's a circular dependency: Vault depends on K3s, K3s depends on Vault.
+HashiCorp Vault lives in asgard K3s. Anything K3s itself needs to come up — `k3s_token` to join nodes to the cluster, SSH keys to even reach the nodes via Ansible — cannot live in Vault. That's a circular dependency: Vault depends on K3s, K3s depends on Vault.
 
 The split: Ansible Vault holds the minimum needed to bootstrap a fresh node *up to the point* where HashiCorp Vault becomes reachable. Everything beyond that goes to HashiCorp Vault. This matches the enterprise pattern (Red Hat IPI installer, AWX bootstrap, every K8s-hosted-Vault deployment hits this) — even though "everything in HashiCorp Vault with a fallback cache" is theoretically possible, the bootstrap layer is small, near-permanent, and rarely-touched, so the simpler approach wins.
 
@@ -525,7 +525,7 @@ The line is essentially: *is this secret needed before HashiCorp Vault is reacha
 
 ### Long-term direction
 
-The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is a future project on can-run cluster first (use the learning environment for that learning), then migrate must-run workloads.
+The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is a future project on jotunheim cluster first (use the learning environment for that learning), then migrate asgard workloads.
 
 ### Vault current state
 
@@ -539,7 +539,7 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
 - **AppRole auth method** at `auth/approle/` (added 2026-05-16, D1)
   - `ansible` policy: read on `secret/data/ansible/*` — narrower than `eso`, Ansible only reads its own subtree
   - `ansible-local` role: MacBook control node, manual playbook runs. SecretID at `~/.config/ansible/vault-approle.env` + 1Password recovery copy. 90-day rotation.
-  - `ansible-awx` role: AWX automated runs (deployed later, in must-run K3s). Role exists; SecretID generated at AWX deploy time and stored in AWX's credential store.
+  - `ansible-awx` role: AWX automated runs (deployed later, in asgard K3s). Role exists; SecretID generated at AWX deploy time and stored in AWX's credential store.
   - SecretIDs are NEVER managed by Terraform — generated manually with `vault write -f auth/approle/role/<role>/secret-id`, stored externally. See AppRole bootstrap runbook below.
 - ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
 - All Vault config (mounts, auth methods, policies, roles) captured in Terraform (`terraform/vault/`). Local state, `VAULT_ADDR`/`VAULT_TOKEN` via env. Provider `hashicorp/vault ~> 4.0`. Scoped Terraform token and remote state deferred.
@@ -668,7 +668,7 @@ set -x VAULT_TOKEN <root token>
 vault kv delete secret/ansible/test/hello
 ```
 
-**For AWX (when deployed):** same steps against `ansible-awx` role. SecretID goes into AWX's credential store rather than a local env file. After deploy, restrict via `token_bound_cidrs` in `terraform/vault/main.tf` once the must-run K3s pod CIDR is known.
+**For AWX (when deployed):** same steps against `ansible-awx` role. SecretID goes into AWX's credential store rather than a local env file. After deploy, restrict via `token_bound_cidrs` in `terraform/vault/main.tf` once the asgard K3s pod CIDR is known.
 
 **Rotation (every 90 days):**
 
@@ -717,7 +717,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 
 **IaC layering — explicit model:**
 - **Terraform** — anything with an API/provider: Proxmox VMs/LXCs, Cloudflare DNS, AWS KMS, Vault config.
-- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `must-run-k3s.yml` runs roles `baseline → k3s → hardening` against the `must_run_k3s` group.
+- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `asgard-k3s.yml` runs roles `baseline → k3s → hardening` against the `must_run_k3s` group.
 - **Flux** — in-cluster workloads: everything in `k8s/`.
 - **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
 
@@ -733,15 +733,15 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | 4 — Proxmox cluster | ✅ | Urd/Verd/Skuld, cluster niflheim formed |
 | 5a — PBS | ✅ | LXC 1101 on Skuld, connected |
 | 5b — AdGuard Home | ✅ | Saga/Mimir/Kvasir + keepalived VIP + sync |
-| 5c — Must-run K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅ |
+| 5c — Asgard K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅ |
 | 5d — KPN DMZ | ✅ | DMZ → UCG-Ultra WAN (IPv4 + IPv6) |
 | 5e — Authentik + Redis | 🔲 | Next forward step on the K8s side. Blocks Tailscale LXCs. |
 | 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
 | 5g — PostgreSQL + Teamspeak LXCs | 🔲 | After Factorio. Teamspeak needs PostgreSQL. |
 | 5h — Remaining LXCs | 🔲 | Tailscale (after Authentik), HAProxy, Zabbix, Jellyfin |
-| 6 — Can-run K3s | 🔲 | Terraform VMs, Flux, services |
+| 6 — Jotunheim K3s | 🔲 | Terraform VMs, Flux, services |
 | 7 — Observability | 🔲 | VictoriaMetrics + Logs + Grafana + Zabbix |
-| 8 — Secrets runtime retrieval | 🔲 | Migrate from ESO sync-and-cache to Vault Agent / VSO. Pilot on can-run first. |
+| 8 — Secrets runtime retrieval | 🔲 | Migrate from ESO sync-and-cache to Vault Agent / VSO. Pilot on jotunheim first. |
 
 ---
 
@@ -750,13 +750,13 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Decision | Choice | Reason |
 |----------|--------|--------|
 | Orchestrator | K3s only | Single orchestrator |
-| Two K3s clusters | Must-run + Can-run | Separation by failure-domain risk, not by maturity — both host production services |
-| Must-run K3s contents | Core infrastructure + automation + production services | See "Must-run K3s cluster" section for current planned list |
-| Cluster split criterion | Cascade-failure OR recovery-blocking criterion for must-run | Earlier "cascade only" framing missed automation (recovery-blocking) and daily-use services (user-blocking). Not production-vs-experimental — both clusters host real services |
+| Two K3s clusters | Asgard + Jotunheim | Separation by failure-domain risk, not by maturity — both host production services |
+| Asgard K3s contents | Core infrastructure + automation + production services | See "Asgard K3s cluster" section for current planned list |
+| Cluster split criterion | Cascade-failure OR recovery-blocking criterion for asgard | Earlier "cascade only" framing missed automation (recovery-blocking) and daily-use services (user-blocking). Not production-vs-experimental — both clusters host real services |
 | GitOps | Flux CD | Terminal-native |
 | Flux structure | infrastructure + per-component config Kustomizations | CRD timing — CRDs must exist before dependent resources; per-component split avoids shared failure domains |
 | Terraform GitOps | Tofu Controller (flux-iac org) | Flux-native, push-to-main matches the existing Flux model. Atlantis rejected — PR-flow friction not worth it for solo dev |
-| Identity | Authentik (must-run K3s) | OIDC + LDAP, cascade risk |
+| Identity | Authentik (asgard K3s) | OIDC + LDAP, cascade risk |
 | DNS | AdGuard Home (not Pi-hole) | More polished, fully free, self-hosted sync |
 | Galera | Dropped | Nothing requires MySQL — all on PostgreSQL |
 | Database | PostgreSQL LXC cluster only | Zabbix migrated to PostgreSQL |
@@ -777,7 +777,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | MetalLB L2Advertisement | `nodeSelectors` exclude CP nodes | CP nodes have no eth1 — L2 election must not pick them |
 | Vault TLS | `tls_disable = 1` (no listener/cluster TLS) | Conscious homelab simplicity tradeoff — revisit at hardening |
 | Secrets architecture | Three stores by access pattern: 1Password (humans), HashiCorp Vault (machines at runtime), Ansible Vault (machines at bootstrap) | "Centralize everything" rejected after considering Vaultwarden, 1Password Connect, Infisical, OpenBao alternatives — see Secrets management section |
-| Bootstrap-vs-runtime split | Ansible Vault for bootstrap, HashiCorp Vault for runtime | Resolves circular dependency: HashiCorp Vault lives in must-run K3s, so anything K3s itself needs to come up cannot live there. Bootstrap layer is narrow, stable, and rare-touch |
+| Bootstrap-vs-runtime split | Ansible Vault for bootstrap, HashiCorp Vault for runtime | Resolves circular dependency: HashiCorp Vault lives in asgard K3s, so anything K3s itself needs to come up cannot live there. Bootstrap layer is narrow, stable, and rare-touch |
 | Ansible Vault scope | Bootstrap secrets only (k3s_token, RHEL keys, SSH pubkeys, AWS KMS re-seal copy) | Narrow permanent role, not legacy — runtime machine secrets go to HashiCorp Vault |
 | Ansible → Vault auth | AppRole, two roles (`ansible-local` for MacBook, `ansible-awx` for cluster) | Industry-standard for non-K8s automation; RoleIDs from Terraform outputs, SecretIDs generated manually and kept out of TF state (90-day rotation, 1Password recovery copy) |
 | Long-term Vault successor | OpenBao (migration ~12 months out) | HashiCorp BSL + IBM acquisition risk; LF governance preferred long-term |
@@ -789,7 +789,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | K3s on Urd | Worker only | N5095 too slow for etcd — causes IO storms |
 | Göndul placement | Urd (temp) → Verd (next reprovision) | Fix etcd IO issues |
 | LXC build order | Revised: Factorio → PG+Teamspeak → Authentik → Tailscale → rest | Original sequence conflated Authentik-dependent and Authentik-independent LXCs |
-| LXC provisioning | Terraform module `must-run-lxcs/` parallel to `must-run-k3s/` | Same provider, same auth, consistent pattern |
+| LXC provisioning | Terraform module `asgard-lxcs/` parallel to `asgard-k3s/` | Same provider, same auth, consistent pattern |
 | Factorio operator UX | SFTP-only self-service via SFTPGo virtual user | Zero shell access; control via JSON files in `/factorio/control/` |
 | Factorio reconcile pattern | Root systemd timer (30s), Python stdlib script, owns state | Operator declares intent in JSON, reconciler converges. Decoupled. |
 | Factorio operator auth | Password + SFTPGo defender | Ease-of-use over pubkey complexity; brute-force protected |
@@ -874,7 +874,7 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 ## Open questions / pending tasks
 
 **High priority — forward path:**
-- [ ] **Deploy Authentik + Redis** in must-run K3s. Bootstrap secrets (signing key, DB connection, Redis password) go in Vault and are pulled via ESO. Unblocks Tailscale LXCs.
+- [ ] **Deploy Authentik + Redis** in asgard K3s. Bootstrap secrets (signing key, DB connection, Redis password) go in Vault and are pulled via ESO. Unblocks Tailscale LXCs.
 - [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in.
 
 **Service backlog (in revised LXC order):**
@@ -906,10 +906,10 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] Cloudflare Tunnel — which services get external exposure (in addition to direct port-forwards via UCG).
 - [ ] Fallback static HTML doc on Munin for core K3s recovery.
 - [ ] AdGuard DNS records for new VMs/services as provisioned.
-- [ ] Proxmox HA for must-run LXCs.
-- [ ] Can-run K3s cluster.
+- [ ] Proxmox HA for asgard LXCs.
+- [ ] Jotunheim K3s cluster.
 - [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening.
-- [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on can-run first.
+- [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on jotunheim first.
 - [ ] Long-term: migrate Vault → OpenBao (~12 months out, once OpenBao has more production track record).
 
 ---

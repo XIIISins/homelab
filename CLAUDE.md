@@ -42,10 +42,10 @@ All 1 GbE. No 2.5 GbE planned.
 | Proxmox node 2 | Verd | Second Norn |
 | Proxmox node 3 | Skuld | Third Norn |
 | NAS | Munin | Odin's raven of memory |
-| Must-run K3s CP | Göndul, Hlökk, Sigrún | Valkyries (choosers/directors) |
-| Must-run K3s workers | Einherjar-urd/verd/skuld | Army of the Norns |
-| Can-run K3s CP | Rota, Hildr, Kára | Valkyries |
-| Can-run K3s workers | Drengr-urd/verd/skuld | Heroes of the Norns |
+| Asgard K3s CP | Göndul, Hlökk, Sigrún | Valkyries (choosers/directors) |
+| Asgard K3s workers | Einherjar-urd/verd/skuld | Army of the Norns |
+| Jotunheim K3s CP | Rota, Hildr, Kára | Valkyries |
+| Jotunheim K3s workers | Drengr-urd/verd/skuld | Heroes of the Norns |
 | AdGuard primary | Saga | Goddess of wisdom/seeing |
 | AdGuard replica 1 | Mimir | Keeper of wisdom |
 | AdGuard replica 2 | Kvasir | Wisest being |
@@ -57,16 +57,16 @@ All 1 GbE. No 2.5 GbE planned.
 ## Critical architectural decisions — never second-guess without asking
 
 **Two K3s clusters:**
-- Must-run K3s (VLAN 21) — core infrastructure + automation + production services. Cascade-failure criterion *or* recovery-blocking criterion. Resiliency > simplicity.
-- Can-run K3s (VLAN 31) — non-cascade-critical services + genuine experiments. Failure acceptable (hours-to-days downtime). NOT "experimental only" — most can-run services have real users; the line is failure-domain risk, not production/experimental.
+- Asgard K3s (VLAN 21) — core infrastructure + automation + production services. Cascade-failure criterion *or* recovery-blocking criterion. Resiliency > simplicity.
+- Jotunheim K3s (VLAN 31) — non-cascade-critical services + genuine experiments. Failure acceptable (hours-to-days downtime). NOT "experimental only" — most jotunheim services have real users; the line is failure-domain risk, not production/experimental.
 - Do NOT suggest merging them
 
-**Must-run K3s contents:**
+**Asgard K3s contents:**
 - *Core infrastructure:* Vault, Authentik (server ×3 + worker ×1), Redis, MetalLB, Synology CSI, ESO, Sealed Secrets, tigera-operator, Traefik, cert-manager, Cloudflared
 - *Automation:* AWX (Ansible CI), Tofu Controller (Terraform GitOps via Flux)
 - *Core services:* Outline, Immich, Grafana, VictoriaMetrics, VictoriaLogs, Netbox, n8n, Privatebin, Startpage
 
-**Can-run K3s contents:** Arr stack, Komga, Homepage, wallpaper gallery, second instances of ESO and Synology CSI, plus ad-hoc experiments. Note: Startpage (personal browser homepage, daily-use) is in must-run; Homepage (service-grid dashboard) is in can-run — distinct services.
+**Jotunheim K3s contents:** Arr stack, Komga, Homepage, wallpaper gallery, second instances of ESO and Synology CSI, plus ad-hoc experiments. Note: Startpage (personal browser homepage, daily-use) is in asgard; Homepage (service-grid dashboard) is in jotunheim — distinct services.
 
 **No Docker Swarm. K3s only.**
 
@@ -83,17 +83,17 @@ Calico is installed as a K3s auto-deploy addon: the Tigera operator manifest plu
 **DNS: AdGuard Home (not Pi-hole).**
 Three LXCs, keepalived VIP at `10.0.10.200`. AGH Sync binary on Saga. Do not suggest Pi-hole.
 
-**Identity: Authentik in must-run K3s.**
+**Identity: Authentik in asgard K3s.**
 OIDC for web apps, LDAP for SSH via SSSD. Local admin accounts on all services as break-glass. Do not suggest Authelia.
 
 **Secrets: two access patterns, three stores.**
 - **1Password "Homelab" vault** (humans) — anything a human looks up: web admin passwords, API tokens pasted into configs, LXC root passwords for templates, homelab-hosted DB admin credentials, AppRole credentials for the MacBook control node. Also break-glass user keys and AWS KMS unseal token (already external by design).
-- **HashiCorp Vault (must-run K3s, runtime)** — anything a machine pulls at runtime: K8s workload secrets via ESO, Ansible role lookups via AppRole, future runtime-retrieval targets. 3-node Raft HA, AWS KMS auto-unseal, iSCSI storage (Synology CSI, 5Gi PVC, `synology-csi-iscsi-retain`).
+- **HashiCorp Vault (asgard K3s, runtime)** — anything a machine pulls at runtime: K8s workload secrets via ESO, Ansible role lookups via AppRole, future runtime-retrieval targets. 3-node Raft HA, AWS KMS auto-unseal, iSCSI storage (Synology CSI, 5Gi PVC, `synology-csi-iscsi-retain`).
 - **Ansible Vault (machines, bootstrap)** — secrets needed *before* HashiCorp Vault is reachable: `k3s_token`, RHEL subscription keys, SSH public keys for ansible/break-glass users. Narrow scope by design — only what's required to bootstrap a fresh node up to the point where HashiCorp Vault becomes usable.
 
 The rule: *Human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
 
-The bootstrap-vs-runtime split solves the circular dependency: HashiCorp Vault lives in must-run K3s, so anything K3s itself needs to come up cannot live there.
+The bootstrap-vs-runtime split solves the circular dependency: HashiCorp Vault lives in asgard K3s, so anything K3s itself needs to come up cannot live there.
 
 Scope of homelab secret stores: "things that exist because the homelab exists." Personal credentials, external service accounts, and infrastructure under the homelab (bare-metal node root passwords, NAS admin, UCG-Ultra, KPN router) live in 1Password but outside the Homelab vault — they're personal/external, not homelab.
 
@@ -117,10 +117,10 @@ Workers have two NICs: eth0 (VLAN 21, K3s traffic) and eth1 (VLAN 20, MetalLB L2
 Worker eth1 IPs: 10.0.20.201/202/203 (outside MetalLB pool 10.0.20.11-.99).
 L2Advertisement restricted to eth1 interface AND restricted to non-CP nodes via `nodeSelectors` (`matchExpressions` — key `node-role.kubernetes.io/control-plane`, operator `DoesNotExist`). CP nodes have no eth1; without the nodeSelector, MetalLB's L2 election can pick a CP node and announce nowhere.
 
-**Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs/Grafana (can-run K3s).**
+**Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs/Grafana (jotunheim K3s).**
 Zabbix stays as LXC for monitoring independence. VictoriaLogs replaces Loki. VictoriaMetrics replaces Prometheus.
 
-**Ansible: AWX in can-run K3s.**
+**Ansible: AWX in jotunheim K3s.**
 30-minute scheduled reconciliation. Vault-backed credentials.
 
 **VM disks: local LVM-thin.**
@@ -134,8 +134,8 @@ NFS bind-mounted via Proxmox host.
 **Internet exposure: KPN Experia Box → UCG-Ultra DMZ.**
 KPN configured as "exposed host" / DMZ pointing all unsolicited inbound (IPv4 *and* IPv6) at the UCG-Ultra's WAN IP. UCG-Ultra is the sole firewall policy boundary; KPN does outbound NAT for `192.168.2.0/24` devices (settop box, family devices) only. UCG firewall posture: `Internal → Any: Allow`, `External → Internal: Allow Return`, `Any → Any: Deny` (last). Port-forwards configured on UCG only. KPN is the one piece of infra that is NOT and will NEVER be in IaC — any change to it lives here in the docs or it doesn't exist.
 
-**LXC management is via Terraform `must-run-lxcs` module.**
-Same provider (`bpg/proxmox ~> 0.77`), same `terraform.tfvars` as `must-run-k3s/` (API token + SSH pubkey), parallel structure. To add a new must-run LXC: append to `lxcs.tf`, `terraform apply`, add the host to `inventory/hosts.yml`, write the role + playbook.
+**LXC management is via Terraform `asgard-lxcs` module.**
+Same provider (`bpg/proxmox ~> 0.77`), same `terraform.tfvars` as `asgard-k3s/` (API token + SSH pubkey), parallel structure. To add a new asgard LXC: append to `lxcs.tf`, `terraform apply`, add the host to `inventory/hosts.yml`, write the role + playbook.
 
 **LXC bootstrap flow.**
 Day 1:
@@ -173,12 +173,12 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 | VLAN | Subnet | Name | Purpose |
 |------|--------|------|---------|
 | 1 | `10.0.254.0/24` | HL-MGMT | Management |
-| 10 | `10.0.10.0/24` | HL-CORE-VIP | Must-run VIPs |
-| 11 | `10.0.11.0/24` | HL-CORE-SVC | Must-run LXCs |
-| 20 | `10.0.20.0/24` | HL-CORE-K3S-VIP | Must-run K3s MetalLB |
-| 21 | `10.0.21.0/24` | HL-CORE-K3S-WRK | Must-run K3s nodes |
-| 30 | `10.0.30.0/24` | HL-CR-K3S-VIP | Can-run K3s MetalLB |
-| 31 | `10.0.31.0/24` | HL-CR-K3S-WRK | Can-run K3s nodes |
+| 10 | `10.0.10.0/24` | HL-ASG-VIP | Asgard VIPs |
+| 11 | `10.0.11.0/24` | HL-ASG-SVC | Asgard LXCs |
+| 20 | `10.0.20.0/24` | HL-ASG-K3S-VIP | Asgard K3s MetalLB |
+| 21 | `10.0.21.0/24` | HL-ASG-K3S-WRK | Asgard K3s nodes |
+| 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP | Jotunheim K3s MetalLB |
+| 31 | `10.0.31.0/24` | HL-JOT-K3S-WRK | Jotunheim K3s nodes |
 | 60 | `10.0.60.0/24` | HL-CLIENT | Personal devices |
 | 100 | `10.0.100.0/24` | HL-STOR | Storage/NFS (stable) |
 | 222 | `10.0.222.0/24` | Untrusted | Quarantine |
@@ -190,22 +190,22 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - `10.0.10.200` — AdGuard VIP ✅
 - `10.0.11.20` — PBS (LXC 1101) ✅
 - `10.0.11.201/202/203` — Saga/Mimir/Kvasir ✅
-- `10.0.21.11/12/13` — Must-run K3s CP (Göndul/Hlökk/Sigrún)
-- `10.0.21.21/22/23` — Must-run K3s workers (Einherjar-urd/verd/skuld) — eth0
-- `10.0.20.11–.99` — Must-run K3s MetalLB pool
+- `10.0.21.11/12/13` — Asgard K3s CP (Göndul/Hlökk/Sigrún)
+- `10.0.21.21/22/23` — Asgard K3s workers (Einherjar-urd/verd/skuld) — eth0
+- `10.0.20.11–.99` — Asgard K3s MetalLB pool
 - `10.0.20.201/202/203` — Worker eth1 IPs (Einherjar-urd/verd/skuld)
-- `10.0.31.11/12/13` — Can-run K3s CP (Rota/Hildr/Kára)
-- `10.0.31.21/22/23` — Can-run K3s workers
-- `10.0.30.11–.99` — Can-run K3s MetalLB pool
+- `10.0.31.11/12/13` — Jotunheim K3s CP (Rota/Hildr/Kára)
+- `10.0.31.21/22/23` — Jotunheim K3s workers
+- `10.0.30.11–.99` — Jotunheim K3s MetalLB pool
 
 ### Cluster CIDRs
 - Pod CIDR: `10.42.0.0/16` (`k3s_pod_cidr` — used for K3s `cluster-cidr` AND the Calico ipPool)
 - Service CIDR: `10.43.0.0/16` (`k3s_service_cidr`)
 
 ### Resource IDs
-- `1101–1199` — Must-run LXCs (sub-grouped by function)
-- `2001–2999` — Must-run K3s VMs
-- `3001–3999` — Can-run K3s VMs
+- `1101–1199` — Asgard LXCs (sub-grouped by function)
+- `2001–2999` — Asgard K3s VMs
+- `3001–3999` — Jotunheim K3s VMs
 - `10001+` — Templates
 
 ---
@@ -218,7 +218,7 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ Proxmox cluster — Urd/Verd/Skuld on PVE 9.x, cluster niflheim
 - ✅ PBS — LXC 1101 on Skuld, NFS datastore, connected to cluster
 - ✅ AdGuard Home — Saga/Mimir/Kvasir, keepalived VIP 10.0.10.200, AGH Sync
-- ✅ Must-run K3s — VMs provisioned (Terraform), K3s installed + configured (Ansible — fully IaC), Flux bootstrapped
+- ✅ Asgard K3s — VMs provisioned (Terraform), K3s installed + configured (Ansible — fully IaC), Flux bootstrapped
 - ✅ Sealed Secrets — deployed via Flux
 - ✅ Synology CSI — iSCSI only, StorageClass synology-csi-iscsi-retain (default)
 - ✅ Vault — 3 node Raft HA, AWS KMS auto-unseal, iSCSI storage, initialized; K8s auth method + KV engine + ESO policy/role in Terraform (`terraform/vault/`, imported 2026-05-16)
@@ -226,9 +226,9 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ MetalLB — L2 working end-to-end. VIP `10.0.20.11` reachable. Required nodeSelectors + Calico/rp_filter fixes (2026-05-14)
 - ✅ tigera-operator — fixed 2026-05-15 via MTU explicit (workaround for upstream projectcalico/calico#7851). No longer Degraded.
 - ✅ Factorio LXC (1120) — Deployed 2026-05-16. Terraform + Ansible end-to-end. Factorio headless + SFTPGo running. Operator self-service via SFTP on TCP 22022. Game on UDP 34197. Reachable at `factorio.xiiisins.com` (external) and `factorio.niflheim.xiiisins.com` (internal).
-- 🔲 Authentik + Redis (in must-run K3s — the next forward step on the K8s side)
-- 🔲 Remaining must-run LXCs (Tailscale, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin)
-- 🔲 Can-run K3s
+- 🔲 Authentik + Redis (in asgard K3s — the next forward step on the K8s side)
+- 🔲 Remaining asgard LXCs (Tailscale, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin)
+- 🔲 Jotunheim K3s
 - 🔲 Services
 
 ---
@@ -241,8 +241,8 @@ homelab/
 ├── renovate.json
 ├── terraform/
 │   ├── proxmox/
-│   │   ├── must-run-k3s/    # VM definitions (bpg/proxmox provider) — populated
-│   │   └── must-run-lxcs/   # LXC definitions — 1120 Factorio; extend per LXC
+│   │   ├── asgard-k3s/    # VM definitions (bpg/proxmox provider) — populated
+│   │   └── asgard-lxcs/   # LXC definitions — 1120 Factorio; extend per LXC
 │   ├── vault/               # Vault config — KV engine, K8s auth, eso policy + role
 │   ├── dns/                 # scaffolding (empty)
 │   ├── aws/                 # scaffolding (empty)
@@ -253,7 +253,7 @@ homelab/
 │   │   ├── hosts.yml        # groups: must_run_k3s_cp, must_run_k3s_workers, factorio_host
 │   │   └── group_vars/all/  # vars.yml + vault.yml (Ansible Vault encrypted) — adjacent to inventory for auto-discovery
 │   ├── playbooks/
-│   │   ├── must-run-k3s.yml # roles: baseline → k3s → hardening
+│   │   ├── asgard-k3s.yml # roles: baseline → k3s → hardening
 │   │   └── factorio-host.yml # roles: baseline → factorio → sftpgo → hardening
 │   └── roles/
 │       ├── baseline/        # RHEL subscription, qemu-agent, pkg update, break-glass user
@@ -261,7 +261,7 @@ homelab/
 │       └── hardening/       # SELinux, SSH, sysctl, module blocklist, banner
 │   # NOTE: stray empty ansible/ansible/ dir (mkdir -p slip) — delete it
 ├── k8s/
-│   ├── must-run/
+│   ├── asgard/
 │   │   ├── flux-system/
 │   │   │   ├── flux-system/                  # Flux bootstrap manifests
 │   │   │   ├── infrastructure.yaml           # Flux Kustomization → infrastructure/
@@ -282,7 +282,7 @@ homelab/
 │   │   │   ├── metallb-config.yaml           # IPAddressPool + L2Advertisement
 │   │   │   └── kustomization.yaml
 │   │   └── apps/
-│   └── can-run/
+│   └── jotunheim/
 │       ├── flux-system/
 │       ├── infrastructure/
 │       └── apps/
@@ -302,7 +302,7 @@ K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prer
 - **Bootstrap order:** `k3s_init_node` (gondul) initialises with `--cluster-init` → other CP nodes join → workers join last. Enforced by `when` conditions + `wait_for` on :6443 + node-count gates.
 - **Config templates:** `config-init.yaml.j2` (first CP), `config-server.yaml.j2` (joining CPs), `config-agent.yaml.j2` (workers). CP configs disable `traefik`, `servicelb`, `local-storage`; set `flannel-backend: none` + `disable-network-policy: true` (Calico handles both); set `cluster-cidr`/`service-cidr`, TLS SANs, `selinux: true`. Worker config is minimal: `server` + `token` + `selinux: true`.
 - **Token:** generated by K3s on the init node, slurped and distributed as the `k3s_token` fact. (`k3s_token` default in defaults/main.yml is empty — real value in `group_vars/all/vault.yml`.)
-- **kubeconfig:** fetched to `~/.kube/niflheim-must-run.yaml`, server address rewritten from `127.0.0.1` to the init node IP.
+- **kubeconfig:** fetched to `~/.kube/niflheim-asgard.yaml`, server address rewritten from `127.0.0.1` to the init node IP.
 - **Prerequisites** (`prerequisites.yml`): Rancher k3s-selinux repo, `iscsi-initiator-utils` + `iscsid` enabled, `br_netfilter` + `overlay` modules loaded & persisted, `ip_forward=1`, `bridge-nf-call-iptables`/`ip6tables=1`, swap disabled, `firewalld` disabled.
 - **No node taints or labels** are set anywhere in the K3s config — this is why the CP-taint work is a manual addition (see pending tasks).
 
@@ -365,7 +365,7 @@ K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prer
 - **Service-specific systemd drop-in dirs (`/etc/systemd/system/<unit>.service.d/`) don't pre-exist**: Roles that drop override.conf files must `file: state: directory` first. SFTPGo bit us; assume any service-specific override needs the dir created.
 - **bpg/proxmox API tokens can change `nesting` but no other features**: `keyctl`, `fuse`, and other LXC features require `root@pam` to change once the container exists. Workaround: destroy + recreate. Practical implication: don't put `keyctl: false`/`fuse: false` in the resource block — they're defaults, omitting them avoids future "tried to change keyctl, 403" plans even when values aren't actually changing.
 - **Systemd 257 in unprivileged LXC requires `nesting=true`**: Debian 13 ships systemd 257; it uses namespace operations that need CAP_SYS_ADMIN inside the user namespace, which `nesting=true` provides. This flag does NOT enable nested containerization — its name is misleading. The "no nested containerization" rule is preserved by `unprivileged=true`, not by `nesting=false`.
-- **`-u root` CLI flag does NOT override `ansible_user` from group_vars**: Group_vars are inventory-level data and outrank CLI `-u` in Ansible's variable precedence. To override during bootstrap, use `-e 'ansible_user=root'` — `-e` is the only level above inventory. Same issue affects the `must-run-k3s` flow if you ever need to re-bootstrap.
+- **`-u root` CLI flag does NOT override `ansible_user` from group_vars**: Group_vars are inventory-level data and outrank CLI `-u` in Ansible's variable precedence. To override during bootstrap, use `-e 'ansible_user=root'` — `-e` is the only level above inventory. Same issue affects the `asgard-k3s` flow if you ever need to re-bootstrap.
 - **`group_vars/` is auto-discovered only adjacent to inventory or playbook directories**: `ansible/group_vars/` is invisible to Ansible; must be `ansible/inventory/group_vars/`. If a play seems to be ignoring vault variables, this is usually why.
 - **SFTPGo sqlite `data_provider_name` must be an absolute path**: The Debian package unit sets `WorkingDirectory=/etc/sftpgo`, so a relative `sftpgo.db` lands in `/etc/sftpgo/sftpgo.db` — works but FHS-wrong (config dir holding state). Set explicitly to `/var/lib/sftpgo/sftpgo.db` and ensure that dir exists with sftpgo ownership.
 - **Factorio reconcile.timer must NOT auto-start in the role**: Background timer firing reconcile before `initial-install.yml` runs causes a race: factorio installs and the service starts (control file defaults to `state=running`) before Ansible can generate the default save → `factorio --create` fails on the .lock file held by the running service. Pattern: enable timer only in `reconcile.yml`, start it explicitly at the end of `initial-install.yml`.
@@ -375,4 +375,4 @@ K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prer
 
 ## What the owner wants to learn
 
-Kubernetes is the primary goal. Explain the *why* behind K8s design choices, not just manifests. Owner knows Linux, Ansible, networking, enterprise infrastructure patterns. K8s-specific concepts are the knowledge gap. Deep K3s/K8s experimentation is intended for the future can-run ("can implode") cluster — must-run is built carefully, not used as a learning sandbox.
+Kubernetes is the primary goal. Explain the *why* behind K8s design choices, not just manifests. Owner knows Linux, Ansible, networking, enterprise infrastructure patterns. K8s-specific concepts are the knowledge gap. Deep K3s/K8s experimentation is intended for the future jotunheim ("can implode") cluster — asgard is built carefully, not used as a learning sandbox.
