@@ -17,3 +17,4 @@
 -- [ ] **Move Factorio rconpw outside `/factorio/`** — currently in `/factorio/config/rconpw`. Operator's SFTPGo perms deny `/config` access, but the directory's existence still appears in `ls /factorio`. Move to e.g. `/var/lib/factorio-secrets/` so it's not under the operator's home_dir tree at all.
  
  **Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
+
