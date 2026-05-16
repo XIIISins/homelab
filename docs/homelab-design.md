@@ -685,7 +685,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 - [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt).
 - [ ] Backfill CLI-era K3s *workload* config into Flux (deliberate, tracked — not a blocker).
 - [ ] **Move Factorio rconpw outside `/factorio/`** — currently in `/factorio/config/rconpw`. Operator's SFTPGo perms deny `/config` access, but the directory's existence still appears in `ls /factorio`. Move to e.g. `/var/lib/factorio-secrets/` so it's not under the operator's home_dir tree at all.
-- [ ] **`baseline` role: add `acl` and `sudo` installs to `redhat.yml`** for consistency. Currently only `debian.yml` has these because of the minimal LXC template.
 
 **Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
 
