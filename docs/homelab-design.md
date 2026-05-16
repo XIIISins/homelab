@@ -450,17 +450,17 @@ Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) 
 
 ## Secrets management
 
-### The architecture: two layers, one rule
+### The architecture: two access patterns, three stores
 
-**The rule:** *If a human would look it up by hand → 1Password. If a machine pulls it → Vault.*
+**The rule:** *Human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
 
 | Layer | Tool | Consumer | Contents |
 |---|---|---|---|
-| Human-operated credentials | **1Password — "Homelab" vault** | You, via UI/mobile/CLI | Web admin passwords (Authentik admin, Grafana admin, etc.), API tokens you paste manually, LXC template root passwords, homelab-hosted DB admin credentials, TLS recovery keys |
-| Machine-consumed credentials | **HashiCorp Vault (must-run K3s)** | Ansible, K8s workloads, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, future API tokens consumed at runtime |
-| Failure-independent | **1Password — other vaults** | You, when homelab is down | Break-glass user SSH key, AWS KMS unseal token, Proxmox/Synology/UCG-Ultra/KPN admin |
-| Bootstrap | **SealedSecret + 1Password copy** | Cluster controller | vault-unseal credential (encrypted in Git, recoverable from 1Password) |
-| Legacy (deprecated for new) | **Ansible Vault** | Ansible | `k3s_token` and other pre-existing values in `group_vars/all/vault.yml` |
+| Human-operated credentials | **1Password — "Homelab" vault** | You, via UI/mobile/CLI | Web admin passwords (Authentik admin, Grafana admin, etc.), API tokens you paste manually, LXC template root passwords, homelab-hosted DB admin credentials, TLS recovery keys, AppRole RoleID/SecretID for Ansible control nodes |
+| Machine-consumed (runtime) | **HashiCorp Vault (must-run K3s)** | K8s workloads via ESO, Ansible via AppRole, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, Ansible-pulled service passwords (e.g. `secret/ansible/sftpgo/admin-password`) |
+| Machine-consumed (bootstrap) | **Ansible Vault** (`group_vars/all/vault.yml`) | Ansible, on a fresh node before HashiCorp Vault is reachable | `k3s_token`, `rhel_activation_key`, `rhel_org_id`, `ansible_user_ssh_public_key`, `breakglass_ssh_public_key`. Plus `aws_access_key_id` / `aws_secret_access_key` / `aws_kms_key_id` as a re-seal recovery copy (not pulled by Ansible — used manually with `kubeseal` to regenerate the vault-unseal SealedSecret; see "Bootstrap-of-bootstrap" row for the runtime path). Narrow scope: only what's needed to make a node usable up to the point HashiCorp Vault can take over. |
+| Failure-independent | **1Password — other vaults** | You, when homelab is down | Break-glass user SSH key, AWS KMS unseal token, Vault root token, Proxmox/Synology/UCG-Ultra/KPN admin |
+| Bootstrap-of-bootstrap | **SealedSecret + Ansible Vault recovery copy** | Cluster controller (sealed-secrets controller decrypts and mounts as K8s Secret; Vault pod reads as env vars) | `vault-unseal` SealedSecret in `k8s/must-run/infrastructure/vault/vault-unseal-secret.yaml` holds the AWS KMS credentials Vault uses for auto-unseal. Runtime path = SealedSecret → K8s Secret → Vault pod env. Recovery path: if the SealedSecret blob is lost (cluster rebuild, sealed-secrets key rotation), the plaintext AWS values in `group_vars/all/vault.yml` are the source to re-run `kubeseal` against. |
 
 ### Scope rule
 
@@ -476,6 +476,14 @@ Considered and rejected:
 
 **Discoverability concern handled by rule, not by tool unification.** "Scattered truth" was the legitimate worry. The fix is a clean rule (above) and clean boundaries, not forcing one tool to do both jobs poorly.
 
+### Why bootstrap-vs-runtime within the machine tier
+
+HashiCorp Vault lives in must-run K3s. Anything K3s itself needs to come up — `k3s_token` to join nodes to the cluster, SSH keys to even reach the nodes via Ansible — cannot live in Vault. That's a circular dependency: Vault depends on K3s, K3s depends on Vault.
+
+The split: Ansible Vault holds the minimum needed to bootstrap a fresh node *up to the point* where HashiCorp Vault becomes reachable. Everything beyond that goes to HashiCorp Vault. This matches the enterprise pattern (Red Hat IPI installer, AWX bootstrap, every K8s-hosted-Vault deployment hits this) — even though "everything in HashiCorp Vault with a fallback cache" is theoretically possible, the bootstrap layer is small, near-permanent, and rarely-touched, so the simpler approach wins.
+
+The line is essentially: *is this secret needed before HashiCorp Vault is reachable from its consumer?* Yes → bootstrap (Ansible Vault). No → runtime (HashiCorp Vault).
+
 ### Long-term direction
 
 The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is a future project on can-run cluster first (use the learning environment for that learning), then migrate must-run workloads.
@@ -485,13 +493,172 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
 - 3-node Raft HA, AWS KMS auto-unseal (eu-west-1, single-key AWS account, `vault-unseal` IAM user is decrypt-only on that one key)
 - iSCSI storage (5Gi PVC, `synology-csi-iscsi-retain`)
 - Listener `tls_disable = 1` — deliberate (see Known gotchas in CLAUDE.md)
-- KV-v2 engine at `secret/` (currently empty)
-- Kubernetes auth method enabled + configured (`kubernetes_host=https://kubernetes.default.svc`, Vault's own SA token used as reviewer — Vault SA has `system:auth-delegator` via `vault-server-binding` ClusterRoleBinding)
-- `eso` policy: read on `secret/data/*`
-- `eso` role: binds SA `external-secrets` in ns `external-secrets` → `eso` policy, TTL 1h
+- KV-v2 engine at `secret/`
+- **Kubernetes auth method** at `auth/kubernetes/` (`kubernetes_host=https://kubernetes.default.svc`, Vault's own SA token used as reviewer — Vault SA has `system:auth-delegator` via `vault-server-binding` ClusterRoleBinding)
+  - `eso` policy: read on `secret/data/*`
+  - `eso` role: binds SA `external-secrets` in ns `external-secrets` → `eso` policy, TTL 1h
+- **AppRole auth method** at `auth/approle/` (added 2026-05-16, D1)
+  - `ansible` policy: read on `secret/data/ansible/*` — narrower than `eso`, Ansible only reads its own subtree
+  - `ansible-local` role: MacBook control node, manual playbook runs. SecretID at `~/.config/ansible/vault-approle.env` + 1Password recovery copy. 90-day rotation.
+  - `ansible-awx` role: AWX automated runs (deployed later, in must-run K3s). Role exists; SecretID generated at AWX deploy time and stored in AWX's credential store.
+  - SecretIDs are NEVER managed by Terraform — generated manually with `vault write -f auth/approle/role/<role>/secret-id`, stored externally. See AppRole bootstrap runbook below.
 - ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
-- Auth method config + KV engine + policy + role captured in Terraform (`terraform/vault/`) on 2026-05-16 via declarative `import {}` blocks. Local state, `VAULT_ADDR`/`VAULT_TOKEN` via env. Provider `hashicorp/vault ~> 4.0`. Scoped Terraform token and remote state deferred.
-- KV store currently empty — Authentik's bootstrap secrets will be the first real entries.
+- All Vault config (mounts, auth methods, policies, roles) captured in Terraform (`terraform/vault/`). Local state, `VAULT_ADDR`/`VAULT_TOKEN` via env. Provider `hashicorp/vault ~> 4.0`. Scoped Terraform token and remote state deferred.
+- **KV contents** (as of 2026-05-16): `secret/ansible/sftpgo/admin-password` (migrated from Ansible Vault as the D1 proof-of-pattern). Authentik bootstrap secrets pending.
+
+### AppRole bootstrap runbook
+
+Setting up a fresh control node (or re-bootstrapping after credential loss). Use this when:
+- Setting up Ansible on a new MacBook / control node
+- Rotating SecretID at the 90-day cadence
+- Recovering from a lost SecretID
+- Deploying AWX (same steps, against the `ansible-awx` role)
+
+**Checklist:**
+
+1. ✅ Terraform module `terraform/vault/` applied — AppRole auth method, `ansible` policy, and the relevant role exist.
+2. Generate SecretID via `vault write -f auth/approle/role/<role>/secret-id`.
+3. Capture RoleID via `terraform output <role>_role_id` (RoleID is not secret).
+4. Stash both in 1Password Homelab vault as "Ansible AppRole — <role>" (API Credentials item) with `role_id`, `secret_id`, `secret_id_accessor`, `expires_at` (today + 90 days).
+5. Write the local env file at `~/.config/ansible/vault-approle.env` (mode 0600).
+6. Install `community.hashi_vault` Galaxy collection + `hvac` Python lib in the Ansible venv.
+7. Test the lookup with `playbooks/test-vault-lookup.yml`.
+
+**Detailed steps — MacBook → `ansible-local` role:**
+
+Prerequisites: `pipx`-installed Ansible (Homebrew Ansible bundles its own externally-managed Python; injecting Python deps is awkward), `hvac` injected, fish shell, OBJC fork-safety env var set.
+
+Generate the SecretID. Vault uses your root token here — anything that can mint SecretIDs is by definition privileged:
+
+```fish
+set -x VAULT_ADDR http://10.0.20.11:8200
+set -x VAULT_TOKEN <root token from 1Password>
+vault write -f auth/approle/role/ansible-local/secret-id
+```
+
+Output:
+```
+Key                   Value
+---                   -----
+secret_id             a8b3f7e2-...
+secret_id_accessor    1f2a-...
+secret_id_num_uses    0
+secret_id_ttl         7776000
+```
+
+Capture the matching RoleID (non-secret) from Terraform output:
+
+```fish
+cd terraform/vault
+terraform output -raw ansible_local_role_id
+```
+
+Store both in 1Password under "Ansible AppRole — ansible-local" (API Credentials item):
+- `URL`: `http://10.0.20.11:8200`
+- `role_id`: from `terraform output`
+- `secret_id`: from `vault write`
+- `secret_id_accessor`: from `vault write` (used to revoke without knowing the SecretID)
+- `expires_at`: today + 90 days
+
+Write the local env file (fish heredocs don't work; use `echo` to a file):
+
+```fish
+mkdir -p ~/.config/ansible
+echo "VAULT_ADDR=http://10.0.20.11:8200
+ANSIBLE_HASHI_VAULT_AUTH_METHOD=approle
+ANSIBLE_HASHI_VAULT_ROLE_ID=<paste role_id>
+ANSIBLE_HASHI_VAULT_SECRET_ID=<paste secret_id>" > ~/.config/ansible/vault-approle.env
+chmod 0600 ~/.config/ansible/vault-approle.env
+```
+
+The `ANSIBLE_HASHI_VAULT_*` prefix is the canonical env-var form the `community.hashi_vault` collection reads. `VAULT_ADDR` stays as-is (it's the standard Vault CLI env var).
+
+Install the fish helper as `~/.config/fish/functions/ansible-vault-env.fish`:
+
+```fish
+function ansible-vault-env --description "Source AppRole credentials for community.hashi_vault lookups"
+    set -l env_file ~/.config/ansible/vault-approle.env
+    if not test -f $env_file
+        echo "Error: $env_file not found" >&2
+        return 1
+    end
+    set -l count 0
+    while read -l line
+        if string match -qr '^\s*$|^\s*#' -- $line
+            continue
+        end
+        set -l key (string split -m 1 -f1 = $line)
+        set -l value (string split -m 1 -f2 = $line)
+        set -gx $key $value
+        set count (math $count + 1)
+    end < $env_file
+    echo "Loaded $count variables from $env_file"
+end
+```
+
+Usage: `ansible-vault-env` once per shell session, then run playbooks normally.
+
+Install collection + Python dep:
+
+```fish
+ansible-galaxy collection install -r ansible/requirements.yml
+pipx inject ansible hvac
+```
+
+macOS-specific (one-time, fish universal variable). Prevents Python's macOS fork-safety crashes when Ansible workers fork after loading ObjC-linked libs like `urllib3`:
+
+```fish
+set -Ux OBJC_DISABLE_INITIALIZE_FORK_SAFETY YES
+```
+
+Verify end-to-end:
+
+```fish
+# Seed a test secret (requires root token, AppRole is read-only)
+set -x VAULT_TOKEN <root token>
+vault kv put secret/ansible/test/hello value=world
+set -e VAULT_TOKEN
+
+# Pick up AppRole creds and run the test play
+ansible-vault-env
+ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/test-vault-lookup.yml
+# Expected: "Got value from Vault: world"
+
+# Cleanup
+set -x VAULT_TOKEN <root token>
+vault kv delete secret/ansible/test/hello
+```
+
+**For AWX (when deployed):** same steps against `ansible-awx` role. SecretID goes into AWX's credential store rather than a local env file. After deploy, restrict via `token_bound_cidrs` in `terraform/vault/main.tf` once the must-run K3s pod CIDR is known.
+
+**Rotation (every 90 days):**
+
+```fish
+set -x VAULT_TOKEN <root token>
+
+# Revoke the old SecretID by its accessor (from 1Password)
+vault write auth/approle/role/ansible-local/secret-id-accessor/destroy \
+    secret_id_accessor=<old accessor>
+
+# Generate new SecretID
+vault write -f auth/approle/role/ansible-local/secret-id
+
+# Update 1Password + ~/.config/ansible/vault-approle.env
+```
+
+**Vault lookup syntax cheatsheet** for `community.hashi_vault.vault_kv2_get`:
+
+| Accessor | Returns |
+|---|---|
+| `.raw` | Full Vault API response |
+| `.data` | Wrapper (contains both KV data and metadata) |
+| `.metadata` | Just version metadata (version number, created_time, etc.) |
+| `.secret` | Just the KV key-value pairs — what you usually want |
+
+Use `.secret.<key>` for the actual value:
+```yaml
+"{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/sftpgo/admin-password').secret.value }}"
+```
 
 ### OpenBao migration (future)
 
@@ -676,20 +843,14 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 - [ ] **Zabbix LXC** (1102, Skuld).
 - [ ] **Jellyfin LXC** (privileged, Urd, QuickSync).
 
-**Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
+**Vault-for-Ansible migration (in progress — pattern built D1, secrets migrating individually):**
 
-The two-layer secrets architecture says machine-pulled secrets go in HashiCorp Vault, not Ansible Vault. The Vault-for-Ansible integration pattern isn't built yet, so new machine secrets continue to land in `group_vars/all/vault.yml` as a temporary measure. When the migration pattern is built, all existing entries move over as a batch.
+Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vault permanently (narrow scope: `k3s_token`, RHEL keys, SSH pubkeys for ansible/breakglass users — needed before HashiCorp Vault is reachable). Runtime secrets — those needed *after* a node is up — move to HashiCorp Vault.
 
-- [ ] **Build the Vault-for-Ansible lookup pattern**: AppRole auth for the Ansible control node, scoped policy on a `secret/ansible/*` path, `community.hashi_vault` lookup integrated into role templates and tasks. Document the bootstrap flow.
-- [ ] **Migrate existing `group_vars/all/vault.yml` entries to Vault as a batch.** Current entries to migrate:
-  - `k3s_token`
-  - `rhel_activation_key`, `rhel_org_id` (RHEL subscription)
-  - `breakglass_ssh_public_key`
-  - `ansible_user_ssh_public_key`
-  - `sftpgo_admin_password`
-  - `vault_factorio_operator_password`
-- [ ] **Decide Ansible-side bootstrap policy.** Circular-dependency risk: Vault lives in must-run K3s; if Vault is down when a fresh LXC needs `ansible_user_ssh_public_key`, the deploy can't proceed. Options to consider: local encrypted cache on the control node, 1Password fallback for emergency recovery, or accept that Ansible-side provisioning requires Vault up. Worth thinking through before the migration, not after.
-- [ ] **Rename `vault_factorio_operator_password` → `factorio_operator_password`** at migration time. The `vault_` prefix is aspirational; current value lives in Ansible Vault, which makes the name misleading. Drop the prefix when the variable actually starts coming from HashiCorp Vault.
+- [x] **Build the Vault-for-Ansible lookup pattern** (✅ D1, 2026-05-16). AppRole + `ansible` policy + `ansible-local`/`ansible-awx` roles in `terraform/vault/`. `community.hashi_vault` collection + lookup pattern in `roles/sftpgo/defaults/main.yml`. AppRole bootstrap runbook in this doc.
+- [x] **Migrate `sftpgo_admin_password`** → `secret/ansible/sftpgo/admin-password` (✅ D1, proof-of-pattern). Removed from `group_vars/all/vault.yml`.
+- [ ] **Migrate `vault_factorio_operator_password`** → `secret/ansible/factorio/operator-password`. Drop the `vault_` prefix at migration time (the prefix was aspirational; the var now actually comes from HashiCorp Vault).
+- [ ] **Fix sftpgo role check-mode compatibility.** `roles/sftpgo/tasks/bootstrap.yml` does a POST to fetch an admin JWT, then references `result.json.access_token`. In `--check` mode `uri:` skips POSTs by default, returning a stub dict without `.json` — breaks downstream tasks. Add `check_mode: false` to the token-fetch and any downstream state-reading API calls.
 
 **Reprovision (deliberate, on a healthy cluster):**
 - [ ] Move Göndul from Urd → Verd (next full reprovision).

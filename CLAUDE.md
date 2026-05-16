@@ -82,21 +82,23 @@ Three LXCs, keepalived VIP at `10.0.10.200`. AGH Sync binary on Saga. Do not sug
 **Identity: Authentik in must-run K3s.**
 OIDC for web apps, LDAP for SSH via SSSD. Local admin accounts on all services as break-glass. Do not suggest Authelia.
 
-**Secrets: two-layer architecture.**
-Two stores, two access patterns, one rule:
-- **1Password "Homelab" vault** — anything a human would look up: web admin passwords, API tokens pasted into configs, LXC root passwords for templates, homelab-hosted DB admin credentials. Also break-glass user keys and AWS KMS unseal token (already external by design).
-- **HashiCorp Vault (in must-run K3s)** — anything a machine pulls: K8s workload secrets via ESO, future runtime-retrieval targets. 3-node Raft HA, AWS KMS auto-unseal, iSCSI storage (Synology CSI, 5Gi PVC, `synology-csi-iscsi-retain`).
+**Secrets: two access patterns, three stores.**
+- **1Password "Homelab" vault** (humans) — anything a human looks up: web admin passwords, API tokens pasted into configs, LXC root passwords for templates, homelab-hosted DB admin credentials, AppRole credentials for the MacBook control node. Also break-glass user keys and AWS KMS unseal token (already external by design).
+- **HashiCorp Vault (must-run K3s, runtime)** — anything a machine pulls at runtime: K8s workload secrets via ESO, Ansible role lookups via AppRole, future runtime-retrieval targets. 3-node Raft HA, AWS KMS auto-unseal, iSCSI storage (Synology CSI, 5Gi PVC, `synology-csi-iscsi-retain`).
+- **Ansible Vault (machines, bootstrap)** — secrets needed *before* HashiCorp Vault is reachable: `k3s_token`, RHEL subscription keys, SSH public keys for ansible/break-glass users. Narrow scope by design — only what's required to bootstrap a fresh node up to the point where HashiCorp Vault becomes usable.
 
-The rule: *if I'd look it up by hand → 1Password. If a machine pulls it → Vault.*
+The rule: *Human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
+
+The bootstrap-vs-runtime split solves the circular dependency: HashiCorp Vault lives in must-run K3s, so anything K3s itself needs to come up cannot live there.
 
 Scope of homelab secret stores: "things that exist because the homelab exists." Personal credentials, external service accounts, and infrastructure under the homelab (bare-metal node root passwords, NAS admin, UCG-Ultra, KPN router) live in 1Password but outside the Homelab vault — they're personal/external, not homelab.
 
-Vault Kubernetes auth method, `eso` policy, and `eso` role captured in Terraform (`terraform/vault/`) on 2026-05-16.
+Vault Kubernetes auth method, `eso` policy, `eso` role, AppRole auth method, `ansible` policy, and the `ansible-local`/`ansible-awx` AppRole roles captured in Terraform (`terraform/vault/`) on 2026-05-16. SecretIDs are NEVER in Terraform state — generated manually, stored in 1Password + local env file. See homelab-design.md AppRole bootstrap runbook.
 
 Vault listener is plaintext (`tls_disable = 1`) — deliberate, see Known gotchas.
 
-**Ansible Vault: deprecated for new secrets.**
-Original design said "Ansible Vault permanently for LXC secrets." That decision is reversed — Ansible Vault is now legacy. New LXC secrets that machines pull go in Vault (via `community.hashi_vault` lookup) once the migration pattern is established; new human-operated secrets go in 1Password. Existing Ansible Vault usage (group_vars/all/vault.yml with `k3s_token` etc.) stays until convenient to migrate.
+**Ansible Vault: bootstrap secrets only.**
+Holds `k3s_token`, RHEL subscription keys, SSH pubkeys for ansible/breakglass users — the minimum needed to bring a fresh node up to the point HashiCorp Vault is reachable. All other Ansible-pulled secrets live in HashiCorp Vault under `secret/ansible/*`, retrieved via the `community.hashi_vault` lookup with AppRole auth. Proof-of-pattern: `secret/ansible/sftpgo/admin-password` (migrated 2026-05-16).
 
 **Jellyfin: privileged LXC on Urd.**
 Intel QuickSync via /dev/dri passthrough. Not in K3s.
