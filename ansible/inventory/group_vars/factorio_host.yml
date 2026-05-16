@@ -50,7 +50,9 @@ sftpgo_users:
       "/control": ["list", "download", "upload", "overwrite"]
       "/status": ["list", "download"]
       "/logs": ["list", "download"]
-      # /config is intentionally omitted — holds rconpw and other secrets
+      # /config is intentionally omitted — server-settings.json contains
+      # game_password and account_token; admin/ban/whitelist files are
+      # also write-protected from the operator.
     max_sessions: 4
     quota_size: 0 # unlimited; LXC disk is the cap
     quota_files: 0

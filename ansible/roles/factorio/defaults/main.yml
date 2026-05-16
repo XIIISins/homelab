@@ -19,6 +19,11 @@ factorio_data_subdirs:
   - config
   - control
 
+# Secrets — kept outside /factorio/ so they're not in the operator's
+# SFTP-visible home_dir tree at all.
+factorio_secrets_dir: /var/lib/factorio-secrets
+factorio_rconpw_path: "{{ factorio_secrets_dir }}/rconpw"
+
 # Network ports (factorio defaults; override per-deployment if needed)
 factorio_port: 34197
 factorio_rcon_port: 27015

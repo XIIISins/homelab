@@ -11,7 +11,7 @@
   block:
     - name: Check for existing RCON password file
       ansible.builtin.stat:
-        path: "{{ factorio_home }}/config/rconpw"
+        path: "{{ factorio_rconpw_path }}"
       register: rconpw_stat
 
     - name: Generate random RCON password
@@ -25,7 +25,7 @@
     - name: Write RCON password file (generated)
       ansible.builtin.copy:
         content: "{{ pwgen_out.stdout }}\n"
-        dest: "{{ factorio_home }}/config/rconpw"
+        dest: "{{ factorio_rconpw_path }}"
         owner: "{{ factorio_user }}"
         group: "{{ factorio_group }}"
         mode: "0640"
@@ -36,7 +36,7 @@
     - name: Write RCON password file (operator-supplied)
       ansible.builtin.copy:
         content: "{{ factorio_rcon_password }}\n"
-        dest: "{{ factorio_home }}/config/rconpw"
+        dest: "{{ factorio_rconpw_path }}"
         owner: "{{ factorio_user }}"
         group: "{{ factorio_group }}"
         mode: "0640"

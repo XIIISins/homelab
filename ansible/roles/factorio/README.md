@@ -45,7 +45,7 @@ admin manages day-to-day server state (mods, version, restart) via SFTP only.
 ├── saves/                 # save files (latest is auto-loaded)
 ├── scenarios/
 ├── script-output/
-├── config/                # server-settings.json, rconpw, lists
+├── config/                # server-settings.json, lists
 ├── logs/                  # factorio.log + reconcile.log (operator-readable)
 └── control/
     ├── factorio-control.json    # operator-writable desired state
@@ -65,6 +65,7 @@ admin manages day-to-day server state (mods, version, restart) via SFTP only.
 
 /etc/logrotate.d/factorio
 /var/cache/factorio-reconcile/       # API response cache
+/var/lib/factorio-secrets/           # RCON password — outside operator's SFTP tree
 ```
 
 ## Variables
