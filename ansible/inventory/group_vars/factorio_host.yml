@@ -15,7 +15,7 @@ sftpgo_users:
     status: 1
     home_dir: /factorio
     permissions:
-      "/": ["list"]
+      "/": ["list", "download"]
       "/mods":
         [
           "list",
@@ -50,6 +50,16 @@ sftpgo_users:
       "/control": ["list", "download", "upload", "overwrite"]
       "/status": ["list", "download"]
       "/logs": ["list", "download"]
+      "/config":
+        [
+          "list",
+          "download",
+          "upload",
+          "overwrite",
+          "delete",
+          "rename",
+          "create_dirs",
+        ]
       # /config is intentionally omitted — server-settings.json contains
       # game_password and account_token; admin/ban/whitelist files are
       # also write-protected from the operator.
