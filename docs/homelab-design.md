@@ -676,10 +676,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 - [ ] **Zabbix LXC** (1102, Skuld).
 - [ ] **Jellyfin LXC** (privileged, Urd, QuickSync).
 
-**Cleanup / hygiene:**
-- [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — hardcoded to `10.42.0.0/16` during the 2026-05-14 incident; variable still used for K3s `cluster-cidr`, so two sources of truth for the same value.
-- [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip).
-
 **Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
 
 The two-layer secrets architecture says machine-pulled secrets go in HashiCorp Vault, not Ansible Vault. The Vault-for-Ansible integration pattern isn't built yet, so new machine secrets continue to land in `group_vars/all/vault.yml` as a temporary measure. When the migration pattern is built, all existing entries move over as a batch.
