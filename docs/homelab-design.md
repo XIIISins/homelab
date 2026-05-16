@@ -1,5 +1,5 @@
 # Homelab design document
-*Last updated: 2026-05-15 — draft v6*
+*Last updated: 2026-05-16 — draft v7*
 
 ---
 
@@ -370,7 +370,7 @@ True core services — cascade failures if down. Resiliency > simplicity.
 
 | Service | Replicas | Status |
 |---------|----------|--------|
-| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (imperatively — see below) |
+| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (Terraform `terraform/vault/`) |
 | Authentik server | 3 | 🔲 — next forward step |
 | Authentik worker | 1 | 🔲 |
 | Redis | 1 | 🔲 |
@@ -489,7 +489,7 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
 - `eso` policy: read on `secret/data/*`
 - `eso` role: binds SA `external-secrets` in ns `external-secrets` → `eso` policy, TTL 1h
 - ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
-- ⚠️ Auth method config + KV engine + policy + role applied **imperatively** on 2026-05-14. NOT yet in IaC. Pending: capture as Terraform Vault provider under `terraform/vault/`.
+- Auth method config + KV engine + policy + role captured in Terraform (`terraform/vault/`) on 2026-05-16 via declarative `import {}` blocks. Local state, `VAULT_ADDR`/`VAULT_TOKEN` via env. Provider `hashicorp/vault ~> 4.0`. Scoped Terraform token and remote state deferred.
 - KV store currently empty — Authentik's bootstrap secrets will be the first real entries.
 
 ### OpenBao migration (future)
@@ -503,7 +503,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Tool | Responsibility |
 |------|---------------|
 | Terraform (`bpg/proxmox`) | VMs, LXCs, DNS, AWS KMS |
-| Terraform (`hashicorp/vault`, planned) | Vault config: auth method, policies, roles, KV engine |
+| Terraform (`hashicorp/vault`) | Vault config: auth method, policies, roles, KV engine |
 | Ansible + AWX | OS config, drift correction, audit trail. Also: K3s install + the Calico addon manifest |
 | Flux CD | K3s workload lifecycle |
 | Renovate | Dependency version PRs (planned — activated at "2.0" state) |
@@ -514,8 +514,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 - **Flux** — in-cluster workloads: everything in `k8s/`.
 - **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
 
-**Known IaC debt (2026-05-15):**
-- Vault config (auth method, policies, roles, KV engine) configured via CLI on 2026-05-14, not yet in Terraform.
+**Known IaC debt (2026-05-16):**
 - General CLI-era K3s *workload* config from the build/troubleshooting period should be backfilled into Flux as a tracked task. (The K3s *install* itself IS fully IaC'd in Ansible — the debt is the in-cluster workload layer, not the cluster bootstrap.)
 - Some manifest files have stale path-comment headers predating the `infrastructure` / `infrastructure-config` split (e.g. `clustersecretstore.yaml`).
 
@@ -668,7 +667,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 ## Open questions / pending tasks
 
 **High priority — forward path:**
-- [ ] **Capture Vault config in Terraform** (`terraform/vault/`). Five resources: KV engine, Kubernetes auth method, auth config, `eso` policy, `eso` role. Currently imperative-only. First-time codifying existing live state — will need `terraform import` for each resource. Auth: root token via `VAULT_TOKEN` env var initially; iterate to scoped Terraform token later. Local state for now.
 - [ ] **Deploy Authentik + Redis** in must-run K3s. Bootstrap secrets (signing key, DB connection, Redis password) go in Vault and are pulled via ESO. Unblocks Tailscale LXCs.
 - [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in.
 

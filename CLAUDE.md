@@ -92,7 +92,7 @@ The rule: *if I'd look it up by hand → 1Password. If a machine pulls it → Va
 
 Scope of homelab secret stores: "things that exist because the homelab exists." Personal credentials, external service accounts, and infrastructure under the homelab (bare-metal node root passwords, NAS admin, UCG-Ultra, KPN router) live in 1Password but outside the Homelab vault — they're personal/external, not homelab.
 
-Vault Kubernetes auth method, `eso` policy, and `eso` role configured imperatively on 2026-05-14 — NOT yet captured in IaC. Pending: Terraform Vault provider config under `terraform/vault/`.
+Vault Kubernetes auth method, `eso` policy, and `eso` role captured in Terraform (`terraform/vault/`) on 2026-05-16.
 
 Vault listener is plaintext (`tls_disable = 1`) — deliberate, see Known gotchas.
 
@@ -216,7 +216,7 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ Must-run K3s — VMs provisioned (Terraform), K3s installed + configured (Ansible — fully IaC), Flux bootstrapped
 - ✅ Sealed Secrets — deployed via Flux
 - ✅ Synology CSI — iSCSI only, StorageClass synology-csi-iscsi-retain (default)
-- ✅ Vault — 3 node Raft HA, AWS KMS auto-unseal, iSCSI storage, initialized; K8s auth method configured (imperatively — not yet in IaC)
+- ✅ Vault — 3 node Raft HA, AWS KMS auto-unseal, iSCSI storage, initialized; K8s auth method + KV engine + ESO policy/role in Terraform (`terraform/vault/`, imported 2026-05-16)
 - ✅ External Secrets Operator — deployed; ClusterSecretStore `vault` Ready
 - ✅ MetalLB — L2 working end-to-end. VIP `10.0.20.11` reachable. Required nodeSelectors + Calico/rp_filter fixes (2026-05-14)
 - ✅ tigera-operator — fixed 2026-05-15 via MTU explicit (workaround for upstream projectcalico/calico#7851). No longer Degraded.
@@ -238,10 +238,10 @@ homelab/
 │   ├── proxmox/
 │   │   ├── must-run-k3s/    # VM definitions (bpg/proxmox provider) — populated
 │   │   └── must-run-lxcs/   # LXC definitions — 1120 Factorio; extend per LXC
+│   ├── vault/               # Vault config — KV engine, K8s auth, eso policy + role
 │   ├── dns/                 # scaffolding (empty)
 │   ├── aws/                 # scaffolding (empty)
 │   ├── k3s/                 # scaffolding (empty)
-│   # PLANNED: terraform/vault/  # Vault provider — auth method, policies, roles, KV
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── inventory/
