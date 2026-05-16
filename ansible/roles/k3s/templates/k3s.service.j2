@@ -10,7 +10,7 @@ Wants=network-online.target
 Type=notify
 # Control plane nodes run k3s server
 # Worker nodes run k3s agent
-{% if inventory_hostname in groups['must_run_k3s_cp'] %}
+{% if inventory_hostname in groups['asgard_k3s_cp'] %}
 ExecStart=/usr/local/bin/k3s server
 {% else %}
 ExecStart=/usr/local/bin/k3s agent

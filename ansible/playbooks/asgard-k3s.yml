@@ -1,6 +1,6 @@
 ---
-- name: Configure must-run K3s nodes
-  hosts: must_run_k3s
+- name: Configure asgard K3s nodes
+  hosts: asgard_k3s
   become: true
 
   roles:

@@ -43,7 +43,7 @@
     dest: /etc/rancher/k3s/config.yaml
     mode: "0644"
   when:
-    - inventory_hostname in groups['must_run_k3s_cp']
+    - inventory_hostname in groups['asgard_k3s_cp']
     - inventory_hostname != k3s_init_node
   notify: restart k3s
 
@@ -52,7 +52,7 @@
     src: config-agent.yaml.j2
     dest: /etc/rancher/k3s/config.yaml
     mode: "0644"
-  when: inventory_hostname in groups['must_run_k3s_workers']
+  when: inventory_hostname in groups['asgard_k3s_workers']
   notify: restart k3s
 
 - name: Template K3s systemd service file
@@ -98,7 +98,7 @@
     enabled: true
     daemon_reload: true
   when:
-    - inventory_hostname in groups['must_run_k3s_cp']
+    - inventory_hostname in groups['asgard_k3s_cp']
     - inventory_hostname != k3s_init_node
 
 - name: Wait for all control plane nodes to join
@@ -118,7 +118,7 @@
     state: started
     enabled: true
     daemon_reload: true
-  when: inventory_hostname in groups['must_run_k3s_workers']
+  when: inventory_hostname in groups['asgard_k3s_workers']
 
 - name: Wait for all worker nodes to join
   ansible.builtin.command:

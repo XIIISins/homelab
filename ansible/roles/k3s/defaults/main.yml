@@ -19,7 +19,7 @@ k3s_flannel_backend: "none"
 calico_version: "v3.29.3"
 
 # kubeconfig location on MacBook
-kubeconfig_local_path: "~/.kube/niflheim-must-run.yaml"
+kubeconfig_local_path: "~/.kube/niflheim-asgard.yaml"
 
 # First control plane node — cluster is initialised here first
 k3s_init_node: "gondul"
