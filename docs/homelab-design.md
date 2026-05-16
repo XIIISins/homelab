@@ -515,9 +515,6 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 - **Flux** — in-cluster workloads: everything in `k8s/`.
 - **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
 
-**Known IaC debt (2026-05-16):**
-- General CLI-era K3s *workload* config from the build/troubleshooting period should be backfilled into Flux as a tracked task. (The K3s *install* itself IS fully IaC'd in Ansible — the debt is the in-cluster workload layer, not the cluster bootstrap.)
-
 ---
 
 ## Build sequence
@@ -683,7 +680,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 - [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — hardcoded to `10.42.0.0/16` during the 2026-05-14 incident; variable still used for K3s `cluster-cidr`, so two sources of truth for the same value.
 - [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip).
 - [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt).
-- [ ] Backfill CLI-era K3s *workload* config into Flux (deliberate, tracked — not a blocker).
 
 **Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
 
