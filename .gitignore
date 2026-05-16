@@ -1,14 +1,19 @@
+# ============================================================================
 # macOS
+# ============================================================================
 .DS_Store
 .AppleDouble
 .LSOverride
 
+# ============================================================================
 # Terraform
+# ============================================================================
 **/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfplan
 *.tfvars
-!*.tfvars.example
+!**/*.tfvars.example
 crash.log
 crash.*.log
 override.tf
@@ -17,33 +22,63 @@ override.tf.json
 *_override.tf.json
 .terraform.lock.hcl
 
+# ============================================================================
 # Ansible
+# ============================================================================
 *.retry
-ansible/group_vars/**/vault.yml
-!ansible/group_vars/**/*.example.yml
+ansible/.ansible/
+ansible/inventory/group_vars/**/vault.yml
+!ansible/inventory/group_vars/**/*.example.yml
 ansible/collections/*
 
+# ============================================================================
 # Kubernetes / Flux
+# ============================================================================
 kubeconfig
 *.kubeconfig
 
-# Secrets (belt-and-suspenders)
+# ============================================================================
+# Secrets (belt-and-suspenders — catches accidental commits)
+# ============================================================================
 *.key
 *.pem
 *.p12
 *.pfx
-# *secret*
-*password*
-*credential*
+.aws/credentials
+# *password* and *credential* deliberately omitted — would catch too many
+# legitimate files (docs, configs, role variables that *reference* secrets
+# but don't contain them). The named patterns above + the per-tool patterns
+# above (vault.yml, *.tfvars) are the real defense.
 
+# ============================================================================
+# Python (factorio reconcile script, future automation)
+# ============================================================================
+__pycache__/
+*.pyc
+*.pyo
+
+# ============================================================================
 # Editors
+# ============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.bak
 
-# Misc
+# ============================================================================
+# Environment / shell
+# ============================================================================
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
+
+# ============================================================================
+# Build artifacts (rare in this repo but possible)
+# ============================================================================
+*.log
+*.tar.gz
+*.zip
