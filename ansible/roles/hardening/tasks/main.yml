@@ -1,12 +1,28 @@
 ---
-# ansible/roles/hardening/tasks/main.yml
+# OS-independent system hardening.
+#
+# Dispatches OS-family-specific MAC tasks (SELinux on RHEL, AppArmor on
+# Debian) to redhat.yml or debian.yml, then performs common hardening
+# (SSH config, sysctl, modprobe blocklist, banner).
+#
+# LXC awareness: kernel-level operations (modprobe, MAC enforcement) are
+# largely no-ops inside an unprivileged LXC — the host enforces these.
+# Tasks remain in place for the bare-metal / KVM-VM case.
 
-- name: Set SELinux to enforcing
-  # SELinux provides mandatory access control — essential for RHEL enterprise security
-  # enforcing = SELinux actively blocks violations (not just logging them)
-  ansible.posix.selinux:
-    policy: "{{ selinux_policy }}"
-    state: "{{ selinux_state }}"
+- name: Run RedHat-family hardening tasks
+  ansible.builtin.include_tasks: redhat.yml
+  when: ansible_os_family == "RedHat"
+
+- name: Run Debian-family hardening tasks
+  ansible.builtin.include_tasks: debian.yml
+  when: ansible_os_family == "Debian"
+
+- name: Fail on unsupported OS family
+  ansible.builtin.fail:
+    msg: "hardening role does not support ansible_os_family={{ ansible_os_family }}"
+  when: ansible_os_family not in ["RedHat", "Debian"]
+
+# ----- OS-independent hardening -----
 
 - name: Harden SSH configuration
   ansible.builtin.template:
@@ -19,7 +35,9 @@
   notify: restart sshd
 
 - name: Disable unused filesystems
-  # Reduce attack surface — these filesystems are rarely needed
+  # Reduce attack surface — these filesystems are rarely needed.
+  # No-op inside unprivileged LXC (host owns the kernel module loader)
+  # but harmless; the file is created but ignored.
   ansible.builtin.copy:
     dest: /etc/modprobe.d/disable-filesystems.conf
     content: |
@@ -31,6 +49,7 @@
       install squashfs /bin/true
       install udf /bin/true
     mode: "0644"
+
 - name: Set secure kernel parameters
   ansible.posix.sysctl:
     name: "{{ item.name }}"
@@ -40,10 +59,11 @@
     reload: true
   loop:
     # Reverse-path filtering: LOOSE mode (2), not strict (1).
-    # These nodes are multi-homed (eth0 = VLAN 21 cluster, eth1 = VLAN 20
-    # MetalLB) and run Calico, both of which create legitimate asymmetric
-    # paths. Strict rp_filter silently drops MetalLB LoadBalancer traffic
-    # arriving on eth1. Loose mode still drops genuinely unroutable sources.
+    # Multi-homed K3s workers (eth0 = VLAN 21 cluster, eth1 = VLAN 20
+    # MetalLB) have legitimate asymmetric paths via Calico. Strict rp_filter
+    # silently drops MetalLB traffic on eth1. Loose mode still drops
+    # genuinely unroutable sources. Single-NIC LXCs don't strictly need
+    # this, but it's harmless.
     - { name: "net.ipv4.conf.all.rp_filter", value: "2" }
     - { name: "net.ipv4.conf.default.rp_filter", value: "2" }
     # Disable ICMP redirects

@@ -1,39 +1,56 @@
 ---
-- name: Register RHEL subscription
-  community.general.redhat_subscription:
+- name: Run RedHat-family baseline tasks
+  ansible.builtin.include_tasks: redhat.yml
+  when: ansible_os_family == "RedHat"
+
+- name: Run Debian-family baseline tasks
+  ansible.builtin.include_tasks: debian.yml
+  when: ansible_os_family == "Debian"
+
+- name: Fail on unsupported OS family
+  ansible.builtin.fail:
+    msg: "baseline role does not support ansible_os_family={{ ansible_os_family }}"
+  when: ansible_os_family not in ["RedHat", "Debian"]
+
+# Minimal Debian images don't include sudo by default. RHEL does, but
+# package: state=present is a no-op when already installed.
+- name: Ensure sudo is installed
+  ansible.builtin.package:
+    name: sudo
     state: present
-    activationkey: "{{ rhel_activation_key }}"
-    org_id: "{{ rhel_org_id }}"
 
-- name: Install qemu-guest-agent
-  ansible.builtin.dnf:
-    name: qemu-guest-agent
+# ----- Ansible runtime user (OS-independent) -----
+
+- name: Create ansible runtime user
+  ansible.builtin.user:
+    name: "{{ ansible_user_name }}"
+    shell: /bin/bash
+    create_home: true
+    password: "*"
     state: present
-  register: qemu_agent_install
 
-- name: Enable and start qemu-guest-agent
-  ansible.builtin.systemd:
-    name: qemu-guest-agent
-    enabled: true
-    state: started
+- name: Add ansible user SSH key
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user_name }}"
+    key: "{{ ansible_user_ssh_public_key }}"
+    state: present
+  when: ansible_user_ssh_public_key | length > 0
 
-- name: Reboot after qemu-guest-agent installation
-  ansible.builtin.reboot:
-    reboot_timeout: 300
-    msg: "Rebooting after qemu-guest-agent installation"
-  when: qemu_agent_install.changed
+- name: Add ansible user to sudoers (NOPASSWD)
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ ansible_user_name }}"
+    content: "{{ ansible_user_name }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
 
-- name: Update all packages
-  ansible.builtin.dnf:
-    name: "*"
-    state: latest
-  notify: reboot
+# ----- Break-glass user (OS-independent) -----
 
 - name: Create break-glass user
   ansible.builtin.user:
     name: "{{ breakglass_user }}"
     shell: /bin/bash
     create_home: true
+    password: "*"
     state: present
 
 - name: Add break-glass SSH key
@@ -41,8 +58,9 @@
     user: "{{ breakglass_user }}"
     key: "{{ breakglass_ssh_public_key }}"
     state: present
+  when: breakglass_ssh_public_key | length > 0
 
-- name: Add break-glass user to sudoers
+- name: Add break-glass user to sudoers (NOPASSWD)
   ansible.builtin.copy:
     dest: "/etc/sudoers.d/{{ breakglass_user }}"
     content: "{{ breakglass_user }} ALL=(ALL) NOPASSWD:ALL\n"

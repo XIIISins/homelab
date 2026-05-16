@@ -1,0 +1,13 @@
+---
+# AppArmor is Debian's default MAC and is typically pre-installed + enabled.
+# Inside an unprivileged Proxmox LXC, AppArmor enforcement is handled by
+# the host's lxc.apparmor.profile setting; the container itself cannot
+# load/unload profiles. For non-LXC Debian hosts (future bare-metal or
+# KVM deployments), ensure AppArmor is running.
+
+- name: Ensure AppArmor is enabled and running (non-LXC only)
+  ansible.builtin.systemd:
+    name: apparmor.service
+    enabled: true
+    state: started
+  when: ansible_virtualization_type != 'lxc'

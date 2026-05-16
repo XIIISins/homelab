@@ -2,9 +2,6 @@
 - name: Configure must-run K3s nodes
   hosts: must_run_k3s
   become: true
-  vars_files:
-    - "{{ playbook_dir }}/../group_vars/all/vars.yml"
-    - "{{ playbook_dir }}/../group_vars/all/vault.yml"
 
   roles:
     - { role: baseline, tags: baseline }

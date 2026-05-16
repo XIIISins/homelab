@@ -1,0 +1,7 @@
+---
+- name: Set SELinux to enforcing
+  # SELinux provides mandatory access control — essential for RHEL enterprise security.
+  # enforcing = SELinux actively blocks violations (not just logging them).
+  ansible.posix.selinux:
+    policy: "{{ selinux_policy }}"
+    state: "{{ selinux_state }}"

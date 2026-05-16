@@ -1,0 +1,11 @@
+# Connection defaults — apply to every host unless overridden in a more
+# specific group or per-host.
+ansible_user: ansible
+ansible_ssh_private_key_file: ~/.ssh/ansible_niflheim
+ansible_python_interpreter: /usr/bin/python3
+
+# Baseline role
+breakglass_user: recovery
+
+# K3s
+k3s_init_node: gondul

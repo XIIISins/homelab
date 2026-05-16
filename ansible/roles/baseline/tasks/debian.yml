@@ -1,0 +1,38 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install qemu-guest-agent (VMs only)
+  ansible.builtin.apt:
+    name: qemu-guest-agent
+    state: present
+  register: qemu_agent_install
+  when: ansible_virtualization_type != 'lxc'
+
+- name: Enable and start qemu-guest-agent (VMs only)
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+  when: ansible_virtualization_type != 'lxc'
+
+- name: Reboot after qemu-guest-agent installation
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+    msg: "Rebooting after qemu-guest-agent installation"
+  when:
+    - ansible_virtualization_type != 'lxc'
+    - qemu_agent_install.changed | default(false)
+
+- name: Install acl (needed for Ansible become_user)
+  ansible.builtin.apt:
+    name: acl
+    state: present
+
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    upgrade: full
+    update_cache: true
+  notify: reboot

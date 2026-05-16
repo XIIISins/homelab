@@ -1,5 +1,12 @@
 ---
+# Break-glass / recovery user
 breakglass_user: recovery
-breakglass_ssh_public_key: ""
+breakglass_ssh_public_key: "" # set in vault.yml
+
+# Ansible runtime user
+ansible_user_name: ansible
+ansible_user_ssh_public_key: "" # set in vault.yml
+
+# RHEL subscription
 rhel_subscription_username: ""
 rhel_subscription_password: ""

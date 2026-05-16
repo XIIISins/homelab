@@ -1,0 +1,34 @@
+---
+- name: Register RHEL subscription
+  community.general.redhat_subscription:
+    state: present
+    activationkey: "{{ rhel_activation_key }}"
+    org_id: "{{ rhel_org_id }}"
+
+- name: Install qemu-guest-agent (VMs only)
+  ansible.builtin.dnf:
+    name: qemu-guest-agent
+    state: present
+  register: qemu_agent_install
+  when: ansible_virtualization_type != 'lxc'
+
+- name: Enable and start qemu-guest-agent (VMs only)
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+  when: ansible_virtualization_type != 'lxc'
+
+- name: Reboot after qemu-guest-agent installation
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+    msg: "Rebooting after qemu-guest-agent installation"
+  when:
+    - ansible_virtualization_type != 'lxc'
+    - qemu_agent_install.changed | default(false)
+
+- name: Update all packages
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  notify: reboot
