@@ -250,7 +250,7 @@ homelab/
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── inventory/
-│   │   ├── hosts.yml        # groups: must_run_k3s_cp, must_run_k3s_workers, factorio_host
+│   │   ├── hosts.yml        # groups: asgard_k3s_cp, asgard_k3s_workers, factorio_host
 │   │   └── group_vars/all/  # vars.yml + vault.yml (Ansible Vault encrypted) — adjacent to inventory for auto-discovery
 │   ├── playbooks/
 │   │   ├── asgard-k3s.yml # roles: baseline → k3s → hardening

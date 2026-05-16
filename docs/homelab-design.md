@@ -717,7 +717,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 
 **IaC layering — explicit model:**
 - **Terraform** — anything with an API/provider: Proxmox VMs/LXCs, Cloudflare DNS, AWS KMS, Vault config.
-- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `asgard-k3s.yml` runs roles `baseline → k3s → hardening` against the `must_run_k3s` group.
+- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `asgard-k3s.yml` runs roles `baseline → k3s → hardening` against the `asgard_k3s` group.
 - **Flux** — in-cluster workloads: everything in `k8s/`.
 - **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
 
