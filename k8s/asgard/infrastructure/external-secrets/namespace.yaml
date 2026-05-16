@@ -1,0 +1,6 @@
+# k8s/asgard/infrastructure/external-secrets/namespace.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets

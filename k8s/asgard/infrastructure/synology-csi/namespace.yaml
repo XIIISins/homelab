@@ -1,0 +1,6 @@
+# k8s/asgard/infrastructure/synology-csi/namespace.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: synology-csi

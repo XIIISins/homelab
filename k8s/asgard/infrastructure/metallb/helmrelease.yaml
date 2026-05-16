@@ -1,0 +1,28 @@
+# k8s/asgard/infrastructure/metallb/helmrelease.yaml
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metallb
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://metallb.github.io/metallb
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: metallb
+      version: "0.x"
+      sourceRef:
+        kind: HelmRepository
+        name: metallb
+        namespace: flux-system
+  install:
+    createNamespace: false

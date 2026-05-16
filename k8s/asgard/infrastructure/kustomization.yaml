@@ -1,0 +1,17 @@
+# k8s/asgard/infrastructure/kustomization.yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - sealed-secrets/namespace.yaml
+  - sealed-secrets/helmrelease.yaml
+  - synology-csi/namespace.yaml
+  - synology-csi/synology-secret.yaml
+  - synology-csi/helmrelease.yaml
+  - vault/namespace.yaml
+  - vault/vault-unseal-secret.yaml
+  - vault/helmrelease.yaml
+  - external-secrets/namespace.yaml
+  - external-secrets/helmrelease.yaml
+  - metallb/namespace.yaml
+  - metallb/helmrelease.yaml

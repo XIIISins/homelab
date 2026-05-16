@@ -1,6 +1,0 @@
-# k8s/must-run/infrastructure/sealed-secrets/namespace.yaml
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: sealed-secrets

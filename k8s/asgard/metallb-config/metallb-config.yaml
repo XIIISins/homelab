@@ -1,0 +1,25 @@
+# k8s/asgard/metallb-config/metallb-config.yaml
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: asgard
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.0.20.11-10.0.20.99
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: asgard
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - asgard
+  interfaces:
+    - eth1
+  nodeSelectors:
+    - matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: DoesNotExist

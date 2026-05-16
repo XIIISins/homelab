@@ -1,8 +1,0 @@
-# k8s/must-run/infrastructure/vault/kustomization.yaml
----
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - namespace.yaml
-  - vault-unseal-secret.yaml
-  - helmrelease.yaml
