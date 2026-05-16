@@ -750,10 +750,12 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Decision | Choice | Reason |
 |----------|--------|--------|
 | Orchestrator | K3s only | Single orchestrator |
-| Two K3s clusters | Must-run (core) + Can-run | Core services isolated from experimental |
-| Core K3s services | Vault, Authentik, Redis, MetalLB, Synology CSI, ESO | Cascade failure criterion |
+| Two K3s clusters | Must-run + Can-run | Separation by failure-domain risk, not by maturity — both host production services |
+| Must-run K3s contents | Core infrastructure + automation + production services | See "Must-run K3s cluster" section for current planned list |
+| Cluster split criterion | Cascade-failure OR recovery-blocking criterion for must-run | Earlier "cascade only" framing missed automation (recovery-blocking) and daily-use services (user-blocking). Not production-vs-experimental — both clusters host real services |
 | GitOps | Flux CD | Terminal-native |
 | Flux structure | infrastructure + per-component config Kustomizations | CRD timing — CRDs must exist before dependent resources; per-component split avoids shared failure domains |
+| Terraform GitOps | Tofu Controller (flux-iac org) | Flux-native, push-to-main matches the existing Flux model. Atlantis rejected — PR-flow friction not worth it for solo dev |
 | Identity | Authentik (must-run K3s) | OIDC + LDAP, cascade risk |
 | DNS | AdGuard Home (not Pi-hole) | More polished, fully free, self-hosted sync |
 | Galera | Dropped | Nothing requires MySQL — all on PostgreSQL |
@@ -774,8 +776,10 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Worker rp_filter | Loose mode (`2`) | Strict mode drops MetalLB traffic on multi-homed nodes |
 | MetalLB L2Advertisement | `nodeSelectors` exclude CP nodes | CP nodes have no eth1 — L2 election must not pick them |
 | Vault TLS | `tls_disable = 1` (no listener/cluster TLS) | Conscious homelab simplicity tradeoff — revisit at hardening |
-| Secrets architecture | Two-layer: 1Password (humans) + Vault (machines) | Enterprise-standard pattern; "centralize everything" rejected after considering Vaultwarden, 1Password Connect, Infisical, OpenBao alternatives — see Secrets management section |
-| Ansible Vault scope | Legacy only, deprecated for new | Replaced by the two-layer model |
+| Secrets architecture | Three stores by access pattern: 1Password (humans), HashiCorp Vault (machines at runtime), Ansible Vault (machines at bootstrap) | "Centralize everything" rejected after considering Vaultwarden, 1Password Connect, Infisical, OpenBao alternatives — see Secrets management section |
+| Bootstrap-vs-runtime split | Ansible Vault for bootstrap, HashiCorp Vault for runtime | Resolves circular dependency: HashiCorp Vault lives in must-run K3s, so anything K3s itself needs to come up cannot live there. Bootstrap layer is narrow, stable, and rare-touch |
+| Ansible Vault scope | Bootstrap secrets only (k3s_token, RHEL keys, SSH pubkeys, AWS KMS re-seal copy) | Narrow permanent role, not legacy — runtime machine secrets go to HashiCorp Vault |
+| Ansible → Vault auth | AppRole, two roles (`ansible-local` for MacBook, `ansible-awx` for cluster) | Industry-standard for non-K8s automation; RoleIDs from Terraform outputs, SecretIDs generated manually and kept out of TF state (90-day rotation, 1Password recovery copy) |
 | Long-term Vault successor | OpenBao (migration ~12 months out) | HashiCorp BSL + IBM acquisition risk; LF governance preferred long-term |
 | Repo visibility | Private (GitHub) | Reduces exposure; SealedSecrets still used for bootstrap secrets |
 | VM naming | Valkyries (CP) + Einherjar/Drengr (workers) | Norse theme, conceptually fits K3s |
