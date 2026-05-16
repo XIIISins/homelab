@@ -1,0 +1,43 @@
+---
+# When bind_address is 0.0.0.0, dial 127.0.0.1 from the LXC itself for the
+# bootstrap API calls. The bind address is the listen interface; the dial
+# target needs to be something specific.
+- name: Compute admin API base URL (for in-LXC bootstrap calls)
+  ansible.builtin.set_fact:
+    sftpgo_admin_api_base: >-
+      http://{{ '127.0.0.1' if sftpgo_web_admin_bind_address in ['0.0.0.0', '::'] else sftpgo_web_admin_bind_address }}:{{ sftpgo_web_admin_bind_port }}
+
+# Apply any pending config/group changes before starting.
+- name: Flush handlers to apply config + group changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure SFTPGo is enabled and running
+  ansible.builtin.systemd:
+    name: sftpgo.service
+    enabled: true
+    state: started
+
+- name: Wait for SFTPGo admin API to respond
+  ansible.builtin.uri:
+    url: "{{ sftpgo_admin_api_base }}/healthz"
+    status_code: 200
+  register: sftpgo_health
+  retries: 30
+  delay: 1
+  until: sftpgo_health.status == 200
+
+- name: Authenticate as admin to verify bootstrap succeeded
+  ansible.builtin.uri:
+    url: "{{ sftpgo_admin_api_base }}/api/v2/token"
+    method: GET
+    user: "{{ sftpgo_admin_username }}"
+    password: "{{ sftpgo_admin_password_effective }}"
+    force_basic_auth: true
+    status_code: 200
+  register: sftpgo_admin_token
+  no_log: true
+
+- name: Store admin JWT for subsequent tasks
+  ansible.builtin.set_fact:
+    sftpgo_admin_jwt: "{{ sftpgo_admin_token.json.access_token }}"
+  no_log: true

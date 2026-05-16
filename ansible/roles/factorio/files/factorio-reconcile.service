@@ -1,0 +1,20 @@
+[Unit]
+Description=Factorio state reconciler (one tick)
+Documentation=file:///factorio/README.txt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root so it can write to /opt/ and call systemctl on factorio.service.
+# All file writes under /factorio/ are chowned back to factorio:factorio inside
+# the script.
+ExecStart=/usr/local/bin/factorio-reconcile
+
+# Don't fail the timer if a single tick errors — the script writes its own
+# status and the next tick will retry.
+SuccessExitStatus=0 1
+
+# Give long-running ticks (downloading a new factorio version) plenty of time
+# before systemd kills them.
+TimeoutStartSec=10min

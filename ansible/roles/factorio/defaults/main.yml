@@ -1,0 +1,64 @@
+---
+# Identity
+factorio_user: factorio
+factorio_group: factorio
+# Leave UID/GID unset to let useradd --system pick from the 100-999 range.
+# Set explicitly if you need symmetry across rebuilds / migrations from Docker (845).
+factorio_uid: null
+factorio_gid: null
+
+# Layout
+factorio_home: /factorio
+factorio_install_base: /opt
+factorio_data_subdirs:
+  - mods
+  - saves
+  - scenarios
+  - script-output
+  - logs
+  - config
+  - control
+
+# Network ports (factorio defaults; override per-deployment if needed)
+factorio_port: 34197
+factorio_rcon_port: 27015
+
+# Initial state — written into factorio-control.json on first deploy only.
+# Subsequent runs respect whatever the operator has set in the file.
+factorio_initial_version: stable
+
+# RCON password — generated server-side at first deploy. Override to a
+# specific value (from Ansible Vault / HashiCorp Vault lookup) if you want
+# RCON access from outside the LXC.
+factorio_rcon_password: ""   # empty = role generates a random one on first run
+
+# server-settings.json values. These are written on first deploy only;
+# subsequent runs do not overwrite (operator owns the file). Use the
+# `force_overwrite_server_settings` flag to update from Ansible.
+factorio_server_name: "Factorio Server"
+factorio_server_description: "Powered by IaC, fueled by spite."
+factorio_server_tags: ["homelab"]
+factorio_max_players: 0
+factorio_visibility_public: false
+factorio_visibility_lan: true
+factorio_account_username: ""
+factorio_account_token: ""
+factorio_game_password: ""
+factorio_require_user_verification: true
+factorio_max_upload_kbps: 0
+factorio_max_upload_slots: 5
+factorio_min_latency_ticks: 0
+factorio_ignore_player_limit_for_returning: true
+factorio_allow_commands: "admins-only"   # true | false | "admins-only"
+factorio_autosave_interval: 10
+factorio_autosave_slots: 5
+factorio_afk_autokick_interval: 0
+factorio_auto_pause: true
+factorio_only_admins_can_pause: true
+factorio_autosave_only_on_server: true
+factorio_non_blocking_saving: true
+factorio_admins: []
+
+# Whether to overwrite operator-owned config files on subsequent role runs.
+# Default: false (preserve operator edits).
+factorio_force_overwrite_server_settings: false

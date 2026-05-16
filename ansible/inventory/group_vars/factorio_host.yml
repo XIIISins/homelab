@@ -1,0 +1,56 @@
+---
+# Factorio LXC group vars. Composes with role defaults from baseline,
+# factorio, sftpgo, and hardening.
+
+# SFTPGo virtual users for this host. The factorio role creates and owns
+# the /factorio/* tree; SFTPGo serves into it as the sftpgo system user,
+# which baseline adds to the `factorio` group (via sftpgo_extra_groups).
+sftpgo_extra_groups:
+  - factorio
+
+sftpgo_users:
+  - username: operator
+    description: "Factorio server operator (friend with shell-by-SFTP access)"
+    password: "{{ vault_factorio_operator_password }}"
+    status: 1
+    home_dir: /factorio
+    permissions:
+      "/": ["list"]
+      "/mods":
+        [
+          "list",
+          "download",
+          "upload",
+          "overwrite",
+          "delete",
+          "rename",
+          "create_dirs",
+        ]
+      "/saves":
+        [
+          "list",
+          "download",
+          "upload",
+          "overwrite",
+          "delete",
+          "rename",
+          "create_dirs",
+        ]
+      "/scenarios":
+        [
+          "list",
+          "download",
+          "upload",
+          "overwrite",
+          "delete",
+          "rename",
+          "create_dirs",
+        ]
+      "/script-output": ["list", "download"]
+      "/control": ["list", "download", "upload", "overwrite"]
+      "/status": ["list", "download"]
+      "/logs": ["list", "download"]
+      # /config is intentionally omitted — holds rconpw and other secrets
+    max_sessions: 4
+    quota_size: 0 # unlimited; LXC disk is the cap
+    quota_files: 0

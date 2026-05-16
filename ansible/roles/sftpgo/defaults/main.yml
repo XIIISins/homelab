@@ -1,0 +1,94 @@
+---
+# ============================================================================
+# sftpgo role defaults
+# ============================================================================
+# This role installs SFTPGo from the official OSU mirror APT repo, bootstraps
+# an admin account via environment variables, configures the daemon via
+# /etc/sftpgo/sftpgo.env, and provisions virtual users via the REST API.
+#
+# Genericness: pass `sftpgo_users` with home_dir + permissions per user.
+# Cross-service file sharing: pass `sftpgo_extra_groups` to add the sftpgo
+# system user to other groups (e.g. ['factorio']) so it can read/write files
+# in shared paths.
+# ============================================================================
+
+# ---- APT repository ----
+sftpgo_apt_repo_url: "https://ftp.osuosl.org/pub/sftpgo/apt"
+sftpgo_apt_gpg_key_url: "https://ftp.osuosl.org/pub/sftpgo/apt/gpg.key"
+sftpgo_apt_keyring_path: "/usr/share/keyrings/sftpgo-archive-keyring.gpg"
+
+# ---- Network bindings ----
+# SFTP service (operator-facing, exposed via UCG port-forward)
+sftpgo_sftp_bind_address: "0.0.0.0"
+sftpgo_sftp_bind_port: 22022
+
+# Web admin UI. Default binds to all interfaces — reach it from your LAN at
+# http://<lxc-ip>:8080. Set to 127.0.0.1 if you'd rather SSH-tunnel for
+# stricter isolation.
+sftpgo_web_admin_enabled: true
+sftpgo_web_admin_bind_address: "0.0.0.0"
+sftpgo_web_admin_bind_port: 8080
+
+# Web client UI (operator-facing file manager). Deferred for v1 — leave
+# disabled. When ready, enable and put behind a reverse proxy / SSO.
+sftpgo_web_client_enabled: false
+sftpgo_web_client_bind_address: "0.0.0.0"
+sftpgo_web_client_bind_port: 8081
+
+# ---- Service hardening ----
+sftpgo_umask: "0002" # files created group-writable → factorio user can edit
+sftpgo_extra_groups: [] # e.g. ['factorio'] so sftpgo can write into /factorio/
+
+# Built-in defender — rate-limits / temp-bans clients that fail auth.
+sftpgo_defender_enabled: true
+sftpgo_defender_ban_time_minutes: 30
+sftpgo_defender_threshold: 15 # score before ban
+sftpgo_defender_score_invalid: 2
+sftpgo_defender_score_valid: 1
+sftpgo_defender_observation_time_minutes: 30
+
+# ---- Admin bootstrap ----
+# Username for the initial admin account. Used only on first start (when no
+# admin exists yet). On subsequent runs, this is ignored.
+sftpgo_admin_username: "admin"
+# Admin password. If empty, the role generates a random 32-char password
+# and writes it to /etc/sftpgo/admin-password.txt (root-only, mode 0600).
+# Override from a vault for production. NEVER commit the rendered value.
+sftpgo_admin_password: ""
+
+# ---- Virtual users ----
+# Each entry maps directly to SFTPGo's user model. Fields:
+#   username      (required)
+#   status        1 = enabled, 0 = disabled. Default: 1
+#   password      Plaintext password — optional, prefer public_keys for SFTP.
+#   public_keys   List of authorized SSH public key strings.
+#   home_dir      Absolute path to the user's SFTP root. Must exist on disk.
+#   permissions   Dict mapping virtual path → list of permission strings.
+#                 Valid: list, download, upload, overwrite, delete,
+#                 delete_files, delete_dirs, rename, rename_files,
+#                 rename_dirs, create_dirs, create_symlinks, chmod, chown,
+#                 chtimes, '*' (all).
+#   virtual_folders  Optional — for mounting paths outside home_dir.
+#   quota_size    Bytes (0 = unlimited).
+#   quota_files   File count (0 = unlimited).
+#   max_sessions  Concurrent session cap (0 = unlimited).
+#   description   Free-form text.
+sftpgo_users: []
+
+# ---- Data provider ----
+# Default: sqlite (embedded, fine for single-node). Switch to postgres for
+# HA or multi-instance. The role only configures sqlite directly; for
+# postgres, set these vars and a connection string.
+sftpgo_data_provider_driver: "sqlite"
+sftpgo_data_provider_name: "/var/lib/sftpgo/sftpgo.db" # absolute path with filename for sqlite; db name for postgres
+
+# ---- Logging ----
+sftpgo_log_file_path: "/var/log/sftpgo/sftpgo.log"
+sftpgo_log_level: "info"
+sftpgo_log_compress: true
+
+# ---- TOTP ----
+# SFTPGo supports per-user TOTP. We just enable the feature; users opt in
+# via the WebClient (when it's exposed) or via API.
+sftpgo_totp_enabled: true
+sftpgo_totp_issuer: "SFTPGo"

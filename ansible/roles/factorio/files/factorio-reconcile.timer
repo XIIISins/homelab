@@ -1,0 +1,14 @@
+[Unit]
+Description=Factorio state reconciler (timer)
+Documentation=file:///factorio/README.txt
+
+[Timer]
+# Fire 30s after the previous reconcile finished. This naturally serializes —
+# a long install pushes the next tick out, no overlap or queueing.
+OnBootSec=15s
+OnUnitInactiveSec=30s
+Unit=factorio-reconcile.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,47 @@
+#!/bin/bash
+# factorio-launch — start the Factorio dedicated server.
+#
+# Called from factorio.service. Reads the RCON password from disk (since
+# factorio's CLI only takes the password inline, not a file path) and execs
+# the binary. /opt/factorio is a symlink managed by factorio-reconcile and
+# points at the currently-installed version's directory.
+
+set -euo pipefail
+
+FACTORIO_BIN="/opt/factorio/bin/x64/factorio"
+SERVER_SETTINGS="/factorio/config/server-settings.json"
+SERVER_ADMINLIST="/factorio/config/server-adminlist.json"
+SERVER_BANLIST="/factorio/config/server-banlist.json"
+SERVER_WHITELIST="/factorio/config/server-whitelist.json"
+RCON_PW_FILE="/factorio/config/rconpw"
+
+PORT="${FACTORIO_PORT:-34197}"
+RCON_PORT="${FACTORIO_RCON_PORT:-27015}"
+
+if [[ ! -x "$FACTORIO_BIN" ]]; then
+    echo "factorio-launch: factorio binary missing at $FACTORIO_BIN" >&2
+    echo "factorio-launch: factorio-reconcile may not have completed an install yet" >&2
+    exit 1
+fi
+
+if [[ ! -r "$RCON_PW_FILE" ]]; then
+    echo "factorio-launch: rcon password file missing at $RCON_PW_FILE" >&2
+    exit 1
+fi
+
+RCON_PASSWORD="$(cat "$RCON_PW_FILE")"
+
+args=(
+    --start-server-load-latest
+    --server-settings "$SERVER_SETTINGS"
+    --port "$PORT"
+    --rcon-port "$RCON_PORT"
+    --rcon-password "$RCON_PASSWORD"
+)
+
+# Optional list files — only pass if present, otherwise Factorio uses defaults.
+[[ -f "$SERVER_ADMINLIST" ]] && args+=(--server-adminlist "$SERVER_ADMINLIST")
+[[ -f "$SERVER_BANLIST"   ]] && args+=(--server-banlist "$SERVER_BANLIST")
+[[ -f "$SERVER_WHITELIST" ]] && args+=(--server-whitelist "$SERVER_WHITELIST")
+
+exec "$FACTORIO_BIN" "${args[@]}"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Operator-triggered immediate factorio restart
+Documentation=file:///factorio/README.txt
+After=factorio.service
+
+[Service]
+Type=oneshot
+# Helper script: removes the trigger first (so the path unit can't loop),
+# then restarts factorio only if the control file's state allows it.
+ExecStart=/usr/local/bin/factorio-restart-now-handler

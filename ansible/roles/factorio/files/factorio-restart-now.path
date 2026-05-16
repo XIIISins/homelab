@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch for operator-triggered immediate factorio restart
+Documentation=file:///factorio/README.txt
+After=factorio.service
+
+[Path]
+# Triggers on rising edge: file appears (operator touches it via SFTP).
+PathExists=/factorio/control/restart-now
+Unit=factorio-restart-now.service
+
+[Install]
+WantedBy=multi-user.target

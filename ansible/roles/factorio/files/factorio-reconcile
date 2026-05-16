@@ -1,0 +1,572 @@
+#!/usr/bin/env python3
+"""
+factorio-reconcile — converge Factorio LXC state to the operator's desired state.
+
+Reads  /factorio/control/factorio-control.json  (operator-writable)
+Writes /factorio/control/factorio-status.json   (operator read-only)
+Logs   /factorio/logs/reconcile.log             (operator read-only) + stderr → journal
+
+Triggered by factorio-reconcile.timer every 30s (OnUnitInactiveSec).
+Runs as root (systemd timer-launched oneshot); chowns its writes back to
+factorio:factorio so the operator's SFTP virtual user retains ownership.
+
+v1 scope: version reconcile + restart flag. Mod auto-update is deferred.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import hashlib
+import json
+import logging
+import logging.handlers
+import os
+import pwd
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+FACTORIO_ROOT = Path("/factorio")
+CONTROL_DIR   = FACTORIO_ROOT / "control"
+CONTROL_FILE  = CONTROL_DIR / "factorio-control.json"
+STATUS_FILE   = CONTROL_DIR / "factorio-status.json"
+
+LOG_DIR  = FACTORIO_ROOT / "logs"
+LOG_FILE = LOG_DIR / "reconcile.log"
+LOG_MAX_BYTES    = 1 * 1024 * 1024  # 1 MB per file
+LOG_BACKUP_COUNT = 3
+
+INSTALL_BASE    = Path("/opt")
+INSTALL_SYMLINK = INSTALL_BASE / "factorio"
+INSTALL_PREFIX  = "factorio-"  # /opt/factorio-2.0.76
+
+# Data directories inside the install tree that we replace with symlinks
+# to /factorio/<name> so Factorio's default paths "just work".
+DATA_DIR_NAMES = ("saves", "scenarios", "mods", "script-output")
+
+API_LATEST        = "https://factorio.com/api/latest-releases"
+API_CACHE         = Path("/var/cache/factorio-reconcile/api-latest.json")
+API_CACHE_TTL_S   = 300                                        # 5 minutes
+SHA256_URL        = "https://www.factorio.com/download/sha256sums/"
+DOWNLOAD_URL_TMPL = "https://www.factorio.com/get-download/{version}/headless/linux64"
+
+SERVICE          = "factorio.service"
+HTTP_TIMEOUT_S   = 60   # downloads can take a while
+USER_AGENT       = "factorio-reconcile/1.0"
+VERSIONS_TO_KEEP = 1   # in addition to the currently-symlinked one (so 2 dirs max)
+
+DEFAULT_CONTROL = {
+    "version": "stable",   # "stable" | "experimental" | "2.0.76"
+    "state":   "running",  # "running" | "stopped"
+    "restart": False,      # one-shot flag, cleared by reconcile after acting
+}
+
+VALID_STATES = ("running", "stopped")
+
+CONTROL_MODE = 0o664       # operator group can write
+STATUS_MODE  = 0o644       # operator group read-only
+LOG_MODE     = 0o644
+
+log = logging.getLogger("factorio-reconcile")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def utcnow() -> str:
+    return (
+        _dt.datetime.now(_dt.timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
+_factorio_ids: Optional[tuple[int, int]] = None
+
+def factorio_ids() -> tuple[int, int]:
+    global _factorio_ids
+    if _factorio_ids is None:
+        e = pwd.getpwnam("factorio")
+        _factorio_ids = (e.pw_uid, e.pw_gid)
+    return _factorio_ids
+
+
+def setup_logging() -> None:
+    """Log to /factorio/logs/reconcile.log (rotating) and stderr (systemd journal)."""
+    log.setLevel(logging.INFO)
+    fmt = logging.Formatter(
+        fmt="%(asctime)sZ %(levelname)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    fmt.converter = time.gmtime  # UTC
+
+    sh = logging.StreamHandler(stream=sys.stderr)
+    sh.setFormatter(fmt)
+    log.addHandler(sh)
+
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        uid, gid = factorio_ids()
+        try:
+            os.chown(LOG_DIR, uid, gid)
+            os.chmod(LOG_DIR, 0o755)
+        except PermissionError:
+            pass
+        fh = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT,
+        )
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
+        try:
+            if LOG_FILE.exists():
+                os.chown(LOG_FILE, uid, gid)
+                os.chmod(LOG_FILE, LOG_MODE)
+        except PermissionError:
+            pass
+    except Exception as e:
+        log.warning("could not set up file logging: %s", e)
+
+
+def atomic_write_json(path: Path, data: dict, mode: int = 0o644, chown_factorio: bool = True) -> None:
+    """Atomic JSON write via tempfile + os.replace. Sets mode and ownership before rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmpname = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp.", suffix=".json")
+    tmp = Path(tmpname)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, mode)
+        if chown_factorio:
+            uid, gid = factorio_ids()
+            os.chown(tmp, uid, gid)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def http_get(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
+        return resp.read()
+
+
+# ---------------------------------------------------------------------------
+# Control / status file IO
+# ---------------------------------------------------------------------------
+
+def load_control() -> dict:
+    """Read the operator's control file. Creates it from defaults if missing.
+    Raises json.JSONDecodeError if malformed (caller handles)."""
+    if not CONTROL_FILE.exists():
+        log.info("control file missing, creating from defaults")
+        atomic_write_json(CONTROL_FILE, DEFAULT_CONTROL, mode=CONTROL_MODE)
+        return dict(DEFAULT_CONTROL)
+    with CONTROL_FILE.open() as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError("control file root must be a JSON object", "", 0)
+    merged = dict(DEFAULT_CONTROL)
+    merged.update(data)
+    return merged
+
+
+def write_control(data: dict) -> None:
+    atomic_write_json(CONTROL_FILE, data, mode=CONTROL_MODE)
+
+
+def write_status(data: dict) -> None:
+    atomic_write_json(STATUS_FILE, data, mode=STATUS_MODE)
+
+
+def load_prev_status() -> dict:
+    if not STATUS_FILE.exists():
+        return {}
+    try:
+        with STATUS_FILE.open() as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Factorio version resolution
+# ---------------------------------------------------------------------------
+
+def get_available_versions() -> dict:
+    """Return {'stable_headless': '...', 'experimental_headless': '...'}, cached 5min."""
+    now = time.time()
+    if API_CACHE.exists() and (now - API_CACHE.stat().st_mtime) < API_CACHE_TTL_S:
+        try:
+            with API_CACHE.open() as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    api = json.loads(http_get(API_LATEST).decode("utf-8"))
+    result = {
+        "stable_headless":       api.get("stable", {}).get("headless"),
+        "experimental_headless": api.get("experimental", {}).get("headless"),
+    }
+    try:
+        atomic_write_json(API_CACHE, result, chown_factorio=False)
+    except Exception as e:
+        log.warning("could not write API cache: %s", e)
+    return result
+
+
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def resolve_version(spec: str) -> str:
+    if spec == "stable":
+        v = get_available_versions().get("stable_headless")
+        if not v:
+            raise RuntimeError("API returned no stable headless version")
+        return v
+    if spec == "experimental":
+        v = get_available_versions().get("experimental_headless")
+        if not v:
+            raise RuntimeError("API returned no experimental headless version")
+        return v
+    if not VERSION_RE.match(spec):
+        raise ValueError(f"invalid version spec: {spec!r}")
+    return spec
+
+
+def installed_version() -> Optional[str]:
+    """Read /opt/factorio symlink target. Returns None if missing or dangling."""
+    if not INSTALL_SYMLINK.is_symlink():
+        return None
+    target_name = Path(os.readlink(INSTALL_SYMLINK)).name
+    if not target_name.startswith(INSTALL_PREFIX):
+        return None
+    if not (INSTALL_BASE / target_name).is_dir():
+        return None
+    return target_name[len(INSTALL_PREFIX):]
+
+
+# ---------------------------------------------------------------------------
+# Install / cleanup
+# ---------------------------------------------------------------------------
+
+def fetch_sha256(version: str) -> str:
+    target = f"factorio-headless_linux_{version}.tar.xz"
+    sums = http_get(SHA256_URL).decode("utf-8")
+    for line in sums.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1] == target:
+            return parts[0]
+    raise RuntimeError(f"no SHA256 entry for {target} in {SHA256_URL}")
+
+
+def download_and_verify(version: str, dest_dir: Path) -> Path:
+    expected = fetch_sha256(version)
+    url = DOWNLOAD_URL_TMPL.format(version=version)
+    partial = dest_dir / f"factorio-{version}.tar.xz.part"
+    sha = hashlib.sha256()
+    log.info("downloading %s", url)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp, partial.open("wb") as f:
+        for chunk in iter(lambda: resp.read(64 * 1024), b""):
+            sha.update(chunk)
+            f.write(chunk)
+    actual = sha.hexdigest()
+    if actual != expected:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(f"SHA256 mismatch: expected {expected}, got {actual}")
+    log.info("SHA256 verified: %s", expected)
+    final = dest_dir / f"factorio-{version}.tar.xz"
+    partial.rename(final)
+    return final
+
+
+def link_data_dirs(install_dir: Path) -> None:
+    """
+    Replace the data subdirs inside install_dir (which the tarball ships as empty
+    dirs) with symlinks to /factorio/<name>. This way Factorio's default paths
+    resolve to operator data without needing CLI flags for every path.
+    """
+    for name in DATA_DIR_NAMES:
+        src = install_dir / name           # /opt/factorio-X/saves
+        dst = FACTORIO_ROOT / name         # /factorio/saves
+
+        # Ensure dst exists (it should; Ansible creates the tree, but be defensive)
+        dst.mkdir(parents=True, exist_ok=True)
+        try:
+            uid, gid = factorio_ids()
+            os.chown(dst, uid, gid)
+        except PermissionError:
+            pass
+
+        # Remove whatever's at src (file, dir, symlink)
+        if src.is_symlink() or src.exists():
+            if src.is_symlink() or src.is_file():
+                src.unlink()
+            else:
+                shutil.rmtree(src)
+
+        # Create the symlink (relative would be /factorio is not under /opt, so absolute)
+        os.symlink(str(dst), str(src))
+        log.info("linked %s -> %s", src, dst)
+
+
+def install_version(version: str) -> None:
+    """Idempotent install. If target dir already exists, just swap the symlink."""
+    target_dir = INSTALL_BASE / f"{INSTALL_PREFIX}{version}"
+    if target_dir.is_dir():
+        log.info("version %s already extracted at %s, swapping symlink only", version, target_dir)
+        link_data_dirs(target_dir)
+        swap_symlink(target_dir)
+        return
+
+    log.info("installing factorio %s", version)
+    with tempfile.TemporaryDirectory(dir=str(INSTALL_BASE), prefix=".reconcile.") as td:
+        tmp = Path(td)
+        archive = download_and_verify(version, tmp)
+        log.info("extracting %s", archive.name)
+        with tarfile.open(archive, mode="r:xz") as tf:
+            try:
+                tf.extractall(tmp, filter="data")
+            except TypeError:
+                tf.extractall(tmp)
+        extracted = tmp / "factorio"
+        if not extracted.is_dir():
+            raise RuntimeError("tarball did not contain 'factorio/' top-level dir")
+        link_data_dirs(extracted)
+        extracted.rename(target_dir)
+        # Chown the install tree to factorio:factorio. Factorio writes a
+        # .lock file in its install dir at startup, so the runtime user
+        # needs write access to the directory itself (not just data dirs).
+        uid, gid = factorio_ids()
+        for root, dirs, files in os.walk(target_dir):
+            os.chown(root, uid, gid)
+            for name in dirs + files:
+                p = os.path.join(root, name)
+                if not os.path.islink(p):
+                    os.chown(p, uid, gid)
+        os.chown(target_dir, uid, gid)
+        log.info("installed at %s", target_dir)
+
+    swap_symlink(target_dir)
+
+def swap_symlink(new_target: Path) -> None:
+    """Atomically point /opt/factorio at new_target (relative symlink)."""
+    tmp = INSTALL_BASE / ".factorio.swap"
+    tmp.unlink(missing_ok=True)
+    os.symlink(new_target.name, tmp)
+    os.replace(tmp, INSTALL_SYMLINK)
+    log.info("symlink %s -> %s", INSTALL_SYMLINK, new_target.name)
+
+
+def cleanup_old_versions(keep: int) -> None:
+    """Remove old /opt/factorio-* dirs, keeping the current symlink target + `keep` newest."""
+    current_name = None
+    if INSTALL_SYMLINK.is_symlink():
+        current_name = Path(os.readlink(INSTALL_SYMLINK)).name
+
+    candidates = sorted(
+        (p for p in INSTALL_BASE.glob(f"{INSTALL_PREFIX}*") if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    keepers: set[str] = set()
+    if current_name:
+        keepers.add(current_name)
+    for p in candidates:
+        if len(keepers) >= keep + (1 if current_name else 0):
+            break
+        keepers.add(p.name)
+    for p in candidates:
+        if p.name not in keepers:
+            log.info("removing old version dir %s", p.name)
+            shutil.rmtree(p, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Service control
+# ---------------------------------------------------------------------------
+
+def systemctl(action: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["systemctl", action, SERVICE],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def service_active() -> bool:
+    return systemctl("is-active").returncode == 0
+
+
+def start_service() -> None:
+    log.info("systemctl start %s", SERVICE)
+    r = systemctl("start")
+    if r.returncode != 0:
+        raise RuntimeError(f"systemctl start: {r.stderr.strip() or r.stdout.strip()}")
+
+
+def stop_service() -> None:
+    log.info("systemctl stop %s", SERVICE)
+    r = systemctl("stop")
+    if r.returncode not in (0, 5):
+        raise RuntimeError(f"systemctl stop: {r.stderr.strip() or r.stdout.strip()}")
+
+
+def restart_service() -> None:
+    log.info("systemctl restart %s", SERVICE)
+    r = systemctl("restart")
+    if r.returncode != 0:
+        raise RuntimeError(f"systemctl restart: {r.stderr.strip() or r.stdout.strip()}")
+
+
+# ---------------------------------------------------------------------------
+# Reconcile loop
+# ---------------------------------------------------------------------------
+
+def reconcile() -> None:
+    prev = load_prev_status()
+    status = {
+        "installed_version":     None,
+        "service_active":        False,
+        "last_reconcile_utc":    utcnow(),
+        "last_reconcile_status": "ok",
+        "last_restart_utc":      prev.get("last_restart_utc"),
+        "available":             {"stable_headless": None, "experimental_headless": None},
+    }
+
+    try:
+        status["available"] = get_available_versions()
+    except Exception as e:
+        log.warning("API unreachable: %s", e)
+        status["last_reconcile_status"] = f"warn: API unreachable: {e}"
+
+    try:
+        control = load_control()
+    except json.JSONDecodeError as e:
+        log.error("malformed control file: %s", e)
+        status["last_reconcile_status"] = f"error: malformed control file: {e}"
+        status["installed_version"] = installed_version()
+        status["service_active"] = service_active()
+        write_status(status)
+        return
+
+    try:
+        desired = resolve_version(control["version"])
+    except Exception as e:
+        log.error("cannot resolve version %r: %s", control.get("version"), e)
+        status["last_reconcile_status"] = f"error: cannot resolve version {control.get('version')!r}: {e}"
+        status["installed_version"] = installed_version()
+        status["service_active"] = service_active()
+        write_status(status)
+        return
+
+    current = installed_version()
+    if current != desired:
+        log.info("version drift: installed=%s desired=%s", current, desired)
+        was_running = service_active()
+        try:
+            if was_running:
+                stop_service()
+            install_version(desired)
+            cleanup_old_versions(VERSIONS_TO_KEEP)
+        except Exception as e:
+            log.exception("version install failed")
+            status["last_reconcile_status"] = f"error: version install failed: {e}"
+            # Best-effort: if we were running and aborted mid-install, try to
+            # bring the service back. install_version is idempotent and the
+            # symlink may already point at a working install.
+            if was_running:
+                try:
+                    start_service()
+                except Exception:
+                    log.exception("recovery start_service also failed")
+    else:
+        log.debug("version in sync: %s", current)
+
+    # ---- Desired state reconcile ----
+    desired_state = control.get("state", "running")
+    if desired_state not in VALID_STATES:
+        log.warning("invalid state %r, treating as 'running'", desired_state)
+        status["last_reconcile_status"] = (
+            f"warn: invalid state {desired_state!r}, treating as 'running'"
+        )
+        desired_state = "running"
+
+    currently_active = service_active()
+    if desired_state == "running" and not currently_active:
+        log.info("state=running but service inactive — starting")
+        try:
+            start_service()
+            status["last_restart_utc"] = utcnow()
+        except Exception as e:
+            log.exception("could not start service")
+            status["last_reconcile_status"] = f"error: start failed: {e}"
+    elif desired_state == "stopped" and currently_active:
+        log.info("state=stopped but service active — stopping")
+        try:
+            stop_service()
+        except Exception as e:
+            log.exception("could not stop service")
+            status["last_reconcile_status"] = f"error: stop failed: {e}"
+
+    # ---- Restart flag (one-shot, respects desired state) ----
+    if control.get("restart") is True:
+        if desired_state == "stopped":
+            log.info("restart flag is true but state=stopped; clearing flag without restart")
+            control["restart"] = False
+            write_control(control)
+        else:
+            log.info("restart flag is true, restarting service")
+            try:
+                restart_service()
+                status["last_restart_utc"] = utcnow()
+                control["restart"] = False
+                write_control(control)
+            except Exception as e:
+                log.exception("restart failed")
+                status["last_reconcile_status"] = f"error: restart failed: {e}"
+
+    status["installed_version"] = installed_version()
+    status["service_active"]    = service_active()
+    write_status(status)
+
+
+def main() -> int:
+    setup_logging()
+    try:
+        log.info("reconcile tick start")
+        reconcile()
+        log.info("reconcile tick end")
+        return 0
+    except Exception as e:
+        log.exception("fatal error in reconcile")
+        try:
+            write_status({
+                "installed_version":     installed_version(),
+                "service_active":        service_active(),
+                "last_reconcile_utc":    utcnow(),
+                "last_reconcile_status": f"fatal: {type(e).__name__}: {e}",
+                "last_restart_utc":      None,
+                "available":             {"stable_headless": None, "experimental_headless": None},
+            })
+        except Exception:
+            log.exception("could not write status on fatal")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

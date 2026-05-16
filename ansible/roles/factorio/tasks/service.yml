@@ -1,0 +1,25 @@
+---
+- name: Install factorio-launch wrapper
+  ansible.builtin.copy:
+    src: factorio-launch
+    dest: /usr/local/bin/factorio-launch
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install factorio.service
+  ansible.builtin.copy:
+    src: factorio.service
+    dest: /etc/systemd/system/factorio.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable factorio.service (but do not start yet — bootstrap handles that)
+  ansible.builtin.systemd:
+    name: factorio.service
+    enabled: true

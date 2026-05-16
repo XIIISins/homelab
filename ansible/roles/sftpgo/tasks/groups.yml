@@ -1,0 +1,8 @@
+---
+- name: Add sftpgo user to extra groups
+  ansible.builtin.user:
+    name: sftpgo
+    groups: "{{ sftpgo_extra_groups }}"
+    append: true
+  when: sftpgo_extra_groups | length > 0
+  notify: restart sftpgo

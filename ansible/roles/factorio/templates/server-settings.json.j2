@@ -1,0 +1,39 @@
+{
+  "name": "{{ factorio_server_name }}",
+  "description": "{{ factorio_server_description }}",
+  "tags": {{ factorio_server_tags | to_json }},
+  "max_players": {{ factorio_max_players }},
+
+  "visibility": {
+    "public": {{ factorio_visibility_public | to_json }},
+    "lan":    {{ factorio_visibility_lan    | to_json }}
+  },
+
+  "username": "{{ factorio_account_username | default('') }}",
+  "token":    "{{ factorio_account_token    | default('') }}",
+
+  "game_password": "{{ factorio_game_password | default('') }}",
+  "require_user_verification": {{ factorio_require_user_verification | to_json }},
+
+  "max_upload_in_kilobytes_per_second": {{ factorio_max_upload_kbps }},
+  "max_upload_slots": {{ factorio_max_upload_slots }},
+  "minimum_latency_in_ticks": {{ factorio_min_latency_ticks }},
+
+  "ignore_player_limit_for_returning_players": {{ factorio_ignore_player_limit_for_returning | to_json }},
+  "allow_commands": "{{ factorio_allow_commands }}",
+
+  "autosave_interval": {{ factorio_autosave_interval }},
+  "autosave_slots": {{ factorio_autosave_slots }},
+  "afk_autokick_interval": {{ factorio_afk_autokick_interval }},
+
+  "auto_pause": {{ factorio_auto_pause | to_json }},
+  "only_admins_can_pause_the_game": {{ factorio_only_admins_can_pause | to_json }},
+  "autosave_only_on_server": {{ factorio_autosave_only_on_server | to_json }},
+
+  "non_blocking_saving": {{ factorio_non_blocking_saving | to_json }},
+
+  "minimum_segment_size": 25,
+  "minimum_segment_size_peer_count": 20,
+  "maximum_segment_size": 100,
+  "maximum_segment_size_peer_count": 10
+}

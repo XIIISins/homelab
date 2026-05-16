@@ -1,0 +1,86 @@
+---
+# Bootstrap sequence for first-time deploy:
+#   1. If this is a fresh install, force control state=stopped so reconcile
+#      installs factorio but doesn't start factorio.service yet.
+#   2. Run factorio-reconcile.service synchronously to install factorio.
+#   3. Generate a default save if no saves exist yet.
+#   4. Flip control state=running and start factorio.service.
+#
+# Subsequent runs (factorio already installed) skip the state manipulation
+# entirely — the operator's control file is never touched.
+
+- name: Determine if this is a first-time factorio install
+  ansible.builtin.stat:
+    path: "{{ factorio_install_base }}/factorio"
+  register: factorio_install_check
+
+- name: Force control state=stopped during initial install (first time only)
+  ansible.builtin.copy:
+    content: |
+      {"version": "{{ factorio_initial_version }}", "state": "stopped", "restart": false}
+    dest: "{{ factorio_home }}/control/factorio-control.json"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+  when: not factorio_install_check.stat.exists
+
+- name: Run factorio-reconcile synchronously to ensure factorio is installed
+  ansible.builtin.systemd:
+    name: factorio-reconcile.service
+    state: started
+
+- name: Verify /opt/factorio symlink exists after reconcile
+  ansible.builtin.stat:
+    path: "{{ factorio_install_base }}/factorio"
+  register: factorio_symlink
+
+- name: Fail if reconcile did not produce /opt/factorio
+  ansible.builtin.fail:
+    msg: >-
+      factorio-reconcile ran but /opt/factorio is missing.
+      Check /factorio/logs/reconcile.log and
+      /factorio/control/factorio-status.json for errors.
+  when: not factorio_symlink.stat.exists
+
+- name: Check for existing saves
+  ansible.builtin.find:
+    paths: "{{ factorio_home }}/saves"
+    patterns: "*.zip"
+    file_type: file
+  register: factorio_saves
+
+- name: Generate default save if none exist
+  ansible.builtin.command:
+    cmd: "{{ factorio_install_base }}/factorio/bin/x64/factorio --create {{ factorio_home }}/saves/default.zip"
+  become_user: "{{ factorio_user }}"
+  when: factorio_saves.matched == 0
+  changed_when: true
+
+- name: Ensure default save is owned by factorio user (if just created)
+  ansible.builtin.file:
+    path: "{{ factorio_home }}/saves/default.zip"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+    state: file
+  when: factorio_saves.matched == 0
+
+- name: Flip control state=running after first-install save creation
+  ansible.builtin.copy:
+    content: |
+      {"version": "{{ factorio_initial_version }}", "state": "running", "restart": false}
+    dest: "{{ factorio_home }}/control/factorio-control.json"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+  when: not factorio_install_check.stat.exists
+
+- name: Start factorio.service
+  ansible.builtin.systemd:
+    name: factorio.service
+    state: started
+
+- name: Start factorio-reconcile.timer
+  ansible.builtin.systemd:
+    name: factorio-reconcile.timer
+    state: started

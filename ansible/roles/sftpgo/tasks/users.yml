@@ -1,0 +1,67 @@
+---
+# For each entry in sftpgo_users, check if the user exists and POST or PUT
+# accordingly. SFTPGo's API is REST-standard: 404 on GET means create.
+#
+# We pass the user dict more-or-less verbatim from the var, with sensible
+# defaults applied so callers can be terse.
+
+- name: Resolve user state for each entry
+  ansible.builtin.uri:
+    url: "{{ sftpgo_admin_api_base }}/api/v2/users/{{ item.username | urlencode }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ sftpgo_admin_jwt }}"
+    status_code: [200, 404]
+  register: sftpgo_user_state
+  loop: "{{ sftpgo_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+  no_log: true
+
+- name: Create new virtual users (POST)
+  ansible.builtin.uri:
+    url: "{{ sftpgo_admin_api_base }}/api/v2/users"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ sftpgo_admin_jwt }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ item.0 | combine({'status': 1, 'home_dir': item.0.home_dir | default('/var/lib/sftpgo/data/' ~ item.0.username)}, recursive=False) }}"
+    status_code: 201
+  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}"
+  when: item.1.status == 404
+  no_log: true
+
+- name: Update existing virtual users (PUT)
+  ansible.builtin.uri:
+    url: "{{ sftpgo_admin_api_base }}/api/v2/users/{{ item.0.username | urlencode }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ sftpgo_admin_jwt }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ item.0 | combine({'status': 1, 'home_dir': item.0.home_dir | default('/var/lib/sftpgo/data/' ~ item.0.username)}, recursive=False) }}"
+    status_code: 200
+  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}"
+  when: item.1.status == 200
+  no_log: true
+
+- name: Ensure each user's home directory exists
+  ansible.builtin.file:
+    path: "{{ item.home_dir | default('/var/lib/sftpgo/data/' ~ item.username) }}"
+    state: directory
+    owner: sftpgo
+    group: sftpgo
+    mode: "0750"
+  loop: "{{ sftpgo_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+  # Skip if the home_dir is owned by another service (e.g. /factorio owned
+  # by the factorio user/group). The directory must already exist in that
+  # case, created by the other role.
+  when:
+    - (item.home_dir | default('/var/lib/sftpgo/data/' ~ item.username)) is match('^/var/lib/sftpgo/')

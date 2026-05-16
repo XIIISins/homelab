@@ -1,0 +1,36 @@
+[Unit]
+Description=Factorio dedicated server
+Documentation=https://wiki.factorio.com/Multiplayer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=factorio
+Group=factorio
+WorkingDirectory=/factorio
+
+# Ensure operator-visible logfile exists with correct ownership/perms.
+# The '+' prefix runs as root regardless of User=, so we can chown.
+ExecStartPre=+/bin/sh -c 'install -d -m 0755 -o factorio -g factorio /factorio/logs && touch /factorio/logs/factorio.log && chown factorio:factorio /factorio/logs/factorio.log && chmod 0644 /factorio/logs/factorio.log'
+
+# Lock cleanup: only remove /factorio/.lock if no factorio process is alive.
+# Idempotent and safe to run if no lock exists.
+ExecStartPre=/bin/sh -c '[ ! -f /factorio/.lock ] || pgrep -u factorio -x factorio >/dev/null || rm -f /factorio/.lock'
+
+ExecStart=/usr/local/bin/factorio-launch
+
+Restart=on-failure
+RestartSec=10s
+
+# Send game stdout/stderr to operator-visible log + systemd journal.
+StandardOutput=append:/factorio/logs/factorio.log
+StandardError=inherit
+
+# Memory + filehandle ceilings — generous; factorio megabases can hit them.
+LimitNOFILE=65536
+
+# No further hardening (running inside an LXC; isolation handled there).
+
+[Install]
+WantedBy=multi-user.target

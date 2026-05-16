@@ -1,0 +1,12 @@
+/factorio/logs/factorio.log {
+    size 10M
+    rotate 5
+    missingok
+    notifempty
+    create 0644 factorio factorio
+    # systemd's StandardOutput=append: keeps an open fd; we must copytruncate
+    # so the file inode survives rotation.
+    copytruncate
+    compress
+    delaycompress
+}

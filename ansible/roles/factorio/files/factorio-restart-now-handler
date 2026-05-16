@@ -1,0 +1,34 @@
+#!/bin/bash
+# factorio-restart-now-handler — called by factorio-restart-now.service
+# when the operator touches /factorio/control/restart-now via SFTP.
+#
+# Always removes the trigger file first so the path unit doesn't loop.
+# Then checks the control file's desired state — if state="stopped", logs
+# and does nothing (operator-set stopped state wins over restart-now).
+
+set -e
+
+TRIGGER=/factorio/control/restart-now
+CONTROL=/factorio/control/factorio-control.json
+
+rm -f "$TRIGGER"
+
+# Read desired state from the control file. Defaults to "running" if the
+# file is missing or unparseable — restart-now should still work even if
+# the control file is broken (operator's escape hatch).
+STATE=$(python3 -c "
+import json, sys
+try:
+    with open('$CONTROL') as f:
+        c = json.load(f)
+    print(c.get('state', 'running'))
+except Exception:
+    print('running')
+" 2>/dev/null || echo "running")
+
+if [ "$STATE" = "running" ]; then
+    exec systemctl restart factorio.service
+else
+    logger -t factorio-restart-now "ignoring trigger: control file state=$STATE"
+    exit 0
+fi

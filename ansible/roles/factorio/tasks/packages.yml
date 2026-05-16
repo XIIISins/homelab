@@ -1,0 +1,14 @@
+---
+- name: Install required apt packages
+  ansible.builtin.apt:
+    name:
+      - python3            # for factorio-reconcile (stdlib only, no pip)
+      - ca-certificates    # for HTTPS to factorio.com
+      - curl               # operator convenience
+      - xz-utils           # tar extraction
+      - logrotate          # game log rotation
+      - pwgen              # RCON password generation
+      - procps             # pgrep for the lock cleanup pre-exec
+    state: present
+    update_cache: true
+    cache_valid_time: 3600

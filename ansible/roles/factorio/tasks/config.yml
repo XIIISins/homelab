@@ -1,0 +1,71 @@
+---
+- name: Place operator README at /factorio root
+  ansible.builtin.copy:
+    src: README.txt
+    dest: "{{ factorio_home }}/README.txt"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0644"
+
+- name: Generate RCON password if not provided and not already on disk
+  block:
+    - name: Check for existing RCON password file
+      ansible.builtin.stat:
+        path: "{{ factorio_home }}/config/rconpw"
+      register: rconpw_stat
+
+    - name: Generate random RCON password
+      ansible.builtin.command: pwgen -s 24 1
+      register: pwgen_out
+      changed_when: true
+      when:
+        - factorio_rcon_password | length == 0
+        - not rconpw_stat.stat.exists
+
+    - name: Write RCON password file (generated)
+      ansible.builtin.copy:
+        content: "{{ pwgen_out.stdout }}\n"
+        dest: "{{ factorio_home }}/config/rconpw"
+        owner: "{{ factorio_user }}"
+        group: "{{ factorio_group }}"
+        mode: "0640"
+      when:
+        - factorio_rcon_password | length == 0
+        - not rconpw_stat.stat.exists
+
+    - name: Write RCON password file (operator-supplied)
+      ansible.builtin.copy:
+        content: "{{ factorio_rcon_password }}\n"
+        dest: "{{ factorio_home }}/config/rconpw"
+        owner: "{{ factorio_user }}"
+        group: "{{ factorio_group }}"
+        mode: "0640"
+      when: factorio_rcon_password | length > 0
+      no_log: true
+
+- name: Place server-settings.json (first time, or when force-overwrite)
+  ansible.builtin.template:
+    src: server-settings.json.j2
+    dest: "{{ factorio_home }}/config/server-settings.json"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+    force: "{{ factorio_force_overwrite_server_settings }}"
+
+- name: Place factorio-control.json (first time only — never overwrite operator state)
+  ansible.builtin.template:
+    src: factorio-control.json.j2
+    dest: "{{ factorio_home }}/control/factorio-control.json"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+    force: false
+
+- name: Place server-adminlist.json (first time only)
+  ansible.builtin.template:
+    src: server-adminlist.json.j2
+    dest: "{{ factorio_home }}/config/server-adminlist.json"
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "0664"
+    force: false

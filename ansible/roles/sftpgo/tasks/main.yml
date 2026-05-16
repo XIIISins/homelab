@@ -1,0 +1,29 @@
+---
+- name: Add SFTPGo APT repository
+  ansible.builtin.import_tasks: repo.yml
+  tags: [sftpgo, sftpgo:repo]
+
+- name: Install SFTPGo package
+  ansible.builtin.import_tasks: install.yml
+  tags: [sftpgo, sftpgo:install]
+
+- name: Resolve admin password (generate if not provided)
+  ansible.builtin.import_tasks: admin-password.yml
+  tags: [sftpgo, sftpgo:admin]
+
+- name: Configure SFTPGo via environment file
+  ansible.builtin.import_tasks: config.yml
+  tags: [sftpgo, sftpgo:config]
+
+- name: Configure system user groups (cross-service file access)
+  ansible.builtin.import_tasks: groups.yml
+  tags: [sftpgo, sftpgo:groups]
+
+- name: Ensure SFTPGo is running and admin is bootstrapped
+  ansible.builtin.import_tasks: bootstrap.yml
+  tags: [sftpgo, sftpgo:bootstrap]
+
+- name: Provision virtual users via REST API
+  ansible.builtin.import_tasks: users.yml
+  tags: [sftpgo, sftpgo:users]
+  when: sftpgo_users | length > 0

@@ -1,0 +1,36 @@
+---
+- name: Install required packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: [factorio, factorio:packages]
+
+- name: Create factorio user and group
+  ansible.builtin.import_tasks: user.yml
+  tags: [factorio, factorio:user]
+
+- name: Create directory layout
+  ansible.builtin.import_tasks: dirs.yml
+  tags: [factorio, factorio:dirs]
+
+- name: Install reconcile script and systemd units
+  ansible.builtin.import_tasks: reconcile.yml
+  tags: [factorio, factorio:reconcile]
+
+- name: Install factorio service and launch wrapper
+  ansible.builtin.import_tasks: service.yml
+  tags: [factorio, factorio:service]
+
+- name: Install restart-now trigger units
+  ansible.builtin.import_tasks: restart-now.yml
+  tags: [factorio, factorio:restart-now]
+
+- name: Place initial configuration files
+  ansible.builtin.import_tasks: config.yml
+  tags: [factorio, factorio:config]
+
+- name: Bootstrap initial install (run reconcile once, generate default save)
+  ansible.builtin.import_tasks: initial-install.yml
+  tags: [factorio, factorio:install]
+
+- name: Install logrotate config
+  ansible.builtin.import_tasks: logrotate.yml
+  tags: [factorio, factorio:logrotate]

@@ -1,0 +1,8 @@
+---
+- name: Install logrotate config for factorio.log
+  ansible.builtin.copy:
+    src: factorio.logrotate
+    dest: /etc/logrotate.d/factorio
+    owner: root
+    group: root
+    mode: "0644"

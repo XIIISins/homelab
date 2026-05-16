@@ -1,0 +1,35 @@
+---
+- name: Install factorio-restart-now-handler script
+  ansible.builtin.copy:
+    src: factorio-restart-now-handler
+    dest: /usr/local/bin/factorio-restart-now-handler
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install factorio-restart-now.path
+  ansible.builtin.copy:
+    src: factorio-restart-now.path
+    dest: /etc/systemd/system/factorio-restart-now.path
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Install factorio-restart-now.service
+  ansible.builtin.copy:
+    src: factorio-restart-now.service
+    dest: /etc/systemd/system/factorio-restart-now.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable factorio-restart-now.path
+  ansible.builtin.systemd:
+    name: factorio-restart-now.path
+    enabled: true
+    state: started

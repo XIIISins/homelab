@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: sftpgo
+  author: xiiisins
+  description: SFTPGo SFTP server with declarative virtual user management.
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+
+dependencies: []

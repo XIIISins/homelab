@@ -1,0 +1,42 @@
+---
+- name: Install SFTPGo
+  ansible.builtin.apt:
+    name: sftpgo
+    state: present
+
+# The package starts SFTPGo immediately with default config. We need to
+# stop it before we drop our config + admin bootstrap env vars in, so the
+# admin-create env vars take effect on the *next* (managed) start.
+- name: Stop SFTPGo to prepare for managed configuration
+  ansible.builtin.systemd:
+    name: sftpgo.service
+    state: stopped
+  # If this fails (e.g. unit doesn't exist yet on a weird install), continue.
+  failed_when: false
+
+- name: Ensure log directory exists
+  ansible.builtin.file:
+    path: "{{ sftpgo_log_file_path | dirname }}"
+    state: directory
+    owner: sftpgo
+    group: sftpgo
+    mode: "0755"
+
+- name: Ensure SFTPGo state directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: sftpgo
+    group: sftpgo
+    mode: "0750"
+  loop:
+    - /var/lib/sftpgo
+    - /var/log/sftpgo
+
+- name: Ensure SFTPGo systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/sftpgo.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"

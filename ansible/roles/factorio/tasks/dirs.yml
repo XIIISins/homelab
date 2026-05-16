@@ -1,0 +1,35 @@
+---
+- name: Create /factorio root
+  ansible.builtin.file:
+    path: "{{ factorio_home }}"
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    # 2775: setgid bit so SFTP uploads inherit the factorio group; mode
+    # 0775 lets the operator (in factorio group) create files alongside.
+    mode: "2775"
+
+- name: Create /factorio data subdirectories
+  ansible.builtin.file:
+    path: "{{ factorio_home }}/{{ item }}"
+    state: directory
+    owner: "{{ factorio_user }}"
+    group: "{{ factorio_group }}"
+    mode: "2775"
+  loop: "{{ factorio_data_subdirs }}"
+
+- name: Create reconciler cache directory
+  ansible.builtin.file:
+    path: /var/cache/factorio-reconcile
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure /opt exists with system perms (sanity)
+  ansible.builtin.file:
+    path: "{{ factorio_install_base }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
