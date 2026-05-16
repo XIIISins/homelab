@@ -51,10 +51,16 @@ sftpgo_defender_observation_time_minutes: 30
 # Username for the initial admin account. Used only on first start (when no
 # admin exists yet). On subsequent runs, this is ignored.
 sftpgo_admin_username: "admin"
-# Admin password. If empty, the role generates a random 32-char password
-# and writes it to /etc/sftpgo/admin-password.txt (root-only, mode 0600).
-# Override from a vault for production. NEVER commit the rendered value.
-sftpgo_admin_password: ""
+# Admin password. Default: looked up from HashiCorp Vault at
+# secret/ansible/sftpgo/admin-password. Override with
+# `-e sftpgo_admin_password=<value>` or in group_vars to use a different
+# source. Empty string triggers the role's random-password generation
+# fallback (see tasks/admin-password.yml) — useful for first-time bootstrap
+# before the password exists in Vault. NEVER commit a rendered value.
+#
+# Requires AppRole env vars sourced — see homelab-design.md AppRole
+# bootstrap runbook (the `ansible-vault-env` fish helper).
+sftpgo_admin_password: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/sftpgo/admin-password').secret.value }}"
 
 # ---- Virtual users ----
 # Each entry maps directly to SFTPGo's user model. Fields:
