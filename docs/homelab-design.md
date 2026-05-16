@@ -410,8 +410,8 @@ True core services — cascade failures if down. Resiliency > simplicity.
 
 **Flux Kustomization structure:**
 - `infrastructure` — installs HelmReleases (sealed-secrets, synology-csi, vault, external-secrets, metallb). `interval: 10m`, `prune: true`, sourceRef `GitRepository/flux-system`. No `wait`/`timeout` set.
-- `infrastructure-config` — configures CRD resources (ClusterSecretStore, IPAddressPool, L2Advertisement), `dependsOn: [infrastructure]`. Same minimal spec.
-- PENDING: split `metallb-config` out of `infrastructure-config` into its own Flux Kustomization — currently MetalLB config and the ESO ClusterSecretStore share a failure domain for no reason (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident).
+- `infrastructure-config` — configures ESO (ClusterSecretStore), `dependsOn: [infrastructure]`. Same minimal spec.
+- `metallb-config` — configures MetalLB (IPAddressPool, L2Advertisement), `dependsOn: [infrastructure]`. Split from `infrastructure-config` after the 2026-05-14 incident where an ESO webhook failure blocked MetalLB config reconcile (shared failure domain).
 
 **HelmRelease chart versions** are currently `version: "0.x"` placeholders across metallb / external-secrets / vault / sealed-secrets — a deliberate temporary state. Real pinning + Renovate is planned once the homelab reaches a working "2.0" state.
 
@@ -550,7 +550,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Two K3s clusters | Must-run (core) + Can-run | Core services isolated from experimental |
 | Core K3s services | Vault, Authentik, Redis, MetalLB, Synology CSI, ESO | Cascade failure criterion |
 | GitOps | Flux CD | Terminal-native |
-| Flux structure | infrastructure + infrastructure-config Kustomizations | CRD timing — CRDs must exist before dependent resources |
+| Flux structure | infrastructure + per-component config Kustomizations | CRD timing — CRDs must exist before dependent resources; per-component split avoids shared failure domains |
 | Identity | Authentik (must-run K3s) | OIDC + LDAP, cascade risk |
 | DNS | AdGuard Home (not Pi-hole) | More polished, fully free, self-hosted sync |
 | Galera | Dropped | Nothing requires MySQL — all on PostgreSQL |
@@ -680,7 +680,6 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 - [ ] **Jellyfin LXC** (privileged, Urd, QuickSync).
 
 **Cleanup / hygiene:**
-- [ ] Split `metallb-config` into its own Flux Kustomization (separate failure domain from ESO config).
 - [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — hardcoded to `10.42.0.0/16` during the 2026-05-14 incident; variable still used for K3s `cluster-cidr`, so two sources of truth for the same value.
 - [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip).
 - [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt).

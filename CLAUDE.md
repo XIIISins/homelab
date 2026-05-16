@@ -71,8 +71,7 @@ Zabbix migrated to PostgreSQL. Nothing requires MySQL.
 
 **GitOps: Flux CD.**
 Push to Git → exists. No ArgoCD. No manual `kubectl apply` for production.
-Two Flux Kustomizations: `infrastructure` (installs operators/charts) and `infrastructure-config` (configures CRD-dependent resources, dependsOn infrastructure). This pattern is required because CRDs must exist before resources that use them — e.g. the ESO ClusterSecretStore needs the ESO CRDs, which the ESO HelmRelease (`installCRDs: true`) creates in the `infrastructure` Kustomization.
-NOTE: `infrastructure-config` currently bundles the ESO ClusterSecretStore and the MetalLB config in one Kustomization — they share a failure domain unnecessarily. Splitting `metallb-config` into its own Flux Kustomization is a pending task.
+Layered Flux Kustomizations: `infrastructure` installs operators/charts; per-component config Kustomizations (`infrastructure-config` for ESO, `metallb-config` for MetalLB) configure CRD-dependent resources with `dependsOn: infrastructure` so the CRDs exist first. Add a new config Kustomization per operator rather than bundling — shared bundles share failure domains (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident).
 
 **Calico CNI is NOT Flux-managed.**
 Calico is installed as a K3s auto-deploy addon: the Tigera operator manifest plus an `Installation` CR templated by Ansible to `/var/lib/rancher/k3s/server/manifests/calico-installation.yaml` (source: `ansible/roles/k3s/templates/calico-installation.yaml.j2`, applied by `ansible/roles/k3s/tasks/calico.yml`, runs only on `k3s_init_node`). The K3s addon controller applies it; the Tigera operator acts on it. To change Calico config, edit the Ansible template and re-run the playbook — `kubectl edit` on the live `Installation` gets reverted by the addon controller.
@@ -260,7 +259,8 @@ homelab/
 │   │   ├── flux-system/
 │   │   │   ├── flux-system/                  # Flux bootstrap manifests
 │   │   │   ├── infrastructure.yaml           # Flux Kustomization → infrastructure/
-│   │   │   └── infrastructure-config.yaml    # Flux Kustomization → infrastructure-config/, dependsOn infrastructure
+│   │   │   ├── infrastructure-config.yaml    # Flux Kustomization → infrastructure-config/ (ESO config), dependsOn infrastructure
+│   │   │   └── metallb-config.yaml           # Flux Kustomization → metallb-config/, dependsOn infrastructure
 │   │   ├── infrastructure/
 │   │   │   ├── sealed-secrets/
 │   │   │   ├── synology-csi/
@@ -271,6 +271,8 @@ homelab/
 │   │   │   └── kustomization.yaml
 │   │   ├── infrastructure-config/
 │   │   │   ├── clustersecretstore.yaml       # ESO ClusterSecretStore
+│   │   │   └── kustomization.yaml
+│   │   ├── metallb-config/
 │   │   │   ├── metallb-config.yaml           # IPAddressPool + L2Advertisement
 │   │   │   └── kustomization.yaml
 │   │   └── apps/
@@ -343,7 +345,7 @@ K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prer
 - **Vault SKIP_CHOWN**: Vault Helm chart sets SKIP_CHOWN=true when running as non-root. With iSCSI storage, fsGroup doesn't apply automatically. Fix (in the Vault HelmRelease values): pod-level `securityContext` with `runAsUser: 100`, `runAsGroup: 1000`, `fsGroup: 1000`, `runAsNonRoot: false`; plus an `extraInitContainer` `vault-data-chown` (busybox, `runAsUser: 0`) running `chown -R 100:1000 /vault/data && chmod 750 /vault/data`.
 - **Vault TLS disabled — deliberate**: The Vault raft config sets `tls_disable = 1` on the listener; there is no TLS on the listener OR cluster traffic (`cluster_address` is under the same listener). This is a conscious homelab tradeoff (simplicity vs defense-in-depth), not an oversight. Do NOT "fix" it without understanding the cluster-traffic implications. Revisit only as part of deliberate Vault hardening. The `vault-ui` LoadBalancer (VIP `10.0.20.11`) therefore serves plaintext HTTP on :8200 — it is internal/VLAN-only.
 - **iSCSI single-session LUNs**: Synology CSI LUNs are single-session. After ungraceful node restarts, a stale session or discovery node record can pin a LUN to a dead/wrong node and block re-attach (`non-retryable iSCSI login failure`, or `iscsi_limit_max_session_count` on the NAS side). Also: the Synology CSI node plugin is a DaemonSet and runs on CP nodes too (no CP taint yet) — a CP node grabbed a worker's LUN during a reschedule. Cleanup: `iscsiadm -m session` / `-m node -o delete` on affected nodes; clear stale sessions NAS-side if needed.
-- **Flux CRD timing**: Resources using CRDs installed by a HelmRelease must be in a separate Flux Kustomization with `dependsOn`. Use `infrastructure` for installs, `infrastructure-config` for CRD-dependent config. Concrete example: ESO installs its CRDs via `installCRDs: true` in the `infrastructure` Kustomization; the ClusterSecretStore lives in `infrastructure-config` which `dependsOn` infrastructure.
+- **Flux CRD timing**: Resources using CRDs installed by a HelmRelease must be in a separate Flux Kustomization with `dependsOn`. Use `infrastructure` for installs and a per-component `<component>-config` Kustomization for CRD-dependent config. Concrete example: ESO installs its CRDs via `installCRDs: true` in the `infrastructure` Kustomization; the ClusterSecretStore lives in `infrastructure-config` which `dependsOn` infrastructure.
 - **ESO API version**: ClusterSecretStore uses `external-secrets.io/v1` not `v1beta1`.
 - **MetalLB speaker labels**: `app.kubernetes.io/component=speaker` not `component=speaker`.
 - **fish shell heredocs**: Don't use `<<EOF` syntax. Use `echo '...' | command` or temp files.
