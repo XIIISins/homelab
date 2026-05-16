@@ -1,0 +1,8 @@
+--- a/k8s/must-run/infrastructure-config/clustersecretstore.yaml
++++ b/k8s/must-run/infrastructure-config/clustersecretstore.yaml
+@@ -1,4 +1,4 @@
+-# k8s/must-run/infrastructure/external-secrets/clustersecretstore.yaml
++# k8s/must-run/infrastructure-config/clustersecretstore.yaml
+ ---
+ apiVersion: external-secrets.io/v1
+ kind: ClusterSecretStore
