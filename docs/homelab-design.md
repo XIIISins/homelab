@@ -365,13 +365,15 @@ DNS: `factorio.xiiisins.com` (Cloudflare A → WAN IP) and `factorio.niflheim.xi
 
 ### Must-run K3s cluster
 
-True core services — cascade failures if down. Resiliency > simplicity.
+Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (AWX, Tofu Controller), and services whose absence either cascades into other failures or blocks recovery. Resiliency > simplicity.
 
-**Status (2026-05-15):** ✅ Running and stable. The 2026-05-14 incident is fully resolved including the tigera-operator SELinux issue (fixed via MTU workaround; see incident log).
+**Status (2026-05-16):** Core infrastructure ✅ running and stable. Authentik+Redis is the next forward step, followed by AWX/Tofu Controller, then core services.
+
+**Core infrastructure (cascade failure if down):**
 
 | Service | Replicas | Status |
 |---------|----------|--------|
-| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (Terraform `terraform/vault/`) |
+| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s + AppRole auth configured (Terraform `terraform/vault/`) |
 | Authentik server | 3 | 🔲 — next forward step |
 | Authentik worker | 1 | 🔲 |
 | Redis | 1 | 🔲 |
@@ -380,6 +382,30 @@ True core services — cascade failures if down. Resiliency > simplicity.
 | External Secrets Operator | 1 | ✅ ClusterSecretStore `vault` Ready |
 | Sealed Secrets | 1 | ✅ |
 | tigera-operator (Calico) | 1 | ✅ Fixed 2026-05-15 via MTU explicit workaround (upstream issue #7851) |
+| Traefik | 1+ | 🔲 — ingress controller, paired with cert-manager |
+| cert-manager | 1 | 🔲 — Let's Encrypt DNS-01 via Cloudflare API |
+| Cloudflared | 1+ | 🔲 — Cloudflare Tunnel for selected external exposure |
+
+**Automation (the git-push-and-walk-away path):**
+
+| Service | Replicas | Status |
+|---------|----------|--------|
+| AWX | 1 | 🔲 — Ansible CI/CD. `ansible-awx` AppRole role already configured in Vault, SecretID generated at deploy time |
+| Tofu Controller | 1 | 🔲 — Terraform/OpenTofu GitOps via Flux. Flux-native (flux-iac org, formerly Weave TF-Controller). Push to main → controller reconciles |
+
+**Core services (production, expected to work):**
+
+| Service | Status |
+|---------|--------|
+| Outline | 🔲 — wiki / knowledge base |
+| Immich | 🔲 — photos/videos |
+| Grafana | 🔲 — dashboards (sourced from VictoriaMetrics/VictoriaLogs) |
+| VictoriaMetrics | 🔲 — metrics store (PromQL-compatible) |
+| VictoriaLogs | 🔲 — log aggregation |
+| Netbox | 🔲 — IPAM/DCIM |
+| n8n | 🔲 — workflow automation |
+| Privatebin | 🔲 — secure paste service |
+| Startpage | 🔲 — personal browser homepage (most-used; promoted to must-run) |
 
 **VMs:**
 
@@ -419,7 +445,9 @@ True core services — cascade failures if down. Resiliency > simplicity.
 
 ### Can-run K3s cluster
 
-Learning environment. Not yet deployed.
+Non-critical services and experiments. Failure here doesn't cascade and doesn't block recovery — downtime of hours-to-days is acceptable. Same physical-cluster shape as must-run; the distinction is *failure-domain risk*, not "experimental vs production." Most can-run services have real users — just not me-needing-them-right-now users.
+
+**Status:** Not yet deployed.
 
 **Planned VMs:**
 
@@ -432,7 +460,18 @@ Learning environment. Not yet deployed.
 | Drengr-verd | 3102 | Verd | `10.0.31.22` | K3s Worker |
 | Drengr-skuld | 3103 | Skuld | `10.0.31.23` | K3s Worker |
 
-**Can-run services:** AWX, Netbox, Outline, n8n, Immich, Grafana, VictoriaMetrics, VictoriaLogs, Traefik, cert-manager, ESO, Cloudflared, Arr stack, Homepage, Komga, Privatebin, Startpage, Wallpaper gallery, SMTP relay, Synology CSI (can-run)
+**Services:**
+
+| Service | Status |
+|---------|--------|
+| Arr stack (Sonarr/Radarr/Prowlarr/etc.) | 🔲 — media automation |
+| Komga | 🔲 — manga server |
+| Homepage | 🔲 — service-grid dashboard (distinct from Startpage; Startpage is in must-run) |
+| Wallpaper gallery | 🔲 — toy gallery for desktop wallpapers |
+| Synology CSI (can-run) | 🔲 — iSCSI, second StorageClass instance |
+| External Secrets Operator (can-run) | 🔲 — pulls from same Vault as must-run instance |
+
+Plus ad-hoc namespaces for genuine experiments (kubevirt trial, ArgoCD comparison, etc.).
 
 ---
 

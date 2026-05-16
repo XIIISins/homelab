@@ -57,12 +57,16 @@ All 1 GbE. No 2.5 GbE planned.
 ## Critical architectural decisions — never second-guess without asking
 
 **Two K3s clusters:**
-- Must-run K3s (VLAN 21) — core services, cascade failure criterion, resiliency > simplicity
-- Can-run K3s (VLAN 31) — learning environment, experimental, failure acceptable
+- Must-run K3s (VLAN 21) — core infrastructure + automation + production services. Cascade-failure criterion *or* recovery-blocking criterion. Resiliency > simplicity.
+- Can-run K3s (VLAN 31) — non-cascade-critical services + genuine experiments. Failure acceptable (hours-to-days downtime). NOT "experimental only" — most can-run services have real users; the line is failure-domain risk, not production/experimental.
 - Do NOT suggest merging them
 
-**Core K3s services (must-run K3s only):**
-Vault, Authentik (server ×3 + worker ×1), Redis, MetalLB, Synology CSI. These are the ONLY services in must-run K3s. Everything else goes in can-run. The criterion is cascade failure — if this service going down causes other core services to fail.
+**Must-run K3s contents:**
+- *Core infrastructure:* Vault, Authentik (server ×3 + worker ×1), Redis, MetalLB, Synology CSI, ESO, Sealed Secrets, tigera-operator, Traefik, cert-manager, Cloudflared
+- *Automation:* AWX (Ansible CI), Tofu Controller (Terraform GitOps via Flux)
+- *Core services:* Outline, Immich, Grafana, VictoriaMetrics, VictoriaLogs, Netbox, n8n, Privatebin, Startpage
+
+**Can-run K3s contents:** Arr stack, Komga, Homepage, wallpaper gallery, second instances of ESO and Synology CSI, plus ad-hoc experiments. Note: Startpage (personal browser homepage, daily-use) is in must-run; Homepage (service-grid dashboard) is in can-run — distinct services.
 
 **No Docker Swarm. K3s only.**
 
