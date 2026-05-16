@@ -1,5 +1,5 @@
 # Homelab design document
-*Last updated: 2026-05-14 — draft v5*
+*Last updated: 2026-05-15 — draft v6*
 
 ---
 
@@ -49,7 +49,8 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 
 | Device | Purpose |
 |--------|---------|
-| UniFi Cloud Gateway Ultra (UCG-Ultra) | Router, firewall, VLAN routing, zone-based firewall |
+| UniFi Cloud Gateway Ultra (UCG-Ultra) | Router, firewall, VLAN routing, zone-based firewall. Static WAN IP. **Sole firewall policy boundary** (KPN is in DMZ → UCG mode). |
+| KPN Experia Box | ISP-provided modem/router. Configured in "exposed host" / DMZ mode pointing all unsolicited inbound (IPv4 + IPv6) at UCG-Ultra WAN. Outbound NAT for `192.168.2.0/24` family devices only. Not in IaC — change record lives in these docs. |
 | Tailscale on Synology (Docker) | OOB access — survives complete homelab failure |
 | Existing dumb switches (×2) | Pass VLAN tags transparently |
 
@@ -57,9 +58,9 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 
 ```
 Internet
-  └── KPN Experia Box (192.168.2.0/24) — untouched
+  └── KPN Experia Box (192.168.2.0/24) — DMZ → UCG-Ultra WAN
         ├── Settop box, family devices — unchanged
-        └── UCG-Ultra WAN
+        └── UCG-Ultra WAN (static IP, public)
               ├── LAN 1 → Dumb switch (your room)
               │             ├── MacBook dock (VLAN 60, static 10.0.60.10)
               │             ├── Game PC (VLAN 60)
@@ -75,7 +76,7 @@ Internet
 
 ## Network design
 
-> **MGMT subnet is `10.0.254.0/24`.** Drafts up to v4 of this document incorrectly recorded it as `10.0.1.0/24`. The live network is and always was `10.0.254.0/24`. This error nearly caused a *correct* iSCSI portal address to be "fixed" during the 2026-05-14 incident — corrected throughout in v5.
+> **MGMT subnet is `10.0.254.0/24`.** Drafts up to v4 of this document incorrectly recorded it as `10.0.1.0/24`. The live network is and always was `10.0.254.0/24`.
 
 ### VLAN table
 
@@ -227,18 +228,26 @@ Examples:
 
 TLS: wildcard cert via Let's Encrypt DNS-01 using Cloudflare API. cert-manager manages lifecycle.
 
-### Firewall (UCG-Ultra zone-based)
+### Internet exposure & firewall
+
+**KPN Experia Box → UCG-Ultra DMZ.** The KPN is configured in "exposed host" / DMZ mode, forwarding all unsolicited inbound traffic (IPv4 *and* IPv6, both tabs configured) to the UCG-Ultra's WAN IP. KPN keeps doing outbound NAT for the `192.168.2.0/24` settop/family-device subnet only. UCG-Ultra has a static public IP; no CGNAT (verified). This means **the UCG-Ultra is the sole firewall policy boundary** between the internet and the homelab — the KPN is effectively a dumb pipe.
+
+**UCG-Ultra zone-based firewall:**
 
 | From | To | Policy |
 |------|----|--------|
 | Internal | Any | Allow |
 | External | Internal | Allow Return |
 | Hotspot | Internal | Allow Return |
-| Any | Any | Deny |
+| Any | Any | Deny (last rule — verify in UI before flipping DMZ) |
 
 All VLANs (MGMT, CLIENT, CORE-VIP, CORE-SVC, CORE-K3S-VIP, CORE-K3S-WRK, CR-K3S-VIP, CR-K3S-WRK, STOR) are in the Internal zone — Internal→Internal is Allow All.
 
 Node-level: `firewalld` is disabled on the K3s nodes (by the Ansible `k3s` prerequisites) — the UCG-Ultra is the firewall.
+
+**Port-forwards are configured on UCG-Ultra only.** Adding a service that needs internet exposure: create the port-forward + auto-generated firewall allow rule in the UCG UI, nothing else. The KPN does not get touched.
+
+**KPN as non-IaC infrastructure.** The KPN Experia Box is consumer hardware with no useful API. Any change to it lives in these docs or nowhere. Current config recorded above; if it ever changes, update here.
 
 ---
 
@@ -298,7 +307,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | Tailscale 1 | 1113 | Urd | `10.0.11.213` | Subnet router | 🔲 |
 | Tailscale 2 | 1114 | Verd | `10.0.11.214` | Subnet router | 🔲 |
 | Tailscale 3 | 1115 | Skuld | `10.0.11.215` | Exit node | 🔲 |
-| Factorio | 1120 | Urd | `10.0.11.220` | Game server + SFTPGo | 🔲 |
+| Factorio | 1120 | Urd | `10.0.11.220` | Game server + SFTPGo | ✅ |
 | Teamspeak | 1121 | Verd | `10.0.11.221` | Voice + PostgreSQL | 🔲 |
 | PostgreSQL 1 | 1130 | Urd | `10.0.11.230` | Database node | 🔲 |
 | PostgreSQL 2 | 1131 | Verd | `10.0.11.231` | Database node | 🔲 |
@@ -310,27 +319,66 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 **AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
 
-> **Tailscale LXCs are blocked on Authentik.** Tailscale ACL/SSO integration depends on Authentik being up, and Authentik runs in the must-run K3s cluster. This is why must-run K3s is being built before the remaining LXCs.
+> **LXC build order — revised (2026-05-15):** The original sequence said "must-run K3s before all LXCs" because of Tailscale's dependency on Authentik. That conflates services that *don't* share that dependency. Revised sequence: Factorio (no deps, ship it standalone), then PostgreSQL + Teamspeak (no Authentik dependency), then Authentik + Redis in K3s, then Tailscale LXCs (needs Authentik for SSO).
+
+### Factorio LXC architecture (deployed 2026-05-16)
+
+LXC 1120 hosts the Factorio headless server *and* SFTPGo on the same host. The operator (a trusted friend) manages the server via SFTP only — no shell access, no web UI, no SSH. Everything happens through JSON control files in `/factorio/control/` edited via SFTPGo's virtual filesystem.
+
+**Filesystem layout** (under `/factorio/`):
+
+| Path | Owner | Operator access | Purpose |
+|------|-------|-----------------|---------|
+| `README.txt` | `root:factorio` | read | Operator-facing guide |
+| `mods/` | `sftpgo:factorio` | read/write | Mod `.zip`s, manually managed |
+| `saves/` | `sftpgo:factorio` | read/write | Save files |
+| `scenarios/` | `sftpgo:factorio` | read/write | Custom scenarios |
+| `script-output/` | `factorio:factorio` | read-only | Factorio writes here |
+| `control/factorio-control.json` | `sftpgo:factorio` | read/write | `{version, state, restart}` |
+| `control/restart-now` | `sftpgo:factorio` | write (touch) | Triggers instant restart |
+| `status/factorio-status.json` | `root:factorio` | read-only | Reconciler-written state |
+| `logs/reconcile.log` | `factorio:factorio` | read-only | Rotating reconcile log |
+| `config/rconpw` | `root:factorio` | none | RCON password; never exposed |
+
+**Reconcile loop.** `/usr/local/bin/factorio-reconcile` is a Python script (stdlib only) run by a systemd timer every 30s as root. It:
+- Reads `/factorio/control/factorio-control.json` to determine desired version + state
+- Resolves "stable"/"experimental" via the Factorio API (cached)
+- Installs missing versions to `/opt/factorio-<version>/` (atomic symlink swap)
+- Verifies SHA256 against `factorio.com/download/sha256sums/`
+- Reconciles `factorio.service` running state to match control file
+- Honors the one-shot `restart-now` trigger (path unit fires the handler)
+- Writes `/factorio/status/factorio-status.json` after each tick
+- Chowns its writes back to `factorio:factorio` so SFTPGo can serve them
+
+**Cross-service file sharing.** The `sftpgo` system user is added to the `factorio` group via `sftpgo_extra_groups: [factorio]` in group_vars. `/factorio/*` dirs are setgid (2775) with UMask=0002, so files created by either service are mode 0664 with group=factorio. Both can read/write.
+
+**Operator auth.** Username `operator`, password (in vault). SFTPGo's built-in defender provides brute-force protection (15 failures / 30 min ban). TOTP available as opt-in; pubkey auth deferred. Operator's SFTPGo virtual permissions are scoped per-directory — they can write to `mods/`/`saves/` but `status/` and `logs/` are read-only, and `config/` is denied entirely.
+
+**Internet exposure.** UCG-Ultra port forwards:
+- UDP 34197 → 10.0.11.220:34197 (Factorio game protocol)
+- TCP 22022 → 10.0.11.220:22022 (SFTPGo SFTP — mnemonic: 22-0-22)
+
+DNS: `factorio.xiiisins.com` (Cloudflare A → WAN IP) and `factorio.niflheim.xiiisins.com` (AdGuard → 10.0.11.220).
+
+**LXC features.** Unprivileged, `nesting=true` (required for systemd 257 on Debian 13). 4 vCPU / 8 GB RAM / 8 GB disk on Urd. No nested containerization — `nesting` flag is for systemd's namespace ops, not Docker.
 
 ### Must-run K3s cluster
 
 True core services — cascade failures if down. Resiliency > simplicity.
 
-**Status (2026-05-14, end of day):** ✅ Running and stable after a major incident (see incident log). Vault 3/3 healthy, etcd healthy, overlay healthy, MetalLB working. One known unresolved issue: tigera-operator failing every reconcile on a SELinux denial (CNI functional but unmanaged).
-
-**Status (2026-05-15 20:24):** Tigera-operator fixed by explicitly setting the MTU size via config in ansible. MTU workaround is suggested by maintainer in upstream issue #7851.
+**Status (2026-05-15):** ✅ Running and stable. The 2026-05-14 incident is fully resolved including the tigera-operator SELinux issue (fixed via MTU workaround; see incident log).
 
 | Service | Replicas | Status |
 |---------|----------|--------|
 | Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s auth method configured (imperatively — see below) |
-| Authentik server | 3 | 🔲 |
+| Authentik server | 3 | 🔲 — next forward step |
 | Authentik worker | 1 | 🔲 |
 | Redis | 1 | 🔲 |
 | MetalLB | DaemonSet | ✅ L2 working — VIP reachable, announcing from a worker. Required nodeSelectors + Calico/rp_filter fixes |
 | Synology CSI (core) | 1 | ✅ iSCSI, synology-csi-iscsi-retain |
-| External Secrets Operator | 1 | ✅ Deployed; ClusterSecretStore `vault` present (verify Ready post-incident) |
+| External Secrets Operator | 1 | ✅ ClusterSecretStore `vault` Ready |
 | Sealed Secrets | 1 | ✅ |
-| tigera-operator (Calico) | 1 | 🔴 Failing every reconcile — SELinux `/var/lib/calico/mtu` denied. CNI works, operator does not. |
+| tigera-operator (Calico) | 1 | ✅ Fixed 2026-05-15 via MTU explicit workaround (upstream issue #7851) |
 
 **VMs:**
 
@@ -344,7 +392,7 @@ True core services — cascade failures if down. Resiliency > simplicity.
 | Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/4GB/15GB |
 
 *Göndul to move from Urd → Verd on next full reprovision.
-⚠️ **CP VM sizing (1vCPU/2GB) is unvalidated under load.** They were briefly oversized (2vCPU/4GB) during IaC iteration to speed repeated apply/destroy cycles, then reset to the intended baseline (1GB was found insufficient, raised to 2GB). The 2026-05-14 etcd storm means 1 vCPU for etcd-bearing nodes should be treated as an open question — revisit at the Göndul reprovision.
+⚠️ **CP VM sizing (1vCPU/2GB) is unvalidated under load.** The 2026-05-14 etcd storm means 1 vCPU for etcd-bearing nodes should be treated as an open question — revisit at the Göndul reprovision.
 
 **Workers have dual NICs:**
 - eth0: VLAN 21 (K3s node traffic)
@@ -357,12 +405,12 @@ True core services — cascade failures if down. Resiliency > simplicity.
 - Config templates: `config-init.j2` / `config-server.j2` (CPs — disable traefik/servicelb/local-storage, `flannel-backend: none`, `disable-network-policy: true`, cluster/service CIDRs, TLS SANs, `selinux: true`) / `config-agent.j2` (workers — minimal: server + token + selinux).
 - No node taints or labels are set — CP taint is a manual pending task.
 
-**Calico CNI — NOT Flux-managed.** Installed as a K3s addon via `ansible/roles/k3s/tasks/calico.yml` (runs only on the init node): Tigera operator manifest + an `Installation` CR templated from `calico-installation.yaml.j2` to `/var/lib/rancher/k3s/server/manifests/`. Key config: `nodeAddressAutodetectionV4: cidrs: ["10.0.21.0/24"]` (pins overlay to VLAN 21), `encapsulation: VXLANCrossSubnet`, pod CIDR `10.42.0.0/16`, `calico_version` currently `v3.29.3`. The K3s addon controller *merges* the CR — removed fields can persist; verify after changes.
+**Calico CNI — NOT Flux-managed.** Installed as a K3s addon via `ansible/roles/k3s/tasks/calico.yml` (runs only on the init node): Tigera operator manifest + an `Installation` CR templated from `calico-installation.yaml.j2` to `/var/lib/rancher/k3s/server/manifests/`. Key config: `nodeAddressAutodetectionV4: cidrs: ["10.0.21.0/24"]` (pins overlay to VLAN 21), `mtu: 1450` (workaround for projectcalico/calico#7851 — operator can't read `/var/lib/calico/mtu` under SELinux), `encapsulation: VXLANCrossSubnet`, pod CIDR `10.42.0.0/16`, `calico_version` currently `v3.29.3`. The K3s addon controller *merges* the CR — removed fields can persist; verify after changes.
 
 **Flux Kustomization structure:**
 - `infrastructure` — installs HelmReleases (sealed-secrets, synology-csi, vault, external-secrets, metallb). `interval: 10m`, `prune: true`, sourceRef `GitRepository/flux-system`. No `wait`/`timeout` set.
 - `infrastructure-config` — configures CRD resources (ClusterSecretStore, IPAddressPool, L2Advertisement), `dependsOn: [infrastructure]`. Same minimal spec.
-- PENDING: split `metallb-config` out of `infrastructure-config` into its own Flux Kustomization — currently MetalLB config and the ESO ClusterSecretStore share a failure domain for no reason (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident). When writing the new Kustomization, decide consciously whether it needs `wait`/`timeout` (the existing ones don't set them).
+- PENDING: split `metallb-config` out of `infrastructure-config` into its own Flux Kustomization — currently MetalLB config and the ESO ClusterSecretStore share a failure domain for no reason (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident).
 
 **HelmRelease chart versions** are currently `version: "0.x"` placeholders across metallb / external-secrets / vault / sealed-secrets — a deliberate temporary state. Real pinning + Renovate is planned once the homelab reaches a working "2.0" state.
 
@@ -390,7 +438,7 @@ Learning environment. Not yet deployed.
 ## Identity and access management
 
 - **Personal user** — Authentik LDAP + SSSD. SSH key only.
-- **`ansible` user** — local, AWX service account. Passwordless sudo. (This is the inventory `ansible_user`; SSH key `~/.ssh/ansible_niflheim`.)
+- **`ansible` user** — local, AWX service account. Passwordless sudo. SSH key `~/.ssh/ansible_niflheim`.
 - **`recovery` / break-glass user** — created by the `baseline` role on all nodes: SSH-key-only, NOPASSWD sudo. SSH key in 1Password.
 - **`kubernetes` user** — Synology admin for CSI driver.
 - **Proxmox API token** — scoped for Terraform only.
@@ -401,29 +449,52 @@ Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) 
 
 ## Secrets management
 
-| Layer | Tool |
-|-------|------|
-| Vault auto-unseal | AWS KMS eu-west-1 (~$1/month) |
-| K8s secrets | External Secrets Operator → Vault |
-| Bootstrap | Sealed Secrets (one-time) |
-| Terraform/Ansible | Ansible Vault |
-| Must-run LXCs | Ansible Vault (permanent) |
+### The architecture: two layers, one rule
 
-Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
+**The rule:** *If a human would look it up by hand → 1Password. If a machine pulls it → Vault.*
 
-**AWS / KMS:** The AWS account holds exactly one KMS key (the Vault unseal key). The `vault-unseal` IAM user is scoped to decrypt-only on that key. The unseal credentials are stored in-repo as a Bitnami `SealedSecret` (`vault-unseal` in the `vault` namespace) — safe because only the cluster's sealed-secrets controller can decrypt it, and the repo is private regardless.
+| Layer | Tool | Consumer | Contents |
+|---|---|---|---|
+| Human-operated credentials | **1Password — "Homelab" vault** | You, via UI/mobile/CLI | Web admin passwords (Authentik admin, Grafana admin, etc.), API tokens you paste manually, LXC template root passwords, homelab-hosted DB admin credentials, TLS recovery keys |
+| Machine-consumed credentials | **HashiCorp Vault (must-run K3s)** | Ansible, K8s workloads, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, future API tokens consumed at runtime |
+| Failure-independent | **1Password — other vaults** | You, when homelab is down | Break-glass user SSH key, AWS KMS unseal token, Proxmox/Synology/UCG-Ultra/KPN admin |
+| Bootstrap | **SealedSecret + 1Password copy** | Cluster controller | vault-unseal credential (encrypted in Git, recoverable from 1Password) |
+| Legacy (deprecated for new) | **Ansible Vault** | Ansible | `k3s_token` and other pre-existing values in `group_vars/all/vault.yml` |
 
-**Vault configuration (current state):**
-- KV-v2 secrets engine at `secret/`
-- Kubernetes auth method enabled AND configured (`kubernetes_host=https://kubernetes.default.svc`; uses Vault's own SA token as reviewer — Vault SA has `system:auth-delegator` via the `vault-server-binding` ClusterRoleBinding)
-- `eso` policy: `read` on `secret/data/*`
-- `eso` role: binds SA `external-secrets` in namespace `external-secrets` → `eso` policy
-- ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`.
-- ⚠️ The auth method config was applied **imperatively** (`vault write auth/kubernetes/config`) on 2026-05-14 — it exists in no IaC. The KV engine, policy, and role were created in an earlier interactive session, also not in IaC.
-- **PENDING:** capture all Vault configuration (engines, auth methods, policies, roles) in a Terraform Vault provider config under `terraform/vault/`. Secrets values stay out of Git; structure goes in.
-- KV store is currently empty — no application secrets written yet.
+### Scope rule
 
-**Vault listener:** plaintext, `tls_disable = 1` — deliberate. No TLS on the listener or cluster traffic. Conscious homelab tradeoff; the `vault-ui` LoadBalancer (`10.0.20.11:8200`) is internal/VLAN-only. Revisit only as part of deliberate Vault hardening.
+"Things that exist *because the homelab exists*" go in the Homelab vault or Vault. Personal credentials, external service accounts, and infrastructure *under* the homelab (bare-metal Proxmox root, Synology admin, UCG-Ultra admin, KPN router) live in 1Password but **outside** the Homelab vault — they're personal/external. This scope boundary keeps the Homelab vault tightly defined.
+
+### Why two layers and not one
+
+Considered and rejected:
+- **Vaultwarden self-hosted** — adds new infrastructure for human-cred storage that 1Password already does well. The "everything self-hosted" instinct is wrong for credentials needed *when the homelab is down*.
+- **1Password Connect as the only store** — would tear down working Vault and replace it with a SaaS-dependent K8s integration path. Vault is already running, stable, and matches enterprise patterns for machine secrets.
+- **HashiCorp Vault as the only store, with humans using its UI** — Vault's UI is austere; daily human credential use needs better UX (mobile, autofill, search) than Vault is built for.
+- **Centralized everything in one tool** — looked into how enterprises do this. Industry pattern (verified across 2025-2026 sources) is *layered*: EPM (1Password/Bitwarden/Keeper) for humans, secrets manager / PAM (Vault/CyberArk/Delinea) for machines. Even enterprises running 1Password's "unified" platform also run Vault alongside it. Layered is the standard, not the workaround.
+
+**Discoverability concern handled by rule, not by tool unification.** "Scattered truth" was the legitimate worry. The fix is a clean rule (above) and clean boundaries, not forcing one tool to do both jobs poorly.
+
+### Long-term direction
+
+The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is a future project on can-run cluster first (use the learning environment for that learning), then migrate must-run workloads.
+
+### Vault current state
+
+- 3-node Raft HA, AWS KMS auto-unseal (eu-west-1, single-key AWS account, `vault-unseal` IAM user is decrypt-only on that one key)
+- iSCSI storage (5Gi PVC, `synology-csi-iscsi-retain`)
+- Listener `tls_disable = 1` — deliberate (see Known gotchas in CLAUDE.md)
+- KV-v2 engine at `secret/` (currently empty)
+- Kubernetes auth method enabled + configured (`kubernetes_host=https://kubernetes.default.svc`, Vault's own SA token used as reviewer — Vault SA has `system:auth-delegator` via `vault-server-binding` ClusterRoleBinding)
+- `eso` policy: read on `secret/data/*`
+- `eso` role: binds SA `external-secrets` in ns `external-secrets` → `eso` policy, TTL 1h
+- ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
+- ⚠️ Auth method config + KV engine + policy + role applied **imperatively** on 2026-05-14. NOT yet in IaC. Pending: capture as Terraform Vault provider under `terraform/vault/`.
+- KV store currently empty — Authentik's bootstrap secrets will be the first real entries.
+
+### OpenBao migration (future)
+
+HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. OpenBao is the Linux Foundation fork at near-parity. Migration is essentially a binary swap (same API, same Terraform provider, same Ansible lookups). Plan: migrate at the next major maintenance window once OpenBao has another ~12 months of production track record, likely 2026 late-year or 2027.
 
 ---
 
@@ -431,7 +502,8 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 
 | Tool | Responsibility |
 |------|---------------|
-| Terraform (`bpg/proxmox`) | VMs, LXCs, DNS, AWS KMS — and (planned) Vault config via Vault provider |
+| Terraform (`bpg/proxmox`) | VMs, LXCs, DNS, AWS KMS |
+| Terraform (`hashicorp/vault`, planned) | Vault config: auth method, policies, roles, KV engine |
 | Ansible + AWX | OS config, drift correction, audit trail. Also: K3s install + the Calico addon manifest |
 | Flux CD | K3s workload lifecycle |
 | Renovate | Dependency version PRs (planned — activated at "2.0" state) |
@@ -440,10 +512,11 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 - **Terraform** — anything with an API/provider: Proxmox VMs/LXCs, Cloudflare DNS, AWS KMS, Vault config.
 - **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `must-run-k3s.yml` runs roles `baseline → k3s → hardening` against the `must_run_k3s` group.
 - **Flux** — in-cluster workloads: everything in `k8s/`.
+- **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
 
-**Known IaC debt (2026-05-14):**
-- Vault config configured via CLI, not yet captured (see above).
-- General CLI-era K3s *workload* config from the build/troubleshooting period should be backfilled into Flux deliberately as a tracked task. (Note: the K3s *install* itself IS fully IaC'd in Ansible — the debt is the in-cluster workload layer, not the cluster bootstrap.)
+**Known IaC debt (2026-05-15):**
+- Vault config (auth method, policies, roles, KV engine) configured via CLI on 2026-05-14, not yet in Terraform.
+- General CLI-era K3s *workload* config from the build/troubleshooting period should be backfilled into Flux as a tracked task. (The K3s *install* itself IS fully IaC'd in Ansible — the debt is the in-cluster workload layer, not the cluster bootstrap.)
 - Some manifest files have stale path-comment headers predating the `infrastructure` / `infrastructure-config` split (e.g. `clustersecretstore.yaml`).
 
 ---
@@ -458,11 +531,15 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 | 4 — Proxmox cluster | ✅ | Urd/Verd/Skuld, cluster niflheim formed |
 | 5a — PBS | ✅ | LXC 1101 on Skuld, connected |
 | 5b — AdGuard Home | ✅ | Saga/Mimir/Kvasir + keepalived VIP + sync |
-| 5c — Must-run K3s | 🟡 | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅. Outstanding: tigera-operator SELinux failure; Vault config not in IaC. |
-| 5d — Authentik + Redis | 🔲 | Next forward step. Blocks Tailscale LXCs. |
-| 5e — Remaining LXCs | 🔲 | Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin |
+| 5c — Must-run K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅ |
+| 5d — KPN DMZ | ✅ | DMZ → UCG-Ultra WAN (IPv4 + IPv6) |
+| 5e — Authentik + Redis | 🔲 | Next forward step on the K8s side. Blocks Tailscale LXCs. |
+| 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
+| 5g — PostgreSQL + Teamspeak LXCs | 🔲 | After Factorio. Teamspeak needs PostgreSQL. |
+| 5h — Remaining LXCs | 🔲 | Tailscale (after Authentik), HAProxy, Zabbix, Jellyfin |
 | 6 — Can-run K3s | 🔲 | Terraform VMs, Flux, services |
 | 7 — Observability | 🔲 | VictoriaMetrics + Logs + Grafana + Zabbix |
+| 8 — Secrets runtime retrieval | 🔲 | Migrate from ESO sync-and-cache to Vault Agent / VSO. Pilot on can-run first. |
 
 ---
 
@@ -484,23 +561,37 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 | Metrics | VictoriaMetrics | PromQL compatible, lower resources than Prometheus |
 | Jellyfin | Privileged LXC on Urd | QuickSync /dev/dri passthrough |
 | Router | UCG-Ultra | Zone-based firewall, polished UI |
+| Internet exposure | KPN DMZ → UCG-Ultra | UCG is sole policy boundary; KPN is dumb pipe |
 | OOB | Tailscale on Synology | Independent of Proxmox |
 | Storage | iSCSI (not NFS) for K3s PVs | NFS creates polluting shared folders on Synology |
 | StorageClass | synology-csi-iscsi-retain only | Single default class, no NFS/SMB pollution |
 | K3s storage workaround | Init container chown /vault/data | SKIP_CHOWN + iSCSI fsGroup issue |
 | Calico install method | K3s addon manifest, templated by Ansible | Not Flux-managed; addon controller applies it |
 | Calico IP autodetection | Pinned to `cidrs: [10.0.21.0/24]` | Workers are multi-homed; `firstFound` bound overlay to the VLAN 20 NIC |
+| Calico MTU | Explicit `mtu: 1450` | Workaround for upstream issue #7851 — operator can't read `/var/lib/calico/mtu` under SELinux MCS |
 | Worker rp_filter | Loose mode (`2`) | Strict mode drops MetalLB traffic on multi-homed nodes |
 | MetalLB L2Advertisement | `nodeSelectors` exclude CP nodes | CP nodes have no eth1 — L2 election must not pick them |
 | Vault TLS | `tls_disable = 1` (no listener/cluster TLS) | Conscious homelab simplicity tradeoff — revisit at hardening |
+| Secrets architecture | Two-layer: 1Password (humans) + Vault (machines) | Enterprise-standard pattern; "centralize everything" rejected after considering Vaultwarden, 1Password Connect, Infisical, OpenBao alternatives — see Secrets management section |
+| Ansible Vault scope | Legacy only, deprecated for new | Replaced by the two-layer model |
+| Long-term Vault successor | OpenBao (migration ~12 months out) | HashiCorp BSL + IBM acquisition risk; LF governance preferred long-term |
 | Repo visibility | Private (GitHub) | Reduces exposure; SealedSecrets still used for bootstrap secrets |
 | VM naming | Valkyries (CP) + Einherjar/Drengr (workers) | Norse theme, conceptually fits K3s |
 | Node naming | Urd, Verd, Skuld (Norns) | Fate controllers = hypervisors |
 | NAS naming | Munin | Raven of memory |
-| Secrets | Vault + AWS KMS | Production pattern |
 | PBS type | Privileged LXC | NFS mount requires it |
 | K3s on Urd | Worker only | N5095 too slow for etcd — causes IO storms |
 | Göndul placement | Urd (temp) → Verd (next reprovision) | Fix etcd IO issues |
+| LXC build order | Revised: Factorio → PG+Teamspeak → Authentik → Tailscale → rest | Original sequence conflated Authentik-dependent and Authentik-independent LXCs |
+| LXC provisioning | Terraform module `must-run-lxcs/` parallel to `must-run-k3s/` | Same provider, same auth, consistent pattern |
+| Factorio operator UX | SFTP-only self-service via SFTPGo virtual user | Zero shell access; control via JSON files in `/factorio/control/` |
+| Factorio reconcile pattern | Root systemd timer (30s), Python stdlib script, owns state | Operator declares intent in JSON, reconciler converges. Decoupled. |
+| Factorio operator auth | Password + SFTPGo defender | Ease-of-use over pubkey complexity; brute-force protected |
+| Factorio install location | `/opt/factorio-<version>/`, symlinked to `/opt/factorio` | Atomic version swap, side-by-side versions, easy rollback |
+| Factorio chown after extract | Recursive `factorio:factorio` on install dir | Factorio writes `.lock` in install dir — needs runtime user write access |
+| LXC bootstrap flow | `ansible-playbook -e ansible_user=root --tags baseline` then full playbook as ansible | Root SSH only for the brief baseline window; hardening locks root after |
+| Debian LXC user creation | `password: '*'` in `user` task | Ansible default `!` triggers PAM account lock even for key auth |
+| LXC nesting flag | `nesting=true` on Debian 13 LXCs | Required for systemd 257; orthogonal to nested containerization |
 
 ---
 
@@ -511,50 +602,126 @@ Cloudflare API tokens split by consumer (Terraform, cert-manager, cloudflared).
 **Trigger:** Adding a second NIC (VLAN 20, for MetalLB) to the worker VMs and the resulting reboot of all worker nodes. The reboot, combined with Göndul's etcd member running on the underpowered Urd (N5095), caused an etcd IO storm.
 
 **What it exposed (all latent, all pre-existing — the storm just made them fire at once):**
-- **Calico `firstFound` autodetection** bound the overlay to the workers' new eth1 (VLAN 20) instead of eth0 (VLAN 21). Broke cross-node vxlan: FDB/VTEP entries pointed at VLAN 20 addresses. → Fixed by pinning `nodeAddressAutodetectionV4` to `cidrs: ["10.0.21.0/24"]`. (Note: the K3s addon controller *merged* the CR, leaving a stale `firstFound` alongside the new `cidrs` — had to be stripped with `kubectl patch`.)
+- **Calico `firstFound` autodetection** bound the overlay to the workers' new eth1 (VLAN 20) instead of eth0 (VLAN 21). Broke cross-node vxlan. → Fixed by pinning `nodeAddressAutodetectionV4` to `cidrs: ["10.0.21.0/24"]`. (The K3s addon controller *merged* the CR, leaving a stale `firstFound` alongside the new `cidrs` — had to be stripped with `kubectl patch`.)
 - **Broken overlay → ESO admission webhook unreachable** from the API server → `infrastructure-config` Flux Kustomization stuck failing dry-run.
 - **iSCSI session chaos** — ungraceful reboots left stale sessions/node records; one LUN got pinned to a CP node (the Synology CSI node plugin is a DaemonSet with no CP taint, so it runs on CP nodes). Vault pods stuck `Init:0/1` unable to mount. The MGMT-subnet doc error (`10.0.1.x` vs real `10.0.254.x`) nearly caused the *correct* iSCSI portal address to be "fixed".
 - **Strict rp_filter** (set by the hardening role) silently dropped MetalLB LoadBalancer traffic arriving on the multi-homed workers' eth1. → Fixed by setting `rp_filter=2` (loose).
 - **MetalLB L2 election** could pick a CP node (no eth1) and announce nowhere. → Fixed with `nodeSelectors` excluding CP nodes.
-- **tigera-operator SELinux denial** on `/var/lib/calico/mtu` — surfaced during diagnosis; still unresolved.
+- **tigera-operator SELinux denial** on `/var/lib/calico/mtu` — surfaced during diagnosis. Resolved next day (see 2026-05-15 below).
 
 **Resolution:** Overlay pinned to VLAN 21, rp_filter loosened, MetalLB nodeSelectors added, iSCSI sessions cleared, Vault recovered (3/3, KMS auto-unseal), etcd healthy, Flux reconciling. Cluster stable end of day.
 
 **Root-cause pattern:** every failure was config that predated the workers' second NIC (or predated the current topology) and was never reconciled with it. Lens for the Göndul reprovision: *what here assumes a single NIC, or one role per node?*
 
-**Fixes committed:** Ansible — Calico template (`firstFound`→`cidrs`), hardening role (`rp_filter` 1→2). Terraform — worker VLAN 20 NIC, CP VM resize to 1vCPU/2GB. **Not yet committed/captured:** Vault imperative auth config.
+**Fixes committed:** Ansible — Calico template (`firstFound`→`cidrs`), hardening role (`rp_filter` 1→2). Terraform — worker VLAN 20 NIC, CP VM resize to 1vCPU/2GB.
+
+### 2026-05-15 — tigera-operator SELinux fix
+
+Carry-over from the 2026-05-14 incident. The operator was failing every reconcile with `open /var/lib/calico/mtu: permission denied`, leaving the CNI functional but unmanaged.
+
+**Diagnosis:**
+- `ausearch` returned nothing — the denial is `dontaudit`'d by default policy.
+- `semodule -DB` (disable dontaudit, keep enforcing) revealed the AVC: `scontext=...container_t:s0:c322,c902 tcontext=...container_var_lib_t:s0` — **MCS category mismatch**. The operator has categories (normal container); the file is written by privileged calico-node with no categories. MCS dominance fails on read.
+- This is upstream bug **projectcalico/calico#7851**, open since July 2023, never fixed. Tigera maintainer's recommended workaround: set MTU explicitly so the operator never needs to read the file.
+
+**Fix shipped:** Added `mtu: 1450` to `spec.calicoNetwork` in `ansible/roles/k3s/templates/calico-installation.yaml.j2`. 1450 = 1500 (host MTU) - 50 (VXLAN overhead). After playbook re-run, the `Degraded` condition cleared and the operator stopped logging MTU read errors.
+
+**Why not a SELinux policy module:** Would have meant authoring/maintaining a custom policy artifact per node, deploying via `semodule -i`, owning forever. The upstream-recommended workaround eliminates the need to read the file at all — cleaner posture, smaller surface, captured in IaC as a 3-line template change. Considered carefully (was nearly the chosen path until the upstream issue was found); MTU-explicit is the right call.
+
+**`semodule -DB` discipline:** Re-enabled dontaudit (`semodule -B`) after diagnosis. Never leave dontaudit disabled — it floods audit log with noise the policy authors intentionally suppress.
+
+### 2026-05-16 — Factorio LXC end-to-end deploy
+
+Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the freshly-built `factorio`/`sftpgo` roles plus general Debian-LXC issues, all fixed in this session.
+
+**Bugs and fixes:**
+
+1. **Factorio SHA256 lookup target string was wrong.** Script looked for `factorio_headless_x64_<v>.tar.xz`; actual filename is `factorio-headless_linux_<v>.tar.xz`. Reverse-engineered from a stale reference. Fix: corrected the target string in `fetch_sha256()`.
+
+2. **Factorio install dir not chowned after extraction.** Factorio writes `.lock` in its install dir at startup; runtime user needs write access. Fix: `os.walk` + `os.chown` over `/opt/factorio-<v>/` after rename.
+
+3. **Reconcile timer auto-started in role.** `state: started` on the timer caused background reconcile to race ahead of `initial-install.yml`, installing Factorio and starting the service before the role could generate the default save. Fix: timer is only `enabled` in `reconcile.yml`; `state: started` moved to end of `initial-install.yml`.
+
+4. **Initial install race.** With control file defaulting to `state=running`, the synchronous reconcile call started `factorio.service` immediately after install, then `factorio --create` failed on the lock. Fix: `initial-install.yml` detects first-run via stat on `/opt/factorio`, writes `state=stopped`, runs sync reconcile, generates save, flips to `state=running`, then starts the service.
+
+5. **Multiple "directory does not exist" failures.** Minimal Proxmox Debian 13 template lacks dirs the roles assumed:
+   - `/etc/sudoers.d/` (no `sudo` package) → baseline now installs `sudo`
+   - Ansible's `become_user` temp path (no `acl`) → baseline installs `acl`
+   - `/etc/systemd/system/sftpgo.service.d/` → sftpgo role creates explicitly
+   - `/var/lib/sftpgo/` → sftpgo role creates explicitly
+
+6. **SFTPGo sqlite path was CWD-relative.** `SFTPGO_DATA_PROVIDER__NAME=sftpgo.db` resolves against the package unit's `WorkingDirectory=/etc/sftpgo`. Worked accidentally; would have broken on any override that changed WorkingDirectory. Fix: absolute path `/var/lib/sftpgo/sftpgo.db`.
+
+7. **`ansible.builtin.user` creates locked accounts.** Default `password` value in Ansible is `!`, which PAM treats as "account locked" even for pubkey auth (since `UsePAM yes` invokes `account` stack). Symptom: SSH key offered, accepted, then rejected with "User ansible not allowed because account is locked" in auth.log. Fix: `password: '*'` (valid form, no usable password) on both ansible and recovery user tasks in baseline.
+
+**Discovered along the way:**
+- bpg/proxmox: only `nesting` can be changed via API token; other features (`keyctl`, `fuse`) require `root@pam` → destroy/recreate when changing.
+- `-u root` CLI flag does *not* beat `ansible_user` in group_vars. Must use `-e ansible_user=root` for the bootstrap override.
+- `group_vars/` is auto-discovered only adjacent to inventory or playbook dirs. `ansible/group_vars/` was being ignored; moved to `ansible/inventory/group_vars/`.
+
+**Resolution:** All bugs fixed in role source, then verified with a clean destroy + apply from Terraform. End-to-end: Terraform → Ansible → operator SFTPs in from outside the LAN via tethered mobile, lists `/factorio/` contents successfully.
+
+**Root-cause pattern:** Roles authored against assumed-richer base images (RHEL or fuller Debian). Proxmox's `debian-13-standard` template is minimal and surfaces every implicit "this dir exists" / "this binary is installed" assumption. Lesson: roles targeting minimal LXC templates need explicit `file: state: directory` and `package: state: present` tasks for every non-FHS-core path/binary they touch.
 
 ---
 
 ## Open questions / pending tasks
 
-**High priority (post-incident):**
-- [ ] **tigera-operator SELinux denial** — `/var/lib/calico/mtu` permission denied; operator fails every reconcile. CNI works but is unmanaged. Diagnose via `ausearch`/reproduce-and-watch; fix into Ansible k3s/hardening role.
-- [ ] **Capture Vault config in Terraform** — auth method, `eso` policy/role, KV engine. Currently imperative-only. (`terraform/vault/`)
-- [ ] **Deploy Authentik + Redis** in must-run K3s — the next forward step; unblocks Tailscale.
+**High priority — forward path:**
+- [ ] **Capture Vault config in Terraform** (`terraform/vault/`). Five resources: KV engine, Kubernetes auth method, auth config, `eso` policy, `eso` role. Currently imperative-only. First-time codifying existing live state — will need `terraform import` for each resource. Auth: root token via `VAULT_TOKEN` env var initially; iterate to scoped Terraform token later. Local state for now.
+- [ ] **Deploy Authentik + Redis** in must-run K3s. Bootstrap secrets (signing key, DB connection, Redis password) go in Vault and are pulled via ESO. Unblocks Tailscale LXCs.
+- [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in.
+
+**Service backlog (in revised LXC order):**
+- [x] **Factorio LXC** (1120, Urd) — ✅ Deployed 2026-05-16. UDP 34197 + TCP 22022 port-forwards active.
+- [ ] **PostgreSQL** (start with 1130 on Urd; cluster later).
+- [ ] **Teamspeak LXC** (1121, Verd) — pointed at PostgreSQL.
+- [ ] **Tailscale LXCs** (1113/1114/1115) — after Authentik.
+- [ ] **HAProxy** (1133/1134/1135) — PostgreSQL frontend, after PG cluster.
+- [ ] **Zabbix LXC** (1102, Skuld).
+- [ ] **Jellyfin LXC** (privileged, Urd, QuickSync).
 
 **Cleanup / hygiene:**
-- [ ] Split `metallb-config` into its own Flux Kustomization (separate failure domain from ESO config)
-- [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — it was hardcoded to `10.42.0.0/16` during the incident; the variable still exists and is used for K3s `cluster-cidr`, so there are now two sources of truth for the same value
-- [ ] Update stale path-comment headers in manifests (predate the infrastructure / infrastructure-config split — e.g. `clustersecretstore.yaml`)
-- [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip)
-- [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt)
-- [ ] Backfill CLI-era K3s *workload* config into Flux (deliberate, tracked — not a blocker)
+- [ ] Split `metallb-config` into its own Flux Kustomization (separate failure domain from ESO config).
+- [ ] Re-parameterize the Calico template's ipPool `cidr` back to `{{ k3s_pod_cidr }}` — hardcoded to `10.42.0.0/16` during the 2026-05-14 incident; variable still used for K3s `cluster-cidr`, so two sources of truth for the same value.
+- [ ] Update stale path-comment headers in manifests (predate the infrastructure / infrastructure-config split — e.g. `clustersecretstore.yaml`).
+- [ ] Delete the stray empty `ansible/ansible/` directory (mkdir -p slip).
+- [ ] Remove or clearly mark the vestigial `k3s-core` iSCSI target on Munin (leftover from abandoned NFS-CSI attempt).
+- [ ] Backfill CLI-era K3s *workload* config into Flux (deliberate, tracked — not a blocker).
+- [ ] **Move Factorio rconpw outside `/factorio/`** — currently in `/factorio/config/rconpw`. Operator's SFTPGo perms deny `/config` access, but the directory's existence still appears in `ls /factorio`. Move to e.g. `/var/lib/factorio-secrets/` so it's not under the operator's home_dir tree at all.
+- [ ] **`baseline` role: add `acl` and `sudo` installs to `redhat.yml`** for consistency. Currently only `debian.yml` has these because of the minimal LXC template.
+
+**Vault-for-Ansible migration (deferred — Ansible Vault is legacy):**
+
+The two-layer secrets architecture says machine-pulled secrets go in HashiCorp Vault, not Ansible Vault. The Vault-for-Ansible integration pattern isn't built yet, so new machine secrets continue to land in `group_vars/all/vault.yml` as a temporary measure. When the migration pattern is built, all existing entries move over as a batch.
+
+- [ ] **Build the Vault-for-Ansible lookup pattern**: AppRole auth for the Ansible control node, scoped policy on a `secret/ansible/*` path, `community.hashi_vault` lookup integrated into role templates and tasks. Document the bootstrap flow.
+- [ ] **Migrate existing `group_vars/all/vault.yml` entries to Vault as a batch.** Current entries to migrate:
+  - `k3s_token`
+  - `rhel_activation_key`, `rhel_org_id` (RHEL subscription)
+  - `breakglass_ssh_public_key`
+  - `ansible_user_ssh_public_key`
+  - `sftpgo_admin_password`
+  - `vault_factorio_operator_password`
+- [ ] **Decide Ansible-side bootstrap policy.** Circular-dependency risk: Vault lives in must-run K3s; if Vault is down when a fresh LXC needs `ansible_user_ssh_public_key`, the deploy can't proceed. Options to consider: local encrypted cache on the control node, 1Password fallback for emergency recovery, or accept that Ansible-side provisioning requires Vault up. Worth thinking through before the migration, not after.
+- [ ] **Rename `vault_factorio_operator_password` → `factorio_operator_password`** at migration time. The `vault_` prefix is aspirational; current value lives in Ansible Vault, which makes the name misleading. Drop the prefix when the variable actually starts coming from HashiCorp Vault.
 
 **Reprovision (deliberate, on a healthy cluster):**
-- [ ] Move Göndul from Urd → Verd (next full reprovision)
-- [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight. Optionally also label workers in `config-agent.j2`.
-- [ ] Revisit CP VM sizing — 1vCPU for etcd is unvalidated; consider 2vCPU and/or faster etcd disk
+- [ ] Move Göndul from Urd → Verd (next full reprovision).
+- [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight.
+- [ ] Revisit CP VM sizing — 1vCPU for etcd is unvalidated; consider 2vCPU and/or faster etcd disk.
 
 **Standing:**
-- [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state)
-- [ ] Document the AWS KMS key ARN
-- [ ] Cloudflare Tunnel — which services get external exposure
-- [ ] Fallback static HTML doc on Munin for core K3s recovery
-- [ ] AdGuard DNS records for new VMs/services as provisioned
-- [ ] Proxmox HA for must-run LXCs
-- [ ] Can-run K3s cluster
-- [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening
+- [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state).
+- [ ] Document the AWS KMS key ARN.
+- [ ] Cloudflare Tunnel — which services get external exposure (in addition to direct port-forwards via UCG).
+- [ ] Fallback static HTML doc on Munin for core K3s recovery.
+- [ ] AdGuard DNS records for new VMs/services as provisioned.
+- [ ] Proxmox HA for must-run LXCs.
+- [ ] Can-run K3s cluster.
+- [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening.
+- [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on can-run first.
+- [ ] Long-term: migrate Vault → OpenBao (~12 months out, once OpenBao has more production track record).
 
 ---
 
