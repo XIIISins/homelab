@@ -1,9 +1,0 @@
---- a/ansible/roles/factorio/tasks/service.yml
-+++ b/ansible/roles/factorio/tasks/service.yml
-@@ -2,4 +2,4 @@
- - name: Install factorio-launch wrapper
--  ansible.builtin.copy:
--    src: factorio-launch
-+  ansible.builtin.template:
-+    src: factorio-launch.j2
-     dest: /usr/local/bin/factorio-launch

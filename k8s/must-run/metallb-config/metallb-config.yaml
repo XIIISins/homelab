@@ -1,4 +1,4 @@
-# k8s/must-run/infrastructure-config/metallb-config.yaml
+# k8s/must-run/metallb-config/metallb-config.yaml
 ---
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
