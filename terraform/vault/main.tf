@@ -40,29 +40,3 @@ resource "vault_kubernetes_auth_backend_role" "eso" {
   token_ttl                        = 3600
 }
 
-# Import blocks — declarative imports. Remove after first apply
-# reports "Import successful!" and `terraform plan` is clean.
-import {
-  to = vault_mount.kv
-  id = "secret"
-}
-
-import {
-  to = vault_auth_backend.kubernetes
-  id = "kubernetes"
-}
-
-import {
-  to = vault_kubernetes_auth_backend_config.kubernetes
-  id = "auth/kubernetes/config"
-}
-
-import {
-  to = vault_policy.eso
-  id = "eso"
-}
-
-import {
-  to = vault_kubernetes_auth_backend_role.eso
-  id = "auth/kubernetes/role/eso"
-}
