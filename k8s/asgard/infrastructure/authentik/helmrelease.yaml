@@ -84,9 +84,3 @@ spec:
 
     geoip:
       enabled: false
-
-    prometheus:
-      rules:
-        enabled: false
-      serviceMonitor:
-        enabled: false
