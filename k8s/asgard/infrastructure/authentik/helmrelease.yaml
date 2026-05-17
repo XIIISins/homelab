@@ -17,10 +17,10 @@ spec:
         namespace: authentik
   install:
     remediation:
-      retries: -1
+      retries: 3
   upgrade:
     remediation:
-      retries: -1
+      retries: 3
   values:
     authentik:
       log_level: info
