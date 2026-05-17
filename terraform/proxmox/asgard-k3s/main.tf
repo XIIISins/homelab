@@ -1,19 +1,19 @@
 locals {
   control_planes = {
-    gondul = { node = "urd",   vmid = 2001, ip = "10.0.21.11", template_node = "verd",  template_id = 10002 }
-    hlokk  = { node = "verd",  vmid = 2002, ip = "10.0.21.12", template_node = "verd",  template_id = 10002 }
-    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004 }
+    gondul = { node = "verd", vmid = 2001, ip = "10.0.21.11", template_node = "verd", template_id = 10002, cores = 1, memory = 2048 }
+    hlokk  = { node = "verd", vmid = 2002, ip = "10.0.21.12", template_node = "verd", template_id = 10002, cores = 1, memory = 2048 }
+    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004, cores = 1, memory = 2048 }
   }
 
   workers = {
-    einherjar-urd   = { node = "urd",   vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "verd",  template_id = 10002 }
-    einherjar-verd  = { node = "verd",  vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd",  template_id = 10002 }
-    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004 }
+    einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "verd", template_id = 10002, cores = 2, memory = 4096 }
+    einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 4096 }
+    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004, cores = 2, memory = 4096 }
   }
 }
 
 resource "proxmox_virtual_environment_vm" "control_plane" {
-  for_each  = local.control_planes
+  for_each = local.control_planes
 
   name      = each.key
   node_name = each.value.node
@@ -26,12 +26,12 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   }
 
   cpu {
-    cores = 1
+    cores = each.value.cores
     type  = "host"
   }
 
   memory {
-    dedicated = 2048
+    dedicated = each.value.memory
   }
 
   disk {
@@ -65,7 +65,7 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
 }
 
 resource "proxmox_virtual_environment_vm" "worker" {
-  for_each  = local.workers
+  for_each = local.workers
 
   name      = each.key
   node_name = each.value.node
@@ -78,12 +78,12 @@ resource "proxmox_virtual_environment_vm" "worker" {
   }
 
   cpu {
-    cores = 2
+    cores = each.value.cores
     type  = "host"
   }
 
   memory {
-    dedicated = 4096
+    dedicated = each.value.memory
   }
 
   disk {
