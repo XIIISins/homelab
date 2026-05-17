@@ -3,6 +3,14 @@ version: 1
 metadata:
   name: default-brand
 entries:
+  # Demote the shipped default brand
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik-default
+    attrs:
+      default: false
+
+  # Your domain becomes the default
   - model: authentik_brands.brand
     identifiers:
       domain: authentik.niflheim.xiiisins.com
