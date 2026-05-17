@@ -1,0 +1,6 @@
+# k8s/asgard/vault-config/kustomization.yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - vault-unseal-secret.yaml
