@@ -9,7 +9,6 @@ resources:
   - synology-csi/synology-secret.yaml
   - synology-csi/helmrelease.yaml
   - vault/namespace.yaml
-  - vault/vault-unseal-secret.yaml
   - vault/helmrelease.yaml
   - external-secrets/namespace.yaml
   - external-secrets/helmrelease.yaml
