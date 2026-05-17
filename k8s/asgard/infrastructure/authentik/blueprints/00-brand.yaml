@@ -1,14 +1,8 @@
-# k8s/asgard/infrastructure/authentik/blueprints/00-tenant.yaml
+# k8s/asgard/infrastructure/authentik/blueprints/00-brand.yaml
 version: 1
 metadata:
-  name: default-tenant
+  name: default-brand
 entries:
-  - model: authentik_tenants.tenant
-    identifiers:
-      schema_name: public
-    attrs:
-      name: niflheim
-      ready: true
   - model: authentik_brands.brand
     identifiers:
       domain: authentik.niflheim.xiiisins.com
