@@ -1,0 +1,7 @@
+---
+# TODO Pass 2: template pg_hba.conf — local peer for postgres unix user,
+# scram-sha-256 host rules for each postgres_allowed_cidrs entry. Add
+# hostssl replication rules when postgres_replicas is non-empty.
+- name: postgres/hba — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/hba.yml will be written in Pass 2."

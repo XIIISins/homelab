@@ -1,0 +1,12 @@
+---
+- name: Configure PostgreSQL host
+  hosts: postgres_hosts
+  become: true
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: postgres
+      tags: [postgres]
+    - role: hardening
+      tags: [hardening]

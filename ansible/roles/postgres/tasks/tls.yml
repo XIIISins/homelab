@@ -1,0 +1,6 @@
+---
+# TODO Pass 2: openssl_privatekey + openssl_csr + openssl_certificate (self-signed),
+# owned by postgres:postgres, 0600 on key, 0644 on cert.
+- name: postgres/tls — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/tls.yml will be written in Pass 2."

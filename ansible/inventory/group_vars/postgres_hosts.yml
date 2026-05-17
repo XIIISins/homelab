@@ -1,0 +1,32 @@
+---
+# PostgreSQL host group vars. Composes with role defaults from baseline,
+# postgres, and hardening.
+#
+# The postgres role manages PostgreSQL 17 from PGDG, TLS-enabled, with
+# two SUPERUSER PG roles whose passwords come from HashiCorp Vault:
+#   - admin   — hand-on-keyboard ops
+#   - ansible — playbook + AWX automation
+#
+# Per-service databases (Authentik, Teamspeak, etc.) are added on demand
+# by extending `postgres_databases` below and re-running the playbook.
+
+# Cluster topology — single-node for now. When 1131/1132 (Vor, Idunn) come
+# online, add their inventory_hostnames here and the role configures
+# streaming replication.
+postgres_replicas: []
+
+# Allowed source CIDRs for network auth (scram-sha-256). Localhost and
+# peer auth for the postgres unix superuser are added unconditionally.
+postgres_allowed_cidrs:
+  - 10.0.11.0/24 # asgard LXC subnet (Teamspeak, ops)
+  - 10.0.21.0/24 # asgard K3s nodes (Authentik via node NAT)
+  - 10.0.31.0/24 # jotunheim K3s nodes (future)
+  - 10.0.60.10/32 # MacBook (admin tasks)
+
+# Per-service databases. Empty until Authentik is built.
+# Schema: { name, owner, password_vault_path }
+# Example:
+#   - name: authentik
+#     owner: authentik
+#     password_vault_path: ansible/postgres/authentik-password
+postgres_databases: []

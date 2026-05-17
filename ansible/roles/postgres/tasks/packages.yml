@@ -1,0 +1,6 @@
+---
+# TODO Pass 2: install postgresql-{{ postgres_version }} + client + python3-psycopg2
+# + python3-cryptography from PGDG.
+- name: postgres/packages — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/packages.yml will be written in Pass 2."

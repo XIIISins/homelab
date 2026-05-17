@@ -1,0 +1,6 @@
+---
+# TODO Pass 2: verify the default 'main' cluster came up via postgresql-common,
+# stopped before config drops in to avoid restart churn.
+- name: postgres/cluster — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/cluster.yml will be written in Pass 2."

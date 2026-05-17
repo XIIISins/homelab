@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: xiiisins
+  description: PostgreSQL cluster member — TLS, Vault-backed credentials, replication-ready
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

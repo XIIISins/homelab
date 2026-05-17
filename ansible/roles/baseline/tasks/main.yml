@@ -19,7 +19,12 @@
     name:
       - sudo
       - acl
+      - tzdata
     state: present
+
+- name: Set system timezone
+  community.general.timezone:
+    name: "{{ baseline_timezone }}"
 
 # ----- Ansible runtime user (OS-independent) -----
 
@@ -35,6 +40,8 @@
   ansible.posix.authorized_key:
     user: "{{ ansible_user_name }}"
     key: "{{ ansible_user_ssh_public_key }}"
+    path: "/home/{{ ansible_user_name }}/.ssh/authorized_keys"
+    manage_dir: true
     state: present
   when: ansible_user_ssh_public_key | length > 0
 
@@ -59,6 +66,8 @@
   ansible.posix.authorized_key:
     user: "{{ breakglass_user }}"
     key: "{{ breakglass_ssh_public_key }}"
+    path: "/home/{{ ansible_user_name }}/.ssh/authorized_keys"
+    manage_dir: true
     state: present
   when: breakglass_ssh_public_key | length > 0
 

@@ -1,0 +1,7 @@
+---
+# TODO Pass 3: iterate postgres_management_users; vault_kv2_get each
+# password; community.postgresql.postgresql_user idempotent create with
+# SUPERUSER attribute and the looked-up password.
+- name: postgres/users — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/users.yml will be written in Pass 3."

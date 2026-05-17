@@ -1,0 +1,7 @@
+---
+# TODO Pass 4: iterate postgres_databases; for each entry, create the
+# owning role (vault_kv2_get the password) then create the database with
+# that role as owner. Idempotent.
+- name: postgres/databases — Pass 1 stub
+  ansible.builtin.debug:
+    msg: "Pass 1 stub: postgres/databases.yml will be written in Pass 4."

@@ -1,0 +1,74 @@
+---
+# ---- Version & package source ----
+postgres_version: 17
+
+postgres_apt_repo_signing_key_url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+postgres_apt_repo_url: http://apt.postgresql.org/pub/repos/apt
+postgres_apt_repo_component: main
+
+# ---- Cluster identity ----
+# Debian's postgresql-common convention. Keep it 'main' so pg_lsclusters /
+# pg_ctlcluster / pg_upgradecluster work without contortion.
+postgres_cluster: main
+
+postgres_listen_addresses: "*"
+postgres_port: 5432
+
+# ---- TLS (self-signed, per-host, Ansible-managed) ----
+# Future: cert-manager-issued via ESO push to LXC.
+postgres_tls_enabled: true
+postgres_tls_cert_path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/server.crt"
+postgres_tls_key_path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/server.key"
+postgres_tls_cert_days: 825 # under the 825-day soft cap for self-signed
+postgres_tls_cert_renew_threshold_days: 30
+postgres_tls_cert_country: NL
+postgres_tls_cert_org: niflheim-homelab
+
+# ---- Authentication ----
+postgres_password_encryption: scram-sha-256
+
+# ---- WAL / replication ----
+# Configured for cluster-readiness from day 1. No-op while replicas list is
+# empty; flipping to a real cluster requires no postgresql.conf change.
+postgres_wal_level: replica
+postgres_max_wal_senders: 10
+postgres_max_replication_slots: 10
+postgres_hot_standby: true
+postgres_archive_mode: "on"
+postgres_archive_command: "/bin/true" # no-op until WAL archiving destination exists
+
+# ---- Resource tuning (4GB RAM LXC) ----
+postgres_shared_buffers: 1GB
+postgres_effective_cache_size: 3GB
+postgres_work_mem: 16MB
+postgres_maintenance_work_mem: 256MB
+postgres_max_connections: 100
+postgres_wal_buffers: 16MB
+
+# ---- Logging (postgresql-common defaults) ----
+postgres_log_destination: stderr
+postgres_logging_collector: true
+postgres_log_directory: log
+postgres_log_filename: "postgresql-%a.log"
+postgres_log_rotation_age: 1d
+postgres_log_rotation_size: 0
+postgres_log_truncate_on_rotation: true
+postgres_log_line_prefix: "%m [%p] %q%u@%d "
+
+# ---- Management PG roles ----
+# Both SUPERUSER. Passwords from HashiCorp Vault via community.hashi_vault.
+postgres_management_users:
+  - name: admin
+    vault_path: ansible/postgres/admin-password
+    superuser: true
+    description: "Network-accessible superuser for hand-on-keyboard operations"
+  - name: ansible
+    vault_path: ansible/postgres/ansible-password
+    superuser: true
+    description: "Playbook + AWX automation user"
+
+# ---- Per-service DBs / Replicas / CIDRs ----
+# Set in inventory/group_vars/postgres_hosts.yml.
+postgres_databases: []
+postgres_replicas: []
+postgres_allowed_cidrs: []

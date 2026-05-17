@@ -1,0 +1,30 @@
+---
+- name: Install PostgreSQL packages
+  ansible.builtin.include_tasks: packages.yml
+  tags: [postgres-packages]
+
+- name: Verify/configure the PostgreSQL cluster
+  ansible.builtin.include_tasks: cluster.yml
+  tags: [postgres-cluster]
+
+- name: Generate TLS certificate
+  ansible.builtin.include_tasks: tls.yml
+  when: postgres_tls_enabled
+  tags: [postgres-tls]
+
+- name: Render postgresql.conf
+  ansible.builtin.include_tasks: config.yml
+  tags: [postgres-config]
+
+- name: Render pg_hba.conf
+  ansible.builtin.include_tasks: hba.yml
+  tags: [postgres-hba]
+
+- name: Create management PG roles (admin, ansible)
+  ansible.builtin.include_tasks: users.yml
+  tags: [postgres-users]
+
+- name: Create per-service databases and roles
+  ansible.builtin.include_tasks: databases.yml
+  when: postgres_databases | length > 0
+  tags: [postgres-databases]
