@@ -1,0 +1,92 @@
+# k8s/asgard/infrastructure/authentik/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: authentik
+  namespace: authentik
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: authentik
+      version: "2026.2.3"
+      sourceRef:
+        kind: HelmRepository
+        name: authentik
+        namespace: authentik
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    authentik:
+      log_level: info
+      error_reporting:
+        enabled: false
+      postgresql:
+        host: fulla.niflheim.xiiisins.com
+        port: 5432
+        name: authentik
+        user: authentik
+        # password injected via AUTHENTIK_POSTGRESQL__PASSWORD from authentik Secret
+
+    blueprints:
+      configMaps:
+        - authentik-blueprints
+
+    server:
+      replicas: 3
+      envFrom:
+        - secretRef:
+            name: authentik
+      service:
+        type: LoadBalancer
+        loadBalancerIP: 10.0.20.12
+      ingress:
+        enabled: false
+      volumes:
+        - name: media
+          emptyDir: {}
+      volumeMounts:
+        - name: media
+          mountPath: /media
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+
+    worker:
+      replicas: 1
+      envFrom:
+        - secretRef:
+            name: authentik
+        - secretRef:
+            name: authentik-blueprint-user
+      volumes:
+        - name: media
+          emptyDir: {}
+      volumeMounts:
+        - name: media
+          mountPath: /media
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+
+    postgresql:
+      enabled: false
+
+    geoip:
+      enabled: false
+
+    prometheus:
+      rules:
+        enabled: false
+      serviceMonitor:
+        enabled: false

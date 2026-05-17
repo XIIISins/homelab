@@ -1,0 +1,25 @@
+# k8s/asgard/infrastructure/authentik/blueprints/00-tenant.yaml
+version: 1
+metadata:
+  name: default-tenant
+entries:
+  - model: authentik_tenants.tenant
+    identifiers:
+      schema_name: public
+    attrs:
+      name: niflheim
+      ready: true
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik.niflheim.xiiisins.com
+    attrs:
+      branding_title: niflheim
+      branding_logo: /static/dist/assets/icons/icon.png
+      branding_favicon: /static/dist/assets/icons/icon.png
+      flow_authentication:
+        !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      flow_invalidation:
+        !Find [authentik_flows.flow, [slug, default-invalidation-flow]]
+      flow_user_settings:
+        !Find [authentik_flows.flow, [slug, default-user-settings-flow]]
+      default: true

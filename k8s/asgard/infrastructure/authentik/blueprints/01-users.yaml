@@ -1,0 +1,18 @@
+# k8s/asgard/infrastructure/authentik/blueprints/01-users.yaml
+version: 1
+metadata:
+  name: personal-user
+context:
+  user_password: !Env AUTHENTIK_BLUEPRINT_USER_PASSWORD
+entries:
+  - model: authentik_core.user
+    identifiers:
+      username: ghost
+    attrs:
+      name: ghost
+      email: xiii@xiiisins.com
+      is_active: true
+      type: internal
+      password: !Context user_password
+      groups:
+        - !Find [authentik_core.group, [name, authentik Admins]]
