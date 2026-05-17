@@ -94,4 +94,12 @@ resource "vault_approle_auth_backend_role" "ansible_awx" {
   token_max_ttl  = 3600
   secret_id_ttl  = 7776000
 }
-
+# Test entry used by ansible/playbooks/test-vault-lookup.yml
+# Recreated declaratively so rebuilds do not need a manual `vault kv put` step
+resource "vault_kv_secret_v2" "ansible_test" {
+  mount = vault_mount.kv.path
+  name  = "ansible/test/hello"
+  data_json = jsonencode({
+    value = "world"
+  })
+}
