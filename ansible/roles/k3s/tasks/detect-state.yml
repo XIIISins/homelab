@@ -1,0 +1,44 @@
+---
+# ansible/roles/k3s/tasks/detect-state.yml
+#
+# Detect whether K3s is already running and this node is a healthy
+# cluster member, so install.yml and calico.yml can skip themselves
+# on idempotent re-runs.
+#
+# Without this guard, re-running the playbook against a healthy CP
+# can trigger the restart handler, which causes K3s to re-attempt
+# joining a cluster it's already a member of — failing with
+# "duplicate node name." Discovered 2026-05-17 during gondul move.
+
+- name: Check if k3s.service is active
+  ansible.builtin.command: systemctl is-active k3s
+  register: k3s_service_state
+  changed_when: false
+  failed_when: false
+
+- name: Check if this node is Ready in the cluster
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/k3s kubectl get node {{ inventory_hostname }}
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  delegate_to: "{{ k3s_init_node }}"
+  register: k3s_node_ready
+  changed_when: false
+  failed_when: false
+  # Only meaningful if init node has K3s running. On true cluster bootstrap
+  # (init node not yet up), this returns rc!=0 and stdout is empty, which
+  # correctly evaluates to "not healthy" below.
+
+- name: Set fact — k3s_already_healthy
+  ansible.builtin.set_fact:
+    k3s_already_healthy: >-
+      {{ k3s_service_state.stdout == 'active'
+         and k3s_node_ready.stdout == 'True' }}
+
+- name: Report K3s state
+  ansible.builtin.debug:
+    msg: >-
+      K3s on {{ inventory_hostname }}:
+      service={{ k3s_service_state.stdout | default('unknown') }},
+      cluster_ready={{ k3s_node_ready.stdout | default('not-in-cluster') }},
+      skip_install={{ k3s_already_healthy }}

@@ -12,12 +12,19 @@
   ansible.builtin.import_tasks: network.yml
   tags: k3s_network
 
+- name: Detect existing K3s state
+  ansible.builtin.import_tasks: detect-state.yml
+  tags: k3s_install
+
 - name: Install K3s
   ansible.builtin.import_tasks: install.yml
+  when: not k3s_already_healthy
   tags: k3s_install
 
 - name: Install Calico CNI
   ansible.builtin.import_tasks: calico.yml
-  tags: k3s_calico
   # Only run on first control plane node
-  when: inventory_hostname == k3s_init_node
+  when:
+    - inventory_hostname == k3s_init_node
+    - not k3s_already_healthy
+  tags: k3s_calico
