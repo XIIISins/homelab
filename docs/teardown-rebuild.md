@@ -252,6 +252,26 @@ grep -c "tls.crt\|tls.key" ~/homelab-rebuild-state/sealed-secrets-master-keys.ya
 
 This step is restored in Section 5.4 below, *before* the sealed-secrets controller starts on the rebuilt cluster.
 
+### 1.11 Flux deploy key backup ⚠️
+
+`flux bootstrap github` reuses an existing `flux-system/flux-system` Secret if present at bootstrap time, alongside the matching deploy key in the repo's Settings → Deploy keys. Without this backup, bootstrap generates a fresh keypair and registers a new deploy key in GitHub, orphaning the previous one (manual cleanup needed in repo settings).
+
+```fish
+kubectl get secret -n flux-system flux-system -o yaml \
+  > ~/homelab-rebuild-state/flux-deploy-key.yaml
+
+# Verify the three data fields are present
+grep -cE "^  (identity|identity\.pub|known_hosts):" \
+  ~/homelab-rebuild-state/flux-deploy-key.yaml
+# Expected: 3
+```
+
+**Then copy the file's contents into 1Password** as a Secure Note in the Homelab vault, named `Flux deploy key — asgard`. Note in the same item that the matching public key is registered in the GitHub repo's Settings → Deploy keys — both halves are required for the bootstrap-reuse path.
+
+If a 1Password item already exists from a previous rebuild and the live Secret hasn't been rotated since, you can skip the re-capture, but still write the file to disk so it's local for Section 5.4.
+
+This step is restored in Section 5.4 below, *before* `flux bootstrap` is invoked.
+
 ---
 
 ## Section 2 — Per-tier rename (Git only, no infra changes)
@@ -691,6 +711,15 @@ kubectl get installation default -o jsonpath='{.spec.calicoNetwork}{"\n"}'
 
 The Flux bootstrap re-creates the GitRepository source and points it at the new path:
 
+**First, restore the deploy key Secret** (captured in Section 1.11). The bootstrap reuses it if present; otherwise it generates a fresh keypair and orphans the previous GitHub deploy key.
+
+```fish
+kubectl create namespace flux-system
+kubectl apply -f ~/homelab-rebuild-state/flux-deploy-key.yaml
+```
+
+Then run the bootstrap:
+
 ```fish
 flux bootstrap github \
     --owner=<your-github-user> \
@@ -710,8 +739,9 @@ kubectl apply -k k8s/asgard/flux-system/flux-system
 ```
 
 **Notes on `flux bootstrap github`:**
-- The bootstrap re-creates the GitHub deploy key idempotently if it still exists in the repo settings; otherwise generates a new keypair. The deploy key itself is NOT in IaC (tracked as a future hardening item).
-- The bootstrap Secret containing the deploy key lives only in the cluster — not backed up. Re-bootstrapping is the recovery path.
+- If the Secret restored above is present, bootstrap reuses it and the GitHub deploy key stays the same. No GitHub cleanup needed.
+- If both the Secret and the GitHub deploy key are missing, bootstrap generates a fresh keypair and registers a new deploy key. The previous deploy key (if any) becomes orphaned in repo settings.
+- Recovery path is the 1Password Secure Note (`Flux deploy key — asgard`, Homelab vault). Re-bootstrapping without it works but leaves orphaned deploy keys.
 
 #### 5.4.1 Restore sealed-secrets master keypair ⚠️ CRITICAL
 
