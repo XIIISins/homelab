@@ -49,6 +49,7 @@ All 1 GbE. No 2.5 GbE planned.
 | AdGuard primary | Saga | Goddess of wisdom/seeing |
 | AdGuard replica 1 | Mimir | Keeper of wisdom |
 | AdGuard replica 2 | Kvasir | Wisest being |
+| Asgard PostgreSQL | Fulla, Vör, Idunn | Frigg's handmaidens + Idunn the keeper. Meta-principle: primary defines theme, replicas expand within it. |
 | Public DNS zone | `midgard.xiiisins.com` | The known world |
 | Private DNS zone | `niflheim.xiiisins.com` | The hidden realm |
 
@@ -230,8 +231,9 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ MetalLB — L2 working end-to-end. VIP `10.0.20.11` reachable from outside the cluster. Required nodeSelectors, Calico autodetection pin, rp_filter loose mode, route_localnet, and VLAN 20 policy routing — all in IaC as of 2026-05-17.
 - ✅ tigera-operator — fixed 2026-05-15 via MTU explicit (workaround for upstream projectcalico/calico#7851). No longer Degraded.
 - ✅ Factorio LXC (1120) — Deployed 2026-05-16. Terraform + Ansible end-to-end. Factorio headless + SFTPGo running. Operator self-service via SFTP on TCP 22022. Game on UDP 34197. Reachable at `factorio.xiiisins.com` (external) and `factorio.niflheim.xiiisins.com` (internal).
+- ✅ Fulla / PostgreSQL 1 (LXC 1130) — Deployed 2026-05-17. PG 17 from PGDG on Skuld at 10.0.11.230. TLS (self-signed), scram-sha-256 only. Two SUPERUSER management roles (admin, ansible) with passwords in HashiCorp Vault. Per-service DB provisioning machinery ready (empty until Authentik). Standalone; cluster expansion to Vör (1131, Urd) + Idunn (1132, Verd) + HAProxy VIP (10.0.10.210) deferred until post-Authentik.
 - 🔲 Authentik + Redis (in asgard K3s — the next forward step on the K8s side)
-- 🔲 Remaining asgard LXCs (Tailscale, Teamspeak, PostgreSQL, HAProxy, Zabbix, Jellyfin)
+- 🔲 Remaining asgard LXCs (Tailscale, Teamspeak, PostgreSQL cluster expansion, HAProxy, Zabbix, Jellyfin)
 - 🔲 Jotunheim K3s
 - 🔲 Services
 
@@ -246,7 +248,7 @@ homelab/
 ├── terraform/
 │   ├── proxmox/
 │   │   ├── asgard-k3s/      # VM definitions (bpg/proxmox provider) — CP cpu/memory per-node via locals map
-│   │   └── asgard-lxcs/     # LXC definitions — 1120 Factorio; extend per LXC
+│   │   └── asgard-lxcs/     # LXC definitions — 1120 Factorio, 1130 Fulla (PG primary); cluster nodes for_each via locals.postgres_nodes
 │   ├── vault/               # Vault config — KV engine, K8s auth, eso policy + role, AppRole + 2 roles, test KV entry
 │   ├── dns/                 # scaffolding (empty)
 │   ├── aws/                 # scaffolding (empty)
@@ -254,14 +256,17 @@ homelab/
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── inventory/
-│   │   ├── hosts.yml        # groups: asgard_k3s_cp, asgard_k3s_workers, factorio_host
-│   │   └── group_vars/all/  # vars.yml + vault.yml (Ansible Vault encrypted) — adjacent to inventory for auto-discovery
+│   │   ├── hosts.yml        # groups: asgard_k3s_cp, asgard_k3s_workers, factorio_host, postgres_hosts
+│   │   ├── group_vars/all/  # vars.yml + vault.yml (Ansible Vault encrypted) — adjacent to inventory for auto-discovery
+│   │   └── group_vars/{factorio_host,postgres_hosts}.yml  # per-group service config
 │   ├── playbooks/
 │   │   ├── asgard-k3s.yml         # roles: baseline → k3s → hardening
 │   │   ├── factorio-host.yml      # roles: baseline → factorio → sftpgo → hardening
+│   │   ├── postgres-host.yml      # roles: baseline → postgres → hardening
 │   │   └── test-vault-lookup.yml  # smoke test for AppRole + Vault KV chain
 │   └── roles/
-│       ├── baseline/        # OS prereqs (sudo, acl), pkg update, ansible + recovery users
+│       ├── baseline/        # OS prereqs (sudo, acl, tzdata, gnupg, ca-certificates), timezone, locale, pkg update, ansible + recovery users
+│       ├── postgres/        # PG 17 from PGDG, TLS, scram-sha-256, management users (admin, ansible), per-service DB provisioning
 │       ├── k3s/             # prereqs, network.yml (sysctls + VLAN 20 policy routing), detect-state.yml (skip install on healthy), install.yml, calico.yml
 │       └── hardening/       # SELinux, SSH config, sysctl (security only — K3s+MetalLB sysctls are in k3s role), module blocklist, banner
 ├── k8s/
@@ -386,6 +391,9 @@ CP cpu/memory parameterized per-node in the `locals.control_planes` map in `terr
 - **bpg/proxmox reboots**: Provider may reboot VMs on apply even without meaningful changes due to IP address drift in state. Expect this — cluster should survive rolling restarts.
 - **SELinux dontaudit hides denials**: A "permission denied" with nothing in `ausearch` does NOT mean SELinux is innocent. The default policy `dontaudit`s many denials. Diagnose with `semodule -DB` (disable dontaudit), reproduce, capture AVC, then `semodule -B` to re-enable. Never leave dontaudit disabled — it floods the audit log.
 - **Proxmox minimal Debian template is *minimal***: `debian-13-standard_*.tar.zst` lacks `sudo`, `acl`, and other things roles often assume. The `baseline` role installs `sudo` and `acl` OS-agnostically (in `main.yml`, via `ansible.builtin.package` — no-op on RHEL which ships both in `@core`). When writing a new role that uses `become_user: <non-root>`, ensure `acl` is installed via baseline first (Ansible's preferred privilege-drop mechanism uses POSIX ACLs).
+- **Minimal-template package gaps keep surfacing**: PG deploy 2026-05-17 added `tzdata`, `gnupg`, `ca-certificates`, and locale generation (`locales` package + `community.general.locale_gen`) to baseline. The list will grow as new roles surface new gaps — that's expected. Baseline owns the class; alternative is every role rediscovering the same gaps. Particularly: any role adding a third-party apt repo needs `gnupg` (for `apt-key`-style dearmor) and `ca-certificates` (for HTTPS to upstream). Any role using locale-sensitive tools (PG's `pg_createcluster` is one) needs the locale generated first.
+- **`--check` doesn't validate file ownership**: `--check` reports "would create" for files that don't yet exist, but doesn't validate `owner`/`group`/`mode` against actual users. Bugs in this dimension survive `--check` and only surface at real-run + post-hoc inspection. The auth path is unforgiving — sshd silently rejects keys with wrong directory perms or ownership. **Always set `owner`/`group`/`mode` explicitly on every `file`/`template`/`copy` task; never rely on defaults**. Discovered 2026-05-17 when fulla's `authorized_keys` ended up owned by `recovery` instead of `ansible` and the fix took longer than the bug.
+- **`ansible.posix.authorized_key` in `--check` needs explicit `path:`**: The module resolves `~/.ssh/authorized_keys` from the user's home dir via getent. In `--check`, the previous create-user task is a no-op, getent finds no user, module errors with "Either user must exist or you must provide full path to key file in check mode". Fix: pass `path: "/home/{{ user }}/.ssh/authorized_keys"` + `manage_dir: true` explicitly. Real-run is functionally identical; check-mode unblocks.
 - **`ansible.builtin.user` creates accounts with `password: '!'` by default**: PAM's `account` stack interprets this as "account locked" even though pubkey auth via sshd never actually checks a password. Symptom after hardening enables full sshd PAM evaluation: `User <name> not allowed because account is locked` in auth.log; SSH key offered and rejected. Fix: pass `password: '*'` explicitly. `*` is "valid account, no usable password, key auth permitted." Required for any key-auth-only user.
 - **Service-specific systemd drop-in dirs (`/etc/systemd/system/<unit>.service.d/`) don't pre-exist**: Roles that drop override.conf files must `file: state: directory` first. SFTPGo bit us; assume any service-specific override needs the dir created.
 - **bpg/proxmox API tokens can change `nesting` but no other features**: `keyctl`, `fuse`, and other LXC features require `root@pam` to change once the container exists. Workaround: destroy + recreate. Practical implication: don't put `keyctl: false`/`fuse: false` in the resource block — they're defaults, omitting them avoids future "tried to change keyctl, 403" plans even when values aren't actually changing.

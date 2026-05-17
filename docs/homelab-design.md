@@ -1,5 +1,5 @@
 # Homelab design document
-*Last updated: 2026-05-16 — draft v7*
+*Last updated: 2026-05-17 — draft v8*
 
 ---
 
@@ -45,6 +45,11 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - **Jotunheim K3s CP:** Rota, Hildr, Kára (Valkyries)
 - **Jotunheim K3s workers:** Drengr-urd/verd/skuld (heroes of the Norns)
 - **AdGuard Home:** Saga (primary), Mimir (replica), Kvasir (replica)
+- **Asgard PostgreSQL:** Fulla (primary), Vör (replica), Idunn (replica) — Frigg's handmaidens / keeper goddesses
+
+**Cluster naming meta-principle.** The primary node defines the theme; replicas are a logical expansion within it. Postgres is the *library* — Fulla guards the treasure chest, Vör knows what is in it, Idunn preserves what must not be lost. New service clusters follow the same shape: pick the primary by archetype, the replicas by the natural cohort that surrounds that archetype.
+
+ASCII-only for hostnames (the inventory keys are `fulla`, `vor`, `idunn`); display names in tables keep the accents.
 
 ### Network hardware
 
@@ -130,9 +135,9 @@ Internet
 | `10.0.11.215` | 1115 | Skuld | Tailscale 3 |
 | `10.0.11.220` | 1120 | Urd | Factorio + SFTPGo |
 | `10.0.11.221` | 1121 | Verd | Teamspeak |
-| `10.0.11.230` | 1130 | Urd | PostgreSQL 1 |
-| `10.0.11.231` | 1131 | Verd | PostgreSQL 2 |
-| `10.0.11.232` | 1132 | Skuld | PostgreSQL 3 |
+| `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
+| `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
+| `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |
 | `10.0.11.233` | 1133 | Urd | HAProxy 1 |
 | `10.0.11.234` | 1134 | Verd | HAProxy 2 |
 | `10.0.11.235` | 1135 | Skuld | HAProxy 3 |
@@ -310,9 +315,9 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | Tailscale 3 | 1115 | Skuld | `10.0.11.215` | Exit node | 🔲 |
 | Factorio | 1120 | Urd | `10.0.11.220` | Game server + SFTPGo | ✅ |
 | Teamspeak | 1121 | Verd | `10.0.11.221` | Voice + PostgreSQL | 🔲 |
-| PostgreSQL 1 | 1130 | Urd | `10.0.11.230` | Database node | 🔲 |
-| PostgreSQL 2 | 1131 | Verd | `10.0.11.231` | Database node | 🔲 |
-| PostgreSQL 3 | 1132 | Skuld | `10.0.11.232` | Database node | 🔲 |
+| Fulla (PostgreSQL 1) | 1130 | Skuld | `10.0.11.230` | DB primary, PG 17 + TLS | ✅ |
+| Vör (PostgreSQL 2) | 1131 | Urd | `10.0.11.231` | DB replica (planned) | 🔲 |
+| Idunn (PostgreSQL 3) | 1132 | Verd | `10.0.11.232` | DB replica (planned) | 🔲 |
 | HAProxy 1 | 1133 | Urd | `10.0.11.233` | Load balancer | 🔲 |
 | HAProxy 2 | 1134 | Verd | `10.0.11.234` | Load balancer | 🔲 |
 | HAProxy 3 | 1135 | Skuld | `10.0.11.235` | Load balancer | 🔲 |
@@ -363,6 +368,33 @@ RCON password lives outside `/factorio/` at `/var/lib/factorio-secrets/rconpw` (
 DNS: `factorio.xiiisins.com` (Cloudflare A → WAN IP) and `factorio.niflheim.xiiisins.com` (AdGuard → 10.0.11.220).
 
 **LXC features.** Unprivileged, `nesting=true` (required for systemd 257 on Debian 13). 4 vCPU / 8 GB RAM / 8 GB disk on Urd. No nested containerization — `nesting` flag is for systemd's namespace ops, not Docker.
+
+### PostgreSQL LXC architecture (Fulla deployed 2026-05-17)
+
+LXC 1130 (Fulla) hosts PostgreSQL 17 from PGDG, TLS-enabled, scram-sha-256 only. Standalone for now; Vör (1131, Urd) and Idunn (1132, Verd) join post-Authentik to validate clustering against a real consumer. Each cluster node lives on a different Proxmox host so a single-host failure never takes down >1 PG node.
+
+**Why local LVM-thin, not NFS.** Postgres on NFS is an anti-pattern: Synology DSM's NFS isn't on anyone's validated list, fsync semantics vary between server implementations, soft mounts can silently drop writes under load, and WAL fsync over 1 GbE makes every commit a network round-trip. Database scale (Authentik + Teamspeak + future services = tens of GB) fits inside the 16 GB LXC disk; `pct resize` is one command if it ever fills.
+
+**Sizing (cluster-wide, identical across nodes).** 2 vCPU, 4 GB RAM, 16 GB disk. Failover symmetry requires identical resources — asymmetric sizing means failover silently degrades performance. Tuning: `shared_buffers=1GB` (25%), `effective_cache_size=3GB` (75%), `work_mem=16MB`, `maintenance_work_mem=256MB`, `max_connections=100`, `wal_buffers=16MB`.
+
+**TLS — self-signed, Ansible-managed.** 4096-bit RSA, 825-day cert. SAN covers `inventory_hostname`, `inventory_hostname.niflheim.xiiisins.com`, and the eth0 IP. `sslmode=require` is the practical client posture; `sslmode=verify-full` works once the cert ships to the client trust store. Long-term: cert-manager via ESO push to LXC.
+
+**Authentication.**
+- Local Unix socket: peer for `postgres` superuser (so `sudo -iu postgres psql` works without a password). scram-sha-256 for everything else.
+- Network: `hostssl` only, scram-sha-256. Allowed source CIDRs in `postgres_allowed_cidrs`: VLAN 11 (asgard LXCs / Teamspeak future), VLAN 21 (asgard K3s nodes / Authentik via node NAT), VLAN 31 (jotunheim K3s, future), MacBook `/32`.
+- Two SUPERUSER management roles: `admin` (hand-on-keyboard) and `ansible` (playbook / AWX automation). Passwords sourced from HashiCorp Vault via `community.hashi_vault` (`secret/ansible/postgres/admin-password`, `secret/ansible/postgres/ansible-password`). The Unix-side `postgres` superuser has no password — peer auth only, no network logins.
+
+**WAL / replication readiness from day 1.** `wal_level=replica`, `max_wal_senders=10`, `max_replication_slots=10`, `hot_standby=on`, `archive_mode=on` with `archive_command='/bin/true'` (no-op placeholder). All four are restart-required to change, so they're set right from the start — adding 1131/1132 later doesn't require a config thrash + restart. When real WAL archiving is wanted, flip `archive_command` to the actual destination.
+
+**Per-service DB provisioning.** Driven declaratively by `postgres_databases` in `inventory/group_vars/postgres_hosts.yml`. Each entry: `{name, owner, password_vault_path}`. Role iterates: creates the owning role (LOGIN only — not SUPERUSER, scoped to its DB), creates the DB owned by that role using `template0` + explicit encoding/collation pinned to `baseline_locale`. New consumer = new group_var entry + re-run playbook. No role editing required.
+
+**Database deletion is deliberately NOT declarative** — removing an entry from `postgres_databases` does NOT drop the DB. Drop is a deliberate manual operation (`psql -c 'DROP DATABASE x'`). Group_var typos must not be able to drop data.
+
+**Backups.** PBS captures the LXC filesystem (including data dir); restore is "PG replays WAL on startup." Acceptable initial posture. `pg_basebackup` to NFS (Munin) as a future enhancement for the canonical PG hot-backup pattern.
+
+**Cluster build sequence.** Standalone-now / clustered-later, intentionally. The architectural rule "PostgreSQL LXC cluster only" is the *target* state, not the only valid intermediate. Fulla deployed first; cluster expansion (Vör, Idunn, streaming replication, HAProxy VIP frontend at 10.0.10.210) deferred until post-Authentik so clustering is validated against a real consumer rather than synthetic load. Authentik points at `fulla.niflheim.xiiisins.com` direct until the VIP exists, then re-points at `10.0.10.210` — single config flip.
+
+**LXC features.** Unprivileged, `nesting=true` (systemd 257 on Debian 13). 2 vCPU / 4 GB RAM / 16 GB disk on Skuld.
 
 ### Asgard K3s cluster
 
@@ -745,7 +777,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | 5d — KPN DMZ | ✅ | DMZ → UCG-Ultra WAN (IPv4 + IPv6) |
 | 5e — Authentik + Redis | 🔲 | Next forward step on the K8s side. Blocks Tailscale LXCs. |
 | 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
-| 5g — PostgreSQL + Teamspeak LXCs | 🔲 | After Factorio. Teamspeak needs PostgreSQL. |
+| 5g — PostgreSQL + Teamspeak LXCs | 🟡 | Fulla (1130) ✅ deployed 2026-05-17 standalone. Vör/Idunn deferred until post-Authentik (cluster expansion validates against real consumer). Teamspeak pending. |
 | 5h — Remaining LXCs | 🔲 | Tailscale (after Authentik), HAProxy, Zabbix, Jellyfin |
 | 6 — Jotunheim K3s | 🔲 | Terraform VMs, Flux, services |
 | 7 — Observability | 🔲 | VictoriaMetrics + Logs + Grafana + Zabbix |
@@ -815,6 +847,17 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | LXC bootstrap flow | `ansible-playbook -e ansible_user=root --tags baseline` then full playbook as ansible | Root SSH only for the brief baseline window; hardening locks root after |
 | Debian LXC user creation | `password: '*'` in `user` task | Ansible default `!` triggers PAM account lock even for key auth |
 | LXC nesting flag | `nesting=true` on Debian 13 LXCs | Required for systemd 257; orthogonal to nested containerization |
+| Service LXC naming convention | Norse, themed to function — DB → Frigg's handmaidens (Fulla/Vör/Idunn); HAProxy TBD; Factorio kept literal | Extends host-naming pattern (Norns → hypervisors, Valkyries → CP) to service LXCs. Single-purpose oddballs like Factorio stay literal — not every LXC needs a Norse name. |
+| Cluster naming meta-principle | Primary defines the theme; replicas are a logical expansion within it | DB = library → librarian-keepers. New service cluster: pick primary by archetype, replicas by the natural cohort around it. |
+| PG storage backend | Local LVM-thin only (not NFS) | NFS fsync semantics vary; WAL latency over 1 GbE kills throughput; Synology DSM NFS not on any validated list. Data scale fits in LVM-thin disk. |
+| PG cluster build sequence | Standalone Fulla first; Vör/Idunn + HAProxy post-Authentik | Cluster expansion validated against real consumer (Authentik DB) rather than synthetic load. Authentik points at fulla direct until VIP exists; single config flip later. |
+| PG cluster sizing | Identical across nodes (cluster-wide constants, not per-node map) | Failover symmetry — asymmetric sizing means failover silently degrades. Promote sizing into the locals map only when deliberate per-node tuning is needed. |
+| PG TLS | Self-signed via Ansible (4096-bit RSA, 825d, SAN covers host/FQDN/IP) | In-LAN doesn't excuse cleartext at senior posture. cert-manager via ESO push to LXC is the long-term replacement. |
+| PG management user split | Two SUPERUSER roles: admin (hand-on-keyboard), ansible (automation). Service DB roles are LOGIN only | Operational distinction (who is acting) without security boundary cost. Tighten later if any consumer warrants least-privilege. |
+| PG replication-ready config day 1 | `wal_level=replica`, `max_wal_senders=10`, `archive_mode=on` with no-op `archive_command` even on a single node | These settings require a restart to change. Setting them right from the start avoids a config-thrash + restart later when 1131/1132 join. |
+| PG per-service DB provisioning | Declarative list (`postgres_databases`) in group_vars; role iterates idempotently | New consumer = group_var entry + replay. No role editing. AWX automation later. |
+| PG database deletion | Manual via `psql -c 'DROP DATABASE'` — NOT declarative from group_vars | Removing an entry from `postgres_databases` is config drift, not destructive intent. Drop must be explicit; typos must not be able to drop data. |
+| Baseline role scope | Timezone, locale, minimal-template gap-fillers (sudo, acl, tzdata, gnupg, ca-certificates) live here, not in every consuming role | Roles authored against minimal Debian rediscover the same gaps. Baseline owns the class. List grows over time; that's expected. |
 
 ---
 
@@ -932,8 +975,8 @@ Renamed `must-run` → `asgard` and `can-run` → `jotunheim` in the same arc �
 
 **Service backlog (in revised LXC order):**
 - [x] **Factorio LXC** (1120, Urd) — ✅ Deployed 2026-05-16. UDP 34197 + TCP 22022 port-forwards active.
-- [ ] **PostgreSQL** (start with 1130 on Urd; cluster later).
-- [ ] **Teamspeak LXC** (1121, Verd) — pointed at PostgreSQL.
+- [x] **PostgreSQL Fulla** (1130, Skuld) — ✅ Deployed 2026-05-17. Standalone PG 17 + TLS + management users + DB provisioning machinery. Cluster expansion to Vör/Idunn (and HAProxy VIP 10.0.10.210) deferred until post-Authentik.
+- [ ] **Teamspeak LXC** (1121, Verd) — pointed at Fulla (later at HAProxy VIP once 1133/1134/1135 are up).
 - [ ] **Tailscale LXCs** (1113/1114/1115) — after Authentik.
 - [ ] **HAProxy** (1133/1134/1135) — PostgreSQL frontend, after PG cluster.
 - [ ] **Zabbix LXC** (1102, Skuld).
@@ -970,6 +1013,8 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening.
 - [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on jotunheim first.
 - [ ] Long-term: migrate Vault → OpenBao (~12 months out, once OpenBao has more production track record).
+- [ ] **PG: `pg_basebackup` to NFS (Munin)** beyond PBS filesystem snapshot — canonical PG hot-backup pattern. Acceptable to defer; PBS-only is functional crash recovery.
+- [ ] **PG cluster expansion** (Vör 1131 / Urd; Idunn 1132 / Verd; HAProxy 1133/1134/1135) — after Authentik proves cluster pattern under real load.
 
 ---
 
