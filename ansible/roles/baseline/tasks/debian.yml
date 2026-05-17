@@ -18,6 +18,22 @@
     state: started
   when: ansible_virtualization_type != 'lxc'
 
+- name: Ensure locales package is installed
+  ansible.builtin.apt:
+    name: locales
+    state: present
+
+- name: Ensure {{ baseline_locale }} is generated
+  community.general.locale_gen:
+    name: "{{ baseline_locale }}"
+    state: present
+
+- name: Set default system locale
+  ansible.builtin.copy:
+    dest: /etc/default/locale
+    content: "LANG={{ baseline_locale }}\n"
+    mode: "0644"
+
 - name: Reboot after qemu-guest-agent installation
   ansible.builtin.reboot:
     reboot_timeout: 300

@@ -14,3 +14,4 @@ rhel_subscription_password: ""
 # System timezone. Override per-host or per-group only if a node needs a
 # different one (none currently do — all hardware is colocated in NL).
 baseline_timezone: Europe/Amsterdam
+baseline_locale: en_US.UTF-8

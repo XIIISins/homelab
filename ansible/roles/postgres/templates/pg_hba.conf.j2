@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+# Managed by Ansible — postgres role. Manual edits will be overwritten.
+#
+# Auth policy:
+#   - Unix socket: peer for the postgres superuser; scram-sha-256 for everything else
+#   - Loopback TCP: scram-sha-256
+#   - Network (postgres_allowed_cidrs): hostssl + scram-sha-256, no plaintext
+#   - Replication (postgres_replicas): hostssl + scram-sha-256, IPs resolved from inventory
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Local Unix socket.
+local   all             postgres                                peer
+local   all             all                                     scram-sha-256
+
+# Loopback TCP.
+host    all             all             127.0.0.1/32            scram-sha-256
+host    all             all             ::1/128                 scram-sha-256
+
+# Network — TLS-required.
+{% for cidr in postgres_allowed_cidrs %}
+hostssl all             all             {{ cidr.ljust(24) }}scram-sha-256
+{% endfor %}
+{% if postgres_replicas | length > 0 %}
+
+# Replication — TLS-required. Replica IPs resolved from inventory.
+{% for replica_host in postgres_replicas %}
+hostssl replication     all             {{ (hostvars[replica_host].ansible_host ~ '/32').ljust(24) }}scram-sha-256
+{% endfor %}
+{% endif %}

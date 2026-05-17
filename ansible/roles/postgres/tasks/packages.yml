@@ -1,6 +1,41 @@
 ---
-# TODO Pass 2: install postgresql-{{ postgres_version }} + client + python3-psycopg2
-# + python3-cryptography from PGDG.
-- name: postgres/packages — Pass 1 stub
-  ansible.builtin.debug:
-    msg: "Pass 1 stub: postgres/packages.yml will be written in Pass 2."
+# Install PostgreSQL {{ postgres_version }} from the PGDG apt repository.
+# Ref: https://www.postgresql.org/download/linux/debian/
+
+- name: ensure gnupg is installed (required for apt key dearmor)
+  ansible.builtin.apt:
+    name: gnupg
+    state: present
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Fetch PGDG signing key (ASCII-armored)
+  ansible.builtin.get_url:
+    url: "{{ postgres_apt_repo_signing_key_url }}"
+    dest: /etc/apt/keyrings/postgresql.asc
+    mode: "0644"
+    force: false
+
+- name: Dearmor PGDG signing key
+  ansible.builtin.command:
+    cmd: gpg --dearmor --batch --yes -o /etc/apt/keyrings/postgresql.gpg /etc/apt/keyrings/postgresql.asc
+    creates: /etc/apt/keyrings/postgresql.gpg
+
+- name: Configure PGDG apt repo
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] {{ postgres_apt_repo_url }} {{ ansible_distribution_release }}-pgdg {{ postgres_apt_repo_component }}"
+    filename: pgdg
+    state: present
+    update_cache: true
+
+- name: Install PostgreSQL {{ postgres_version }} and Ansible module deps
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgres_version }}"
+      - python3-psycopg2
+      - python3-cryptography
+    state: present

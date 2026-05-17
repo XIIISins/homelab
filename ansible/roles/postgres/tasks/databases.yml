@@ -1,7 +1,41 @@
 ---
-# TODO Pass 4: iterate postgres_databases; for each entry, create the
-# owning role (vault_kv2_get the password) then create the database with
-# that role as owner. Idempotent.
-- name: postgres/databases — Pass 1 stub
-  ansible.builtin.debug:
-    msg: "Pass 1 stub: postgres/databases.yml will be written in Pass 4."
+# Per-service database + owning role provisioning. Driven by
+# postgres_databases in group_vars — empty until Authentik lands.
+#
+# Each entry creates:
+#   - A LOGIN role named `item.owner` with password from Vault
+#   - A database named `item.name` owned by that role
+#
+# Idempotent: re-running this task with the same group_vars is a no-op.
+# Password rotation in Vault → re-run → ALTER USER fires.
+
+- name: Create per-service owning roles
+  community.postgresql.postgresql_user:
+    name: "{{ item.owner }}"
+    password: "{{ lookup('community.hashi_vault.vault_kv2_get', item.password_vault_path).secret.value }}"
+    role_attr_flags: LOGIN
+    state: present
+    login_unix_socket: /var/run/postgresql
+    encrypted: true
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_databases }}"
+  loop_control:
+    label: "{{ item.owner }}"
+  no_log: true
+
+- name: Create per-service databases
+  community.postgresql.postgresql_db:
+    name: "{{ item.name }}"
+    owner: "{{ item.owner }}"
+    encoding: UTF8
+    lc_collate: "{{ baseline_locale }}"
+    lc_ctype: "{{ baseline_locale }}"
+    template: template0
+    state: present
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_databases }}"
+  loop_control:
+    label: "{{ item.name }}"

@@ -1,5 +1,13 @@
 ---
-# TODO Pass 2: template postgresql.conf from defaults; notify restart.
-- name: postgres/config — Pass 1 stub
-  ansible.builtin.debug:
-    msg: "Pass 1 stub: postgres/config.yml will be written in Pass 2."
+# Postgres configuration drops as conf.d override. Debian's postgresql.conf
+# ends with `include_dir = 'conf.d'`, so values here win over defaults.
+# Keeps Debian's shipped postgresql.conf intact for future audit/diff.
+
+- name: Render postgresql override drop-in
+  ansible.builtin.template:
+    src: postgresql-niflheim.conf.j2
+    dest: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/conf.d/niflheim.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: restart postgresql

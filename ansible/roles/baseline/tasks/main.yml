@@ -20,6 +20,8 @@
       - sudo
       - acl
       - tzdata
+      - gnupg
+      - ca-certificates
     state: present
 
 - name: Set system timezone
@@ -66,7 +68,7 @@
   ansible.posix.authorized_key:
     user: "{{ breakglass_user }}"
     key: "{{ breakglass_ssh_public_key }}"
-    path: "/home/{{ ansible_user_name }}/.ssh/authorized_keys"
+    path: "/home/{{ breakglass_user }}/.ssh/authorized_keys"
     manage_dir: true
     state: present
   when: breakglass_ssh_public_key | length > 0

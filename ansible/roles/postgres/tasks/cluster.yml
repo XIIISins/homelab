@@ -1,6 +1,30 @@
 ---
-# TODO Pass 2: verify the default 'main' cluster came up via postgresql-common,
-# stopped before config drops in to avoid restart churn.
-- name: postgres/cluster — Pass 1 stub
-  ansible.builtin.debug:
-    msg: "Pass 1 stub: postgres/cluster.yml will be written in Pass 2."
+# Check filesystem for cluster existence rather than parsing pg_lsclusters
+# output — the latter has formatting quirks under non-interactive shells.
+# Cluster presence is unambiguous from /etc/postgresql/<v>/<c>/postgresql.conf.
+
+- name: Check if cluster {{ postgres_version }}/{{ postgres_cluster }} exists
+  ansible.builtin.stat:
+    path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/postgresql.conf"
+  register: pg_cluster_conf
+
+- name: Create cluster {{ postgres_version }}/{{ postgres_cluster }} if missing
+  ansible.builtin.command:
+    cmd: >-
+      pg_createcluster {{ postgres_version }} {{ postgres_cluster }}
+      --start --locale {{ baseline_locale }} --encoding UTF8
+  when: not pg_cluster_conf.stat.exists
+
+- name: Re-check cluster after creation
+  ansible.builtin.stat:
+    path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/postgresql.conf"
+  register: pg_cluster_conf_post
+  when: not pg_cluster_conf.stat.exists
+
+- name: Assert cluster {{ postgres_version }}/{{ postgres_cluster }} exists
+  ansible.builtin.assert:
+    that:
+      - (pg_cluster_conf_post.stat.exists if not pg_cluster_conf.stat.exists else true)
+    fail_msg: >-
+      Cluster {{ postgres_version }}/{{ postgres_cluster }} still missing after pg_createcluster.
+      Investigate manually: pct enter {{ vm_id | default('the LXC') }} then pg_lsclusters.

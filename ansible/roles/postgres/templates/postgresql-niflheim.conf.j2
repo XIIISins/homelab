@@ -1,0 +1,56 @@
+# {{ ansible_managed }}
+# Managed by Ansible — postgres role. Manual edits will be overwritten.
+#
+# Drop-in override for the postgresql.conf shipped by postgresql-common.
+# Values here override Debian's defaults via `include_dir = 'conf.d'`.
+
+# ---- Connection ----
+listen_addresses = '{{ postgres_listen_addresses }}'
+port = {{ postgres_port }}
+max_connections = {{ postgres_max_connections }}
+
+# ---- TLS ----
+{% if postgres_tls_enabled %}
+ssl = on
+ssl_cert_file = '{{ postgres_tls_cert_path }}'
+ssl_key_file = '{{ postgres_tls_key_path }}'
+ssl_min_protocol_version = 'TLSv1.2'
+{% else %}
+ssl = off
+{% endif %}
+
+# ---- Authentication ----
+password_encryption = {{ postgres_password_encryption }}
+
+# ---- Memory ----
+shared_buffers = {{ postgres_shared_buffers }}
+effective_cache_size = {{ postgres_effective_cache_size }}
+work_mem = {{ postgres_work_mem }}
+maintenance_work_mem = {{ postgres_maintenance_work_mem }}
+wal_buffers = {{ postgres_wal_buffers }}
+
+# ---- WAL / replication-ready ----
+# Configured for cluster-readiness even on a single node. No-op while no
+# replicas are connected. wal_level + max_wal_senders + archive_mode all
+# require restart to change, so they're set right from day 1 to avoid a
+# config-thrash + restart when 1131/1132 join.
+wal_level = {{ postgres_wal_level }}
+max_wal_senders = {{ postgres_max_wal_senders }}
+max_replication_slots = {{ postgres_max_replication_slots }}
+hot_standby = {{ 'on' if postgres_hot_standby else 'off' }}
+archive_mode = {{ postgres_archive_mode }}
+archive_command = '{{ postgres_archive_command }}'
+
+# ---- Logging ----
+log_destination = '{{ postgres_log_destination }}'
+logging_collector = {{ 'on' if postgres_logging_collector else 'off' }}
+log_directory = '{{ postgres_log_directory }}'
+log_filename = '{{ postgres_log_filename }}'
+log_rotation_age = {{ postgres_log_rotation_age }}
+log_rotation_size = {{ postgres_log_rotation_size }}
+log_truncate_on_rotation = {{ 'on' if postgres_log_truncate_on_rotation else 'off' }}
+log_line_prefix = '{{ postgres_log_line_prefix }}'
+
+# ---- Timezone (matches OS) ----
+log_timezone = '{{ postgres_timezone }}'
+timezone = '{{ postgres_timezone }}'

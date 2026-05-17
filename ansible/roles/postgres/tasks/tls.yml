@@ -1,6 +1,44 @@
 ---
-# TODO Pass 2: openssl_privatekey + openssl_csr + openssl_certificate (self-signed),
-# owned by postgres:postgres, 0600 on key, 0644 on cert.
-- name: postgres/tls — Pass 1 stub
-  ansible.builtin.debug:
-    msg: "Pass 1 stub: postgres/tls.yml will be written in Pass 2."
+# Self-signed TLS for in-LAN PG traffic. Cert covers hostname, FQDN, and
+# eth0 IP — enough for direct connections from MacBook (admin) and K3s
+# nodes (services). HAProxy VIP cert will be its own thing when it lands.
+#
+# Renewal is manual for now (delete server.crt, re-run role). 825-day
+# lifetime gives ~2 years of slack. Future: cert-manager via ESO push.
+
+- name: Generate PostgreSQL TLS private key
+  community.crypto.openssl_privatekey:
+    path: "{{ postgres_tls_key_path }}"
+    type: RSA
+    size: 4096
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  notify: restart postgresql
+
+- name: Generate PostgreSQL TLS CSR
+  community.crypto.openssl_csr:
+    path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/server.csr"
+    privatekey_path: "{{ postgres_tls_key_path }}"
+    common_name: "{{ inventory_hostname }}"
+    country_name: "{{ postgres_tls_cert_country }}"
+    organization_name: "{{ postgres_tls_cert_org }}"
+    subject_alt_name:
+      - "DNS:{{ inventory_hostname }}"
+      - "DNS:{{ inventory_hostname }}.niflheim.xiiisins.com"
+      - "IP:{{ ansible_default_ipv4.address }}"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+
+- name: Generate PostgreSQL TLS certificate (self-signed)
+  community.crypto.x509_certificate:
+    path: "{{ postgres_tls_cert_path }}"
+    privatekey_path: "{{ postgres_tls_key_path }}"
+    csr_path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/server.csr"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ postgres_tls_cert_days }}d"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: restart postgresql
