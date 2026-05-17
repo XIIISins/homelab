@@ -1,0 +1,7 @@
+# Managed by Ansible — do not edit
+{% for ns in baseline_nameservers %}
+nameserver {{ ns }}
+{% endfor %}
+{% if baseline_dns_search %}
+search {{ baseline_dns_search | join(' ') }}
+{% endif %}

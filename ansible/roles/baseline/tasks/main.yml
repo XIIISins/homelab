@@ -28,6 +28,24 @@
   community.general.timezone:
     name: "{{ baseline_timezone }}"
 
+- name: Disable cloud-init resolv.conf management
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-niflheim-resolv-conf.cfg
+    content: |
+      # Managed by Ansible — niflheim baseline
+      manage_resolv_conf: false
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Template /etc/resolv.conf
+  ansible.builtin.template:
+    src: resolv.conf.j2
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+
 # ----- Ansible runtime user (OS-independent) -----
 
 - name: Create ansible runtime user

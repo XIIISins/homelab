@@ -15,3 +15,9 @@ rhel_subscription_password: ""
 # different one (none currently do — all hardware is colocated in NL).
 baseline_timezone: Europe/Amsterdam
 baseline_locale: en_US.UTF-8
+
+# DNS resolution — owned by Ansible, cloud-init disabled
+baseline_nameservers:
+  - 10.0.254.1 # UCG, forwards to AdGuard VIP
+baseline_dns_search:
+  - niflheim.xiiisins.com

@@ -1,5 +1,5 @@
 # Homelab design document
-*Last updated: 2026-05-17 — draft v8*
+*Last updated: 2026-05-17 evening — draft v9 (Authentik+Redis deploy)*
 
 ---
 
@@ -32,7 +32,8 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 **Hardware notes:**
 - Urd (N5095) is too weak for K3s control plane. etcd IO storms observed under load. CPs run on Verd/Skuld only.
 - Urd long-term: dedicated Jellyfin LXC with Intel QuickSync passthrough. Currently also running Einherjar-urd (K3s worker) and the Factorio LXC (1120).
-- Göndul moved Urd → Verd on 2026-05-17 (was deferred since the 2026-05-14 incident; finally fixed during the asgard rebuild). Bumped to 2vCPU/4GB at the same time after OOM during rebuild reconciliation churn.
+- Göndul moved Urd → Verd on 2026-05-17 (was deferred since the 2026-05-14 incident; finally fixed during the asgard rebuild).
+- All three CPs (Göndul/Hlökk/Sigrún) bumped 1vCPU/2GB → 2vCPU/4GB on 2026-05-17 evening during the Authentik deploy. Earlier doc text claimed Göndul was bumped during the rebuild; the Terraform `locals.control_planes` map was unchanged until tonight. Authentik's first-deploy migration + blueprint-reconciliation burst on hlokk and sigrun confirmed the under-spec; symmetric 2vCPU/4GB across all three is now the standard (CP sizing identical across nodes — same rule as PG nodes, failover symmetry).
 - All nodes 1 GbE. No 2.5 GbE planned.
 
 ### Naming convention
@@ -400,22 +401,22 @@ LXC 1130 (Fulla) hosts PostgreSQL 17 from PGDG, TLS-enabled, scram-sha-256 only.
 
 Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (AWX, Tofu Controller), and services whose absence either cascades into other failures or blocks recovery. Resiliency > simplicity.
 
-**Status (2026-05-17):** Core infrastructure ✅ running and stable. Cluster was fully torn down and rebuilt on 2026-05-17 as a deliberate validation exercise — see incident log. Rebuild confirmed end-to-end IaC works (Terraform → Ansible → Flux) and surfaced 9+ structural gaps that have since been closed. Authentik+Redis is the next forward step, followed by AWX/Tofu Controller, then core services.
+**Status (2026-05-17 evening):** Core infrastructure ✅ running and stable. Cluster was fully torn down and rebuilt on 2026-05-17 morning as a deliberate validation exercise — see incident log. Rebuild confirmed end-to-end IaC works (Terraform → Ansible → Flux) and surfaced 9+ structural gaps that have since been closed. **Authentik + hand-rolled Redis deployed 2026-05-17 evening** — see incident log entry. Traefik + cert-manager is the next forward step, followed by AWX/Tofu Controller, then core services.
 
 **Core infrastructure (cascade failure if down):**
 
 | Service | Replicas | Status |
 |---------|----------|--------|
 | Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s + AppRole auth + KV engine + test entry in Terraform (`terraform/vault/`). Re-init recovery procedure validated 2026-05-17. |
-| Authentik server | 3 | 🔲 — next forward step |
-| Authentik worker | 1 | 🔲 |
-| Redis | 1 | 🔲 |
+| Authentik server | 3 | ✅ Deployed 2026-05-17. Chart 2026.2.3. LoadBalancer at `10.0.20.12` (`authentik.niflheim.xiiisins.com`). External Postgres pointed at Fulla. Day-1 blueprints in Git (niflheim brand + personal admin user). |
+| Authentik worker | 1 | ✅ Migrations + blueprint reconciliation run from here. |
+| Redis | 1 | ✅ Hand-rolled StatefulSet (`redis:7-alpine`, AOF persistence, 1Gi iSCSI PVC). NOT the Bitnami sub-chart — the 2026.x Authentik chart dropped its bundled Redis. |
 | MetalLB | DaemonSet | ✅ L2 working end-to-end. VIP reachable from outside the cluster. Required nodeSelectors, Calico autodetection pin, rp_filter loose, route_localnet=1, and VLAN 20 source-based policy routing — all IaC'd. |
 | Synology CSI (core) | 1 | ✅ iSCSI, synology-csi-iscsi-retain. SealedSecret split into `synology-csi-config/` Kustomization. |
-| External Secrets Operator | 1 | ✅ ClusterSecretStore `vault` Ready |
+| External Secrets Operator | 1 | ✅ ClusterSecretStore `vault` Ready. Authentik secrets in `secret/k8s/authentik/*` synced via ESO. |
 | Sealed Secrets | 1 | ✅ Master keys backed up to 1Password as of 2026-05-17. |
 | tigera-operator (Calico) | 1 | ✅ Fixed 2026-05-15 via MTU explicit workaround (upstream issue #7851) |
-| Traefik | 1+ | 🔲 — ingress controller, paired with cert-manager |
+| Traefik | 1+ | 🔲 — ingress controller, paired with cert-manager. Next forward step. Will re-expose Authentik via TLS. |
 | cert-manager | 1 | 🔲 — Let's Encrypt DNS-01 via Cloudflare API |
 | Cloudflared | 1+ | 🔲 — Cloudflare Tunnel for selected external exposure |
 
@@ -444,14 +445,14 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 | Name | VM ID | Node | IP | Role | Spec |
 |------|-------|------|----|------|------|
-| Göndul | 2001 | Verd | `10.0.21.11` | K3s CP | **2vCPU/4GB**/10GB |
-| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 1vCPU/2GB/10GB |
-| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 1vCPU/2GB/10GB |
+| Göndul | 2001 | Verd | `10.0.21.11` | K3s CP | 2vCPU/4GB/10GB |
+| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 2vCPU/4GB/10GB |
+| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 2vCPU/4GB/10GB |
 | Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/4GB/15GB |
 | Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/4GB/15GB |
 | Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/4GB/15GB |
 
-CP cpu/memory parameterized per-node in `locals.control_planes` map (`terraform/proxmox/asgard-k3s/main.tf`). Göndul bumped to 2vCPU/4GB on 2026-05-17 after OOM during rebuild reconciliation churn. Hlökk and Sigrún at 1vCPU/2GB are still unvalidated under sustained load — if they exhibit the same symptoms, bump via the same map.
+CP cpu/memory parameterized per-node in `locals.control_planes` map (`terraform/proxmox/asgard-k3s/main.tf`). All three CPs sized identically — failover symmetry requires it (same rule as PG nodes). Bumped 1vCPU/2GB → 2vCPU/4GB on 2026-05-17 evening when the Authentik deploy revealed hlokk and sigrun couldn't handle the migration+blueprint burst. Promote sizing into per-node overrides only when deliberate per-CP tuning is needed.
 
 **Workers have dual NICs:**
 - eth0: VLAN 21 (K3s node traffic)
@@ -775,7 +776,9 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | 5b — AdGuard Home | ✅ | Saga/Mimir/Kvasir + keepalived VIP + sync |
 | 5c — Asgard K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅. Full teardown+rebuild validation 2026-05-17 — see incident log. |
 | 5d — KPN DMZ | ✅ | DMZ → UCG-Ultra WAN (IPv4 + IPv6) |
-| 5e — Authentik + Redis | 🔲 | Next forward step on the K8s side. Blocks Tailscale LXCs. |
+| 5e — Authentik + Redis | ✅ | Deployed 2026-05-17 evening. Bare LoadBalancer at `10.0.20.12`, plaintext HTTP. Traefik + cert-manager (next phase) will put it behind TLS. Then unblocks Tailscale LXCs. |
+| 5e.1 — Traefik + cert-manager | 🔲 | Ingress + Let's Encrypt DNS-01. Re-expose Authentik behind TLS at `authentik.niflheim.xiiisins.com`. First-time validation of the cert-manager+Cloudflare-DNS-01 path. |
+| 5e.2 — Tailscale OIDC blueprints + LXCs | 🔲 | Authentik OIDC provider+application blueprints for Tailscale, then LXCs 1113/1114/1115. Needs HTTPS Authentik (5e.1) for production-grade OIDC. |
 | 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
 | 5g — PostgreSQL + Teamspeak LXCs | 🟡 | Fulla (1130) ✅ deployed 2026-05-17 standalone. Vör/Idunn deferred until post-Authentik (cluster expansion validates against real consumer). Teamspeak pending. |
 | 5h — Remaining LXCs | 🔲 | Tailscale (after Authentik), HAProxy, Zabbix, Jellyfin |
@@ -857,7 +860,13 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | PG replication-ready config day 1 | `wal_level=replica`, `max_wal_senders=10`, `archive_mode=on` with no-op `archive_command` even on a single node | These settings require a restart to change. Setting them right from the start avoids a config-thrash + restart later when 1131/1132 join. |
 | PG per-service DB provisioning | Declarative list (`postgres_databases`) in group_vars; role iterates idempotently | New consumer = group_var entry + replay. No role editing. AWX automation later. |
 | PG database deletion | Manual via `psql -c 'DROP DATABASE'` — NOT declarative from group_vars | Removing an entry from `postgres_databases` is config drift, not destructive intent. Drop must be explicit; typos must not be able to drop data. |
-| Baseline role scope | Timezone, locale, minimal-template gap-fillers (sudo, acl, tzdata, gnupg, ca-certificates) live here, not in every consuming role | Roles authored against minimal Debian rediscover the same gaps. Baseline owns the class. List grows over time; that's expected. |
+| Baseline role scope | Timezone, locale, minimal-template gap-fillers (sudo, acl, tzdata, gnupg, ca-certificates), **DNS resolver config** (`/etc/resolv.conf` + cloud-init `manage_resolv_conf: false` drop-in) live here, not in every consuming role | Roles authored against minimal Debian rediscover the same gaps. Baseline owns the class. DNS added 2026-05-17 evening after cloud-init's `1.1.1.1` fallback poisoned internal-zone resolution during Authentik deploy. List grows over time; that's expected. |
+| K3s CP sizing | Identical across nodes (cluster-wide constants, not per-node map) | Failover symmetry — same rule as PG nodes. Asymmetric sizing means failover silently degrades. All three CPs 2vCPU/4GB as of 2026-05-17 evening. Promote sizing into the locals map only when deliberate per-CP tuning is needed. |
+| DNS fallback resolver | Never a public resolver. UCG → AdGuard VIP only, optional fallback peer AdGuard | Public resolvers (Cloudflare `1.1.1.1`, Google `8.8.8.8`) return NXDOMAIN for internal zones. Glibc and CoreDNS treat NXDOMAIN as authoritative and cache it. Discovered 2026-05-17 during Authentik deploy — Authentik couldn't reach `fulla.niflheim.xiiisins.com` because CoreDNS had cached a stale NXDOMAIN from a brief moment where the K3s node had queried `1.1.1.1` via secondary fallback. |
+| Authentik Redis | Hand-rolled StatefulSet (`redis:7-alpine`), not Bitnami sub-chart | Chart 2026.x dropped its bundled Redis. Hand-rolled is ~50 lines of YAML — simpler than adopting Bitnami's metrics/sentinel/HPA scaffolding for a single-replica homelab Redis. Single replica, AOF persistence on iSCSI. If a future service wants its own Redis (e.g. AWX fact caching), it gets its own — namespace-bundled. |
+| Authentik service config injection | All env vars via ExternalSecret template, not chart `values:` block | The chart exposes config via both paths; env vars win silently. Setting only the values block produces ghost-localhost-fallback (Authentik tried `127.0.0.1:5432` for an hour before this was diagnosed 2026-05-17). Going forward: every service config knob settable via env goes through ExternalSecret. |
+| Authentik day-1 GitOps | Blueprints in Git from day 1, no UI configuration ever | Single source of truth. Cluster rebuild reconstitutes identity. Brand + personal user as the first two blueprints; subsequent OIDC providers (Tailscale, Grafana, etc.) follow same pattern. Branding assets follow the same rule (populator init container reads from ConfigMap today, S3-compatible tomorrow — pattern preserved). |
+| Sub-kustomization per component | Every component is a self-contained directory with its own `kustomization.yaml`; parent `infrastructure/kustomization.yaml` only references directories | Forced by Authentik's `configMapGenerator` for blueprints (Kustomize generators can't flow through flat-file-reference parents). Migrated all components for consistency. Closed the design doc's open nested-vs-flat question 2026-05-17 evening. |
 
 ---
 
@@ -965,19 +974,69 @@ Renamed `must-run` → `asgard` and `can-run` → `jotunheim` in the same arc �
 
 **Root-cause pattern:** every finding was either (a) accumulated manual state that survived in the live cluster but not in Git, or (b) a structural gap that only surfaces during cluster-from-zero (CRD timing, idempotency, init node identity). The pre-rebuild cluster ran fine because none of the gaps fired in steady state. Lesson: deliberate teardown is the only honest test of IaC completeness. Worth doing periodically.
 
+### 2026-05-17 evening — Authentik + Redis deploy
+
+Phase 5e. First real K8s workload consuming the post-rebuild infrastructure. Took ~5 hours start to functional; ~half of that was Authentik-specific learning, the other half was infrastructure gaps the deploy surfaced.
+
+**What landed in IaC:**
+- `k8s/asgard/infrastructure/authentik/` — namespace, helmrepository (`charts.goauthentik.io`, pinned `2026.2.3`), externalsecret (5 keys from `secret/k8s/authentik/*` + 1 for blueprint user), helmrelease (3 server, 1 worker, external PG pointed at Fulla, embedded media volume as emptyDir, branding via configMap+populator init pattern preserved for future S3 swap), redis.yaml (hand-rolled StatefulSet, AOF persistence, 1Gi iSCSI PVC, chown init container), kustomization with `configMapGenerator` for blueprints.
+- `k8s/asgard/infrastructure/authentik/blueprints/00-brand.yaml` — demotes shipped `authentik-default` brand, claims default for `authentik.niflheim.xiiisins.com`, wires the three default flows.
+- `k8s/asgard/infrastructure/authentik/blueprints/01-users.yaml` — personal admin user, password sourced from Vault via `!Env AUTHENTIK_BLUEPRINT_USER_PASSWORD`.
+- `ansible/roles/baseline/` — adds `/etc/resolv.conf` management + cloud-init `manage_resolv_conf: false` drop-in. Closes the DNS-fallback poisoning class.
+- `terraform/proxmox/asgard-k3s/main.tf` — all three CPs (Göndul/Hlökk/Sigrún) bumped 1vCPU/2GB → 2vCPU/4GB symmetrically.
+- `k8s/asgard/infrastructure/sealed-secrets/kustomization.yaml` — added `namespace.yaml` to resources (was missing post-migration, parent reconcile broke until found).
+- `k8s/asgard/infrastructure/kustomization.yaml` — parent migrated to sub-kustomization-only references.
+
+**Findings, in rough chronological order of discovery:**
+
+1. **Parent kustomization migration gap.** Migrating the parent `infrastructure/kustomization.yaml` to reference sub-directories (forced by Authentik's `configMapGenerator`) surfaced that `sealed-secrets/kustomization.yaml` was missing `namespace.yaml` from its resources. Worked previously because of accumulated state — `install.createNamespace: true` had created the ns as a side-effect on the original deploy. Same class as the asgard rebuild's findings.
+
+2. **`prometheus.serviceMonitor` deprecated key** in chart 2026.2.3. Fail-fast deprecation guard in `templates/deprectations.yaml`. Lesson: when you set a values block to its default value for "documentation," you risk the key name moving and breaking install. Going forward, set only non-defaults.
+
+3. **Authentik PG client connects to localhost when `authentik.postgresql.host` is set in values block but `AUTHENTIK_POSTGRESQL__HOST` env is unset.** The env var wins; the values block doesn't backfill it. Set all PG connection params explicitly in the ExternalSecret. Same rule for Redis. (CLAUDE.md gotcha.)
+
+4. **CoreDNS cached NXDOMAIN poisoning.** Authentik worker couldn't resolve `fulla.niflheim.xiiisins.com` despite the same name resolving from `kubectl run dnstest` busybox. Traced: cloud-init had left `nameserver 1.1.1.1` as secondary on every K3s node; during a brief primary-resolver hiccup, libresolv fell back to Cloudflare, which returned NXDOMAIN for the internal zone; CoreDNS cached the NXDOMAIN and served it to long-lived consumers for the 30s TTL — but ongoing fallbacks kept the cache poisoned indefinitely. Fixed at the right layer: `roles/baseline` now manages resolv.conf via Ansible (cloud-init's `manage_resolv_conf: false`), only UCG as nameserver, no public-resolver fallback. CoreDNS restart purged the cache. (CLAUDE.md gotcha.)
+
+5. **Postgres `hostssl`-only rejects plaintext with "no pg_hba.conf entry" — same error as CIDR mismatch.** The "no encryption" suffix is the diagnostic clue. Authentik's libpq default `sslmode=prefer` was being clobbered by something to plaintext. Fix: explicit `AUTHENTIK_POSTGRESQL__SSLMODE=require` in ExternalSecret. (CLAUDE.md gotcha.)
+
+6. **Authentik brand `default: true` is mutually exclusive.** Blueprint must demote shipped `authentik-default` brand first. Single-entry blueprint fails with `Only a single brand can be set as default.` Two-entry blueprint (demote + claim) works, applies in document order. (CLAUDE.md gotcha.)
+
+7. **`authentik_tenants.tenant` is wrong for single-instance deploys.** Was including the model entry by analogy with the brand. Tenants are for multi-schema Postgres isolation; on a single-tenant deploy the brand is the only object you need. Removed the tenant entry, renamed the blueprint file to `00-brand.yaml`.
+
+8. **All three CPs under-spec'd.** Earlier doc claimed gondul was bumped during the rebuild; Terraform was actually unchanged. Authentik's first-deploy burst — Django migrations + blueprint reconciliation + 3 server pods starting + ESO sync — pushed hlokk into kernel-panic-adjacent I/O thrash, which dragged etcd quorum down via fsync contention, which made kubectl unresponsive cluster-wide. Recovery via systemd-driven k3s restart on the failed CP. **Fixed properly:** all three CPs bumped to 2vCPU/4GB symmetrically via Terraform locals, sequential reboots restored quorum cleanly.
+
+9. **Workload concentration on einherjar-skuld.** 5 of 7 stateful PVCs landed on `.23` due to iSCSI session pinning persisting across rebuilds. Load 1.84 vs 0.34 on peers. Structural issue, not hot bug — flagged for the pending CP-taint work (gets CSI node-plugin off CPs) and possibly explicit StatefulSet pod anti-affinity. (CLAUDE.md gotcha.)
+
+10. **HelmRelease remediation thrash masks the real failure.** Default `install.remediation.retries: 3` runs `helm uninstall` between retries, and ESO-managed Secrets' finalizers leave the uninstall stuck on Secret-termination, so by the time you go look at the failure, the original error is gone and the visible state is the cleanup's failure. Set `retries: -1` and `timeout: 15m` during first-deploy debugging. Restored to `retries: 3` after success. (CLAUDE.md gotcha.)
+
+11. **`getaddrinfo` failures in Python on otherwise-resolving hosts** look identical to NSS library issues, broken `resolv.conf`, or glibc dual-stack bugs. The actual diagnostic that cut through it: raw DNS over UDP to CoreDNS at `10.43.0.10` showing `rcode=NXDOMAIN` for one name and `NOERROR` for another from the same pod. Once the answer was wire-level, the search narrowed to CoreDNS upstream rather than client-side. Worth documenting the technique — fastest path to root cause when DNS feels weird.
+
+**Plus:** Sub-kustomization-per-component pattern formalized (closes the open design doc question). The branding-via-populator-init-container pattern was preserved as a forward-fit even though branding is currently empty — flipping to S3-sourced is a one-edit change later.
+
+**Validation:** Phase 1 (PG DB provisioning) validated the `postgres_databases` per-service iteration pattern against a real consumer. Phase 3 deploy validated three classes of Postgres pattern (per-service DB, TLS-required, scram-sha-256) through Authentik's PG client. Standalone-Fulla-first was the right call — three PG-related findings surfaced cleanly through a real consumer rather than synthetic load.
+
+**Resolution:** Authentik functional, niflheim brand is default, personal admin user exists with admin group membership. Bare-LB at `10.0.20.12`. Traefik + cert-manager next (Phase 5e.1, scheduled 2026-05-18) to put it behind HTTPS.
+
+**Root-cause patterns:**
+- Accumulated state in the live cluster but not in Git: sealed-secrets namespace, cloud-init's `1.1.1.1` fallback, undersized CPs. Same pattern as the morning's asgard rebuild — the cluster ran fine in steady state, then a new workload's burst load fired the latent gaps. Real consumers beat synthetic load every time.
+- Chart values blocks vs env vars: when both exist, env vars win silently. Document-by-default (the chart's values.yaml) lies about which knob is actually live. ExternalSecret env vars are the authoritative path for service config going forward.
+- DNS NXDOMAIN caching: a single bad answer from a fallback resolver poisons a service for the cache TTL. The fix is architectural (no public fallbacks for hosts that need internal resolution), not tactical (cache-flush + hope).
+
 ---
 
 ## Open questions / pending tasks
 
 **High priority — forward path:**
-- [ ] **Deploy Authentik + Redis** in asgard K3s. Bootstrap secrets (signing key, DB connection, Redis password) go in Vault and are pulled via ESO. Unblocks Tailscale LXCs.
-- [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in.
+- [x] **Deploy Authentik + Redis** in asgard K3s. ✅ Deployed 2026-05-17 evening. See incident log entry for the deploy story + the gotchas closed in IaC. Bare-LB / plaintext-HTTP for now; HTTPS lands in Phase 5e.1.
+- [ ] **Deploy Traefik + cert-manager** (Phase 5e.1, scheduled 2026-05-18). Let's Encrypt DNS-01 via Cloudflare API. Re-expose Authentik at `authentik.niflheim.xiiisins.com` over HTTPS. First real cert-manager exercise.
+- [ ] **Tailscale OIDC blueprints + LXCs** (Phase 5e.2, after Phase 5e.1). Provider + application blueprints in Git (continuing the "blueprints from day 1, no UI config" rule), then LXCs 1113/1114/1115. Needs HTTPS Authentik for production-grade OIDC.
+- [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in. Authentik bootstrap creds (akadmin pw + API token + personal user pw) added 2026-05-17.
 
 **Service backlog (in revised LXC order):**
 - [x] **Factorio LXC** (1120, Urd) — ✅ Deployed 2026-05-16. UDP 34197 + TCP 22022 port-forwards active.
-- [x] **PostgreSQL Fulla** (1130, Skuld) — ✅ Deployed 2026-05-17. Standalone PG 17 + TLS + management users + DB provisioning machinery. Cluster expansion to Vör/Idunn (and HAProxy VIP 10.0.10.210) deferred until post-Authentik.
+- [x] **PostgreSQL Fulla** (1130, Skuld) — ✅ Deployed 2026-05-17. Standalone PG 17 + TLS + management users + DB provisioning machinery. Per-service DB provisioning validated by Authentik (2026-05-17 evening). Cluster expansion to Vör/Idunn (and HAProxy VIP 10.0.10.210) deferred until further consumers exist.
 - [ ] **Teamspeak LXC** (1121, Verd) — pointed at Fulla (later at HAProxy VIP once 1133/1134/1135 are up).
-- [ ] **Tailscale LXCs** (1113/1114/1115) — after Authentik.
+- [ ] **Tailscale LXCs** (1113/1114/1115) — Phase 5e.2.
 - [ ] **HAProxy** (1133/1134/1135) — PostgreSQL frontend, after PG cluster.
 - [ ] **Zabbix LXC** (1102, Skuld).
 - [ ] **Jellyfin LXC** (privileged, Urd, QuickSync).
@@ -988,22 +1047,26 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 
 - [x] **Build the Vault-for-Ansible lookup pattern** (✅ D1, 2026-05-16). AppRole + `ansible` policy + `ansible-local`/`ansible-awx` roles in `terraform/vault/`. `community.hashi_vault` collection + lookup pattern in `roles/sftpgo/defaults/main.yml`. AppRole bootstrap runbook in this doc.
 - [x] **Migrate `sftpgo_admin_password`** → `secret/ansible/sftpgo/admin-password` (✅ D1, proof-of-pattern). Removed from `group_vars/all/vault.yml`.
+- [x] **Provision Authentik database via Ansible** → `secret/ansible/postgres/authentik-password` (✅ 2026-05-17 evening). Proves the `postgres_databases` declarative-iteration pattern against a real consumer.
 - [ ] **Migrate `vault_factorio_operator_password`** → `secret/ansible/factorio/operator-password`. Drop the `vault_` prefix at migration time (the prefix was aspirational; the var now actually comes from HashiCorp Vault).
 - [ ] **Fix sftpgo role check-mode compatibility.** `roles/sftpgo/tasks/bootstrap.yml` does a POST to fetch an admin JWT, then references `result.json.access_token`. In `--check` mode `uri:` skips POSTs by default, returning a stub dict without `.json` — breaks downstream tasks. Add `check_mode: false` to the token-fetch and any downstream state-reading API calls.
 
 **Reprovision (deliberate, on a healthy cluster):**
-- [x] Move Göndul from Urd → Verd (✅ 2026-05-17 during asgard rebuild).
-- [x] Revisit CP VM sizing (✅ partially — gondul bumped to 2vCPU/4GB on 2026-05-17; hlokk/sigrun still at 1vCPU/2GB pending sustained-load test).
-- [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight.
-- [ ] Validate Hlökk/Sigrún at 1vCPU/2GB under sustained load. If they exhibit gondul's pre-2026-05-17 symptoms, bump via the same locals map.
+- [x] Move Göndul from Urd → Verd (✅ 2026-05-17 morning during asgard rebuild).
+- [x] CP VM sizing across all three CPs (✅ 2026-05-17 evening — all three Göndul/Hlökk/Sigrún at 2vCPU/4GB. Forced by Authentik deploy; closes the validation question).
+- [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight + the 2026-05-17 evening workload-concentration on einherjar-skuld.
 
 **K3s role correctness (from 2026-05-17 rebuild):**
 - [ ] **Make restart-k3s handler safe for existing CP members.** Current handler causes "duplicate node name" if a genuine config template change triggers a restart on a healthy CP. The 2026-05-17 detect-state.yml fix only skips install on healthy nodes; it doesn't address the handler. Options: (a) `kubectl delete node` before restart, (b) `systemctl reload` instead of `restart` where K3s supports it, (c) conditional handler based on existing-member vs fresh-node state.
 - [ ] **Backup Flux deploy key.** `flux bootstrap github` reissues idempotently if the deploy key still exists in repo settings, but it's not captured anywhere. Consider an out-of-band backup as a Secret manifest in 1Password, or document the regenerate-on-rebuild flow if leaving as-is.
-- [ ] **Decide nested-vs-flat Kustomization structure** in `k8s/asgard/infrastructure/`. Current `infrastructure/kustomization.yaml` references individual files rather than sub-kustomizations after the SealedSecret split. Should it reference sub-kustomizations (cleaner per-component isolation, more files) or stay flat (less indirection, slightly fragile if components grow)?
+- [x] **Decide nested-vs-flat Kustomization structure** in `k8s/asgard/infrastructure/` (✅ 2026-05-17 evening — sub-kustomizations per component; forced by Authentik's `configMapGenerator`. Closed during the Authentik deploy. Going-forward standard: every component is a self-contained directory with its own `kustomization.yaml`; parent `infrastructure/kustomization.yaml` only references directories.)
+
+**Authentik-specific follow-ups:**
+- [ ] **`/media` PVC for user avatars.** Currently `emptyDir` — pod restart loses uploaded avatars. Pattern when needed: NFS volume from Munin (acceptable here, unlike PG, because `/media` is small reads with rare writes), or revisit the Synology-CSI-RWO-with-spread-affinity question for genuinely multi-writer needs. Defer until users actually upload avatars and complain.
+- [ ] **Branding ConfigMap → S3 swap path.** Populator init container is already wired for the flip (busybox `cp` becomes `mc cp`). Pattern preserved as a forward-fit. Trigger: when a branding asset would exceed the 1MiB ConfigMap-per-key ceiling, OR when versioning/rotation of branding assets becomes a thing.
 
 **Standing:**
-- [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state).
+- [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state). Authentik already pinned to `2026.2.3` (identity infra is too important to float).
 - [ ] Document the AWS KMS key ARN.
 - [ ] Cloudflare Tunnel — which services get external exposure (in addition to direct port-forwards via UCG).
 - [ ] Fallback static HTML doc on Munin for core K3s recovery.
@@ -1014,7 +1077,7 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on jotunheim first.
 - [ ] Long-term: migrate Vault → OpenBao (~12 months out, once OpenBao has more production track record).
 - [ ] **PG: `pg_basebackup` to NFS (Munin)** beyond PBS filesystem snapshot — canonical PG hot-backup pattern. Acceptable to defer; PBS-only is functional crash recovery.
-- [ ] **PG cluster expansion** (Vör 1131 / Urd; Idunn 1132 / Verd; HAProxy 1133/1134/1135) — after Authentik proves cluster pattern under real load.
+- [ ] **PG cluster expansion** (Vör 1131 / Urd; Idunn 1132 / Verd; HAProxy 1133/1134/1135) — after multiple PG consumers exist to drive failover validation.
 
 ---
 

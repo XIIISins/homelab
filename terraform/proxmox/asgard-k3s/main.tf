@@ -1,8 +1,8 @@
 locals {
   control_planes = {
-    gondul = { node = "verd", vmid = 2001, ip = "10.0.21.11", template_node = "verd", template_id = 10002, cores = 1, memory = 2048 }
-    hlokk  = { node = "verd", vmid = 2002, ip = "10.0.21.12", template_node = "verd", template_id = 10002, cores = 1, memory = 2048 }
-    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004, cores = 1, memory = 2048 }
+    gondul = { node = "verd", vmid = 2001, ip = "10.0.21.11", template_node = "verd", template_id = 10002, cores = 2, memory = 4096 }
+    hlokk  = { node = "verd", vmid = 2002, ip = "10.0.21.12", template_node = "verd", template_id = 10002, cores = 2, memory = 4096 }
+    sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004, cores = 2, memory = 4096 }
   }
 
   workers = {
