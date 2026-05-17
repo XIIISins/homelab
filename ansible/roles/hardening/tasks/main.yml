@@ -58,14 +58,6 @@
     sysctl_set: true
     reload: true
   loop:
-    # Reverse-path filtering: LOOSE mode (2), not strict (1).
-    # Multi-homed K3s workers (eth0 = VLAN 21 cluster, eth1 = VLAN 20
-    # MetalLB) have legitimate asymmetric paths via Calico. Strict rp_filter
-    # silently drops MetalLB traffic on eth1. Loose mode still drops
-    # genuinely unroutable sources. Single-NIC LXCs don't strictly need
-    # this, but it's harmless.
-    - { name: "net.ipv4.conf.all.rp_filter", value: "2" }
-    - { name: "net.ipv4.conf.default.rp_filter", value: "2" }
     # Disable ICMP redirects
     - { name: "net.ipv4.conf.all.accept_redirects", value: "0" }
     - { name: "net.ipv4.conf.default.accept_redirects", value: "0" }

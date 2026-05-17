@@ -1,0 +1,35 @@
+---
+# ansible/roles/k3s/tasks/network.yml
+#
+# K3s + MetalLB + multi-homed-worker networking requirements.
+#
+# These sysctls are NOT generic OS hardening — they exist because of
+# specific MetalLB L2 + multi-NIC worker interactions:
+#
+# - rp_filter=2 (loose): workers have eth0 on VLAN 21 (K3s) and eth1
+#   on VLAN 20 (MetalLB L2). Strict rp_filter (1) silently drops
+#   MetalLB traffic arriving on eth1. Loose mode still drops genuinely
+#   unroutable sources.
+#
+# - route_localnet=1: MetalLB L2 announces VIPs via ARP but does NOT
+#   bind them to any interface. When external traffic arrives for a
+#   VIP, the kernel must accept the packet for routing through
+#   PREROUTING (where kube-proxy DNATs to the actual pod), rather
+#   than dropping it as "destination not local." route_localnet=1
+#   enables exactly that.
+#
+# Both apply to ALL k3s nodes for simplicity — single-NIC CP nodes
+# never receive the packets these settings affect, so the sysctls
+# are effectively no-ops there.
+
+- name: Set K3s+MetalLB network kernel parameters
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  loop:
+    - { name: "net.ipv4.conf.all.rp_filter", value: "2" }
+    - { name: "net.ipv4.conf.default.rp_filter", value: "2" }
+    - { name: "net.ipv4.conf.all.route_localnet", value: "1" }

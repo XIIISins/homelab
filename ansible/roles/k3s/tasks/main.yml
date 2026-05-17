@@ -8,6 +8,10 @@
   ansible.builtin.import_tasks: prerequisites.yml
   tags: k3s_prereqs
 
+- name: Configure K3s+MetalLB networking
+  ansible.builtin.import_tasks: network.yml
+  tags: k3s_network
+
 - name: Install K3s
   ansible.builtin.import_tasks: install.yml
   tags: k3s_install
