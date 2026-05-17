@@ -30,8 +30,9 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 | Synology DS223J | Realtek RTD1619B | 1 GB | NAS | **Munin** |
 
 **Hardware notes:**
-- Urd (N5095) is too weak for K3s control plane. etcd IO storms observed under load. CPs should run on Verd/Skuld only.
-- Urd long-term: dedicated Jellyfin LXC with Intel QuickSync passthrough. Currently also running Einherjar-urd (K3s worker) and temporarily Göndul (CP — to move to Verd).
+- Urd (N5095) is too weak for K3s control plane. etcd IO storms observed under load. CPs run on Verd/Skuld only.
+- Urd long-term: dedicated Jellyfin LXC with Intel QuickSync passthrough. Currently also running Einherjar-urd (K3s worker) and the Factorio LXC (1120).
+- Göndul moved Urd → Verd on 2026-05-17 (was deferred since the 2026-05-14 incident; finally fixed during the asgard rebuild). Bumped to 2vCPU/4GB at the same time after OOM during rebuild reconciliation churn.
 - All nodes 1 GbE. No 2.5 GbE planned.
 
 ### Naming convention
@@ -149,14 +150,14 @@ Internet
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
-| `10.0.21.11` | 2001 | Urd* | K3s CP | Göndul (*move to Verd) |
+| `10.0.21.11` | 2001 | Verd | K3s CP | Göndul |
 | `10.0.21.12` | 2002 | Verd | K3s CP | Hlökk |
 | `10.0.21.13` | 2003 | Skuld | K3s CP | Sigrún |
 | `10.0.21.21` | 2101 | Urd | K3s Worker | Einherjar-urd |
 | `10.0.21.22` | 2102 | Verd | K3s Worker | Einherjar-verd |
 | `10.0.21.23` | 2103 | Skuld | K3s Worker | Einherjar-skuld |
 
-*Göndul to move from Urd → Verd on next full reprovision.
+Göndul moved from Urd → Verd on 2026-05-17 (was the deferred backlog item from the 2026-05-14 incident).
 
 **Jotunheim K3s MetalLB VLAN 30 (10.0.30.0/24):**
 `10.0.30.11–.99` — LoadBalancer pool
@@ -367,20 +368,20 @@ DNS: `factorio.xiiisins.com` (Cloudflare A → WAN IP) and `factorio.niflheim.xi
 
 Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (AWX, Tofu Controller), and services whose absence either cascades into other failures or blocks recovery. Resiliency > simplicity.
 
-**Status (2026-05-16):** Core infrastructure ✅ running and stable. Authentik+Redis is the next forward step, followed by AWX/Tofu Controller, then core services.
+**Status (2026-05-17):** Core infrastructure ✅ running and stable. Cluster was fully torn down and rebuilt on 2026-05-17 as a deliberate validation exercise — see incident log. Rebuild confirmed end-to-end IaC works (Terraform → Ansible → Flux) and surfaced 9+ structural gaps that have since been closed. Authentik+Redis is the next forward step, followed by AWX/Tofu Controller, then core services.
 
 **Core infrastructure (cascade failure if down):**
 
 | Service | Replicas | Status |
 |---------|----------|--------|
-| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s + AppRole auth configured (Terraform `terraform/vault/`) |
+| Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s + AppRole auth + KV engine + test entry in Terraform (`terraform/vault/`). Re-init recovery procedure validated 2026-05-17. |
 | Authentik server | 3 | 🔲 — next forward step |
 | Authentik worker | 1 | 🔲 |
 | Redis | 1 | 🔲 |
-| MetalLB | DaemonSet | ✅ L2 working — VIP reachable, announcing from a worker. Required nodeSelectors + Calico/rp_filter fixes |
-| Synology CSI (core) | 1 | ✅ iSCSI, synology-csi-iscsi-retain |
+| MetalLB | DaemonSet | ✅ L2 working end-to-end. VIP reachable from outside the cluster. Required nodeSelectors, Calico autodetection pin, rp_filter loose, route_localnet=1, and VLAN 20 source-based policy routing — all IaC'd. |
+| Synology CSI (core) | 1 | ✅ iSCSI, synology-csi-iscsi-retain. SealedSecret split into `synology-csi-config/` Kustomization. |
 | External Secrets Operator | 1 | ✅ ClusterSecretStore `vault` Ready |
-| Sealed Secrets | 1 | ✅ |
+| Sealed Secrets | 1 | ✅ Master keys backed up to 1Password as of 2026-05-17. |
 | tigera-operator (Calico) | 1 | ✅ Fixed 2026-05-15 via MTU explicit workaround (upstream issue #7851) |
 | Traefik | 1+ | 🔲 — ingress controller, paired with cert-manager |
 | cert-manager | 1 | 🔲 — Let's Encrypt DNS-01 via Cloudflare API |
@@ -411,33 +412,40 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 | Name | VM ID | Node | IP | Role | Spec |
 |------|-------|------|----|------|------|
-| Göndul | 2001 | Urd* | `10.0.21.11` | K3s CP | 1vCPU/2GB/10GB |
+| Göndul | 2001 | Verd | `10.0.21.11` | K3s CP | **2vCPU/4GB**/10GB |
 | Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 1vCPU/2GB/10GB |
 | Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 1vCPU/2GB/10GB |
 | Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/4GB/15GB |
 | Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/4GB/15GB |
 | Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/4GB/15GB |
 
-*Göndul to move from Urd → Verd on next full reprovision.
-⚠️ **CP VM sizing (1vCPU/2GB) is unvalidated under load.** The 2026-05-14 etcd storm means 1 vCPU for etcd-bearing nodes should be treated as an open question — revisit at the Göndul reprovision.
+CP cpu/memory parameterized per-node in `locals.control_planes` map (`terraform/proxmox/asgard-k3s/main.tf`). Göndul bumped to 2vCPU/4GB on 2026-05-17 after OOM during rebuild reconciliation churn. Hlökk and Sigrún at 1vCPU/2GB are still unvalidated under sustained load — if they exhibit the same symptoms, bump via the same map.
 
 **Workers have dual NICs:**
 - eth0: VLAN 21 (K3s node traffic)
 - eth1: VLAN 20 (MetalLB L2, IPs 10.0.20.201/202/203)
-- ⚠️ The second NIC is a known landmine — see incident log. It silently broke Calico autodetection (`firstFound` bound to eth1) and rp_filter (strict mode dropped MetalLB traffic on eth1). Both now explicitly configured.
+- ⚠️ The second NIC is a known landmine — see incident log. Required IaC: Calico autodetection pin (`cidrs: ["10.0.21.0/24"]`), rp_filter loose mode, route_localnet=1, and VLAN 20 source-based policy routing. All four in `roles/k3s/tasks/network.yml`.
 
 **K3s install (Ansible `k3s` role — fully IaC):**
+- Role task order: `prerequisites.yml` → `network.yml` (sysctls + VLAN 20 policy routing) → `detect-state.yml` (skip-install gate) → `install.yml` → `calico.yml` (init node only).
 - `prerequisites.yml` — Rancher k3s-selinux repo, `iscsi-initiator-utils` + `iscsid`, `br_netfilter`/`overlay` modules (loaded + persisted), `ip_forward=1`, bridge-nf sysctls, swap off, `firewalld` disabled.
+- `network.yml` — sysctls `rp_filter=2` / `route_localnet=1`, plus the `vlan20-policy-routing.service` systemd unit on workers (OS-independent, pure ip(8) + systemd).
+- `detect-state.yml` — sets `k3s_already_healthy` if `systemctl is-active k3s == 'active'` AND the node is `Ready` in the cluster. When true, `install.yml` and `calico.yml` are skipped. Required for idempotent re-runs; without it, the restart-k3s handler can fire on a healthy CP and trigger duplicate-join failure.
 - `install.yml` — binary from GitHub (`k3s_version`, currently `v1.33.1+k3s1`); bootstrap order init-node (`--cluster-init`) → joining CPs → workers, gated by `wait_for`/node-count checks; token slurped from init node and distributed; kubeconfig fetched to `~/.kube/niflheim-asgard.yaml`.
 - Config templates: `config-init.j2` / `config-server.j2` (CPs — disable traefik/servicelb/local-storage, `flannel-backend: none`, `disable-network-policy: true`, cluster/service CIDRs, TLS SANs, `selinux: true`) / `config-agent.j2` (workers — minimal: server + token + selinux).
+- CP rebuild scenario: override `k3s_init_node` if rebuilding the default init node (`-e k3s_init_node=hlokk`), and `kubectl delete node <name>` first to remove the stale etcd member. See Known gotchas.
 - No node taints or labels are set — CP taint is a manual pending task.
 
 **Calico CNI — NOT Flux-managed.** Installed as a K3s addon via `ansible/roles/k3s/tasks/calico.yml` (runs only on the init node): Tigera operator manifest + an `Installation` CR templated from `calico-installation.yaml.j2` to `/var/lib/rancher/k3s/server/manifests/`. Key config: `nodeAddressAutodetectionV4: cidrs: ["10.0.21.0/24"]` (pins overlay to VLAN 21), `mtu: 1450` (workaround for projectcalico/calico#7851 — operator can't read `/var/lib/calico/mtu` under SELinux), `encapsulation: VXLANCrossSubnet`, pod CIDR `10.42.0.0/16`, `calico_version` currently `v3.29.3`. The K3s addon controller *merges* the CR — removed fields can persist; verify after changes.
 
 **Flux Kustomization structure:**
 - `infrastructure` — installs HelmReleases (sealed-secrets, synology-csi, vault, external-secrets, metallb). `interval: 10m`, `prune: true`, sourceRef `GitRepository/flux-system`. No `wait`/`timeout` set.
-- `infrastructure-config` — configures ESO (ClusterSecretStore), `dependsOn: [infrastructure]`. Same minimal spec.
+- `infrastructure-config` — configures ESO (ClusterSecretStore), `dependsOn: [infrastructure]`.
 - `metallb-config` — configures MetalLB (IPAddressPool, L2Advertisement), `dependsOn: [infrastructure]`. Split from `infrastructure-config` after the 2026-05-14 incident where an ESO webhook failure blocked MetalLB config reconcile (shared failure domain).
+- `vault-config` — vault-unseal SealedSecret, `dependsOn: [infrastructure]`. Split from `infrastructure/` on 2026-05-17 — SealedSecret resources can't live alongside the sealed-secrets HelmRelease (CRD doesn't exist at dry-run time).
+- `synology-csi-config` — synology-csi SealedSecret, `dependsOn: [infrastructure]`. Same reason as vault-config.
+
+The per-component-config pattern is now the standard: every CRD-dependent resource gets its own `<component>-config/` Kustomization that `dependsOn: infrastructure`. No more bundles sharing failure domains.
 
 **HelmRelease chart versions** are currently `version: "0.x"` placeholders across metallb / external-secrets / vault / sealed-secrets — a deliberate temporary state. Real pinning + Renovate is planned once the homelab reaches a working "2.0" state.
 
@@ -717,9 +725,9 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 
 **IaC layering — explicit model:**
 - **Terraform** — anything with an API/provider: Proxmox VMs/LXCs, Cloudflare DNS, AWS KMS, Vault config.
-- **Ansible** — OS/node-level: baseline, hardening (sysctl, SSH, SELinux, module blocklist), K3s *install* + prerequisites, and K3s addon manifests (Calico) since those are files-on-disk on the server nodes. Playbook `asgard-k3s.yml` runs roles `baseline → k3s → hardening` against the `asgard_k3s` group.
+- **Ansible** — OS/node-level: baseline, hardening (security sysctls, SSH, SELinux, module blocklist), K3s *install* + prerequisites + network plumbing (sysctls + VLAN 20 policy routing) + the Calico addon manifest. Playbook `asgard-k3s.yml` runs roles `baseline → k3s → hardening` against the `asgard_k3s` group.
 - **Flux** — in-cluster workloads: everything in `k8s/`.
-- **Docs (this file)** — KPN Experia Box config and anything else without a useful API.
+- **Docs (this file + `docs/teardown-rebuild.md`)** — KPN Experia Box config, rebuild runbook, anything else without a useful API.
 
 ---
 
@@ -733,7 +741,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | 4 — Proxmox cluster | ✅ | Urd/Verd/Skuld, cluster niflheim formed |
 | 5a — PBS | ✅ | LXC 1101 on Skuld, connected |
 | 5b — AdGuard Home | ✅ | Saga/Mimir/Kvasir + keepalived VIP + sync |
-| 5c — Asgard K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅ |
+| 5c — Asgard K3s | ✅ | VMs ✅, K3s ✅, Flux ✅, Sealed Secrets ✅, Synology CSI ✅, Vault ✅, ESO ✅, MetalLB ✅, tigera-operator ✅. Full teardown+rebuild validation 2026-05-17 — see incident log. |
 | 5d — KPN DMZ | ✅ | DMZ → UCG-Ultra WAN (IPv4 + IPv6) |
 | 5e — Authentik + Redis | 🔲 | Next forward step on the K8s side. Blocks Tailscale LXCs. |
 | 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
@@ -787,7 +795,16 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | NAS naming | Munin | Raven of memory |
 | PBS type | Privileged LXC | NFS mount requires it |
 | K3s on Urd | Worker only | N5095 too slow for etcd — causes IO storms |
-| Göndul placement | Urd (temp) → Verd (next reprovision) | Fix etcd IO issues |
+| Göndul placement | Verd (2vCPU/4GB), moved 2026-05-17 | Off N5095 etcd thrashing. Bumped from 1/2 → 2/4 to absorb reconciliation load. |
+| CP cpu/memory | Per-node via `locals.control_planes` map | Gondul needs more than hlokk/sigrun; map structure enables per-CP overrides cleanly |
+| Per-component-config Kustomizations | `<component>-config/` next to `infrastructure/`, `dependsOn: infrastructure` | SealedSecrets and CRD-dependent resources can't live in same Kustomization as the chart that installs the CRD. Splitting per-component avoids shared failure domains too. |
+| MetalLB multi-homed plumbing | rp_filter=2 + route_localnet=1 + VLAN 20 policy routing | All three required; missing any one breaks VIP reachability. Discovered iteratively; 2026-05-17 closed the last gap. |
+| VLAN 20 policy routing implementation | systemd oneshot service, `ip rule` + `ip route` | OS-independent (no NetworkManager / netplan / ifcfg coupling). Pure ip(8) + systemd. |
+| K3s + MetalLB sysctls location | `roles/k3s/tasks/network.yml` (not hardening) | Hardening role should be OS hardening; K3s-specific requirements belong with K3s. Refactored 2026-05-17. |
+| K3s role idempotency | `detect-state.yml` skip-install on healthy nodes | Re-running play against a healthy cluster could fire restart-k3s handler → duplicate-join failure. Skip install when `systemctl is-active k3s && node is Ready`. |
+| Sealed-secrets master keys | Back up to 1Password after every controller install | Loss makes every SealedSecret in Git undecryptable. Discovered 2026-05-17 when both SealedSecrets had to be re-sealed from plaintext. |
+| Vault test KV entry | Managed declaratively in `terraform/vault/main.tf` | Was manual state on the old cluster; lost on rebuild. Anything Vault-side must be IaC. |
+| OS-independent roles | All Ansible roles should be OS-independent where possible | Use systemd (universal) instead of nmcli/netplan/ifcfg (distro-specific). Kernel-level operations (sysctl, ip(8)) are universal too. |
 | LXC build order | Revised: Factorio → PG+Teamspeak → Authentik → Tailscale → rest | Original sequence conflated Authentik-dependent and Authentik-independent LXCs |
 | LXC provisioning | Terraform module `asgard-lxcs/` parallel to `asgard-k3s/` | Same provider, same auth, consistent pattern |
 | Factorio operator UX | SFTP-only self-service via SFTPGo virtual user | Zero shell access; control via JSON files in `/factorio/control/` |
@@ -869,6 +886,42 @@ Initial deploy of LXC 1120 (Factorio + SFTPGo). Surfaced seven bugs in the fresh
 
 **Root-cause pattern:** Roles authored against assumed-richer base images (RHEL or fuller Debian). Proxmox's `debian-13-standard` template is minimal and surfaces every implicit "this dir exists" / "this binary is installed" assumption. Lesson: roles targeting minimal LXC templates need explicit `file: state: directory` and `package: state: present` tasks for every non-FHS-core path/binary they touch.
 
+### 2026-05-17 — Asgard rebuild + 9 architectural findings
+
+Deliberate full teardown + rebuild of the asgard K3s cluster to validate end-to-end IaC. Triggered by the realization that the previous cluster had accumulated manual state during incident response (sysctls, iptables-shaped rules, imperative Vault config) that wasn't captured in code. Rebuild proves the IaC works AND surfaces what's missing.
+
+Renamed `must-run` → `asgard` and `can-run` → `jotunheim` in the same arc — see `docs/teardown-rebuild.md` for the full runbook.
+
+**Process:** state capture → per-tier rename commits (5) → graceful teardown (Vault drain, terraform destroy) → Synology LUN cleanup → terraform apply → ansible play → Flux bootstrap → Vault re-init → workload validation. Total wall-clock ~5 hours.
+
+**Findings, all closed during the same session:**
+
+1. **SealedSecret CRD timing race.** Putting SealedSecret resources alongside the sealed-secrets HelmRelease in the `infrastructure/` Kustomization failed Flux dry-run (CRD doesn't exist at validation time). Fix: split `vault-config/` and `synology-csi-config/` Kustomizations next to the existing `metallb-config/`, all `dependsOn: infrastructure`. Per-component-config pattern formalized.
+
+2. **Sealed-secrets master keys not backed up.** Fresh controller = fresh keypair = old SealedSecrets undecryptable. Both had to be re-sealed from plaintext (vault-unseal from Ansible Vault, synology-csi from 1Password). Master keys now backed up to 1Password.
+
+3. **Vault test KV entry was manual state.** The `secret/ansible/test/hello` entry used by `playbooks/test-vault-lookup.yml` was created by `vault kv put` originally and never captured. Now a `vault_kv_secret_v2` resource in Terraform.
+
+4. **Vault Raft followers don't auto-join cleanly.** vault-1 and vault-2 sat sealed after vault-0 init. Manual `vault operator raft join` on each. Recovery procedure documented.
+
+5. **MetalLB `route_localnet=1` missing.** VIPs unreachable from outside the cluster — kernel dropped packets destined for the VIP because MetalLB only ARPs, doesn't bind. Manual `sysctl` got the cluster working; refactor landed it in `roles/k3s/tasks/network.yml`.
+
+6. **VLAN 20 source-based policy routing missing.** Replies from MetalLB VIPs went out via the default eth0 route (asymmetric) — UCG's stateful firewall dropped them. Manual `ip rule` / `ip route` got it working; landed as `vlan20-policy-routing.service` systemd unit in `network.yml`. OS-independent.
+
+7. **CP rebuild → "duplicate node name."** Destroying/recreating gondul VM and re-running the playbook failed with etcd join error. Fix: `kubectl delete node gondul` from a surviving CP. The K3s native node-delete handler evicts the stale etcd member, allowing the rebuilt VM to join.
+
+8. **CP rebuild of default init node needs override.** If you destroy the node that's `k3s_init_node` (default `gondul`), the role would `--cluster-init` it as a fresh cluster. Override: `-e k3s_init_node=hlokk`.
+
+9. **K3s role install lacks idempotency guard.** Re-running the play against a healthy CP could fire the restart-k3s handler, which causes K3s to re-attempt join, which fails with "duplicate node name." Fix: new `roles/k3s/tasks/detect-state.yml` sets `k3s_already_healthy` if `systemctl is-active k3s` AND node is `Ready`. `install.yml` and `calico.yml` skip when true. **Deeper bug remains:** the restart handler itself isn't safe for existing CP members — a genuine config template change would still trigger duplicate-join. Tracked as separate item.
+
+**Plus:** Vault init can leave a stuck partial state (recovery: delete StatefulSet + PVCs + reconcile). Flux deploy key not in IaC (`flux bootstrap github` re-uses if present, regenerates if not).
+
+**Bonus during the session:** moved Göndul from Urd to Verd (deferred since 2026-05-14), bumped to 2vCPU/4GB after OOM during reconciliation churn. Parameterized CP cpu/memory in the Terraform locals map. Refactored `roles/k3s/tasks/` to split `network.yml` (sysctls + policy routing) from the install path, and `detect-state.yml` for idempotency.
+
+**Resolution:** 9 findings closed in IaC (commits visible in `git log --oneline -20`). Cluster healthy, all workloads recovered, doc sweep on 2026-05-17 captured everything into CLAUDE.md and this doc.
+
+**Root-cause pattern:** every finding was either (a) accumulated manual state that survived in the live cluster but not in Git, or (b) a structural gap that only surfaces during cluster-from-zero (CRD timing, idempotency, init node identity). The pre-rebuild cluster ran fine because none of the gaps fired in steady state. Lesson: deliberate teardown is the only honest test of IaC completeness. Worth doing periodically.
+
 ---
 
 ## Open questions / pending tasks
@@ -896,9 +949,15 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] **Fix sftpgo role check-mode compatibility.** `roles/sftpgo/tasks/bootstrap.yml` does a POST to fetch an admin JWT, then references `result.json.access_token`. In `--check` mode `uri:` skips POSTs by default, returning a stub dict without `.json` — breaks downstream tasks. Add `check_mode: false` to the token-fetch and any downstream state-reading API calls.
 
 **Reprovision (deliberate, on a healthy cluster):**
-- [ ] Move Göndul from Urd → Verd (next full reprovision).
+- [x] Move Göndul from Urd → Verd (✅ 2026-05-17 during asgard rebuild).
+- [x] Revisit CP VM sizing (✅ partially — gondul bumped to 2vCPU/4GB on 2026-05-17; hlokk/sigrun still at 1vCPU/2GB pending sustained-load test).
 - [ ] Add `node-role.kubernetes.io/control-plane:NoSchedule` taint to CP nodes — would be a `node-taint` key in `config-init.j2`/`config-server.j2`. Stops the Synology CSI node plugin (and other untolerated DaemonSets) from running on CP nodes — root of the iSCSI cross-node session fight.
-- [ ] Revisit CP VM sizing — 1vCPU for etcd is unvalidated; consider 2vCPU and/or faster etcd disk.
+- [ ] Validate Hlökk/Sigrún at 1vCPU/2GB under sustained load. If they exhibit gondul's pre-2026-05-17 symptoms, bump via the same locals map.
+
+**K3s role correctness (from 2026-05-17 rebuild):**
+- [ ] **Make restart-k3s handler safe for existing CP members.** Current handler causes "duplicate node name" if a genuine config template change triggers a restart on a healthy CP. The 2026-05-17 detect-state.yml fix only skips install on healthy nodes; it doesn't address the handler. Options: (a) `kubectl delete node` before restart, (b) `systemctl reload` instead of `restart` where K3s supports it, (c) conditional handler based on existing-member vs fresh-node state.
+- [ ] **Backup Flux deploy key.** `flux bootstrap github` reissues idempotently if the deploy key still exists in repo settings, but it's not captured anywhere. Consider an out-of-band backup as a Secret manifest in 1Password, or document the regenerate-on-rebuild flow if leaving as-is.
+- [ ] **Decide nested-vs-flat Kustomization structure** in `k8s/asgard/infrastructure/`. Current `infrastructure/kustomization.yaml` references individual files rather than sub-kustomizations after the SealedSecret split. Should it reference sub-kustomizations (cleaner per-component isolation, more files) or stay flat (less indirection, slightly fragile if components grow)?
 
 **Standing:**
 - [ ] Pin HelmRelease chart versions + activate Renovate (at "2.0" working state).

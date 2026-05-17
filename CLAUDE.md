@@ -27,9 +27,9 @@ All 1 GbE. No 2.5 GbE planned.
 
 **Hardware notes:**
 - Urd (N5095) is significantly weaker than Verd/Skuld (N100). Urd should NOT run K3s control plane nodes — etcd is very sensitive to disk IO latency and the N5095 causes IO storms under load.
-- Urd long-term plan: dedicated Jellyfin box with Intel QuickSync passthrough. Currently runs Einherjar-urd (K3s worker) and Göndul (CP — to be moved to Verd on next full reprovision).
-- Göndul will move from Urd → Verd on next `terraform destroy && terraform apply`.
-- **2026-05-14 incident context:** An etcd IO storm on Göndul (Urd/N5095) cascaded into a multi-hour outage. This is the concrete event behind "never run CP on Urd" — see Known gotchas and `homelab-design.md` incident log.
+- Urd long-term plan: dedicated Jellyfin box with Intel QuickSync passthrough. Currently runs Einherjar-urd (K3s worker) and the Factorio LXC (1120).
+- Göndul moved Urd → Verd on 2026-05-17 (was deferred since the 2026-05-14 incident; finally fixed during the asgard rebuild). Also bumped to 2vCPU/4GB at the same time to absorb load that previously OOM'd it.
+- **2026-05-14 incident context:** An etcd IO storm on Göndul (Urd/N5095) cascaded into a multi-hour outage. This is the concrete event behind "never run CP on Urd" — see Known gotchas and `homelab-design.md` incident log. The 2026-05-17 rebuild confirmed the diagnosis empirically: bumping CP memory alone wasn't enough during recovery churn; moving to Verd was.
 
 ---
 
@@ -75,7 +75,7 @@ Zabbix migrated to PostgreSQL. Nothing requires MySQL.
 
 **GitOps: Flux CD.**
 Push to Git → exists. No ArgoCD. No manual `kubectl apply` for production.
-Layered Flux Kustomizations: `infrastructure` installs operators/charts; per-component config Kustomizations (`infrastructure-config` for ESO, `metallb-config` for MetalLB) configure CRD-dependent resources with `dependsOn: infrastructure` so the CRDs exist first. Add a new config Kustomization per operator rather than bundling — shared bundles share failure domains (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident).
+Layered Flux Kustomizations: `infrastructure` installs operators/charts; per-component config Kustomizations (`infrastructure-config` for ESO, `metallb-config` for MetalLB, `vault-config` for the vault-unseal SealedSecret, `synology-csi-config` for the synology-csi SealedSecret) configure CRD-dependent resources with `dependsOn: infrastructure` so the CRDs exist first. Add a new config Kustomization per operator rather than bundling — shared bundles share failure domains (an ESO webhook failure blocked MetalLB config reconcile during the 2026-05-14 incident; mixing SealedSecrets into `infrastructure/` itself caused the asgard rebuild to fail on CRD timing). The naming convention is `<component>-config/`.
 
 **Calico CNI is NOT Flux-managed.**
 Calico is installed as a K3s auto-deploy addon: the Tigera operator manifest plus an `Installation` CR templated by Ansible to `/var/lib/rancher/k3s/server/manifests/calico-installation.yaml` (source: `ansible/roles/k3s/templates/calico-installation.yaml.j2`, applied by `ansible/roles/k3s/tasks/calico.yml`, runs only on `k3s_init_node`). The K3s addon controller applies it; the Tigera operator acts on it. To change Calico config, edit the Ansible template and re-run the playbook — `kubectl edit` on the live `Installation` gets reverted by the addon controller.
@@ -116,6 +116,10 @@ NOTE: there is a vestigial iSCSI target `iqn.2000-01.com.synology:munin.k3s-core
 Workers have two NICs: eth0 (VLAN 21, K3s traffic) and eth1 (VLAN 20, MetalLB L2 advertisement).
 Worker eth1 IPs: 10.0.20.201/202/203 (outside MetalLB pool 10.0.20.11-.99).
 L2Advertisement restricted to eth1 interface AND restricted to non-CP nodes via `nodeSelectors` (`matchExpressions` — key `node-role.kubernetes.io/control-plane`, operator `DoesNotExist`). CP nodes have no eth1; without the nodeSelector, MetalLB's L2 election can pick a CP node and announce nowhere.
+Multi-homed-worker plumbing required for VIPs to be reachable from outside the cluster, all in `roles/k3s/tasks/network.yml`:
+- `rp_filter=2` (loose) on `all` and `default` — strict mode drops MetalLB traffic on eth1
+- `route_localnet=1` on `all` — without this the kernel drops packets destined for the VIP because MetalLB doesn't bind the IP, only ARPs for it
+- Source-based policy routing — a systemd oneshot service (`vlan20-policy-routing.service`) installs `from 10.0.20.0/24 lookup vlan20` rule + a default route via 10.0.20.1 in table `vlan20`, so replies originating from the worker's eth1 IP exit via eth1 (symmetric path) rather than the default eth0 route (asymmetric, dropped by UCG's stateful firewall)
 
 **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs/Grafana (jotunheim K3s).**
 Zabbix stays as LXC for monitoring independence. VictoriaLogs replaces Loki. VictoriaMetrics replaces Prometheus.
@@ -218,12 +222,12 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ Proxmox cluster — Urd/Verd/Skuld on PVE 9.x, cluster niflheim
 - ✅ PBS — LXC 1101 on Skuld, NFS datastore, connected to cluster
 - ✅ AdGuard Home — Saga/Mimir/Kvasir, keepalived VIP 10.0.10.200, AGH Sync
-- ✅ Asgard K3s — VMs provisioned (Terraform), K3s installed + configured (Ansible — fully IaC), Flux bootstrapped
-- ✅ Sealed Secrets — deployed via Flux
+- ✅ Asgard K3s — fully IaC end-to-end. **Validated via full teardown+rebuild on 2026-05-17.** Surfaced and fixed: route_localnet sysctl, VLAN 20 policy routing, k3s role install-idempotency, vault-unseal + synology-csi SealedSecret CRD-timing split, Vault test KV entry as IaC, CP cpu/memory parameterization. Göndul moved to Verd at the same time.
+- ✅ Sealed Secrets — deployed via Flux. **Master keys backed up to 1Password as of 2026-05-17.** Loss of these keys makes every SealedSecret in Git undecryptable.
 - ✅ Synology CSI — iSCSI only, StorageClass synology-csi-iscsi-retain (default)
-- ✅ Vault — 3 node Raft HA, AWS KMS auto-unseal, iSCSI storage, initialized; K8s auth method + KV engine + ESO policy/role in Terraform (`terraform/vault/`, imported 2026-05-16)
+- ✅ Vault — 3 node Raft HA, AWS KMS auto-unseal, iSCSI storage, initialized; K8s auth method + KV engine + ESO policy/role + AppRole + 2 AppRole roles in Terraform (`terraform/vault/`). Root token + recovery keys in 1Password (post-rebuild, tagged `asgard-rebuild-2026-05-17`).
 - ✅ External Secrets Operator — deployed; ClusterSecretStore `vault` Ready
-- ✅ MetalLB — L2 working end-to-end. VIP `10.0.20.11` reachable. Required nodeSelectors + Calico/rp_filter fixes (2026-05-14)
+- ✅ MetalLB — L2 working end-to-end. VIP `10.0.20.11` reachable from outside the cluster. Required nodeSelectors, Calico autodetection pin, rp_filter loose mode, route_localnet, and VLAN 20 policy routing — all in IaC as of 2026-05-17.
 - ✅ tigera-operator — fixed 2026-05-15 via MTU explicit (workaround for upstream projectcalico/calico#7851). No longer Degraded.
 - ✅ Factorio LXC (1120) — Deployed 2026-05-16. Terraform + Ansible end-to-end. Factorio headless + SFTPGo running. Operator self-service via SFTP on TCP 22022. Game on UDP 34197. Reachable at `factorio.xiiisins.com` (external) and `factorio.niflheim.xiiisins.com` (internal).
 - 🔲 Authentik + Redis (in asgard K3s — the next forward step on the K8s side)
@@ -241,9 +245,9 @@ homelab/
 ├── renovate.json
 ├── terraform/
 │   ├── proxmox/
-│   │   ├── asgard-k3s/    # VM definitions (bpg/proxmox provider) — populated
-│   │   └── asgard-lxcs/   # LXC definitions — 1120 Factorio; extend per LXC
-│   ├── vault/               # Vault config — KV engine, K8s auth, eso policy + role
+│   │   ├── asgard-k3s/      # VM definitions (bpg/proxmox provider) — CP cpu/memory per-node via locals map
+│   │   └── asgard-lxcs/     # LXC definitions — 1120 Factorio; extend per LXC
+│   ├── vault/               # Vault config — KV engine, K8s auth, eso policy + role, AppRole + 2 roles, test KV entry
 │   ├── dns/                 # scaffolding (empty)
 │   ├── aws/                 # scaffolding (empty)
 │   ├── k3s/                 # scaffolding (empty)
@@ -253,24 +257,26 @@ homelab/
 │   │   ├── hosts.yml        # groups: asgard_k3s_cp, asgard_k3s_workers, factorio_host
 │   │   └── group_vars/all/  # vars.yml + vault.yml (Ansible Vault encrypted) — adjacent to inventory for auto-discovery
 │   ├── playbooks/
-│   │   ├── asgard-k3s.yml # roles: baseline → k3s → hardening
-│   │   └── factorio-host.yml # roles: baseline → factorio → sftpgo → hardening
+│   │   ├── asgard-k3s.yml         # roles: baseline → k3s → hardening
+│   │   ├── factorio-host.yml      # roles: baseline → factorio → sftpgo → hardening
+│   │   └── test-vault-lookup.yml  # smoke test for AppRole + Vault KV chain
 │   └── roles/
-│       ├── baseline/        # RHEL subscription, qemu-agent, pkg update, break-glass user
-│       ├── k3s/             # prereqs, K3s install, Calico CNI addon manifest
-│       └── hardening/       # SELinux, SSH, sysctl, module blocklist, banner
-│   # NOTE: stray empty ansible/ansible/ dir (mkdir -p slip) — delete it
+│       ├── baseline/        # OS prereqs (sudo, acl), pkg update, ansible + recovery users
+│       ├── k3s/             # prereqs, network.yml (sysctls + VLAN 20 policy routing), detect-state.yml (skip install on healthy), install.yml, calico.yml
+│       └── hardening/       # SELinux, SSH config, sysctl (security only — K3s+MetalLB sysctls are in k3s role), module blocklist, banner
 ├── k8s/
 │   ├── asgard/
 │   │   ├── flux-system/
 │   │   │   ├── flux-system/                  # Flux bootstrap manifests
 │   │   │   ├── infrastructure.yaml           # Flux Kustomization → infrastructure/
 │   │   │   ├── infrastructure-config.yaml    # Flux Kustomization → infrastructure-config/ (ESO config), dependsOn infrastructure
-│   │   │   └── metallb-config.yaml           # Flux Kustomization → metallb-config/, dependsOn infrastructure
+│   │   │   ├── metallb-config.yaml           # Flux Kustomization → metallb-config/, dependsOn infrastructure
+│   │   │   ├── vault-config.yaml             # Flux Kustomization → vault-config/ (vault-unseal SealedSecret), dependsOn infrastructure
+│   │   │   └── synology-csi-config.yaml      # Flux Kustomization → synology-csi-config/ (synology-csi SealedSecret), dependsOn infrastructure
 │   │   ├── infrastructure/
 │   │   │   ├── sealed-secrets/
-│   │   │   ├── synology-csi/
-│   │   │   ├── vault/                        # helmrelease + vault-unseal SealedSecret
+│   │   │   ├── synology-csi/                 # helmrelease + namespace (SealedSecret moved to synology-csi-config/)
+│   │   │   ├── vault/                        # helmrelease + namespace (SealedSecret moved to vault-config/)
 │   │   │   ├── external-secrets/
 │   │   │   ├── metallb/
 │   │   │   ├── authentik/                    # scaffolded, not yet populated
@@ -281,6 +287,12 @@ homelab/
 │   │   ├── metallb-config/
 │   │   │   ├── metallb-config.yaml           # IPAddressPool + L2Advertisement
 │   │   │   └── kustomization.yaml
+│   │   ├── vault-config/
+│   │   │   ├── vault-unseal-secret.yaml      # SealedSecret with AWS KMS creds
+│   │   │   └── kustomization.yaml
+│   │   ├── synology-csi-config/
+│   │   │   ├── synology-secret.yaml          # SealedSecret with Synology API creds
+│   │   │   └── kustomization.yaml
 │   │   └── apps/
 │   └── jotunheim/
 │       ├── flux-system/
@@ -288,43 +300,47 @@ homelab/
 │       └── apps/
 └── docs/
     ├── homelab-design.md
-    ├── recovery/
-    └── outline/                              # per-topic detail docs 01–22
+    └── teardown-rebuild.md                   # rebuild runbook
 ```
 
 ---
 
 ## K3s install — how it actually works
 
-K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prerequisites.yml`). It is NOT a source of config drift — the drift concern is the in-cluster *workload* layer and the Calico addon merge behavior, not the K3s install.
+K3s itself is fully IaC'd via the Ansible `k3s` role. It is NOT a source of config drift — the drift concern is the in-cluster *workload* layer and the Calico addon merge behavior, not the K3s install.
 
 - **Version:** `k3s_version` in `roles/k3s/defaults/main.yml` (currently `v1.33.1+k3s1`), binary downloaded from GitHub releases.
-- **Bootstrap order:** `k3s_init_node` (gondul) initialises with `--cluster-init` → other CP nodes join → workers join last. Enforced by `when` conditions + `wait_for` on :6443 + node-count gates.
+- **Role task order:** `prerequisites.yml` → `network.yml` (sysctls + VLAN 20 policy routing) → `detect-state.yml` (skip-install gate) → `install.yml` → `calico.yml` (init node only).
+- **Idempotency:** `detect-state.yml` sets `k3s_already_healthy` if `systemctl is-active k3s` returns `active` AND the node is `Ready` in the cluster. When true, `install.yml` and `calico.yml` are skipped. Re-running the playbook against a healthy cluster produces `changed=0` for K3s tasks — critical to avoid duplicate-join failures.
+- **Bootstrap order:** `k3s_init_node` (default `gondul`) initialises with `--cluster-init` → other CP nodes join → workers join last. Enforced by `when` conditions + `wait_for` on :6443 + node-count gates.
+- **CP rebuild scenario:** if you destroy and recreate the default init node, override with `-e k3s_init_node=hlokk` (or another healthy CP) so the rebuilt node *joins* the existing cluster instead of `--cluster-init`ing a new one. Also run `kubectl delete node <name>` first to remove the stale member entry (see Known gotchas).
 - **Config templates:** `config-init.yaml.j2` (first CP), `config-server.yaml.j2` (joining CPs), `config-agent.yaml.j2` (workers). CP configs disable `traefik`, `servicelb`, `local-storage`; set `flannel-backend: none` + `disable-network-policy: true` (Calico handles both); set `cluster-cidr`/`service-cidr`, TLS SANs, `selinux: true`. Worker config is minimal: `server` + `token` + `selinux: true`.
 - **Token:** generated by K3s on the init node, slurped and distributed as the `k3s_token` fact. (`k3s_token` default in defaults/main.yml is empty — real value in `group_vars/all/vault.yml`.)
 - **kubeconfig:** fetched to `~/.kube/niflheim-asgard.yaml`, server address rewritten from `127.0.0.1` to the init node IP.
 - **Prerequisites** (`prerequisites.yml`): Rancher k3s-selinux repo, `iscsi-initiator-utils` + `iscsid` enabled, `br_netfilter` + `overlay` modules loaded & persisted, `ip_forward=1`, `bridge-nf-call-iptables`/`ip6tables=1`, swap disabled, `firewalld` disabled.
+- **Network plumbing** (`network.yml`): sysctls `rp_filter=2` (loose), `route_localnet=1`, plus the `vlan20-policy-routing.service` systemd unit on workers. See MetalLB section for why.
 - **No node taints or labels** are set anywhere in the K3s config — this is why the CP-taint work is a manual addition (see pending tasks).
 
 ---
 
 ## K3s VM specs
 
+CP cpu/memory parameterized per-node in the `locals.control_planes` map in `terraform/proxmox/asgard-k3s/main.tf`.
+
 **Control planes (Göndul/Hlökk/Sigrún):**
-- 1 vCPU, 2GB RAM, 10GB disk
+- Göndul: **2 vCPU, 4GB RAM**, 10GB disk, on **Verd** — bumped 2026-05-17 after OOM/CPU exhaustion during rebuild reconciliation churn
+- Hlökk: 1 vCPU, 2GB RAM, 10GB disk, on Verd
+- Sigrún: 1 vCPU, 2GB RAM, 10GB disk, on Skuld
 - Single NIC on VLAN 21
 - RHEL 9, K3s, Calico CNI
-- Göndul: Urd (temporary, move to Verd next reprovision)
-- Hlökk: Verd
-- Sigrún: Skuld
-- ⚠️ 1 vCPU for etcd-bearing nodes is UNVALIDATED under load. The 2026-05-14 etcd storm makes this a real concern — revisit CP sizing (and possibly etcd disk placement) as part of the Göndul-off-Urd reprovision. (CP VMs were briefly 2vCPU/4GB during IaC iteration; reset to the 1vCPU/2GB baseline — 1GB was found insufficient, hence 2GB.)
+- ⚠️ Hlökk and Sigrún at 1vCPU/2GB are still unvalidated under sustained load. If they exhibit gondul's pre-2026-05-17 symptoms, bump them via the same locals map.
 
 **Workers (Einherjar-urd/verd/skuld):**
 - 2 vCPU, 4GB RAM, 15GB disk
 - eth0: VLAN 21 (K3s traffic)
 - eth1: VLAN 20 (MetalLB L2, IPs 10.0.20.201/202/203)
 - RHEL 9, K3s, Calico CNI, iscsiadm
-- ⚠️ Multi-homed. The second NIC (eth1/VLAN 20) is a known landmine: it broke Calico autodetection and rp_filter, both of which had to be explicitly configured. See Known gotchas.
+- ⚠️ Multi-homed. The second NIC (eth1/VLAN 20) is a known landmine: it requires Calico autodetection pin, rp_filter loose mode, route_localnet=1, AND VLAN 20 source-based policy routing. All four are in IaC. See Known gotchas + MetalLB decision.
 
 ---
 
@@ -344,14 +360,23 @@ K3s itself is fully IaC'd via the Ansible `k3s` role (`tasks/install.yml`, `prer
 
 - **etcd on Urd**: The N5095 is too slow for etcd. Never put K3s CP nodes on Urd. On 2026-05-14 an etcd IO storm here cascaded into a multi-hour, multi-symptom outage (overlay, webhook, iSCSI, Vault all affected).
 - **Multi-homed workers — Calico autodetection**: Workers have eth0 (VLAN 21) and eth1 (VLAN 20). Calico's default `firstFound` autodetection bound the overlay to eth1 on the workers, breaking cross-node vxlan. Fix (in the Ansible Calico template): `nodeAddressAutodetectionV4: cidrs: ["10.0.21.0/24"]`. Do NOT revert to firstFound.
-- **Multi-homed workers — rp_filter**: Strict reverse-path filtering (`rp_filter=1`) silently drops MetalLB LoadBalancer traffic arriving on eth1. Hardening role sets `rp_filter=2` (loose mode) on `all` and `default` — required on these multi-homed nodes, still drops genuinely unroutable sources. Do NOT "harden" it back to 1. (Per-interface `eth0`/`eth1` values derive from `all`; setting them explicitly would be belt-and-suspenders.)
+- **Multi-homed workers — rp_filter**: Strict reverse-path filtering (`rp_filter=1`) silently drops MetalLB LoadBalancer traffic arriving on eth1. K3s role's `network.yml` sets `rp_filter=2` (loose mode) on `all` and `default` — required on these multi-homed nodes, still drops genuinely unroutable sources. Do NOT "harden" it back to 1. (Per-interface `eth0`/`eth1` values derive from `all`; setting them explicitly would be belt-and-suspenders.)
+- **Multi-homed workers — route_localnet**: MetalLB L2 mode does NOT bind VIPs to any interface — it only ARPs for them. Without `route_localnet=1`, the kernel drops packets destined for the VIP because the IP isn't local. K3s role's `network.yml` sets it on `all`. Discovered 2026-05-17 during asgard rebuild — VIP was completely unreachable from outside the VLAN until this landed.
+- **Multi-homed workers — VLAN 20 policy routing**: Replies from MetalLB VIPs originate from the worker's eth1 IP. Without source-based policy routing, the reply goes out via the default route (eth0/VLAN 21), creating asymmetric routing that UCG-Ultra's stateful firewall drops. Fix: the `vlan20-policy-routing.service` systemd oneshot unit installed by `roles/k3s/tasks/network.yml` adds `from 10.0.20.0/24 lookup vlan20` + `default via 10.0.20.1 dev eth1 table vlan20`. OS-independent (pure ip(8) + systemd, no NetworkManager coupling).
 - **MetalLB L2 election**: L2Advertisement needs `nodeSelectors` excluding CP nodes (they have no eth1). Without it, election can land on a CP node and announce nowhere.
 - **Calico Installation CR merge behavior**: The K3s addon controller MERGES the `Installation` CR rather than replacing it — a removed field can persist in the live object (observed 2026-05-14: a stale `firstFound` survived alongside the new `cidrs`). After changing autodetection, verify with `kubectl get installation default -o jsonpath='{.spec.calicoNetwork.nodeAddressAutodetectionV4}'` and `kubectl patch ... --type=json` to strip stale fields if needed.
 - **tigera-operator `/var/lib/calico/mtu` denied (upstream bug #7851)**: The Tigera operator runs as `container_t` with MCS categories (e.g. `s0:c322,c902`); `/var/lib/calico/mtu` is written by privileged calico-node as `container_var_lib_t:s0` with NO categories. MCS dominance fails on read. The denial is `dontaudit`'d by default policy, so `ausearch` returns nothing until `semodule -DB`. **Fix (shipped 2026-05-15):** set `mtu: 1450` explicitly in the Calico `Installation` CR (`ansible/roles/k3s/templates/calico-installation.yaml.j2`). When MTU is set explicitly the operator never reads the file. This is the upstream-maintainer-recommended workaround. 1450 = 1500 (host) - 50 (VXLAN overhead). Do NOT remove without a replacement fix — the operator will go Degraded again. Revisit if/when upstream actually fixes the operator.
 - **Vault SKIP_CHOWN**: Vault Helm chart sets SKIP_CHOWN=true when running as non-root. With iSCSI storage, fsGroup doesn't apply automatically. Fix (in the Vault HelmRelease values): pod-level `securityContext` with `runAsUser: 100`, `runAsGroup: 1000`, `fsGroup: 1000`, `runAsNonRoot: false`; plus an `extraInitContainer` `vault-data-chown` (busybox, `runAsUser: 0`) running `chown -R 100:1000 /vault/data && chmod 750 /vault/data`.
 - **Vault TLS disabled — deliberate**: The Vault raft config sets `tls_disable = 1` on the listener; there is no TLS on the listener OR cluster traffic (`cluster_address` is under the same listener). This is a conscious homelab tradeoff (simplicity vs defense-in-depth), not an oversight. Do NOT "fix" it without understanding the cluster-traffic implications. Revisit only as part of deliberate Vault hardening. The `vault-ui` LoadBalancer (VIP `10.0.20.11`) therefore serves plaintext HTTP on :8200 — it is internal/VLAN-only.
 - **iSCSI single-session LUNs**: Synology CSI LUNs are single-session. After ungraceful node restarts, a stale session or discovery node record can pin a LUN to a dead/wrong node and block re-attach (`non-retryable iSCSI login failure`, or `iscsi_limit_max_session_count` on the NAS side). Also: the Synology CSI node plugin is a DaemonSet and runs on CP nodes too (no CP taint yet) — a CP node grabbed a worker's LUN during a reschedule. Cleanup: `iscsiadm -m session` / `-m node -o delete` on affected nodes; clear stale sessions NAS-side if needed.
-- **Flux CRD timing**: Resources using CRDs installed by a HelmRelease must be in a separate Flux Kustomization with `dependsOn`. Use `infrastructure` for installs and a per-component `<component>-config` Kustomization for CRD-dependent config. Concrete example: ESO installs its CRDs via `installCRDs: true` in the `infrastructure` Kustomization; the ClusterSecretStore lives in `infrastructure-config` which `dependsOn` infrastructure.
+- **Flux CRD timing — SealedSecrets**: SealedSecret resources can NOT live in the same Kustomization that installs the sealed-secrets HelmRelease. The dry-run runs before the chart installs → SealedSecret CRD doesn't exist yet → reconcile fails with `no matches for kind "SealedSecret" in version "bitnami.com/v1alpha1"`. Same rule applies to any CRD-dependent resource: it goes in a per-component `<component>-config/` Kustomization that `dependsOn: infrastructure`. Current `<component>-config` Kustomizations: `infrastructure-config` (ESO ClusterSecretStore), `metallb-config` (IPAddressPool + L2Advertisement), `vault-config` (vault-unseal SealedSecret), `synology-csi-config` (synology-csi SealedSecret).
+- **Sealed-secrets master keys must be backed up**: sealed-secrets controller generates a fresh keypair on first start. SealedSecrets in Git are encrypted against that pair's public cert. If the cluster is rebuilt without restoring the keypair, every existing SealedSecret becomes undecryptable and must be re-sealed from plaintext sources. Backup procedure: `kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key=active -o yaml > backup.yaml`, store contents in 1Password. Restore: `kubectl apply -f backup.yaml` *before* the sealed-secrets controller starts on the rebuilt cluster. Discovered 2026-05-17 — both SealedSecrets (vault-unseal, synology-csi) had to be re-sealed from plaintext during the asgard rebuild because the original keys were never backed up.
+- **CP rebuild → "duplicate node name"**: destroying and recreating a CP VM and re-running the playbook fails with `etcd cluster join failed: duplicate node name found`. K3s tries to join with the same name the cluster already considers a member. Fix: `kubectl delete node <name>` from a surviving CP *before* starting K3s on the new VM. The K3s native node-delete handler also evicts the stale etcd member. If the failing k3s.service is already in a systemd restart loop, the next retry will succeed automatically once the node entry is removed.
+- **CP rebuild of the default init node**: if the destroyed CP is `k3s_init_node` (default `gondul`), the role would `--cluster-init` it as a fresh cluster instead of joining the existing one. Override: `ansible-playbook playbooks/asgard-k3s.yml --limit <name> -e 'k3s_init_node=hlokk'` (any healthy CP works as the temporary init reference). The new node then joins via that CP.
+- **K3s role install-skip on healthy nodes**: `roles/k3s/tasks/detect-state.yml` sets `k3s_already_healthy` if `systemctl is-active k3s == 'active'` AND `kubectl get node <name>` returns Ready. `install.yml` and `calico.yml` skip when true. Without this guard, re-running the play against a healthy CP can fire the restart-k3s handler, K3s restarts and re-attempts join, and the cluster rejects with "duplicate node name." Deeper bug: a genuine config template change still triggers the handler and the same failure — tracked separately, not yet fixed.
+- **Vault Raft follower auto-join can fail**: on fresh Vault init via the Helm chart's StatefulSet, vault-1 and vault-2 are supposed to auto-discover vault-0 and join via `retry_join`. They often miss the join window if they started before vault-0 was initialized, then sit logging "stored unseal keys are supported, but none were found." Fix: `kubectl exec -n vault vault-<N> -- vault operator raft join http://vault-0.vault-internal:8200`. They auto-unseal via KMS after joining.
+- **Vault init can leave a stuck partial state**: if `vault operator init` exits non-zero (e.g. running it before all pods are stable), the Raft data dir can end up in a half-initialized state where the next init attempt also fails with "stored unseal keys supported, but none were found." Recovery: `kubectl delete statefulset vault -n vault --cascade=orphan`, `kubectl delete pvc -n vault data-vault-0 data-vault-1 data-vault-2`, `kubectl delete pod -n vault vault-0 vault-1 vault-2 --force --grace-period=0`, then `flux reconcile helmrelease vault -n vault --force` to recreate. Old iSCSI LUNs on Synology retain-policy survive — clean them up on DSM after.
+- **Flux deploy key not in IaC**: re-bootstrapping Flux on a fresh cluster needs the GitHub deploy key Secret. `flux bootstrap github` re-creates it idempotently if the deploy key still exists in the GitHub repo settings. If not, generates a new keypair. NOT a SealedSecret. Tracked: should be backed up or rotated post-bootstrap.
 - **ESO API version**: ClusterSecretStore uses `external-secrets.io/v1` not `v1beta1`.
 - **MetalLB speaker labels**: `app.kubernetes.io/component=speaker` not `component=speaker`.
 - **fish shell heredocs**: Don't use `<<EOF` syntax. Use `echo '...' | command` or temp files.

@@ -1,8 +1,10 @@
 # Teardown & rebuild — must-run K3s → asgard
 
-*Last updated: 2026-05-16*
+*Last updated: 2026-05-17 — validated end-to-end this same day*
 
 The first deliberate end-to-end rebuild of the production K3s cluster. Combines a directory/naming rename (`must-run` → `asgard`, `can-run` → `jotunheim`) with a clean teardown and rebuild from IaC. Validates that the IaC is complete and the rebuild path actually works.
+
+**Validation outcome (2026-05-17):** rebuild completed end-to-end. Surfaced 9 architectural gaps (CRD timing, master-keys backup, route_localnet, policy routing, idempotency guard, etcd member cleanup, init-node override, Raft auto-join, stuck-init recovery). All fixed in IaC during the same session. See `homelab-design.md` § Incident log § 2026-05-17 for the full narrative. This document was updated post-rebuild to bake those recoveries into the runbook so the next rebuild doesn't re-discover them.
 
 ## Scope
 
@@ -21,7 +23,7 @@ The first deliberate end-to-end rebuild of the production K3s cluster. Combines 
 - Synology (Munin) — not touched, but old iSCSI LUNs need cleanup post-rebuild
 - KPN Experia Box and UCG-Ultra config — VLAN labels updated, firewall rules unchanged
 - Public DNS zone `midgard.xiiisins.com` — not renamed (separate from K3s cluster names)
-- Outline docs content refresh — mechanically renamed only; framing-sync is a separate backlog item
+- `docs/outline/` content quality — being deleted entirely (regenerable from `homelab-design.md` later)
 
 ## Naming target
 
@@ -51,6 +53,33 @@ Norse VM/node names (Niflheim, Urd/Verd/Skuld, Göndul/Hlökk/Sigrún, Einherjar
 ```
 
 Per-tier commits in Section 2 don't touch running infrastructure — they're text changes only. The teardown in Section 4 is what actually destroys things.
+
+## Session pause points
+
+The arc is designed to be stoppable at clean boundaries. Natural pause points:
+
+| After section | State | Safe to walk away? |
+|---|---|---|
+| End of Section 1 | State captured, infra untouched | ✅ Indefinitely |
+| End of Section 2 (any tier) | Git renamed for completed tiers; remaining tiers untouched; infra untouched | ✅ Indefinitely. Note last completed tier. |
+| End of Section 2 (all tiers) | Git fully renamed; infra still on old naming | ✅ Indefinitely. Repo is in "renamed but not yet rebuilt" state — Terraform plan on asgard-k3s/ would show full destroy+create, but you don't run it yet. |
+| End of Section 3 | Final checks passed; ready to destroy | ✅ Same as above |
+| Mid Section 4 (after destroy, before apply) | **K3s gone, nothing rebuilt yet** | ⚠️ Only for short breaks (lunch). Don't sleep on this state. Asgard services unavailable. |
+| Mid Section 5 (Ansible playbook running) | **Partial cluster bring-up** | ❌ Don't pause here. Let the playbook finish or revert. |
+| End of Section 5.6 (Vault terraform applied) | Vault has fresh init + TF config | ✅ For short breaks. KV data not restored yet. |
+| End of Section 5 | Full rebuild done | ✅ Indefinitely |
+
+**Two-day plan (you have ~2h tonight + Sunday morning):**
+- **Tonight:** Sections 1 + 2. State capture (Section 1) is methodical, ~30 min. Rename commits (Section 2) is mechanical, ~30–60 min. End with all rename commits in Git, nothing applied.
+- **Tomorrow morning:** Section 3 + 4 + 5 + 6. Teardown + rebuild + verify is ~1.5–2.5h end-to-end. Plenty of slack for Vault re-init faffing and KV restore.
+
+**End-of-tonight handoff note** (write into your scratch / commit message of last rename commit):
+```
+Stopped after Section 2 — all rename commits in Git.
+Tomorrow: resume at Section 3 (pre-teardown checks), then teardown.
+State capture is at ~/homelab-rebuild-state/.
+Vault root token in 1Password (verified working tonight in Section 1.3).
+```
 
 ---
 
@@ -199,6 +228,29 @@ ping -c 2 10.0.254.13    # Skuld
 ```
 
 All should succeed. During teardown only the 10.0.21.x range should become unreachable.
+
+### 1.10 Sealed-secrets master keys backup ⚠️ CRITICAL
+
+The sealed-secrets controller generates a fresh keypair on first start. Every SealedSecret in Git is encrypted against that pair's public cert. **If you skip this step, every existing SealedSecret becomes undecryptable after rebuild** and must be re-sealed from plaintext sources — adding 15-30 min of recovery work and requiring access to all the original plaintext values.
+
+```fish
+# Snapshot the active sealed-secrets master keypair
+mkdir -p ~/homelab-rebuild-state
+kubectl get secret \
+  -n sealed-secrets \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key=active \
+  -o yaml \
+  > ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
+
+# Verify it's not empty (~15 lines for a single active key)
+wc -l ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
+grep -c "tls.crt\|tls.key" ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
+# Expected: 2 (one each)
+```
+
+**Then copy the file's contents into 1Password** as a Secure Note in the Homelab vault, named `sealed-secrets master keys — asgard <date>`. The local file alone isn't enough — if you lose the Mac mid-rebuild you've lost the keys.
+
+This step is restored in Section 5.4 below, *before* the sealed-secrets controller starts on the rebuilt cluster.
 
 ---
 
@@ -421,16 +473,15 @@ kustomize build verified for all three Kustomization roots."
 
 ### Tier D — Documentation
 
-Renames + content sweep. Docs are the largest single tier by line count.
+Outline dir gets deleted (it's a draft, regenerable from `homelab-design.md` later). Sweep is then just `CLAUDE.md` + `homelab-design.md`.
 
 ```fish
 cd ~/Dev/xiiisins/homelab
 
-git mv docs/outline/06-must-run.md docs/outline/06-asgard.md
-git mv docs/outline/19-services-must-run.md docs/outline/19-services-asgard.md
-git mv docs/outline/20-services-can-run.md docs/outline/20-services-jotunheim.md
+# Delete the outline drafts — predate D1, regenerable from homelab-design.md later
+git rm -r docs/outline/
 
-# Content sweep — all docs and CLAUDE.md
+# Content sweep on the two live docs
 perl -i -pe '
     s/must-run/asgard/g;
     s/Must-run/Asgard/g;
@@ -439,54 +490,37 @@ perl -i -pe '
     s/HL-CORE/HL-ASG/g;
     s/HL-CR\b/HL-JOT/g;
     s/niflheim-must-run/niflheim-asgard/g;
-' CLAUDE.md docs/homelab-design.md docs/outline/*.md
+' CLAUDE.md docs/homelab-design.md
 ```
 
-Note the `\b` word boundary on `HL-CR` to avoid clobbering anything else that starts with `HL-CR` (none currently, but defensive).
+Note the `\b` word boundary on `HL-CR` (defensive — no current collisions, but safe).
 
 Review:
 
 ```fish
 git diff CLAUDE.md docs/homelab-design.md | less
-git diff docs/outline/ | less
+git status  # should show docs/outline/ deletions + 2 modified files
 ```
-
-**Manual checks:**
-
-1. `docs/outline/01-overview.md` has a hyperlink: `[Services — must-run](./19-services-must-run.md)`. After the sweep, the link text becomes `[Services — asgard]` and the URL becomes `./19-services-asgard.md`. The URL also needs the rename, which the perl sweep handles.
-
-```fish
-grep -n 'services-must-run\|services-can-run' docs/outline/*.md
-# Should return nothing — all hyperlinks updated
-```
-
-2. **Stale framing alert:** `docs/outline/*.md` files were written before the D1 architectural changes. After mechanical rename, content like "Asgard tier (boring, stable)" and "Jotunheim — learning environment" still misrepresents the current framing. **Don't fix this in this commit.** Add a backlog item:
-
-> Backlog: bring `docs/outline/*.md` in sync with `docs/homelab-design.md` post-D1.
-> - `01-overview.md` framing of tiers
-> - `11-identity-authentik.md` incorrectly places Authentik in jotunheim
-> - `13-secrets-architecture.md` pre-D1 two-layer framing
-> - `14-secrets-bootstrap.md` pre-D1 Ansible-Vault-as-legacy framing
 
 Commit:
 
 ```fish
-cd ~/Dev/xiiisins/homelab
 git add -A
-git commit -m "rename: docs must-run/can-run → asgard/jotunheim
+git commit -m "rename: docs must-run/can-run → asgard/jotunheim, drop outline drafts
 
-Mechanical rename across CLAUDE.md, docs/homelab-design.md, and
-docs/outline/*.md:
+Content sweep across CLAUDE.md and docs/homelab-design.md:
 - must-run/Must-run → asgard/Asgard
 - can-run/Can-run → jotunheim/Jotunheim
 - HL-CORE-* → HL-ASG-*
 - HL-CR-* → HL-JOT-*
 - niflheim-must-run kubeconfig refs → niflheim-asgard
-- 06-must-run.md, 19-services-must-run.md, 20-services-can-run.md
-  renamed accordingly; intra-doc hyperlinks updated.
 
-Note: docs/outline/*.md framing predates D1 and is not refreshed in
-this commit. Added as a separate backlog item."
+Also: deleted docs/outline/ entirely. These 22 files were initial
+drafts generated from the original homelab-design.md and never kept
+in sync. They predate D1 and contain stale framing (Authentik
+incorrectly in jotunheim tier, two-layer secrets architecture, etc.).
+Regenerable from current homelab-design.md when an outline doc set
+is actually wanted."
 ```
 
 ### Tier E — UCG-Ultra VLAN names (manual UI step)
@@ -675,7 +709,40 @@ kubectl apply -k k8s/asgard/flux-system/flux-system
 # Then Flux self-reconciles from Git
 ```
 
-Watch reconciliation:
+**Notes on `flux bootstrap github`:**
+- The bootstrap re-creates the GitHub deploy key idempotently if it still exists in the repo settings; otherwise generates a new keypair. The deploy key itself is NOT in IaC (tracked as a future hardening item).
+- The bootstrap Secret containing the deploy key lives only in the cluster — not backed up. Re-bootstrapping is the recovery path.
+
+#### 5.4.1 Restore sealed-secrets master keypair ⚠️ CRITICAL
+
+**This step must happen between Flux bootstrap and the sealed-secrets controller's first reconcile.** If the controller starts before the keypair Secret exists, it generates a *new* keypair and all SealedSecrets in Git become undecryptable.
+
+```fish
+# Apply the backed-up master keypair (from Section 1.10)
+kubectl apply -f ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
+
+# Verify
+kubectl get secret -n sealed-secrets \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key=active
+# Expected: at least one Secret listed
+```
+
+If you skipped Section 1.10 — recovery is to re-seal each SealedSecret from plaintext:
+```fish
+# Get the new public cert from the controller
+kubeseal --fetch-cert --controller-namespace=sealed-secrets > /tmp/pub-cert.pem
+
+# Then for each SealedSecret in Git, re-seal from its plaintext source:
+# vault-unseal: plaintext in Ansible Vault (group_vars/all/vault.yml — aws_access_key_id,
+#   aws_secret_access_key, aws_kms_key_id, AWS_REGION=eu-west-1)
+# synology-csi: plaintext in 1Password (Synology kubernetes user creds)
+echo -n "<value>" | kubectl create secret generic <name> -n <ns> \
+  --dry-run=client --from-file=<key>=/dev/stdin -o yaml \
+  | kubeseal --cert /tmp/pub-cert.pem -o yaml > k8s/asgard/<component>-config/<name>.yaml
+# Commit, push, reconcile.
+```
+
+Watch Flux reconciliation:
 
 ```fish
 flux get all -A --watch
@@ -686,6 +753,10 @@ Expected order:
 2. `infrastructure` Kustomization reconciles — installs sealed-secrets, synology-csi, vault, external-secrets, metallb, tigera-operator (operator already installed by Ansible, this is a no-op)
 3. `infrastructure-config` reconciles after `infrastructure` ready — installs ClusterSecretStore
 4. `metallb-config` reconciles after `infrastructure` ready — installs IPAddressPool + L2Advertisement
+5. `vault-config` reconciles after `infrastructure` ready — applies vault-unseal SealedSecret
+6. `synology-csi-config` reconciles after `infrastructure` ready — applies synology-csi SealedSecret
+
+**Gotcha — SealedSecret CRD timing:** if you ever add a NEW SealedSecret directly under `infrastructure/`, Flux dry-run will fail with `no matches for kind "SealedSecret" in version "bitnami.com/v1alpha1"` because the CRD doesn't exist at dry-run time. Always put SealedSecrets in a `<component>-config/` Kustomization that `dependsOn: infrastructure`.
 
 ### 5.5 Vault — fresh init, capture keys, restore data
 
@@ -702,7 +773,18 @@ kubectl exec -n vault vault-0 -- vault operator init \
     -format=json > ~/homelab-rebuild-state/vault-init.json
 ```
 
-**CRITICAL:** the output contains the new root token + 5 recovery key shares. Update 1Password:
+**Gotcha — stuck init state.** If `vault operator init` exits non-zero (e.g. you ran it before all pods were ready), the Raft data dir can end up half-initialized. Subsequent `init` attempts fail with `stored unseal keys are supported, but none were found in the storage backend`. Recovery:
+
+```fish
+kubectl delete statefulset vault -n vault --cascade=orphan
+kubectl delete pvc -n vault data-vault-0 data-vault-1 data-vault-2
+kubectl delete pod -n vault vault-0 vault-1 vault-2 --force --grace-period=0
+flux reconcile helmrelease vault -n vault --force
+# Wait for pods to come back Running 0/1, then retry init
+# Note: old iSCSI LUNs on Synology survive (retain policy) — clean up via DSM after success
+```
+
+**CRITICAL:** the init output contains the new root token + 5 recovery key shares. Update 1Password:
 - Replace the old root token entry
 - Replace the old recovery keys entry
 - Tag with rebuild date
@@ -713,11 +795,18 @@ kubectl exec -n vault vault-0 -- vault status
 # Expected: Sealed: false, Initialized: true
 ```
 
-Other Vault pods (vault-1, vault-2) join the Raft cluster automatically and auto-unseal. Wait ~60 seconds and verify:
+**Gotcha — Raft followers don't auto-join.** vault-1 and vault-2 *should* auto-discover vault-0 and join via the chart's `retry_join` config, but in practice they often miss the join window if they started before vault-0 was initialized. Symptom: they sit Sealed with `stored unseal keys are supported, but none were found.` in their logs.
+
+Manual join:
 
 ```fish
+kubectl exec -n vault vault-1 -- vault operator raft join http://vault-0.vault-internal:8200
+kubectl exec -n vault vault-2 -- vault operator raft join http://vault-0.vault-internal:8200
+
+# They auto-unseal via KMS after joining (~30 seconds)
+# Verify
 kubectl exec -n vault vault-0 -- vault operator raft list-peers
-# Expected: 3 members
+# Expected: 3 members, all voter, all not-leader except one
 ```
 
 ### 5.6 Vault — re-apply Terraform config
@@ -728,11 +817,6 @@ cd ~/Dev/xiiisins/homelab/terraform/vault
 # Set new root token
 set -x VAULT_ADDR http://10.0.20.11:8200  # MetalLB VIP for vault-ui service
 set -x VAULT_TOKEN <new-root-from-step-5.5>
-
-# If terraform/vault/main.tf still has `import {}` blocks from the original
-# D1 work, remove them now — the resources don't exist yet, so import will fail.
-grep -n 'import {' main.tf
-# If any matches, edit them out (or comment with #) before applying.
 
 terraform plan
 # Expected: lots of additions (KV engine, K8s auth + config, AppRole + roles, eso policy + role)
@@ -794,14 +878,34 @@ kubectl get clustersecretstore vault -o yaml | grep -A5 status:
 # Expected: conditions: type Ready, status True
 ```
 
-### 5.10 MetalLB — verify VIP reachable
+### 5.10 MetalLB — verify VIP reachable from outside the cluster
 
 ```fish
 kubectl get svc -A | grep LoadBalancer
 # Look for vault-ui service — should have an EXTERNAL-IP from the pool (10.0.20.11 by default)
 
+# Local ping (loopback path through the cluster)
 ping -c 2 10.0.20.11
-# Expected: success
+
+# External HTTP (real test — exercises route_localnet + VLAN 20 policy routing)
+curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://10.0.20.11:8200/v1/sys/health
+# Expected: 200 (active) or 429 (rate-limited but TCP path works) — anything that returns proves the full chain
+```
+
+The `roles/k3s/tasks/network.yml` role applies four things needed for VIPs to be reachable from outside the cluster on multi-homed workers:
+- Calico autodetection pin (`cidrs: ["10.0.21.0/24"]`)
+- `rp_filter=2` (loose mode)
+- `route_localnet=1`
+- `vlan20-policy-routing.service` systemd unit
+
+If `curl` fails but `ping` succeeds, one of the four is missing. Verify with:
+```fish
+ssh ansible@10.0.21.21 'sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.all.route_localnet'
+# Expected: rp_filter=2, route_localnet=1
+ssh ansible@10.0.21.21 'sudo systemctl is-active vlan20-policy-routing.service'
+# Expected: active
+ssh ansible@10.0.21.21 'sudo ip rule list | grep 10.0.20'
+# Expected: from 10.0.20.0/24 lookup vlan20
 ```
 
 ---
@@ -816,13 +920,15 @@ After rebuild, walk through:
 - [ ] `kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[0].status}'` returns `True`
 - [ ] `vault status` shows Initialized + Unsealed on all 3 pods
 - [ ] `vault operator raft list-peers` shows 3 members
-- [ ] MetalLB VIP 10.0.20.11 reachable, Vault UI loads on `:8200`
-- [ ] AppRole lookup from local Ansible works (test-vault-lookup playbook)
+- [ ] MetalLB VIP 10.0.20.11 reachable via HTTP from outside the cluster (proves full plumbing chain: route_localnet + policy routing + L2 advertisement)
+- [ ] AppRole lookup from local Ansible works (`ansible-playbook playbooks/test-vault-lookup.yml`)
+- [ ] Sealed-secrets master keypair matches the pre-rebuild backup (`kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key=active -o yaml | diff - ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml`)
 - [ ] Factorio LXC still reachable on TCP 22022 (SFTP) and UDP 34197 (game) — verified externally if possible
 - [ ] AdGuard still resolving DNS for the network
 - [ ] PBS LXC still backing up — wait for next scheduled job or trigger manually
 - [ ] Reachability baseline (Section 1.9) — all IPs except 10.0.20.11/10.0.21.x originally are unchanged
 - [ ] AdGuard DNS records for new VMs (Göndul, Hlökk, Sigrún, Einherjar-*) point at correct IPs — re-add if cleared
+- [ ] Idempotency check: `ansible-playbook playbooks/asgard-k3s.yml` returns `changed=0` across all 6 hosts (proves `detect-state.yml` is working — install/calico skipped)
 
 Update `docs/homelab-design.md` build status section:
 
@@ -867,29 +973,7 @@ Then run terraform from the now-restored `terraform/proxmox/must-run-k3s/` again
 
 ---
 
-## Appendix A — outline docs framing drift (backlog)
-
-After the mechanical rename, `docs/outline/*.md` still has pre-D1 framing in several places. **Not blocking the rebuild**, tracked separately:
-
-- `01-overview.md` — "Asgard (boring, stable) and jotunheim (learning environment)" misrepresents current framing. Both clusters host real services; difference is failure-domain risk.
-- `06-asgard.md` — likely has old service list; check against current `homelab-design.md` Must-run K3s section.
-- `07-k3s.md` — describes jotunheim cluster as "learning environment, complexity intentional" — old framing.
-- `11-identity-authentik.md` — line 43 places Authentik in jotunheim. WRONG — Authentik is asgard (core infrastructure, cascade-failure criterion).
-- `13-secrets-architecture.md` — pre-D1 two-layer framing. Should describe three-store model.
-- `14-secrets-bootstrap.md` — describes Ansible Vault as "only used during bootstrap" and "legacy after". New framing: Ansible Vault is the permanent bootstrap layer.
-- `19-services-asgard.md` — service list likely out of date (Tofu Controller, AWX promotion, etc.).
-- `20-services-jotunheim.md` — service list shrunk (SMTP dropped, several promoted to asgard).
-- `21-build-sequence.md` — may not reflect current build status.
-
-Add to the backlog list in `docs/homelab-design.md`:
-
-```
-- [ ] Refresh `docs/outline/*.md` to match post-D1 framing
-  in `docs/homelab-design.md`. Mechanical rename done; content
-  sync is the remaining piece.
-```
-
-## Appendix B — what to do if you spot an "I forgot to put X in IaC" moment
+## Appendix A — what to do if you spot an "I forgot to put X in IaC" moment
 
 The whole point of this rebuild is to discover gaps. When you hit one:
 
@@ -902,3 +986,88 @@ Likely gap candidates to watch for:
 - Anything you configured imperatively via `kubectl` or `vault write` between D1 completion and rebuild
 - Cloudflare DNS records (not yet in IaC)
 - AWS KMS key + IAM user config (not yet in IaC — G2 backlog item)
+
+---
+
+## Appendix B — Partial rebuild: replacing a single CP
+
+This is a different procedure from the full-cluster rebuild above. Use it when you want to destroy and recreate ONE control plane VM (e.g. relocating gondul to a different host, or replacing failed hardware) while the other CPs and workers keep running.
+
+**Scenario it handles:** the surviving cluster has 2/3 CP quorum; you're swapping out the third.
+
+**Risk:** while the CP is being rebuilt, etcd is at 2/3 — a second failure during the window means quorum loss. Don't do this if another node is already unhealthy.
+
+### B.1 Pre-conditions
+
+```fish
+# Verify quorum and the OTHER two CPs are healthy
+kubectl get nodes
+kubectl exec -n vault vault-0 -- vault operator raft list-peers
+
+# Optional: snapshot the surviving CPs as safety net
+ssh root@10.0.254.12 "qm snapshot 2002 before-cp-rebuild"
+ssh root@10.0.254.13 "qm snapshot 2003 before-cp-rebuild"
+```
+
+### B.2 Edit Terraform
+
+Change whatever needed changing (`target_node`, `cores`, `memory`) for the target CP in `locals.control_planes`. Apply with `--target` so you only touch one VM:
+
+```fish
+cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
+terraform plan
+# Expected: 1 to add, 1 to destroy (or "1 to replace")
+terraform apply --target='proxmox_virtual_environment_vm.control_plane["<name>"]'
+```
+
+After apply, the new VM is up but has no K3s.
+
+### B.3 Remove the stale etcd member ⚠️ CRITICAL
+
+The cluster still considers the old VM an etcd member. New VM tries to join with the same name → "duplicate node name found" → systemd restart loop.
+
+```fish
+kubectl delete node <name>
+# K3s's node-delete handler also evicts the stale etcd member
+```
+
+If the new VM's k3s.service is already in a systemd restart loop (because the playbook already ran and failed), the next retry will succeed automatically once the node entry is removed.
+
+### B.4 Run the playbook
+
+```fish
+# Clean stale SSH host key
+ssh-keygen -R <ip>
+
+# Run the playbook. Override k3s_init_node IF the CP you're rebuilding IS the default init node (gondul).
+ansible-playbook playbooks/asgard-k3s.yml --limit <name> -e 'k3s_init_node=hlokk'
+
+# If you're NOT rebuilding the default init node, no override needed:
+ansible-playbook playbooks/asgard-k3s.yml --limit <name>
+```
+
+Without the override when rebuilding the default init node, the role would `--cluster-init` the new VM as a fresh cluster, ignoring the existing 2-CP cluster. The override tells the role "this CP is joining, not initing."
+
+### B.5 Verify rejoin
+
+```fish
+kubectl get nodes
+# All 6 Ready
+
+kubectl exec -n vault vault-0 -- vault operator raft list-peers
+# 3 members again
+
+# Idempotency check
+ansible-playbook playbooks/asgard-k3s.yml --limit <name>
+# Expected: changed=0
+```
+
+### B.6 Cleanup
+
+```fish
+# Drop the safety snapshots once stable for >1 hour
+ssh root@10.0.254.12 "qm delsnapshot 2002 before-cp-rebuild"
+ssh root@10.0.254.13 "qm delsnapshot 2003 before-cp-rebuild"
+```
+
+**Why this is appendix-worthy:** every step here is non-obvious. The `kubectl delete node` requirement, the `-e k3s_init_node=` override, and the difference between "VM rebuild via terraform" and "K3s rejoin via ansible" each cost an hour of debugging on first encounter. This appendix bakes the recovery in.
