@@ -29,4 +29,7 @@ postgres_allowed_cidrs:
 #   - name: authentik
 #     owner: authentik
 #     password_vault_path: ansible/postgres/authentik-password
-postgres_databases: []
+postgres_databases:
+  - name: authentik
+    owner: authentik
+    password_vault_path: ansible/postgres/authentik-password
