@@ -14,3 +14,10 @@
     state: restarted
     daemon_reload: true
   when: inventory_hostname in groups['asgard_k3s_workers']
+
+- name: reload vlan20 policy routing
+  ansible.builtin.systemd:
+    name: vlan20-policy-routing.service
+    state: restarted
+    daemon_reload: true
+  when: "'asgard_k3s_workers' in group_names"

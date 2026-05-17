@@ -33,3 +33,60 @@
     - { name: "net.ipv4.conf.all.rp_filter", value: "2" }
     - { name: "net.ipv4.conf.default.rp_filter", value: "2" }
     - { name: "net.ipv4.conf.all.route_localnet", value: "1" }
+
+# ----- VLAN 20 source-based policy routing (multi-homed workers only) -----
+#
+# MetalLB L2-mode VIPs sit on VLAN 20 (eth1). When traffic arrives for a
+# VIP and the reply originates from the worker's eth1 IP, the kernel
+# routes the reply via the default route (eth0/VLAN 21) — asymmetric
+# routing. UCG-Ultra's stateful firewall drops the asymmetric reply,
+# breaking external connectivity to VIPs.
+#
+# Fix: source-based policy routing. Replies sourced from 10.0.20.0/24
+# use a custom table whose default route is the VLAN 20 gateway, so
+# they exit via eth1 — symmetric path, no firewall drops.
+#
+# Implementation is a systemd oneshot service running `ip` commands
+# at network-online.target. OS-independent (works on any systemd Linux),
+# no NetworkManager / networkd / ifcfg coupling.
+
+- name: Add custom routing table for VLAN 20
+  ansible.builtin.lineinfile:
+    path: /etc/iproute2/rt_tables
+    line: "200 vlan20"
+    state: present
+    regexp: '^\d+\s+vlan20$'
+  when: "'asgard_k3s_workers' in group_names"
+
+- name: Install VLAN 20 policy-routing systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/vlan20-policy-routing.service
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=VLAN 20 source-based policy routing for MetalLB
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStartPre=-/usr/sbin/ip rule del from 10.0.20.0/24 table vlan20
+      ExecStart=/usr/sbin/ip route replace default via 10.0.20.1 dev eth1 table vlan20
+      ExecStart=/usr/sbin/ip rule add from 10.0.20.0/24 table vlan20
+      ExecStop=/usr/sbin/ip rule del from 10.0.20.0/24 table vlan20
+
+      [Install]
+      WantedBy=multi-user.target
+  when: "'asgard_k3s_workers' in group_names"
+  notify: reload vlan20 policy routing
+
+- name: Enable and start VLAN 20 policy-routing service
+  ansible.builtin.systemd:
+    name: vlan20-policy-routing.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: "'asgard_k3s_workers' in group_names"
