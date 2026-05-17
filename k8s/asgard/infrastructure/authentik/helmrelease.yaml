@@ -6,6 +6,7 @@ metadata:
   namespace: authentik
 spec:
   interval: 10m
+  timeout: 15m
   chart:
     spec:
       chart: authentik
@@ -16,10 +17,10 @@ spec:
         namespace: authentik
   install:
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     remediation:
-      retries: 3
+      retries: -1
   values:
     authentik:
       log_level: info
