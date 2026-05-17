@@ -19,6 +19,20 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
+      initContainers:
+        - name: redis-data-chown
+          image: busybox:stable
+          command:
+            - sh
+            - -c
+            - chown -R 999:999 /data && chmod 750 /data
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
       containers:
         - name: redis
           image: redis:7-alpine
