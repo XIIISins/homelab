@@ -1,0 +1,6 @@
+# k8s/asgard/synology-csi-config/kustomization.yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - synology-secret.yaml

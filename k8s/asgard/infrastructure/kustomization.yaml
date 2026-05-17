@@ -6,7 +6,6 @@ resources:
   - sealed-secrets/namespace.yaml
   - sealed-secrets/helmrelease.yaml
   - synology-csi/namespace.yaml
-  - synology-csi/synology-secret.yaml
   - synology-csi/helmrelease.yaml
   - vault/namespace.yaml
   - vault/helmrelease.yaml
