@@ -157,6 +157,63 @@ LXC 1120 hosts Factorio + SFTPGo on the same host. The operator never gets shell
 
 ---
 
+## Working with this repo — process expectations
+
+These are procedural instructions for Claude. Follow them on every session before drafting plans or implementations.
+
+### Before proposing any new work — pre-flight checklist
+
+When the owner says "let's deploy X" / "what's next?" / "let's plan Y," do this first, in order:
+
+1. **Search the docs for X.** What does the design doc already say about X? Has any decision been made? Are there constraints listed?
+
+2. **Scan the open questions / pending tasks section of `homelab-design.md`.** Specifically check:
+   - Does X depend on any unchecked task? (Architecturally — would deploying X be wrong, fragile, or knowingly-broken without that task being done first?)
+   - Does X interact with any unchecked task? (Would the new workload make a latent issue fire? Does it touch the same component/node/system?)
+   - Does X make any pending task more urgent? (Was this item "later" because nothing exercised the gap — and is X exactly the thing that would exercise it?)
+
+3. **Scan known gotchas for X and adjacent systems.** Not just "is there a gotcha for X" but "what gotchas hit systems X depends on" (storage class, secret store, networking, DNS, the consuming workload pattern, etc.).
+
+4. **Treat pending tasks as prerequisites, not backlog.** The pending-tasks list documents architectural debt. The moment a new workload meaningfully exercises that debt, the relevant items get pulled forward — not left for later. Surface them explicitly: "before X, items A, B, C should be closed because they affect X in ways Y and Z."
+
+5. **Propose the sequence with prerequisites first.** Don't draft Phase 1 of X if Phase 0 should be a pending-task closure. If a pending task is a clear prerequisite, name it as Phase 0 (or 4a, or whatever fits the existing numbering) and explain *why* it's a prerequisite rather than nice-to-have.
+
+If steps 1–4 turn up nothing concerning, then draft the plan for X. If they turn up something, that becomes the proposed first phase before X itself.
+
+This is the lens that should have caught the 2026-05-17 evening CP-taint miss: the pending-task `node-role.kubernetes.io/control-plane:NoSchedule` was listed for weeks, the Authentik deploy was exactly the workload that would exercise the gap it left, and the prerequisite was missed. Tonight's incident is the canonical example of why this checklist exists.
+
+### After completing any work — post-flight checklist
+
+When work lands successfully:
+
+1. **Update the design doc and CLAUDE.md.** Both have specific structures that need to stay in sync:
+   - `homelab-design.md` build sequence: tick the phase, add any sub-phases that emerged
+   - `homelab-design.md` decision log: add rows for new architectural decisions made during the work
+   - `homelab-design.md` incident log: if the work was non-trivial (multiple findings, surprises, recovery steps), add an entry with the findings list
+   - `homelab-design.md` open questions: mark closed items, add new items surfaced by the work
+   - `CLAUDE.md` current build status: update the relevant ✅/🔲 line
+   - `CLAUDE.md` known gotchas: add every new gotcha class discovered, with enough context that future-Claude understands why the rule exists, not just what the rule is
+   - `CLAUDE.md` hardware/VM/repo-structure sections: update if anything moved or got resized
+
+2. **Cross-reference between the docs.** Don't put a gotcha only in CLAUDE.md if it relates to a decision in homelab-design.md, or vice versa. Both docs should be navigable independently.
+
+3. **Suggest the commit message.** Conventional commits style, concise subject line, body listing the actual changes if material. Reference the phase number if applicable.
+
+4. **Name what's next.** Don't leave the owner to figure out "okay, what now?" — at the end of any significant work, propose the next step explicitly, applying the pre-flight checklist to that next step.
+
+### When the owner pushes back
+
+If the owner says "X should have happened differently" or "we missed Y" — acknowledge it directly, name the specific pattern that was missed, and propose how to catch it next time. Don't be defensive, don't over-apologize, don't promise "I'll do better." Name the lens that was missing and add it to this file if it's general enough to apply beyond the immediate case. The above checklists are the result of exactly this kind of feedback.
+
+### Boundaries on these checklists
+
+- These are process rules, not rules-about-rules. They tell Claude how to *approach* work; they don't override domain-specific instructions in the rest of this doc.
+- If the owner explicitly says "skip the pre-flight, just write the manifest" — skip it. They're the architect, not Claude.
+- The pre-flight is a few-minutes-of-doc-search step, not a multi-turn interrogation. The output is "I checked these things; here's what I found" — not a list of clarifying questions.
+- Pending tasks should be flagged as prerequisites when they're prerequisites. They should *not* be flagged when they're genuinely orthogonal to the proposed work. Use judgment.
+
+---
+
 ## Network
 
 > **MGMT subnet is `10.0.254.0/24`.** Earlier drafts of this doc said `10.0.1.0/24` — that was wrong and nearly caused a correct iSCSI/portal address to be "fixed". VLAN 1 = `10.0.254.0/24`.
