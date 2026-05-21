@@ -16,6 +16,12 @@
   ansible.builtin.import_tasks: detect-state.yml
   tags: k3s_install
 
+- name: Render K3s config files
+  # Always runs — config drift (CP taint, CIDR changes, etc.) must be
+  # rendered even on healthy nodes. Notifies 'restart k3s' on change.
+  ansible.builtin.import_tasks: config.yml
+  tags: k3s_config
+
 - name: Install K3s
   ansible.builtin.import_tasks: install.yml
   when: not k3s_already_healthy
@@ -23,7 +29,6 @@
 
 - name: Install Calico CNI
   ansible.builtin.import_tasks: calico.yml
-  # Only run on first control plane node
   when:
     - inventory_hostname == k3s_init_node
     - not k3s_already_healthy

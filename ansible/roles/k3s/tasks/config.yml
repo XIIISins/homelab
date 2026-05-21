@@ -1,0 +1,64 @@
+---
+# ansible/roles/k3s/tasks/config.yml
+
+# Phase 3a: K3s configuration files
+#
+# These tasks ALWAYS run, regardless of k3s_already_healthy.
+# Config drift (e.g. adding the CP taint) requires re-rendering the
+# config file on healthy nodes; this can't live in install.yml because
+# install.yml is skipped when the node is already Ready.
+#
+# Each templating task notifies 'restart k3s' on change. The handler
+# fires at end of play; on existing CP members the restart will fail
+# with "duplicate node name" — operator workaround is to run
+# `kubectl delete node <name>` from a surviving CP, which evicts the
+# stale etcd member and lets the next systemd restart succeed.
+
+- name: Create K3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Template K3s config for first control plane node
+  ansible.builtin.template:
+    src: config-init.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0644"
+    owner: root
+    group: root
+  when: inventory_hostname == k3s_init_node
+  notify: restart k3s
+
+- name: Template K3s config for additional control plane nodes
+  ansible.builtin.template:
+    src: config-server.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0644"
+    owner: root
+    group: root
+  when:
+    - inventory_hostname in groups['asgard_k3s_cp']
+    - inventory_hostname != k3s_init_node
+  notify: restart k3s
+
+- name: Template K3s config for worker nodes
+  ansible.builtin.template:
+    src: config-agent.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0644"
+    owner: root
+    group: root
+  when: inventory_hostname in groups['asgard_k3s_workers']
+  notify: restart k3s
+
+- name: Template K3s systemd service file
+  ansible.builtin.template:
+    src: k3s.service.j2
+    dest: /etc/systemd/system/k3s.service
+    mode: "0644"
+    owner: root
+    group: root
+  notify: restart k3s
