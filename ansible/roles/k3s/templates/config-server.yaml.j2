@@ -23,5 +23,11 @@ tls-san:
   - "{{ inventory_hostname }}.niflheim.xiiisins.com"
 
 write-kubeconfig-mode: "0644"
+
+# Taint this node so workload pods can't land on it.
+# CPs run only control-plane components + DaemonSets that explicitly tolerate
+# this taint (calico-node, kube-proxy).
+node-taint:
+  - "node-role.kubernetes.io/control-plane=:NoSchedule"
 selinux: true
 

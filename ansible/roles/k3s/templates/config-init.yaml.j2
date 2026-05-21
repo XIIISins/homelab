@@ -25,6 +25,13 @@ tls-san:
 # Write kubeconfig with readable permissions
 write-kubeconfig-mode: "0644"
 
+# Taint this node so workload pods can't land on it.
+# CP's run only control-plance components + DaemonSets that 
+# explicity tolerate this taint.
+# (Calico-node, kube-proxy, etc)
+node-taint:
+  - "node-role.kubernetes.io/control-plane=:NoSchedule"
+
 # SELinux support
 selinux: true
 
