@@ -196,15 +196,35 @@ When work lands successfully:
    - `CLAUDE.md` known gotchas: add every new gotcha class discovered, with enough context that future-Claude understands why the rule exists, not just what the rule is
    - `CLAUDE.md` hardware/VM/repo-structure sections: update if anything moved or got resized
 
-2. **Cross-reference between the docs.** Don't put a gotcha only in CLAUDE.md if it relates to a decision in homelab-design.md, or vice versa. Both docs should be navigable independently.
+2. **Choose the right delivery format — full file or patch.** The choice is signal-density vs friction. Rule of thumb:
+   - **<30 lines changed across <5 hunks** → patch. Signal-dense, easy to read, easy to apply.
+   - **>100 lines changed or restructuring sections** → full file output. Patch becomes hard to read at that scale; full file is also more robust to drift (no context-line mismatches).
+   - **In between (30–100 lines)** → ask the owner which they prefer for this change. Default to full file if the change spans many sections; default to patch if it's contiguous edits in 1–2 sections.
+   - When delivering a patch: use unified diff format, `-p1` paths (`a/` / `b/`), generate against the most current copy in `/mnt/project/`. Always run `patch --dry-run -p1` against a copy of the source before delivery to confirm it applies. Note in the delivery message that `/mnt/project/` is a snapshot and may have drifted — if the patch fails, fall through to the staleness rule below.
+   - When delivering a full file: deliver via the file-creation/present-files mechanism, not inline in chat (avoid copyright limits, easier for owner to diff locally).
 
-3. **Suggest the commit message.** Conventional commits style, concise subject line, body listing the actual changes if material. Reference the phase number if applicable.
+3. **Cross-reference between the docs.** Don't put a gotcha only in CLAUDE.md if it relates to a decision in homelab-design.md, or vice versa. Both docs should be navigable independently.
 
-4. **Name what's next.** Don't leave the owner to figure out "okay, what now?" — at the end of any significant work, propose the next step explicitly, applying the pre-flight checklist to that next step.
+4. **Suggest the commit message.** Conventional commits style, concise subject line, body listing the actual changes if material. Reference the phase number if applicable.
+
+5. **Name what's next.** Don't leave the owner to figure out "okay, what now?" — at the end of any significant work, propose the next step explicitly, applying the pre-flight checklist to that next step.
 
 ### When the owner pushes back
 
 If the owner says "X should have happened differently" or "we missed Y" — acknowledge it directly, name the specific pattern that was missed, and propose how to catch it next time. Don't be defensive, don't over-apologize, don't promise "I'll do better." Name the lens that was missing and add it to this file if it's general enough to apply beyond the immediate case. The above checklists are the result of exactly this kind of feedback.
+
+### Working with stale file snapshots — ask, don't speculate
+
+`/mnt/project/` is a snapshot of the repo *at the moment Claude's session loaded it*. The owner edits between turns. When delivering patches (or making edits that depend on the current shape of a file), the snapshot can disagree with reality.
+
+**Rule:** when a patch fails to apply, an `str_replace` would fail, or otherwise Claude is uncertain about the current shape of a file — **ask the owner for a grep**, don't speculate or regenerate against assumed state. A few lines of grep output is cheap; regenerating a patch against the wrong baseline wastes a turn and produces a wrong patch.
+
+Concrete forms the ask can take:
+- "Patch failed to apply at hunk N. Can you `grep -nA5 '<distinctive line>' <file>` so I can see the current shape?"
+- "Before I edit, can you `sed -n 'X,Yp' <file>` to confirm what's there now?"
+- "What does `head -100 <file>` look like right now?"
+
+What this is NOT: an excuse to ask for the whole file. Targeted greps only. The owner shouldn't have to paste large blobs because Claude can't be bothered to figure out which 20 lines matter.
 
 ### Boundaries on these checklists
 
@@ -282,7 +302,7 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 - ✅ Synology (Munin) — factory reset, volumes, NFS, kubernetes user
 - ✅ Proxmox cluster — Urd/Verd/Skuld on PVE 9.x, cluster niflheim
 - ✅ PBS — LXC 1101 on Skuld, NFS datastore, connected to cluster
-- ✅ AdGuard Home — Saga/Mimir/Kvasir, keepalived VIP 10.0.10.200, AGH Sync. **Sync interval is 30 min — too long for operational changes** (DNS cutover during 5e.1 surfaced this); pending Ansible role change to `*/1 * * * *`. Sync binary location: `/usr/local/bin/adguardhome-sync` on Saga; systemd unit `adguardhome-sync.service`; config `/etc/adguardhome-sync.yaml`.
+- 🟡 AdGuard Home — Saga/Mimir/Kvasir, keepalived VIP 10.0.10.200, adguardhome-sync. Functionally ✅ (DNS works, sync works) but **manually installed — no Ansible role, not in IaC**. Discovered as a gap during 5e.1.i cutover. Sync binary: `/usr/local/bin/adguardhome-sync` on Saga; systemd unit `adguardhome-sync.service`; config `/etc/adguardhome-sync.yaml`. Sync interval `*/30` was too long for operational tempo (5e.1 cutover surfaced this); manually bumped to `*/1`. **Phase 5b.2 — AdGuard IaC** pending: Terraform LXC module + Ansible roles for AGH + adguardhome-sync, validated via destroy-one-replica rebuild.
 - ✅ Asgard K3s — fully IaC end-to-end. **Validated via full teardown+rebuild on 2026-05-17.** Surfaced and fixed: route_localnet sysctl, VLAN 20 policy routing, k3s role install-idempotency, vault-unseal + synology-csi SealedSecret CRD-timing split, Vault test KV entry as IaC, CP cpu/memory parameterization. Göndul moved to Verd at the same time.
 - ✅ Sealed Secrets — deployed via Flux. **Master keys backed up to 1Password as of 2026-05-17.** Loss of these keys makes every SealedSecret in Git undecryptable.
 - ✅ Synology CSI — iSCSI only, StorageClass synology-csi-iscsi-retain (default)
