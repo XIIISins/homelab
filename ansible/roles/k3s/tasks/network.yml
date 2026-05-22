@@ -56,6 +56,10 @@
     line: "200 vlan20"
     state: present
     regexp: '^\d+\s+vlan20$'
+    create: yes
+    owner: root
+    group: root
+    mode: "0644"
   when: "'asgard_k3s_workers' in group_names"
 
 - name: Install VLAN 20 policy-routing systemd unit
