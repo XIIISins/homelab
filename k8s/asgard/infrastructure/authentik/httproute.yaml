@@ -1,0 +1,28 @@
+# k8s/asgard/infrastructure/authentik/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: authentik
+  namespace: authentik
+spec:
+  # Attach to the niflheim Gateway's HTTPS listener.
+  # The Gateway lives in the traefik namespace; cross-namespace attachment
+  # is allowed by the Gateway's allowedRoutes.namespaces.from: All.
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - authentik.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: authentik-server
+          port: 80
+          # Authentik's chart Service exposes the HTTP container port on 80
+          # (the chart's `service.servicePort`, not the container's :9000).
+          # No TLS terminate-then-re-encrypt; backend is plaintext inside
+          # the cluster, Traefik did the TLS termination at the Gateway.

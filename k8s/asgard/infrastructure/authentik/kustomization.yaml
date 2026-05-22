@@ -8,6 +8,7 @@ resources:
   - externalsecret.yaml
   - redis.yaml
   - helmrelease.yaml
+  - httproute.yaml
 configMapGenerator:
   - name: authentik-blueprints
     files:
