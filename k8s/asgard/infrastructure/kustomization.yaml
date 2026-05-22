@@ -9,3 +9,4 @@ resources:
   - external-secrets
   - metallb
   - authentik
+  - gateway-api
