@@ -25,6 +25,12 @@ spec:
   values:
     deployment:
       replicas: 3
+      kind: Deployment
+      strategy:
+        type: RollingUpdate
+        rollingupdate:
+          maxSurge: 0
+          maxUnavailable: 1
 
     # Providers — only Gateway API for routing; KubernetesCRD stays on
     # because Middleware CRs are managed by it (Gateway API HTTPRoute
