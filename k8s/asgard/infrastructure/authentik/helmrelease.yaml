@@ -43,8 +43,7 @@ spec:
         - secretRef:
             name: authentik
       service:
-        type: LoadBalancer
-        loadBalancerIP: 10.0.20.12
+        type: ClusterIP
       ingress:
         enabled: false
       volumes:
