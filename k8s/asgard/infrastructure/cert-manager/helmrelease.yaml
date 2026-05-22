@@ -1,0 +1,55 @@
+# k8s/asgard/infrastructure/cert-manager/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  timeout: 15m
+  chart:
+    spec:
+      chart: cert-manager
+      version: "v1.19.0"
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+        namespace: cert-manager
+      interval: 12h
+  install:
+    remediation:
+      # First-deploy debugging: -1 so failures aren't auto-uninstalled.
+      # Restore to 3 after success and recommit.
+      retries: -1
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    crds:
+      enabled: true
+      keep: true
+
+    # Gateway API support — required for cert-manager to issue certificates
+    # referenced from Gateway listeners. Without this, Gateway-attached certs
+    # wouldn't be issued; we'd be stuck with Certificate-only flow.
+    config:
+      apiVersion: controller.config.cert-manager.io/v1alpha1
+      kind: ControllerConfiguration
+      enableGatewayAPI: true
+
+    # Replica count: leader-election handles HA; 2 is enough for a homelab.
+    replicaCount: 2
+
+    webhook:
+      replicaCount: 2
+
+    cainjector:
+      replicaCount: 2
+
+    # Resource requests modest — cert-manager is light.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

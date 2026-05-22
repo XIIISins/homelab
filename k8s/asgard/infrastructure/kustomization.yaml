@@ -8,5 +8,6 @@ resources:
   - vault
   - external-secrets
   - metallb
-  - authentik
   - gateway-api
+  - cert-manager
+  - authentik
