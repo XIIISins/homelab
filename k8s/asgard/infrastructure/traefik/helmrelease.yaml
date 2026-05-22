@@ -26,9 +26,11 @@ spec:
     deployment:
       replicas: 3
       kind: Deployment
+      # required anti-affinity + 1 pod per worker = no room for a surge pod.
+      # maxSurge: 0 prevents the deadlock; maxUnavailable: 1 keeps roll moving.
       strategy:
         type: RollingUpdate
-        rollingupdate:
+        rollingUpdate:
           maxSurge: 0
           maxUnavailable: 1
 
@@ -43,6 +45,7 @@ spec:
         enabled: false
       kubernetesCRD:
         enabled: true
+
     # Chart shouldn't auto-create a Gateway — we define our own in 5e.1.f
     gateway:
       enabled: false
@@ -52,8 +55,8 @@ spec:
       dashboard:
         enabled: false
 
-    # Entrypoints — `http.redirections.entryPoint` is the post-v39 syntax
-    # aligned with upstream Traefik static config.
+    # Entrypoints — listen on 80/443 directly (NET_BIND_SERVICE granted
+    # below). Gateway listener ports match these internal ports 1:1.
     ports:
       web:
         port: 80
@@ -102,17 +105,23 @@ spec:
         enabled: true
         format: common
 
-    # Pod anti-affinity to spread the 2 replicas across nodes.
-    # Not required (we have 3 workers), but cleaner.
+    # Pod anti-affinity: hard requirement to keep exactly one Traefik
+    # pod per worker. Pairs with externalTrafficPolicy: Local — MetalLB
+    # L2 election can pick any worker, and that worker must always have
+    # a local Traefik pod for traffic to land cleanly. See
+    # deployment.strategy above for the matching rollout config.
     affinity:
       podAntiAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution: # was preferred
+        requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
               matchExpressions:
                 - key: app.kubernetes.io/name
                   operator: In
                   values: [traefik]
             topologyKey: kubernetes.io/hostname
+
+    # Bind to privileged ports (80/443) directly. NET_BIND_SERVICE is
+    # the only capability needed; everything else dropped.
     securityContext:
       capabilities:
         drop: [ALL]
