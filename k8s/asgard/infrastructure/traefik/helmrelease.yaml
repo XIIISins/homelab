@@ -1,0 +1,109 @@
+# k8s/asgard/infrastructure/traefik/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: traefik
+      version: "40.2.0"
+      sourceRef:
+        kind: HelmRepository
+        name: traefik
+        namespace: traefik
+      interval: 12h
+  install:
+    remediation:
+      retries: -1 # first-deploy debugging; restore to 3 post-success
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    deployment:
+      replicas: 3
+
+    # Providers — only Gateway API
+    providers:
+      kubernetesGateway:
+        enabled: true
+      kubernetesIngressRoute:
+        enabled: false
+      kubernetesIngress:
+        enabled: false
+      kubernetesCRD:
+        # Required for Traefik Middleware CRs even on Gateway API
+        # (used via HTTPRoute ExtensionRef filter)
+        enabled: true
+
+    # Chart shouldn't auto-create a Gateway — we define our own in 5e.1.f
+    gateway:
+      enabled: false
+
+    # Dashboard exposure deferred. Reachable via port-forward only.
+    ingressRoute:
+      dashboard:
+        enabled: false
+
+    # Entrypoints
+    ports:
+      web:
+        port: 8000
+        exposedPort: 80
+        expose:
+          default: true
+        # Redirect plaintext HTTP → HTTPS at the entrypoint level
+        redirectTo:
+          port: websecure
+          priority: 10
+      websecure:
+        port: 8443
+        exposedPort: 443
+        expose:
+          default: true
+        tls:
+          enabled: true
+      traefik:
+        # admin port, only reachable via port-forward; not exposed
+        expose:
+          default: false
+
+    # Service config — MetalLB LB on .10, preserve source IP
+    service:
+      enabled: true
+      type: LoadBalancer
+      spec:
+        loadBalancerIP: 10.0.20.10
+        externalTrafficPolicy: Local
+
+    # Modest resources; tune later
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+
+    # Logging — Traefik defaults to JSON access logs which are noisy.
+    # Common log format is sufficient for a homelab.
+    logs:
+      general:
+        level: INFO
+      access:
+        enabled: true
+        format: common
+
+    # Pod anti-affinity to spread the 2 replicas across nodes.
+    # Not required (we have 3 workers), but cleaner.
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution: # was preferred
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [traefik]
+            topologyKey: kubernetes.io/hostname

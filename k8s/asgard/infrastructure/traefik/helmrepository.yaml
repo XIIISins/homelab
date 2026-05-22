@@ -1,0 +1,9 @@
+# k8s/asgard/infrastructure/traefik/helmrepository.yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 1h
+  url: https://traefik.github.io/charts
