@@ -1,0 +1,34 @@
+# k8s/asgard/gateway-config/certificate-wildcard.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-niflheim
+  namespace: traefik
+spec:
+  secretName: wildcard-niflheim-tls
+  # Wildcard cert for the entire niflheim zone. SAN includes the apex
+  # so `niflheim.xiiisins.com` itself also validates, in case we ever
+  # want a route on the apex (we probably won't, but cost is zero).
+  dnsNames:
+    - "*.niflheim.xiiisins.com"
+    - "niflheim.xiiisins.com"
+  # Start on staging to avoid burning prod LE rate limits during validation.
+  # Will be flipped to letsencrypt-prod in 5e.1.h.
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-staging
+  # Use ECDSA P-256 — smaller, faster, and supported everywhere that
+  # matters. Default would be RSA 2048.
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  # Rotate well before expiry. LE certs are 90 days; rotate at 30 left.
+  duration: 2160h # 90d
+  renewBefore: 720h # 30d
+  # Standard TLS web-server usage. Default would include this; explicit
+  # for clarity.
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment

@@ -1,0 +1,36 @@
+# k8s/asgard/gateway-config/gateway-niflheim.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: niflheim
+  namespace: traefik
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # HTTP listener. Traefik's own http.redirections.entryPoint config
+    # forces 301 → HTTPS at the entrypoint level, so this listener
+    # exists mainly to advertise the port for clients that try plain
+    # HTTP. No routes need to attach to it — they all attach to
+    # `websecure` below.
+    - name: web
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener with the wildcard cert. All HTTPRoutes for
+    # *.niflheim.xiiisins.com attach here.
+    - name: websecure
+      protocol: HTTPS
+      port: 443
+      hostname: "*.niflheim.xiiisins.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-niflheim-tls
+            # Same namespace as the Gateway — no ReferenceGrant needed.
+      allowedRoutes:
+        namespaces:
+          from: All
