@@ -50,7 +50,7 @@ spec:
     # aligned with upstream Traefik static config.
     ports:
       web:
-        port: 8000
+        port: 80
         exposedPort: 80
         expose:
           default: true
@@ -61,7 +61,7 @@ spec:
               scheme: https
               permanent: true
       websecure:
-        port: 8443
+        port: 443
         exposedPort: 443
         expose:
           default: true
@@ -107,3 +107,10 @@ spec:
                   operator: In
                   values: [traefik]
             topologyKey: kubernetes.io/hostname
+    securityContext:
+      capabilities:
+        drop: [ALL]
+        add: [NET_BIND_SERVICE]
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
