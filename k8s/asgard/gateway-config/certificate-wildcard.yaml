@@ -16,7 +16,7 @@ spec:
   # Will be flipped to letsencrypt-prod in 5e.1.h.
   issuerRef:
     kind: ClusterIssuer
-    name: letsencrypt-staging
+    name: letsencrypt-prod
   # Use ECDSA P-256 — smaller, faster, and supported everywhere that
   # matters. Default would be RSA 2048.
   privateKey:
