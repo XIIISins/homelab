@@ -1101,3 +1101,173 @@ ssh root@10.0.254.13 "qm delsnapshot 2003 before-cp-rebuild"
 ```
 
 **Why this is appendix-worthy:** every step here is non-obvious. The `kubectl delete node` requirement, the `-e k3s_init_node=` override, and the difference between "VM rebuild via terraform" and "K3s rejoin via ansible" each cost an hour of debugging on first encounter. This appendix bakes the recovery in.
+
+---
+
+## Appendix C — Partial rebuild: replacing a single worker (stateful)
+
+Procedure for destroying and recreating one worker VM (e.g. correcting `template` / `template_node` references, replacing failed hardware, upgrading worker spec) while the rest of the cluster keeps running.
+
+**Scenario it handles:** the surviving cluster has 5/6 nodes; you're swapping out one worker.
+
+**Critical differences from Appendix B (CP rebuild):**
+- Workers carry stateful workloads with iSCSI-backed PVCs. The migration sequence has to address the PVC handoff explicitly.
+- Workers are NOT etcd members, so no etcd cleanup needed. But `kubectl delete node` is still required for clean re-registration of the new node's identity.
+- Vault's chart ships pod anti-affinity as `requiredDuringSchedulingIgnoredDuringExecution`. With 3 replicas across 3 workers, there is no other worker that can host a displaced Vault pod — so the "drain to safely migrate the stateful pod first" pattern from naive procedure-writing doesn't work. **Accept 2/3 voters for the rebuild window** is the correct posture.
+
+**Risk:** Vault stays at 2/3 voters from drain through new-node Ready. Single failure of another voter during the window would cost Vault write availability until recovery. Acceptable for ~20-30 min windows on a healthy cluster; reconsider if the operation might stretch (e.g. unfamiliar territory, late at night, peer voter recently restarted).
+
+**Validation outcome (2026-05-22):** einherjar-urd rebuilt end-to-end via this procedure. Total wall-clock ~25 min. Vault rejoined Raft within ~30s of new node becoming Ready. Surfaced one role bug (iproute 6.17 `/etc/iproute2/rt_tables` not shipped — lineinfile `create: yes` fix); otherwise clean.
+
+### C.1 Pre-conditions
+
+```fish
+asgard-health && vault-health
+```
+
+Required green state:
+- All 6 nodes Ready
+- All three Vault pods Running on workers, 3/3 voters
+- No stale VolumeAttachments
+- iSCSI sessions match Bound PVs on every worker
+
+Identify which Vault pod is on the doomed worker:
+
+```fish
+kubectl get pods -n vault -o wide
+# Note which vault-N is on the worker being destroyed (e.g. vault-0 on einherjar-urd)
+```
+
+### C.2 Step Vault leadership off the doomed worker (if applicable)
+
+If the Vault pod on the doomed worker is the Raft leader, step it down first. Without this, the upcoming pod-delete forces an election under termination pressure.
+
+```fish
+vault-health
+# Check: is the vault pod on the doomed worker HA=active (leader)?
+```
+
+If yes:
+
+```fish
+kubectl exec -n vault vault-<N> -c vault -- env \
+    VAULT_TOKEN=(op item get 7g4grolyien2yqkm7me2jficmy --reveal --fields password) \
+    vault operator step-down
+sleep 10
+vault-health
+# Confirm: target pod now HA=standby, a different pod is HA=active
+```
+
+If no (target pod is already HA=standby): skip this step.
+
+### C.3 Drain (accept 2/3 voters during the window)
+
+The cordon + pod-delete + migrate strategy does NOT work here — pod anti-affinity blocks reschedule onto any other worker. Drain directly; the doomed worker's Vault pod will go Pending and stay Pending until the rebuilt worker is Ready. Vault operates at 2/3 voters in the meantime.
+
+```fish
+kubectl drain einherjar-urd \
+    --ignore-daemonsets \
+    --delete-emptydir-data \
+    --force \
+    --timeout=300s
+```
+
+Expected behavior:
+- DaemonSet pods (Calico, kube-proxy, MetalLB speaker, synology-csi-node) stay on the node — `--ignore-daemonsets` is correct.
+- The stateful pod (Vault) gets evicted. kubelet runs the unmount sequence; CSI logs out iSCSI; VolumeAttachment is deleted.
+- The displaced Vault pod goes Pending (anti-affinity blocks reschedule) — expected and acceptable.
+
+```fish
+vault-health
+# Expected: 2/3 voters, leader is still active. Pending pod will rejoin once the new worker is Ready.
+```
+
+### C.4 Verify cleanup on the doomed worker
+
+Before destroying the VM, confirm CSI/iSCSI have cleaned up. This prevents stale state from interfering with re-attach on the rebuilt node.
+
+```fish
+ssh ansible@10.0.21.21 'sudo iscsiadm -m session'
+# Expected: "No active sessions" — kubelet+CSI completed the unmount on pod-termination
+
+kubectl get volumeattachment | grep einherjar-urd
+# Expected: empty
+```
+
+If either still shows the migrated PVC's session/VolumeAttachment, force-clean:
+
+```fish
+ssh ansible@10.0.21.21 'sudo iscsiadm -m node -u && sudo iscsiadm -m node -o delete'
+kubectl delete volumeattachment <name>
+```
+
+### C.5 Terraform destroy + recreate
+
+```fish
+cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
+
+# Confirm the diff matches what you intended (template_node correction, spec change, etc.)
+git diff main.tf
+
+terraform plan
+# Expected: 1 to add, 1 to destroy (or "1 to replace") for
+# proxmox_virtual_environment_vm.worker["einherjar-urd"]
+# Nothing else should plan to change. If anything touches other workers
+# or any CP, STOP and investigate.
+
+terraform apply --target='proxmox_virtual_environment_vm.worker["einherjar-urd"]'
+```
+
+**If apply fails with `Logical Volume "vm-21XX-cloudinit" already exists`:** orphan LVs from a prior failed clone. See CLAUDE.md "Proxmox orphan LVs from a host that died mid-clone" gotcha for the recovery pattern (`lvremove` on the affected host).
+
+### C.6 Cluster cleanup
+
+```fish
+# Remove the stale node object
+kubectl delete node einherjar-urd
+
+# Clear stale SSH host key (new VM has a fresh hostkey)
+ssh-keygen -R 10.0.21.21
+ssh-keygen -R einherjar-urd
+```
+
+### C.7 Run the playbook
+
+```fish
+cd ~/Dev/xiiisins/homelab/ansible
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml \
+    --limit einherjar-urd
+```
+
+No `-e k3s_init_node=...` override needed — workers don't init clusters, they join via the K3s server URL configured by the role. The init-node override is only relevant for CP rebuilds (Appendix B).
+
+**Expected runtime:** ~10-15 min. Baseline OS prep → K3s agent install → cluster join → DaemonSets roll onto the new node (Calico, kube-proxy, MetalLB speaker, synology-csi-node).
+
+### C.8 Verify Vault rejoin
+
+The new worker becomes Ready → the previously-Pending Vault pod schedules onto it immediately (it's the only worker without a Vault pod now, anti-affinity satisfied) → PVC attaches → pod becomes Ready → Vault rejoins Raft as voter.
+
+```fish
+kubectl get pod -n vault vault-<N> -o wide --watch
+# Ctrl-C once vault-<N> is Running 1/1 on einherjar-urd
+
+vault-health
+# Expected: 3/3 voters, initialized + unsealed + Ready everywhere
+```
+
+### C.9 Verify rejoin
+
+```fish
+kubectl get nodes
+# All 6 Ready, einherjar-urd back in the list and uncordoned
+# (Fresh node comes up uncordoned — no kubectl uncordon needed)
+
+asgard-health && vault-health
+# Expected: same green outcome as pre-rebuild
+
+# Idempotency check
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml --limit einherjar-urd
+# Expected: changed=0
+```
+
+**Why this is appendix-worthy:** the pod-anti-affinity wall against cordon+migrate is non-obvious; the right answer ("just accept 2/3 voters for the window") feels wrong before you've seen the failure mode. The leadership step-down is also non-obvious without Raft background. And the iproute 6.17 / orphan-LV gotchas surface on fresh-from-template clones — exactly when you're least equipped to debug them, because the node isn't in the cluster yet.
