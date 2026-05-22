@@ -20,7 +20,7 @@ spec:
     remediation:
       # First-deploy debugging: -1 so failures aren't auto-uninstalled.
       # Restore to 3 after success and recommit.
-      retries: -1
+      retries: 3
   upgrade:
     remediation:
       retries: 3

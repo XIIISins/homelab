@@ -18,7 +18,7 @@ spec:
       interval: 12h
   install:
     remediation:
-      retries: -1 # first-deploy debugging; restore to 3 post-success
+      retries: 3 # first-deploy debugging; restore to 3 post-success
   upgrade:
     remediation:
       retries: 3
