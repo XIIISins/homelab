@@ -26,19 +26,17 @@ spec:
     deployment:
       replicas: 3
 
-    # Providers — only Gateway API
+    # Providers — only Gateway API for routing; KubernetesCRD stays on
+    # because Middleware CRs are managed by it (Gateway API HTTPRoute
+    # ExtensionRef filters reference these). IngressRoute CRs are simply
+    # never created in this cluster.
     providers:
       kubernetesGateway:
         enabled: true
-      kubernetesIngressRoute:
-        enabled: false
       kubernetesIngress:
         enabled: false
       kubernetesCRD:
-        # Required for Traefik Middleware CRs even on Gateway API
-        # (used via HTTPRoute ExtensionRef filter)
         enabled: true
-
     # Chart shouldn't auto-create a Gateway — we define our own in 5e.1.f
     gateway:
       enabled: false
@@ -48,26 +46,28 @@ spec:
       dashboard:
         enabled: false
 
-    # Entrypoints
+    # Entrypoints — `http.redirections.entryPoint` is the post-v39 syntax
+    # aligned with upstream Traefik static config.
     ports:
       web:
         port: 8000
         exposedPort: 80
         expose:
           default: true
-        # Redirect plaintext HTTP → HTTPS at the entrypoint level
-        redirectTo:
-          port: websecure
-          priority: 10
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
       websecure:
         port: 8443
         exposedPort: 443
         expose:
           default: true
-        tls:
-          enabled: true
+        http:
+          tls: {}
       traefik:
-        # admin port, only reachable via port-forward; not exposed
         expose:
           default: false
 
