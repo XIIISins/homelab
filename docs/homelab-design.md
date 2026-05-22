@@ -219,15 +219,27 @@ NFS traffic only — no static assignments needed.
 
 ### DNS naming
 
-**External (Cloudflare):**
-`outline.xiiisins.com`, `immich.xiiisins.com`, `ts3.xiiisins.com` etc.
+Three-zone scheme:
 
-**Internal (AdGuard Home):**
-```
-midgard.xiiisins.com     — publicly reachable services
-niflheim.xiiisins.com    — internal infrastructure only
+| Zone | Resolver | Purpose |
+|------|----------|---------|
+| `xiiisins.com` (apex) | Cloudflare (public) | External / publicly-reachable services. Cloudflare-resolved. Traffic enters via Cloudflared. |
+| `midgard.xiiisins.com` | AdGuard Home (internal) | Internal alias for services that ARE publicly reachable — homelab clients hit them via LAN instead of trombonning through Cloudflare. |
+| `niflheim.xiiisins.com` | AdGuard Home (internal) | Internal-only services — never publicly reachable. |
 
 Examples:
+```
+External (Cloudflare):
+  authentik.xiiisins.com    → Cloudflared tunnel
+  outline.xiiisins.com      → Cloudflared tunnel
+  immich.xiiisins.com       → Cloudflared tunnel
+  ts3.xiiisins.com          → Cloudflared tunnel (TCP non-HTTP)
+
+Internal — midgard (publicly-reachable services, internal alias):
+  authentik.midgard.xiiisins.com → 10.0.20.10 (Traefik VIP)
+  outline.midgard.xiiisins.com   → 10.0.20.10
+
+Internal — niflheim (internal-only):
   saga.niflheim.xiiisins.com        → 10.0.11.201
   mimir.niflheim.xiiisins.com       → 10.0.11.202
   kvasir.niflheim.xiiisins.com      → 10.0.11.203
@@ -240,7 +252,12 @@ Examples:
   pbs.niflheim.xiiisins.com         → 10.0.11.20
 ```
 
-TLS: wildcard cert via Let's Encrypt DNS-01 using Cloudflare API. cert-manager manages lifecycle.
+TLS strategy:
+- `*.niflheim.xiiisins.com` wildcard — issued in 5e.1, covers all internal-only services.
+- `*.midgard.xiiisins.com` wildcard — added in 5e.2, covers internal aliases of publicly-reachable services.
+- `*.xiiisins.com` apex wildcard — added in 5e.2, used on the origin side of Cloudflared (Traefik → Cloudflared origin pull). **Browser-visible cert for external traffic is Cloudflare's universal cert** — Cloudflare Tunnel terminates TLS at the edge with Cloudflare's cert (Custom SSL requires Business/Enterprise plan, which is out of scope) and re-encrypts to origin where our LE wildcard lives. This is the "pattern (C)" decision from 2026-05-22.
+
+All three wildcards via cert-manager DNS-01 against the same Cloudflare zone-scoped token (`secret/k8s/cert-manager/cloudflare`, scope: `Zone:DNS:Edit + Zone:Zone:Read` on `xiiisins.com`).
 
 ### Internet exposure & firewall
 
@@ -318,9 +335,9 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | Saga (AdGuard 1) | 1110 | Urd | `10.0.11.201` | DNS primary | ✅ |
 | Mimir (AdGuard 2) | 1111 | Verd | `10.0.11.202` | DNS replica | ✅ |
 | Kvasir (AdGuard 3) | 1112 | Skuld | `10.0.11.203` | DNS replica | ✅ |
-| Tailscale 1 | 1113 | Urd | `10.0.11.213` | Subnet router | 🔲 |
-| Tailscale 2 | 1114 | Verd | `10.0.11.214` | Subnet router | 🔲 |
-| Tailscale 3 | 1115 | Skuld | `10.0.11.215` | Exit node | 🔲 |
+| Tailscale 1 | 1113 | Urd | `10.0.11.213` | Tailscale subnet router (advertises 10.0.10/11/20/21/254/30/31.0/24 + 10.43.0.0/16; indefinite key, `tag:subnet-router`) | 🔲 |
+| Tailscale 2 | 1114 | Verd | `10.0.11.214` | Tailscale subnet router (same routes as 1113; indefinite key, `tag:subnet-router`) | 🔲 |
+| Tailscale 3 | 1115 | Skuld | `10.0.11.215` | Tailscale exit node (`--advertise-exit-node`; indefinite key, `tag:exit-node`) | 🔲 |
 | Factorio | 1120 | Urd | `10.0.11.220` | Game server + SFTPGo | ✅ |
 | Teamspeak | 1121 | Verd | `10.0.11.221` | Voice + PostgreSQL | 🔲 |
 | Fulla (PostgreSQL 1) | 1130 | Skuld | `10.0.11.230` | DB primary, PG 17 + TLS | ✅ |
@@ -415,7 +432,7 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 | Service | Replicas | Status |
 |---------|----------|--------|
 | Vault | 3 (Raft HA) | ✅ Running, AWS KMS auto-unseal. K8s + AppRole auth + KV engine + test entry in Terraform (`terraform/vault/`). Re-init recovery procedure validated 2026-05-17. |
-| Authentik server | 3 | ✅ Deployed 2026-05-17. Chart 2026.2.3. **Now exposed via Traefik+Gateway at `https://authentik.niflheim.xiiisins.com`** (5e.1 cutover 2026-05-22); original LoadBalancer on `.12` released. External Postgres pointed at Fulla. Day-1 blueprints in Git (niflheim brand + personal admin user). |
+| Authentik server | 3 | ✅ Deployed 2026-05-17. Chart 2026.2.3. **Currently exposed via Traefik+Gateway at `https://authentik.niflheim.xiiisins.com`** (5e.1 cutover 2026-05-22); original LoadBalancer on `.12` released. External Postgres pointed at Fulla. Day-1 blueprints in Git (niflheim brand + personal admin user). **FQDN migration in 5e.2:** `authentik.niflheim.xiiisins.com` → `authentik.xiiisins.com` (external, via Cloudflared) + `authentik.midgard.xiiisins.com` (internal alias) — the `niflheim` zone is wrong for a publicly-reachable service. |
 | Authentik worker | 1 | ✅ Migrations + blueprint reconciliation run from here. |
 | Redis | 1 | ✅ Hand-rolled StatefulSet (`redis:7-alpine`, AOF persistence, 1Gi iSCSI PVC). NOT the Bitnami sub-chart — the 2026.x Authentik chart dropped its bundled Redis. |
 | MetalLB | DaemonSet | ✅ L2 working end-to-end. VIP reachable from outside the cluster. Required nodeSelectors, Calico autodetection pin, rp_filter loose, route_localnet=1, and VLAN 20 source-based policy routing — all IaC'd. Pool `.10–.99` (extended `.11` → `.10` for Traefik 5e.1). |
@@ -426,9 +443,13 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 | Gateway API CRDs | — | ✅ v1.5.1 Standard channel, vendored from upstream into `infrastructure/gateway-api/` (deployed 5e.1.b, 2026-05-22). |
 | cert-manager | 2 (HA pairs) | ✅ v1.19.0, `enableGatewayAPI: true`, chart-installed CRDs (`crds.enabled: true, keep: true`). ClusterIssuers `letsencrypt-staging` + `letsencrypt-prod` (Cloudflare DNS-01, zone-scoped to `xiiisins.com`). Deployed 5e.1.c–d, 2026-05-22. |
 | Traefik | 3 (1/worker, required anti-affinity) | ✅ v40.2.0 chart / v3.7.1 proxy, Gateway API provider only (no IngressRoute, no Ingress; `kubernetesCRD` enabled for Middleware CRs). `NET_BIND_SERVICE` for direct 80/443 binding. MetalLB LB on `10.0.20.10`. `externalTrafficPolicy: Local` + 1 pod/worker for source IP preservation. `maxSurge: 0` mandatory rollout strategy. Deployed 5e.1.e, 2026-05-22. |
-| Gateway `niflheim` | — | ✅ Single shared Gateway in `traefik` namespace, GatewayClass `traefik`, web + websecure listeners, `allowedRoutes.namespaces.from: All`. Wildcard cert ref via Secret `wildcard-niflheim-tls`. Deployed 5e.1.f, 2026-05-22. |
-| Wildcard Certificate | — | ✅ `*.niflheim.xiiisins.com` + apex SAN, ECDSA P-256, 90d duration / 30d renewBefore. Issued by `letsencrypt-prod` (E8 intermediate). Deployed 5e.1.f, switched staging → prod in 5e.1.h, 2026-05-22. |
-| Cloudflared | 1+ | 🔲 — Cloudflare Tunnel for selected external exposure. Targets backend Services by ClusterIP DNS, never via MetalLB IPs. |
+| Gateway `niflheim` | — | ✅ Single shared Gateway in `traefik` namespace, GatewayClass `traefik`, web + websecure listeners, `allowedRoutes.namespaces.from: All`. Wildcard cert ref via Secret `wildcard-niflheim-tls`. Internal-only routes only. Deployed 5e.1.f, 2026-05-22. |
+| Gateway `xiiisins-public` | — | 🔲 — Second Gateway, planned 5e.2. Hosts apex (`*.xiiisins.com`) + midgard (`*.midgard.xiiisins.com`) listeners. Cloudflared backend targeting + internal AdGuard rewrites land HTTPRoutes here. Separated from `niflheim` Gateway by design to keep public-vs-internal route attachment policies distinct (decision 2026-05-22). |
+| Wildcard `*.niflheim.xiiisins.com` | — | ✅ + apex `niflheim.xiiisins.com` SAN, ECDSA P-256, 90d duration / 30d renewBefore. Issued by `letsencrypt-prod` (E8 intermediate). Deployed 5e.1.f, switched staging → prod in 5e.1.h, 2026-05-22. |
+| Wildcard `*.midgard.xiiisins.com` | — | 🔲 — Planned 5e.2. Same issuer + token + algo as the niflheim wildcard. Covers internal aliases of publicly-reachable services. |
+| Wildcard `*.xiiisins.com` (apex) | — | 🔲 — Planned 5e.2. Origin-side cert for Cloudflared traffic (browser-visible cert is Cloudflare's universal cert; this is what Cloudflared connects to Traefik with). |
+| Cloudflared | 1+ | 🔲 — Phase 5e.2. Cloudflare Tunnel for selected external exposure. Targets backend Services by ClusterIP DNS, never via MetalLB IPs. Tunnel credentials via ESO from Vault. |
+| WebFinger middleware | — | 🔲 — Phase 5e.2. Traefik Middleware with static-response plugin at `xiiisins.com/.well-known/webfinger`, returning the Tailscale OIDC issuer pointer JSON. Lives on the `xiiisins-public` Gateway. |
 
 **Automation (the git-push-and-walk-away path):**
 
@@ -791,11 +812,11 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | 4b — Göndul Verd → Urd | ✅ | Applied 2026-05-22. Göndul VM destroyed on Verd and recreated on Urd via `terraform apply --target='proxmox_virtual_environment_vm.control_plane["gondul"]'`; stale etcd member cleared via `kubectl delete node gondul`; rejoined as `--server` (not init) via `-e 'k3s_init_node=hlokk'` override. Surfaced one finding (orphan LVs from a NUC7-era partial migration blocked the first clone — recovery via `lvremove`, see incident log). Vault Raft stayed 3/3 voters throughout. CP topology is now Göndul on Urd, Hlökk on Verd, Sigrún on Skuld — back to the original 2026-05-14 design intent, now valid hardware-wise. |
 | Worker rebuild — einherjar-urd template_node correction | ✅ | Applied 2026-05-22 evening, immediately after Phase 4b. Worker VM destroyed + recreated to correct stale `template` / `template_node` references in TF (pointed at Verd template even though VM ran on Urd). Doubled as deliberate validation of the worker-rebuild path. Surfaced four findings — see incident log entry. Vault accepted 2/3 voters during the ~25 min window by design (vault-0 Pending due to chart's hard-required pod anti-affinity; once new einherjar-urd was Ready it scheduled there, attached its PVC, rejoined Raft). |
 | 5e.1 — Traefik + Gateway API + cert-manager | ✅ | Deployed 2026-05-22 evening. Gateway API v1.5.1 Standard CRDs (vendored), cert-manager v1.19.0 (`enableGatewayAPI: true`), Traefik v40.2.0/proxy v3.7.1 (Gateway API provider only, `NET_BIND_SERVICE` for direct 80/443 binding). MetalLB pool extended `.11–.99` → `.10–.99`. Wildcard `*.niflheim.xiiisins.com` (ECDSA P-256) issued by Let's Encrypt prod (E8 intermediate), DNS-01 via zone-scoped Cloudflare token. Authentik exposed at `https://authentik.niflheim.xiiisins.com` via HTTPRoute attached to `niflheim` Gateway in `traefik` namespace. Original direct LB on `.12` released back to MetalLB pool. Sub-phases 5e.1.a (Cloudflare token + Vault entry) → 5e.1.i (DNS cutover + Service → ClusterIP). Surfaced eight findings — see incident log. |
-| 5e.2 — Tailscale OIDC blueprints + LXCs | 🔲 | Authentik OIDC provider+application blueprints for Tailscale, then LXCs 1113/1114/1115. Unblocked by 5e.1 (HTTPS Authentik for production-grade OIDC). |
+| 5e.2 — Cloudflared + apex zone + WebFinger | 🔲 | Cloudflare Tunnel deployed in asgard; apex `*.xiiisins.com` + internal-alias `*.midgard.xiiisins.com` wildcards added (cert-manager, same DNS-01 token); second `xiiisins-public` Gateway in Traefik for the apex+midgard zones (separated from `niflheim` by design); WebFinger as a static-response Traefik Middleware at `xiiisins.com/.well-known/webfinger`. Authentik HTTPRoute migrates off `niflheim` onto the new public Gateway + a midgard internal alias. Cloudflared targets backend Services by ClusterIP DNS (no in-cluster tromboning). Browser-visible cert externally is Cloudflare's universal cert (CF Tunnel terminates TLS at the edge; Custom SSL is out of scope on Free plan); our LE wildcards are origin-side. Unblocks 5e.3 — Tailscale's control plane needs publicly-reachable Authentik for OIDC discovery + token exchange, and a public WebFinger endpoint for tailnet creation. |
+| 5e.3 — Tailscale OIDC blueprints + LXCs | 🔲 | Authentik OAuth2/OIDC provider+application blueprints for Tailscale (committed to Git, no UI config), strict redirect URI `https://login.tailscale.com/a/oauth_response`, signing key ES256. Tailscale ACL policy as code via the `tailscale/tailscale` Terraform provider (autoApprovers on `tag:subnet-router` + `tag:exit-node` so device-side `--advertise-routes` self-approves). LXCs 1113/1114 (subnet routers, same routes) + 1115 (exit node) — Ansible role for Tailscale on Alpine/RHEL minor variants. NAS (Munin) gets a Tailscale advertiser (package or container — TBD at deploy time) as the K3s-independent break-glass path. Tailscale Free plan (3-user cap on custom OIDC); split-auth: servers + one always-on user device on indefinite keys, phones/laptops with default expiry via Authentik OIDC. |
 | 5f — Factorio LXC | ✅ | Deployed 2026-05-16 — Terraform + Ansible end-to-end |
 | 5g — PostgreSQL + Teamspeak LXCs | 🟡 | Fulla (1130) ✅ deployed 2026-05-17 standalone. Vör/Idunn deferred until post-Authentik (cluster expansion validates against real consumer). Teamspeak pending. |
-| 5h — Remaining LXCs | 🔲 | Tailscale (after Authentik), HAProxy, Zabbix, Jellyfin |
-| Cloudflared | 🔲 | Cloudflare Tunnel for selected external exposure. Targets backend Services by ClusterIP DNS, never via MetalLB IPs (no in-cluster tromboning). Pairs with Traefik for middleware-policy-on-external-traffic if needed. |
+| 5h — Remaining LXCs | 🔲 | HAProxy, Zabbix, Jellyfin (Tailscale LXCs now part of 5e.3) |
 | 6 — Jotunheim K3s | 🔲 | Terraform VMs, Flux, services |
 | 7 — Observability | 🔲 | VictoriaMetrics + Logs + Grafana + Zabbix |
 | 8 — Secrets runtime retrieval | 🔲 | Migrate from ESO sync-and-cache to Vault Agent / VSO. Pilot on jotunheim first. |
@@ -900,6 +921,14 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Traefik replicas + rollout strategy | 3 replicas (one per worker) with `requiredDuringScheduling` anti-affinity + `strategy.rollingUpdate.maxSurge: 0, maxUnavailable: 1` | Required anti-affinity ensures MetalLB L2 election (which picks one node for ARP) always lands on a node with a local Traefik pod — pairs with `externalTrafficPolicy: Local` for source IP preservation. 3 replicas on 3 workers fills every slot exactly. `maxSurge: 0` is mandatory: default 25% rounds to +1, but there's no 4th worker to satisfy anti-affinity → rollout deadlocks. `maxUnavailable: 1` keeps rolls serial. During a roll, briefly serves on 2/3 replicas — fine because only one is actively serving via L2 election anyway. |
 | Gateway namespace policy | Single shared `niflheim` Gateway in `traefik` namespace, `allowedRoutes.namespaces.from: All` | One Gateway for asgard; HTTPRoutes live in their app's namespace (`authentik/`, future `outline/`, etc.) and attach cross-namespace via `parentRefs`. Pattern 1 (shared Gateway) is simpler and matches "single admin" homelab reality; Pattern 2 (Gateway-per-app) is more idiomatic for multi-tenant clusters but unnecessary here. Tighter scoping (`Selector`-based, only specific namespaces) is possible later if needed. |
 | Cloudflared backend targeting | Always via ClusterIP DNS, never MetalLB LB IPs | Cloudflared is in-cluster; resolving a backend via its `<svc>.<ns>.svc.cluster.local` name keeps traffic in pod network. Targeting a MetalLB IP would create tromboning: packet leaves pod → hits LB IP outside cluster → MetalLB ARPs it back into the cluster → kube-proxy DNATs to a pod IP. Pointless extra hops with same eventual destination. **Exception:** if a route needs middleware policy (rate limit, IP allowlist) applied to externally-tunnelled traffic, target Traefik via its ClusterIP DNS with `originRequest.httpHostHeader` override + `noTLSVerify: true` for internal certs. Still no MetalLB IP consumed. |
+| DNS — three-zone scheme | `xiiisins.com` apex (external, Cloudflare-resolved) / `midgard.xiiisins.com` (internal alias for publicly-reachable services, AdGuard-resolved) / `niflheim.xiiisins.com` (internal-only, AdGuard-resolved) | Closed 2026-05-22 during 5e.2 design. Earlier docs used `midgard` interchangeably for "public" without distinguishing apex from internal alias; this conflated three distinct concerns (external resolution + internal alias for public services + internal-only services). The three-zone framing keeps zone selection mechanical: external → apex, internal-but-publicly-reachable → midgard, internal-only → niflheim. Each zone gets its own wildcard cert (5e.1 issued niflheim, 5e.2 adds midgard + apex). |
+| External TLS posture | Cloudflare Tunnel + Cloudflare universal cert externally; our LE wildcard `*.xiiisins.com` on the origin side (Traefik → Cloudflared origin-pull) | "Pattern (C)" decision 2026-05-22. Free-tier Cloudflare Tunnel terminates TLS at the edge with Cloudflare's universal cert; custom edge certs require Business/Enterprise plan or Advanced Certificate Manager. Our LE wildcard is what Cloudflared connects to Traefik with — invisible to browsers, real for origin authentication. This matches the prior Docker Swarm setup. Alternatives considered: pattern (A) DNS-only + UCG port-forward (drops DDoS protection + IP hiding, gains end-to-end LE), pattern (B) paid custom edge cert (~$10/mo+). Picked (C) for cost + tunnel benefits; can mix in (A) per-service if a service ever needs end-to-end LE. |
+| Two-Gateway separation | `niflheim` Gateway for internal-only routes; `xiiisins-public` Gateway for apex + midgard routes | Decided 2026-05-22 during 5e.2 design. Single-Gateway alternative was simpler but mixed internal-only and publicly-reachable routes under one policy surface — easy to misroute a niflheim-named HTTPRoute onto the public zone. Two Gateways enforce the zone separation at the Gateway level: an HTTPRoute attaching to `xiiisins-public` is explicitly opting into public exposure. Both Gateways live in `traefik` namespace with `allowedRoutes.namespaces.from: All`. |
+| WebFinger hosting | Traefik static-response Middleware on the `xiiisins-public` Gateway at `xiiisins.com/.well-known/webfinger` | Decided 2026-05-22 during 5e.2 design. WebFinger is required for Tailscale custom OIDC tailnet creation (`{ "subject": "acct:<email>", "links": [{ "rel": "openid issuer", "href": "https://authentik.xiiisins.com/application/o/tailscale/" }] }`). Required only at tailnet creation per Tailscale docs ("Tailscale will remember the OIDC config"), but kept always-on for future re-creation flows. Alternatives considered: tiny static-content pod (ConfigMap-backed), Cloudflare Pages (state outside cluster). Middleware option keeps everything in the same IaC stack — no extra pod, no out-of-cluster state. |
+| Tailscale plan + auth model | Free plan (3-user cap on custom OIDC). Split-auth: indefinite keys for servers (1113/1114/1115 + NAS) and one always-on user device; default-expiry keys for phones/laptops via Authentik OIDC. | Decided 2026-05-22. Free plan supports custom OIDC for up to 3 users (per Tailscale's own announcement) — enough for a personal homelab. Split-auth pattern: server-class devices never depend on Authentik for re-auth (they'd be locked out by an Authentik outage exactly when you need VPN access to fix it); user-class devices keep proper expiry rotation. The "one always-on device" lets the owner reach the tailnet without OIDC when traveling and Authentik is down. |
+| Tailscale ACL as code | Terraform `tailscale/tailscale` provider, autoApprovers on `tag:subnet-router` + `tag:exit-node` | Decided 2026-05-22. ACL policy file (JSON) source-of-truth in Git, reconciled by Tofu Controller via the same Flux-driven path as `terraform/vault/`. Avoids manual admin-console clicks for subnet route approval — devices joining with the right tag self-approve their routes. Fallback procedure for the breakglass case (NAS joins with a fresh authkey before ACL has reconciled): manual approval in admin console. Procedural step documented in the runbook. Alternatives considered: JSON file in Git + manual sync via CLI (rejected — drift risk, no obvious reconcile signal). |
+| Tailscale device scope | 3 LXCs (1113/1114/1115) + Tailscale on the NAS only. NOT universal-Tailscale across all servers. | Decided 2026-05-22. Earlier framing was "all servers get Tailscale + indefinite keys" — too broad. Universal Tailscale adds a daemon, an authkey, and a failure mode to every host for no gain over the subnet-router pattern (already gives full LAN access). Three LXCs + NAS gives redundancy (3 advertisers of the same routes; Tailscale picks one, fails over), keeps the daemon footprint to 4 devices, and isolates the break-glass path on the NAS (K3s-independent). |
+| NAS Tailscale role | Subnet router advertising the same routes as 1113/1114, K3s-independent break-glass path. App-vs-container TBD at deploy time. | Decided 2026-05-22. NAS's role is "reachable when K3s is down." Munin runs DSM (independent of K3s), so a Tailscale advertiser on it keeps the tailnet's subnet-route path functional even if all three K3s nodes are down. No active/standby semantics needed — Tailscale picks one advertiser at a time and 1Gb links mean route selection is irrelevant. App-vs-container picked at deploy time based on which integrates cleanest with DSM's auto-start + update story. |
 
 ---
 
@@ -1225,8 +1254,8 @@ Two operations in one session, neither catastrophic. The Phase 4b CP migration (
 - [x] **Phase 4b — Göndul Verd → Urd migration.** ✅ Applied 2026-05-22. Göndul VM destroyed on Verd and recreated on Urd via `terraform apply --target='proxmox_virtual_environment_vm.control_plane["gondul"]'`; stale etcd member cleared via `kubectl delete node gondul`; rejoined as `--server` (not init) via `-e 'k3s_init_node=hlokk'` override. Surfaced orphan-LV class (NUC7-era partial migration left LVs blocking the first clone — recovered via `lvremove`). Vault Raft stayed 3/3 voters throughout. CP topology is now Göndul on Urd, Hlökk on Verd, Sigrún on Skuld — back to the original 2026-05-14 design intent.
 - [x] **Worker rebuild — einherjar-urd template_node correction.** ✅ Applied 2026-05-22 evening (immediately after Phase 4b). Doubled as deliberate validation of the worker-rebuild path; surfaced three new findings (Vault chart's hard-required pod anti-affinity, iproute 6.17 `/etc/iproute2/rt_tables` not shipped, orphan-LV class). Vault accepted 2/3 voters during the ~25 min window by design — see incident log + Appendix C in `docs/teardown-rebuild.md`.
 - [x] **Phase 5e.1 — Traefik + Gateway API + cert-manager + Authentik HTTPS cutover.** ✅ Applied 2026-05-22 evening. Gateway API v1.5.1 Standard CRDs vendored, cert-manager v1.19.0 with Gateway API support, Traefik v40.2.0 chart (proxy v3.7.1) with `NET_BIND_SERVICE` for direct 80/443 binding. Wildcard `*.niflheim.xiiisins.com` issued from Let's Encrypt prod (E8 intermediate, ECDSA). Cluster edge stack live. Surfaced eight findings — see incident log entry. Pending immediate: restore cert-manager + Traefik `install.remediation.retries: -1` → `3`.
-- [ ] **Phase 5e.2 — Tailscale OIDC blueprints + LXCs** (after 5e.1). Provider + application blueprints in Git (continuing the "blueprints from day 1, no UI config" rule), then LXCs 1113/1114/1115. Unblocked by 5e.1 (HTTPS Authentik for production-grade OIDC).
-- [ ] **Phase 5e.3 — Cloudflared.** Cloudflare Tunnel deployed in asgard. Targets backend Services by ClusterIP DNS, never via MetalLB IPs. Pairs with Traefik (via ClusterIP DNS, with `originRequest.httpHostHeader`) for routes that want middleware policy on externally-tunnelled traffic. Selected external exposure for: TBD (decide which services get external Cloudflare exposure as a standing question).
+- [ ] **Phase 5e.2 — Cloudflared + apex zone + WebFinger** (after 5e.1). Detailed plan to be drafted next session. Cloudflared in asgard K3s (tunnel creds via ESO from Vault), new `*.xiiisins.com` apex + `*.midgard.xiiisins.com` wildcards via cert-manager DNS-01 (same Cloudflare token, already correctly scoped — `Zone:DNS:Edit + Zone:Zone:Read` on `xiiisins.com`), second `xiiisins-public` Gateway in Traefik for the apex+midgard listeners (separated from `niflheim` by design — decision row above), WebFinger as static-response Traefik Middleware at `xiiisins.com/.well-known/webfinger`, Authentik HTTPRoute migrates off `niflheim` onto the new public Gateway + a midgard internal alias, AdGuard rewrite for `authentik.midgard.xiiisins.com` → `10.0.20.10`. Targets backend Services via ClusterIP DNS. Browser-visible cert externally is Cloudflare's universal cert (pattern (C)); our LE wildcards are origin-side.
+- [ ] **Phase 5e.3 — Tailscale OIDC blueprints + LXCs** (after 5e.2). Provider + application blueprints in Git (continuing the "blueprints from day 1, no UI config" rule). Tailscale ACL policy as code via `tailscale/tailscale` Terraform provider with `autoApprovers` for subnet-router/exit-node tags. LXCs 1113 (subnet router) + 1114 (subnet router, HA pair) + 1115 (exit node). Tailscale on NAS (Munin) for K3s-independent break-glass — app vs container TBD at deploy time. Unblocked by 5e.2 (publicly-reachable Authentik + WebFinger endpoint).
 - [ ] **Create 1Password "Homelab" vault** if not already done. Migrate existing scattered homelab credentials in. Authentik bootstrap creds (akadmin pw + API token + personal user pw) added 2026-05-17. Cloudflare DNS-01 token added 2026-05-22.
 
 **Immediate post-flight from 2026-05-22 Phase 5e.1:**
@@ -1289,7 +1318,7 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 **Standing:**
 - [ ] Pin HelmRelease chart versions + activate Renovate. Position revisited after 2026-05-21 Phase 4a — see Architectural decisions section above. Two pins tightened during recovery (`metallb: 0.15.x`, `synology-csi: 0.11.1`); remaining `0.x` pins still floating. Authentik already pinned to `2026.2.3` (identity infra is too important to float). cert-manager pinned to `v1.19.0` and Traefik chart to `40.2.0` from initial 5e.1 deploy.
 - [ ] Document the AWS KMS key ARN.
-- [ ] Decide which services get external Cloudflare Tunnel exposure (in addition to direct port-forwards via UCG). Standing decision; pick services as 5e.3 deploys.
+- [ ] Decide which services get external Cloudflare Tunnel exposure (in addition to direct port-forwards via UCG). Standing decision; pick services as 5e.2 deploys. First entry locked in: Authentik (for Tailscale OIDC).
 - [ ] Fallback static HTML doc on Munin for core K3s recovery.
 - [ ] AdGuard DNS records for new VMs/services as provisioned.
 - [ ] Proxmox HA for asgard LXCs.
