@@ -1,0 +1,84 @@
+# k8s/asgard/apps/apex-static/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apex-static
+  namespace: apex-static
+spec:
+  # 2 replicas — stateless, low-traffic, but Traefik posture says avoid
+  # single-pod for cluster-edge services. Anti-affinity spreads across
+  # 2 workers; the third worker is free for everything else.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: apex-static
+  template:
+    metadata:
+      labels:
+        app: apex-static
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - apex-static
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: caddy
+          image: caddy:2.11.2-alpine
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: content
+              mountPath: /srv/www/webfinger.json
+              subPath: webfinger.json
+              readOnly: true
+      volumes:
+        # Caddyfile + static content both come from the same ConfigMap,
+        # mounted via subPath so the rest of /etc/caddy and /srv/www
+        # stay writable for Caddy's normal operation.
+        - name: config
+          configMap:
+            name: apex-static-config
+            items:
+              - key: Caddyfile
+                path: Caddyfile
+        - name: content
+          configMap:
+            name: apex-static-config
+            items:
+              - key: webfinger.json
+                path: webfinger.json

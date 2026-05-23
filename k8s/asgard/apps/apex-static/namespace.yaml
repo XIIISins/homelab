@@ -1,0 +1,5 @@
+# k8s/asgard/apps/apex-static/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apex-static

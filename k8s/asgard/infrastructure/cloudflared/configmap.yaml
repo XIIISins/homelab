@@ -44,6 +44,11 @@ data:
         originRequest:
           httpHostHeader: authentik.xiiisins.com
           noTLSVerify: true
+      - hostname: xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: xiiisins.com
+          noTLSVerify: true
 
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.

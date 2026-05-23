@@ -1,0 +1,58 @@
+# k8s/asgard/apps/apex-static/configmap.yaml
+#
+# Caddy config + static-file content for the apex zone.
+#
+# Pod is internal-cluster only — no TLS here (Traefik terminates TLS
+# upstream, Caddy serves plain HTTP on :80 inside the cluster).
+#
+# Current routes:
+#   - /.well-known/webfinger → JRD JSON for OIDC discovery (Tailscale
+#                              custom-OIDC tailnet creation needs this)
+#
+# Future routes (deferred — separate phase):
+#   - / → personal startpage (Git-pulled, see Pending tasks in design
+#                              doc for the startpage phase)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apex-static-config
+  namespace: apex-static
+data:
+  Caddyfile: |
+    # Plain HTTP on :80. TLS happens at Traefik upstream.
+    :80 {
+        # WebFinger endpoint per RFC 7033. Resource query parameter is
+        # ignored — single-identity homelab, the response is the same
+        # regardless of `?resource=acct:...`. Tailscale checks the
+        # `links[].rel == "http://openid.net/specs/connect/1.0/issuer"`
+        # entry and follows `href` for OIDC discovery.
+        handle /.well-known/webfinger {
+            header Content-Type "application/jrd+json"
+            header Access-Control-Allow-Origin "*"
+            rewrite * /webfinger.json
+            root * /srv/www
+            file_server
+        }
+
+        # Health endpoint for K8s probes.
+        handle /healthz {
+            respond "ok" 200
+        }
+
+        # Everything else → 404 for now. Startpage handler lands here
+        # in its own phase.
+        handle {
+            respond "Not Found" 404
+        }
+    }
+
+  webfinger.json: |
+    {
+      "subject": "acct:ghost@xiiisins.com",
+      "links": [
+        {
+          "rel": "http://openid.net/specs/connect/1.0/issuer",
+          "href": "https://authentik.xiiisins.com/application/o/tailscale/"
+        }
+      ]
+    }

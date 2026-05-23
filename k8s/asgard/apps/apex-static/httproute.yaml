@@ -1,0 +1,30 @@
+# k8s/asgard/apps/apex-static/httproute.yaml
+#
+# Routes bare-apex `xiiisins.com` traffic to the apex-static pod.
+# Attaches specifically to the `websecure-apex-bare` listener of the
+# midgard Gateway (cross-namespace reference — Gateway is in `traefik`
+# ns, this route is in `apex-static` ns).
+#
+# Matching is path-prefix `/` so this route catches everything for
+# `xiiisins.com`. Caddy itself decides what to serve per path (see
+# Caddyfile in the apex-static ConfigMap).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: apex-static
+  namespace: apex-static
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-bare
+  hostnames:
+    - "xiiisins.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: apex-static
+          port: 80

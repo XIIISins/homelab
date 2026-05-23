@@ -49,6 +49,15 @@ resource "cloudflare_dns_record" "authentik" {
   ttl     = 1 # 1 = automatic, required when proxied = true
 }
 
+resource "cloudflare_dns_record" "apex" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #
