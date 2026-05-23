@@ -1,0 +1,93 @@
+// terraform/tailscale/policy.hujson
+//
+// Tailnet policy file. Edited by Terraform via tailscale_acl resource.
+// HuJSON syntax: JSON + comments + trailing commas.
+//
+// Bootstrap state (manually planted via UI before terraform/tailscale/
+// was created): tag:terraform-tag-owner exists, owns tag:subnet-router
+// and tag:exit-node. This file expands the bootstrap to the full
+// day-1 policy and Terraform takes ownership via import.
+
+{
+    // ---------------------------------------------------------------
+    // Tag ownership
+    // ---------------------------------------------------------------
+    // - tag:terraform-tag-owner: empty owners list → only autogroup:admin
+    //   (the operator) can apply this tag. The OAuth client carries
+    //   this tag, which lets it (via Terraform) issue authkeys tagged
+    //   with the child tags below.
+    // - tag:subnet-router: applied to LXCs 1113/1114 + Munin. These
+    //   devices advertise the homelab subnet (autoApprovers below).
+    // - tag:exit-node: applied to LXC 1115. Advertises 0.0.0.0/0 + ::/0
+    //   for off-LAN clients to use the homelab as a default route.
+    "tagOwners": {
+        "tag:terraform-tag-owner": [],
+        "tag:subnet-router":       ["tag:terraform-tag-owner"],
+        "tag:exit-node":           ["tag:terraform-tag-owner"],
+    },
+
+    // ---------------------------------------------------------------
+    // Access control rules
+    // ---------------------------------------------------------------
+    // Day-1: default-allow within the tailnet. All authenticated
+    // members can reach all destinations (devices + advertised subnets).
+    //
+    // Reasoning: split-auth model already gates membership:
+    //   - Servers join with indefinite authkeys minted by the operator
+    //     (terraform/tailscale/ in 5e.3.e/f)
+    //   - User devices join via Authentik OIDC, gated by tailscale-users
+    //     group membership (5e.3.b PolicyBinding)
+    // Within those bounds, default-allow is the simplest correct posture
+    // for a single-admin homelab. Group-scoping (group:family with
+    // restricted reach, etc.) is a future phase when other users land.
+    //
+    // Syntax: `grants` (Tailscale's current recommended syntax). Replaces
+    // the legacy `acls` block. Grants are deny-by-default — each grant
+    // only ADDS access (no `action` field since the only meaningful
+    // value would be `accept`). `dst` and port are separated: `dst`
+    // names destinations, `ip` names protocols+ports (or `["*"]` for
+    // unrestricted). ACL-syntax compatibility is indefinite but `acls`
+    // will not receive new features.
+    "grants": [
+        {
+            "src": ["*"],
+            "dst": ["*"],
+            "ip":  ["*"],
+        },
+    ],
+
+    // ---------------------------------------------------------------
+    // Auto-approvers — devices joining with the named tag auto-approve
+    // their advertised routes / exit-node offering. Without this, every
+    // route advertisement requires admin-console click-to-approve.
+    // ---------------------------------------------------------------
+    "autoApprovers": {
+        "routes": {
+            // 10.0.0.0/16 is the homelab supernet — covers every
+            // current VLAN (mgmt 1, asgard-vip 10, asgard-svc 11,
+            // asgard-k3s-vip 20, asgard-k3s-node 21, jotunheim-k3s-vip
+            // 30, jotunheim-k3s-node 31, client 60, storage 100,
+            // untrusted 222) plus any future /24 carved from 10.0.X.X.
+            "10.0.0.0/16": ["tag:subnet-router"],
+        },
+        "exitNode": ["tag:exit-node"],
+    },
+
+    // ---------------------------------------------------------------
+    // SSH (Tailscale SSH) — deferred until SSSD-on-Linux-hosts phase
+    // lands (ssh-users group already defined in Authentik). When
+    // enabled, the rule shape is (under grants/legacy ssh block —
+    // Tailscale SSH still uses its own `ssh` section regardless of
+    // ACL vs grants syntax):
+    //
+    //   "ssh": [{
+    //       "action": "check",       // or "accept" for no-prompt
+    //       "src":    ["autogroup:member"],
+    //       "dst":    ["tag:subnet-router", "tag:exit-node"],
+    //       "users":  ["root", "ghost"],
+    //   }],
+    //
+    // Adding it now without the consumers (Tailscale SSH daemon
+    // running on the LXCs) is harmless but premature; bundle with the
+    // SSSD phase.
+}
