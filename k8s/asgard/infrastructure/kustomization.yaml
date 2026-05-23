@@ -12,3 +12,4 @@ resources:
   - cert-manager
   - traefik
   - authentik
+  - cloudflared

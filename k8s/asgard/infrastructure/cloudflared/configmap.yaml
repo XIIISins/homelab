@@ -1,0 +1,50 @@
+# Locally-managed cloudflared config. Git is truth — Cloudflare dashboard
+# does NOT manage ingress rules (decision row: "Cloudflared management mode").
+#
+# `tunnel: asgard-k3s` references the tunnel by NAME (created via
+# terraform/cloudflare/). cloudflared resolves NAME → UUID via the
+# credentials.json file. Using the name keeps this ConfigMap static when
+# the tunnel is ever recreated.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: cloudflared
+data:
+  config.yaml: |
+    tunnel: asgard-k3s
+    credentials-file: /etc/cloudflared/creds/credentials.json
+
+    # Built-in metrics + readiness server on :2000. /ready returns 200
+    # iff at least one active connection to the Cloudflare edge.
+    metrics: 0.0.0.0:2000
+
+    # Image autoupdate is pointless in K8s (pod restarts blow it away);
+    # version is controlled via the Deployment's image tag.
+    no-autoupdate: true
+
+    ingress:
+      # Authentik via Traefik. Targets Traefik (not Authentik direct) so
+      # that:
+      # - The WebFinger Middleware (5e.2.f) on the midgard Gateway's
+      #   apex listener applies on /.well-known/webfinger requests.
+      # - The same path serves any future apex-FQDN service without
+      #   needing another ingress rule here.
+      #
+      # httpHostHeader: required so Traefik sees Host: authentik.xiiisins.com
+      # (not the in-cluster Service DNS name) and matches the right
+      # HTTPRoute.
+      #
+      # noTLSVerify: required because Traefik's cert is for the *external*
+      # hostname (*.xiiisins.com), not the in-cluster Service DNS name we
+      # connect to. TLS still happens (envelope encryption); it's the
+      # SAN match we skip. Acceptable — cluster network is trusted.
+      - hostname: authentik.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: authentik.xiiisins.com
+          noTLSVerify: true
+
+      # Catch-all — required by cloudflared. Returns 404 for any
+      # hostname not matched above.
+      - service: http_status:404

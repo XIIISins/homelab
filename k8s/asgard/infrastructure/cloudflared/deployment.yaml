@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  replicas: 3
+  # No autoscaling per decision row — Cloudflare guidance: scale-down
+  # breaks existing user connections to the removed replica.
+  #
+  # maxSurge: 0 + required pod anti-affinity at 3-replica-on-3-worker:
+  # same posture as Traefik (decision row). Without maxSurge: 0 the
+  # rolling update would try to create a 4th pod that can't be scheduled
+  # (no 4th worker satisfies the anti-affinity rule) and deadlock.
+  # Trade: briefly serves on 2/3 during a roll. Acceptable.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - cloudflared
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.5.0
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            failureThreshold: 1
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: creds
+          secret:
+            secretName: cloudflared-credentials
+        - name: config
+          configMap:
+            name: cloudflared-config
+            items:
+              - key: config.yaml
+                path: config.yaml
