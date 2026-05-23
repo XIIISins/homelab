@@ -610,7 +610,7 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
   - `eso` role: binds SA `external-secrets` in ns `external-secrets` → `eso` policy, TTL 1h
 - **AppRole auth method** at `auth/approle/` (added 2026-05-16, D1)
   - `ansible` policy: read on `secret/data/ansible/*` — narrower than `eso`, Ansible only reads its own subtree
-  - `ansible-local` role: MacBook control node, manual playbook runs. SecretID at `~/.config/ansible/vault-approle.env` + 1Password recovery copy. 90-day rotation.
+  - `ansible-local` role: MacBook control node, manual playbook runs. RoleID + SecretID stored in 1P (Homelab vault, item `Ansible - Vault - k3s`) — single source of truth, no env file on disk. Loaded into env via `homelab-env`. 90-day rotation via `rotate-approle ansible-local`. See Control-node fish tooling sub-section.
   - `ansible-awx` role: AWX automated runs (deployed later, in asgard K3s). Role exists; SecretID generated at AWX deploy time and stored in AWX's credential store.
   - SecretIDs are NEVER managed by Terraform — generated manually with `vault write -f auth/approle/role/<role>/secret-id`, stored externally. See AppRole bootstrap runbook below.
 - ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
@@ -630,8 +630,8 @@ Setting up a fresh control node (or re-bootstrapping after credential loss). Use
 1. ✅ Terraform module `terraform/vault/` applied — AppRole auth method, `ansible` policy, and the relevant role exist.
 2. Generate SecretID via `vault write -f auth/approle/role/<role>/secret-id`.
 3. Capture RoleID via `terraform output <role>_role_id` (RoleID is not secret).
-4. Stash both in 1Password Homelab vault as "Ansible AppRole — <role>" (API Credentials item) with `role_id`, `secret_id`, `secret_id_accessor`, `expires_at` (today + 90 days).
-5. Write the local env file at `~/.config/ansible/vault-approle.env` (mode 0600).
+4. Stash in 1Password Homelab vault as a Login item (one per role; for `ansible-local` the item name is `Ansible - Vault - k3s`) with fields `url`, `method`, `username` (= RoleID), `password` (= SecretID), `secret_id_accessor`, `expires_at` (today + 90 days). Map role name → 1P item name in `$__homelab_approle_items` inside `homelab.fish`.
+5. Load via `homelab-env` (control-node fish tooling — see sub-section below). No env file on disk.
 6. Install `community.hashi_vault` Galaxy collection + `hvac` Python lib in the Ansible venv.
 7. Test the lookup with `playbooks/test-vault-lookup.yml`.
 
@@ -664,50 +664,27 @@ cd terraform/vault
 terraform output -raw ansible_local_role_id
 ```
 
-Store both in 1Password under "Ansible AppRole — ansible-local" (API Credentials item):
-- `URL`: `http://10.0.20.11:8200`
-- `role_id`: from `terraform output`
-- `secret_id`: from `vault write`
-- `secret_id_accessor`: from `vault write` (used to revoke without knowing the SecretID)
+Store in 1Password under `Ansible - Vault - k3s` (Login item, Homelab vault):
+- `url`: `http://10.0.20.11:8200`
+- `method`: `approle`
+- `username` (= RoleID): from `terraform output`
+- `password` (= SecretID): from `vault write`
+- `secret_id_accessor`: from `vault write` (used to revoke without knowing the SecretID; needed by `rotate-approle`)
 - `expires_at`: today + 90 days
 
-Write the local env file (fish heredocs don't work; use `echo` to a file):
+The field names `url`/`method`/`username`/`password` are what `homelab-env` reads via `$__homelab_env_map`. The item name is whatever you configured in `$__homelab_approle_items` — for `ansible-local`, that's `Ansible - Vault - k3s`.
+
+The control-node fish tooling at `<repo>/.config/fish/conf.d/homelab.fish` reads those 1P fields and exports them as `VAULT_ADDR`, `ANSIBLE_HASHI_VAULT_AUTH_METHOD`, `ANSIBLE_HASHI_VAULT_ROLE_ID`, `ANSIBLE_HASHI_VAULT_SECRET_ID` when `homelab-env` is invoked. The `ANSIBLE_HASHI_VAULT_*` prefix is the canonical env-var form the `community.hashi_vault` collection reads; `VAULT_ADDR` stays as-is (standard Vault CLI env var).
+
+Symlink once per control node:
 
 ```fish
-mkdir -p ~/.config/ansible
-echo "VAULT_ADDR=http://10.0.20.11:8200
-ANSIBLE_HASHI_VAULT_AUTH_METHOD=approle
-ANSIBLE_HASHI_VAULT_ROLE_ID=<paste role_id>
-ANSIBLE_HASHI_VAULT_SECRET_ID=<paste secret_id>" > ~/.config/ansible/vault-approle.env
-chmod 0600 ~/.config/ansible/vault-approle.env
+ln -s <repo-path>/.config/fish/conf.d/homelab.fish ~/.config/fish/conf.d/homelab.fish
 ```
 
-The `ANSIBLE_HASHI_VAULT_*` prefix is the canonical env-var form the `community.hashi_vault` collection reads. `VAULT_ADDR` stays as-is (it's the standard Vault CLI env var).
+See the **Control-node fish tooling** sub-section below for details and extension points.
 
-Install the fish helper as `~/.config/fish/functions/ansible-vault-env.fish`:
-
-```fish
-function ansible-vault-env --description "Source AppRole credentials for community.hashi_vault lookups"
-    set -l env_file ~/.config/ansible/vault-approle.env
-    if not test -f $env_file
-        echo "Error: $env_file not found" >&2
-        return 1
-    end
-    set -l count 0
-    while read -l line
-        if string match -qr '^\s*$|^\s*#' -- $line
-            continue
-        end
-        set -l key (string split -m 1 -f1 = $line)
-        set -l value (string split -m 1 -f2 = $line)
-        set -gx $key $value
-        set count (math $count + 1)
-    end < $env_file
-    echo "Loaded $count variables from $env_file"
-end
-```
-
-Usage: `ansible-vault-env` once per shell session, then run playbooks normally.
+Usage: `homelab-env` once per shell session, then run playbooks normally.
 
 Install collection + Python dep:
 
@@ -725,19 +702,20 @@ set -Ux OBJC_DISABLE_INITIALIZE_FORK_SAFETY YES
 Verify end-to-end:
 
 ```fish
-# Seed a test secret (requires root token, AppRole is read-only)
-set -x VAULT_TOKEN <root token>
+# Load env, mint a root token, seed a test secret
+homelab-env
+set-vault-token root
 vault kv put secret/ansible/test/hello value=world
-set -e VAULT_TOKEN
 
-# Pick up AppRole creds and run the test play
-ansible-vault-env
+# Switch to AppRole and run the test play
+set-vault-token approle
 ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/test-vault-lookup.yml
 # Expected: "Got value from Vault: world"
 
 # Cleanup
-set -x VAULT_TOKEN <root token>
+set-vault-token root
 vault kv delete secret/ansible/test/hello
+set -e VAULT_TOKEN
 ```
 
 **For AWX (when deployed):** same steps against `ansible-awx` role. SecretID goes into AWX's credential store rather than a local env file. After deploy, restrict via `token_bound_cidrs` in `terraform/vault/main.tf` once the asgard K3s pod CIDR is known.
@@ -745,17 +723,15 @@ vault kv delete secret/ansible/test/hello
 **Rotation (every 90 days):**
 
 ```fish
-set -x VAULT_TOKEN <root token>
-
-# Revoke the old SecretID by its accessor (from 1Password)
-vault write auth/approle/role/ansible-local/secret-id-accessor/destroy \
-    secret_id_accessor=<old accessor>
-
-# Generate new SecretID
-vault write -f auth/approle/role/ansible-local/secret-id
-
-# Update 1Password + ~/.config/ansible/vault-approle.env
+set-vault-token root           # mints VAULT_TOKEN from 1P
+rotate-approle ansible-local   # mints new SecretID, prompts to update 1P, revokes old
+set -e VAULT_TOKEN             # don't leave root token in env
+homelab-env                    # picks up new SecretID into env
 ```
+
+`rotate-approle` snapshots the old accessor *before* minting (so the revoke step targets the correct SecretID even after 1P is updated), and revokes the old SecretID only after you confirm 1P is updated. No window where 1P holds a stale value.
+
+*Partial rotation recovery.* If the rotation aborts after 1P is updated but before the revoke step completes (Ctrl+C between the paste and the prompt, or a failed revoke step), Vault holds a SecretID that 1P no longer references. Run `rotate-approle --fix <role>` to find and destroy orphans — it reads the canonical accessor from 1P, lists all Vault accessors for the role, and offers to destroy any that don't match (with metadata shown for verification).
 
 **Vault lookup syntax cheatsheet** for `community.hashi_vault.vault_kv2_get`:
 
@@ -770,6 +746,30 @@ Use `.secret.<key>` for the actual value:
 ```yaml
 "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/sftpgo/admin-password').secret.value }}"
 ```
+
+### Control-node fish tooling
+
+Single repo-tracked fish file at `<repo>/.config/fish/conf.d/homelab.fish`, symlinked to `~/.config/fish/conf.d/homelab.fish`. Sourced once at shell init; env vars only set when functions are invoked.
+
+`conf.d/` rather than `functions/` because `functions/` uses autoload-by-filename, one function per file; `conf.d/foo.fish` holds many.
+
+Public functions:
+
+| Function | Purpose |
+|----------|---------|
+| `homelab-env` | Loads homelab env vars from 1P (`VAULT_ADDR`, `ANSIBLE_HASHI_VAULT_*`). Idempotent. |
+| `set-vault-token <source>` | Sets `VAULT_TOKEN`. `root` pulls from 1P; `approle` mints via `vault write auth/approle/login` using already-loaded creds (fails loudly if `homelab-env` hasn't run). |
+| `vault-root-token` | Pure value-producer; echoes the root token. |
+| `rotate-approle <role>` | Mints a new SecretID, prints values to paste into 1P, prompts for confirmation, revokes the old SecretID. `--fix` destroys SecretIDs in Vault that aren't in 1P (recovery for partial rotations). `--help` for usage + hazard notes. |
+
+Extension points:
+- **New env var loaded by `homelab-env`:** append a line to `$__homelab_env_map` in the form `"ENV_VAR|1P item name|field"`. No other code change.
+- **New `set-vault-token` source:** add a `case <name>` branch to the function's switch block. Wire to a 1P read or another Vault auth method.
+- **New AppRole role for rotation:** append a line to `$__homelab_approle_items` in the form `"role-name|1P item name"`. The 1P item must have fields `username` (RoleID), `password` (SecretID), `secret_id_accessor`, `expires_at`.
+
+The 1P vault name (`Homelab`) is lifted to `$__homelab_op_vault` at the top of the file — single-point edit if it ever changes.
+
+Source-of-truth posture: AppRole RoleID/SecretID and the Vault root token live in 1P only. No copies on disk on the control node. Rotation = update the 1P item; next `homelab-env` picks up the change.
 
 ### OpenBao migration (future)
 
@@ -858,6 +858,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | Bootstrap-vs-runtime split | Ansible Vault for bootstrap, HashiCorp Vault for runtime | Resolves circular dependency: HashiCorp Vault lives in asgard K3s, so anything K3s itself needs to come up cannot live there. Bootstrap layer is narrow, stable, and rare-touch |
 | Ansible Vault scope | Bootstrap secrets only (k3s_token, RHEL keys, SSH pubkeys, AWS KMS re-seal copy) | Narrow permanent role, not legacy — runtime machine secrets go to HashiCorp Vault |
 | Ansible → Vault auth | AppRole, two roles (`ansible-local` for MacBook, `ansible-awx` for cluster) | Industry-standard for non-K8s automation; RoleIDs from Terraform outputs, SecretIDs generated manually and kept out of TF state (90-day rotation, 1Password recovery copy) |
+| Control-node credential loading | All control-node env vars and tokens loaded from 1P at function-invoke time via `homelab.fish` in `conf.d/`. No env file on disk. | Eliminates the rotation-drift class between an on-disk env file and the 1P recovery copy. Single source of truth (1P) matches the "1P is the recovery copy" posture for AppRole creds. Cost: Touch-ID prompt per shell session (acceptable). Decided 2026-05-23. |
 | Long-term Vault successor | OpenBao (migration ~12 months out) | HashiCorp BSL + IBM acquisition risk; LF governance preferred long-term |
 | Repo visibility | Private (GitHub) | Reduces exposure; SealedSecrets still used for bootstrap secrets |
 | VM naming | Valkyries (CP) + Einherjar/Drengr (workers) | Norse theme, conceptually fits K3s |
@@ -902,6 +903,7 @@ HashiCorp Vault moved to BSL in 2023 and HashiCorp was acquired by IBM in 2025. 
 | K3s role config rendering | `config.yml` separate from `install.yml` | Until 2026-05-21, config-template tasks lived inside `install.yml`, which is wholesale-skipped on healthy nodes via `detect-state.yml`. Genuine config changes never rendered on healthy CPs. Split out during Phase 4a. The restart-k3s-on-healthy-CP concern (potential "duplicate node name") was empirically *not* observed — steady-state restart is safer than the fresh-bootstrap warning suggested. |
 | Synology CSI node-plugin on CPs | **Open architectural question** — defaults to "off" (CSI runs only on workers) | Phase 4a evicted CSI from CPs as intended for the cross-node-iSCSI-fight gotcha class. But the eviction-while-stateful-pods-still-there path is a footgun (see Known gotchas "CSI eviction footgun"). Options: (a) accept the footgun, document the "drain first" rule; (b) add CP-taint toleration to CSI DaemonSet (production default for GKE/EKS) — keeps the cross-node-iSCSI-fight risk but eliminates the unmount-hang risk. Decision deferred to a separate session post-Phase 4a. |
 | Helm chart pin policy | Concrete-pin all HelmRelease charts. No minor-floats (`0.x`, `2.x`, `0.15.x`). Renovate deferred until stable state. | Closed 2026-05-22 as Phase 4b prerequisite. The original position (`0.x` placeholders, pin at "2.0") was retired after the 2026-05-21 Phase 4a session — two outages from floating pins in one day (metallb 0.16 broken template, synology-csi 1.3.0 image not published) disproved the assumption that minor-version bumps would be safe. All four remaining float-pins tightened to concrete on 2026-05-22 (sealed-secrets 2.18.6, vault 0.32.0, external-secrets 0.20.4, metallb 0.15.3). Updates are deliberate operations until Renovate is activated post-stable-state. |
+| IaC pin policy (generalized) | Concrete-pin ALL IaC versions — Helm charts, Terraform providers, Ansible role versions. Minor-floats (`~> 4.0`, `0.x`, `2.x`) banned across the board. | Decided 2026-05-23 as 5e.2.a prerequisite. The Helm-only rule above generalized — Terraform providers have the same failure mode (Cloudflare v4→v5 is 40+ resource renames in a minor-version stream; same shape as the metallb 0.15→0.16 break). New `terraform/cloudflare/` pins concrete from day 1. Existing `terraform/vault/` `~> 4.0` known pending tighten — see Pending tasks. Updates remain deliberate operations. |
 | DNS fallback resolver | Never a public resolver. UCG → AdGuard VIP only, optional fallback peer AdGuard | Public resolvers (Cloudflare `1.1.1.1`, Google `8.8.8.8`) return NXDOMAIN for internal zones. Glibc and CoreDNS treat NXDOMAIN as authoritative and cache it. Discovered 2026-05-17 during Authentik deploy — Authentik couldn't reach `fulla.niflheim.xiiisins.com` because CoreDNS had cached a stale NXDOMAIN from a brief moment where the K3s node had queried `1.1.1.1` via secondary fallback. |
 | Authentik Redis | Hand-rolled StatefulSet (`redis:7-alpine`), not Bitnami sub-chart | Chart 2026.x dropped its bundled Redis. Hand-rolled is ~50 lines of YAML — simpler than adopting Bitnami's metrics/sentinel/HPA scaffolding for a single-replica homelab Redis. Single replica, AOF persistence on iSCSI. If a future service wants its own Redis (e.g. AWX fact caching), it gets its own — namespace-bundled. |
 | Authentik service config injection | All env vars via ExternalSecret template, not chart `values:` block | The chart exposes config via both paths; env vars win silently. Setting only the values block produces ghost-localhost-fallback (Authentik tried `127.0.0.1:5432` for an hour before this was diagnosed 2026-05-17). Going forward: every service config knob settable via env goes through ExternalSecret. |
@@ -1286,6 +1288,29 @@ Two operations in one session, neither catastrophic. The Phase 4b CP migration (
 - [ ] **AGH sync interval `*/30` → `*/1`** in the Ansible role. 30-min cron is too long for operational DNS changes — Phase 5e.1.i cutover exposed this. Sync is cheap and idempotent; overkill is fine.
 - [ ] **Investigate `adguardhome-sync` "Sync done" sub-microsecond duration when origin had changes.** During 5e.1.i, multiple cron cycles logged "Sync done" with `2.29e-07s` duration but rewrites didn't propagate to replicas. Restarting the service + bumping interval recovered it. Could be internal cache surviving cron firings, could be UI-vs-API state lag on AGH origin. Worth a real root-cause investigation before assuming `*/1` interval is a real fix.
 
+**Control-node tooling consolidation (pending):**
+- [ ] Create 1P item `Ansible - Vault - k3s` (Homelab vault) with fields:
+  - `url` = `http://10.0.20.11:8200`
+  - `method` = `approle`
+  - `username` = current `ANSIBLE_HASHI_VAULT_ROLE_ID` (copy from `~/.config/ansible/vault-approle.env`)
+  - `password` = current `ANSIBLE_HASHI_VAULT_SECRET_ID` (copy from same)
+  - `secret_id_accessor` = current accessor (from prior 1P storage or `vault list auth/approle/role/ansible-local/secret-id`)
+  - `expires_at` = today + 90 days from original generation
+- [ ] Confirm 1P item `Asgard - Vault - Root Token` has the root token in its `password` field
+- [ ] Commit `<repo>/.config/fish/conf.d/homelab.fish` to repo
+- [ ] Symlink: `ln -s <repo-path>/.config/fish/conf.d/homelab.fish ~/.config/fish/conf.d/homelab.fish`
+- [ ] `exec fish` (or open a new shell) to source it
+- [ ] Smoke test: `homelab-env` loads vars, `set-vault-token root` + `set-vault-token approle` both work, `vault kv get secret/ansible/test/hello` returns the test value after `set-vault-token approle`
+- [ ] Dry-run rotation round-trip:
+  1. `set-vault-token root`
+  2. `rotate-approle ansible-local` — at the "Press enter" prompt, **Ctrl+C** (does NOT update 1P; creates an orphan SecretID in Vault)
+  3. `rotate-approle --fix ansible-local` — should find one orphan, show its metadata, prompt; confirm to destroy
+  4. `set -e VAULT_TOKEN`
+
+  Validates both flows without rotating the real credential.
+- [ ] Delete `~/.config/ansible/vault-approle.env`
+- [ ] Delete the standalone `~/.config/fish/functions/ansible-vault-env.fish` (superseded by `homelab.fish`)
+
 **Architectural decisions surfaced by 2026-05-21 Phase 4a — pending:**
 - [x] **Synology CSI DaemonSet — should it tolerate CP taint?** ✅ Closed 2026-05-21 evening. Decision: **No, CSI stays workers-only.** The Phase 4a posture (CSI evicted from CPs) is the correct steady state — it closes the cross-node iSCSI session-fight class which was the original motivation. The "stateful pods hung Terminating on tainted CP" footgun is acknowledged and mitigated by an operational rule: **drain stateful workloads from any CP before retainting** in future operations. Current state is stable (workloads are on workers, not CPs, by virtue of the taint plus normal scheduling), so the failure mode is dormant unless we ever untaint + retaint. No HelmRelease values change. CLAUDE.md "CSI eviction footgun" gotcha already captures the operational rule. Decision logged in Key decisions table.
 - [x] **Helm chart pin policy — tighten now, not at 2.0?** ✅ Closed 2026-05-22 as Phase 4b prerequisite. Decision: concrete-pin all HelmRelease charts, no minor-floats. Tightened: sealed-secrets 2.18.6, vault 0.32.0, external-secrets 0.20.4, metallb 0.15.3. Renovate stays deferred until stable state — updates are deliberate operations until then. The "pin at 2.0" deferral was retired after the 2026-05-21 Phase 4a session disproved the underlying assumption that minor-version bumps would be safe.
@@ -1346,6 +1371,7 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] Proxmox HA for asgard LXCs.
 - [ ] Jotunheim K3s cluster.
 - [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening.
+- [ ] Tighten `terraform/vault/versions.tf` Vault provider pin from `~> 4.0` to concrete. Known pending after the IaC pin policy generalized 2026-05-23. Trivial change; bundle with the next intentional Vault provider bump or do standalone.
 - [ ] Long-term: migrate from ESO sync-and-cache to Vault Agent / VSO runtime retrieval. Pilot on jotunheim first.
 - [ ] Long-term: migrate Vault → OpenBao (~12 months out, once OpenBao has more production track record).
 - [ ] **PG: `pg_basebackup` to NFS (Munin)** beyond PBS filesystem snapshot — canonical PG hot-backup pattern. Acceptable to defer; PBS-only is functional crash recovery.
