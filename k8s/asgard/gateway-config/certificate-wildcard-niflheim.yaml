@@ -1,4 +1,5 @@
-# k8s/asgard/gateway-config/certificate-wildcard.yaml
+# k8s/asgard/gateway-config/certificate-wildcard-niflheim.yaml
+#
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -12,8 +13,6 @@ spec:
   dnsNames:
     - "*.niflheim.xiiisins.com"
     - "niflheim.xiiisins.com"
-  # Start on staging to avoid burning prod LE rate limits during validation.
-  # Will be flipped to letsencrypt-prod in 5e.1.h.
   issuerRef:
     kind: ClusterIssuer
     name: letsencrypt-prod

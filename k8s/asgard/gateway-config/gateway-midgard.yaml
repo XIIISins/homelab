@@ -1,0 +1,71 @@
+# k8s/asgard/gateway-config/gateway-midgard.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: midgard
+  namespace: traefik
+spec:
+  gatewayClassName: traefik
+  # NOTE: no HTTP (port 80) listener on this Gateway.
+  # - niflheim's `web` listener (no hostname) already advertises port 80
+  #   cluster-wide. Adding a second no-hostname HTTP listener here would
+  #   trip Gateway API listener-conflict detection.
+  # - HTTP→HTTPS redirect happens at the Traefik entrypoint level
+  #   (`http.redirections.entryPoint` in the Traefik chart values), which
+  #   runs BEFORE Gateway routing. Plain-HTTP clients to any midgard
+  #   hostname still get 301'd to HTTPS regardless of which Gateway owns
+  #   the listener.
+  # - By policy (see niflheim file), no HTTPRoutes ever attach to HTTP
+  #   listeners. They're port-advertisement only.
+  listeners:
+    # HTTPS listener for the midgard internal-mirror zone. HTTPRoutes for
+    # *.midgard.xiiisins.com attach here.
+    - name: websecure-midgard
+      protocol: HTTPS
+      port: 443
+      hostname: "*.midgard.xiiisins.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-midgard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for the apex zone's subdomain wildcard. HTTPRoutes
+    # for `authentik.xiiisins.com` and other publicly-exposed services
+    # (one label deep) attach here. Cloudflared targets these hostnames
+    # in-cluster; cert is origin-side only (browser-visible cert
+    # externally is Cloudflare's universal cert).
+    - name: websecure-apex-wildcard
+      protocol: HTTPS
+      port: 443
+      hostname: "*.xiiisins.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-apex-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for the BARE apex `xiiisins.com`. `*.xiiisins.com`
+    # does NOT match the bare apex (Gateway API hostnames follow DNS
+    # wildcard semantics — one label minimum). This listener is where
+    # the WebFinger Middleware attaches (5e.2.f) and where any future
+    # bare-apex routes land. Same cert Secret as the wildcard listener
+    # above — the cert covers both SANs.
+    - name: websecure-apex-bare
+      protocol: HTTPS
+      port: 443
+      hostname: "xiiisins.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-apex-tls
+      allowedRoutes:
+        namespaces:
+          from: All

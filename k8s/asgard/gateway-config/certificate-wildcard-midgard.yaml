@@ -1,0 +1,30 @@
+# k8s/asgard/gateway-config/certificate-wildcard-midgard.yaml
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-midgard
+  namespace: traefik
+spec:
+  secretName: wildcard-midgard-tls
+  # Wildcard cert for the midgard zone — internal mirror for services
+  # that are also publicly exposed via Cloudflared (e.g.
+  # `authentik.midgard.xiiisins.com` resolves on-LAN to Traefik VIP).
+  # SAN includes bare `midgard.xiiisins.com` for symmetry with the
+  # niflheim cert; cost is zero.
+  dnsNames:
+    - "*.midgard.xiiisins.com"
+    - "midgard.xiiisins.com"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  duration: 2160h # 90d
+  renewBefore: 720h # 30d
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
