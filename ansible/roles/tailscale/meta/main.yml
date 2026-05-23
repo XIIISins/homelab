@@ -1,0 +1,13 @@
+# ansible/roles/tailscale/meta/main.yml
+---
+galaxy_info:
+  role_name: tailscale
+  author: ghost
+  description: Install Tailscale daemon (Debian) and join tailnet via authkey from HashiCorp Vault.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+dependencies: []

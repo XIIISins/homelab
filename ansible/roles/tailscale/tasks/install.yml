@@ -1,0 +1,32 @@
+# ansible/roles/tailscale/tasks/install.yml
+---
+- name: Apt update (pick up Tailscale repo)
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+
+- name: Ensure tailscaled is enabled and running
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+# Tailscale subnet-router + exit-node operation requires kernel IP
+# forwarding. Without these, the control plane flags the node as
+# "misconfigured and cannot relay traffic." Persisted to
+# /etc/sysctl.d/99-tailscale.conf so it survives reboots.
+# Reference: https://tailscale.com/kb/1019/subnets#enable-ip-forwarding
+- name: Enable kernel IP forwarding for Tailscale (IPv4 + IPv6)
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    sysctl_file: /etc/sysctl.d/99-tailscale.conf
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding

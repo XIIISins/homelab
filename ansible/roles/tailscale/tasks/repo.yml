@@ -1,0 +1,31 @@
+# ansible/roles/tailscale/tasks/repo.yml
+---
+# Tailscale's signed apt repository for Debian trixie. Uses the modern
+# `signed-by` keyring pattern (apt-key is deprecated).
+
+- name: Ensure /usr/share/keyrings exists
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Tailscale archive keyring
+  ansible.builtin.get_url:
+    url: "{{ tailscale_repo_base }}/{{ tailscale_repo_codename }}.noarmor.gpg"
+    dest: "{{ tailscale_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Install Tailscale apt source list
+  ansible.builtin.copy:
+    dest: "{{ tailscale_sources_path }}"
+    content: |
+      # Managed by ansible/roles/tailscale
+      deb [signed-by={{ tailscale_keyring_path }}] {{ tailscale_repo_base }} {{ tailscale_repo_codename }} main
+    owner: root
+    group: root
+    mode: "0644"

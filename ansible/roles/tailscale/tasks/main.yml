@@ -1,0 +1,10 @@
+# ansible/roles/tailscale/tasks/main.yml
+---
+- name: Add Tailscale apt repository
+  ansible.builtin.include_tasks: repo.yml
+
+- name: Install Tailscale package
+  ansible.builtin.include_tasks: install.yml
+
+- name: Configure Tailscale (join tailnet, advertise routes / exit-node)
+  ansible.builtin.include_tasks: configure.yml

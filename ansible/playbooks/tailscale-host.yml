@@ -1,0 +1,48 @@
+---
+# ansible/playbooks/tailscale-host.yml
+#
+# Provisions the Tailscale LXCs (Bifrost 1113, Heimdall 1114, Gjallarbru 1115).
+#
+# End state:
+#   - Debian 13 LXC, fully patched
+#   - `ansible` runtime user (NOPASSWD sudo, SSH-key auth)
+#   - `recovery` break-glass user (NOPASSWD sudo, SSH-key auth)
+#   - Tailscale daemon running, joined to tailnet with role-specific flags:
+#       bifrost  + heimdall: tag:subnet-router, --advertise-routes=10.0.0.0/16
+#       gjallarbru:           tag:exit-node, --advertise-exit-node
+#   - Hardened SSH posture: AllowUsers = ansible + recovery only,
+#     PermitRootLogin prohibit-password (root SSH blocked by AllowUsers)
+#
+# Bootstrap (first run — LXC has only root SSH, no ansible user yet):
+#     ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/tailscale-host.yml
+#
+# Subsequent runs (use ansible_user: ansible from group_vars/all/vars.yml):
+#     ansible-playbook playbooks/tailscale-host.yml
+#
+# Tags (run any subset during development):
+#     --tags baseline,tailscale,hardening
+#
+# Required vars in group_vars/all/vault.yml:
+#     ansible_user_ssh_public_key         baseline → ansible user
+#     breakglass_ssh_public_key           baseline → recovery user
+#
+# Required per-host vars on inventory entries (see hosts.yml):
+#     tailscale_tag                       e.g. "subnet-router" or "exit-node"
+#     tailscale_advertise_routes          optional, e.g. "10.0.0.0/16"
+#     tailscale_advertise_exit_node       optional, boolean
+#
+# Vault dependency:
+#     secret/ansible/tailscale/authkeys/<hostname>  (minted by terraform/tailscale/)
+
+- name: Configure Tailscale LXCs
+  hosts: tailscale_hosts
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: tailscale
+      tags: [tailscale]
+    - role: hardening
+      tags: [hardening]

@@ -1,0 +1,26 @@
+# ansible/roles/tailscale/defaults/main.yml
+---
+# Tailscale apt repo (official) — Debian 13 trixie codename.
+# Reference: https://pkgs.tailscale.com/stable/debian/
+tailscale_repo_codename: trixie
+tailscale_repo_base: https://pkgs.tailscale.com/stable/debian
+tailscale_keyring_path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+tailscale_sources_path: /etc/apt/sources.list.d/tailscale.list
+
+# Vault path for the per-host authkey, under default `secret` mount.
+# Auth is handled by community.hashi_vault's native env-var fallback —
+# source ~/.config/ansible/vault-approle.env (via ansible-vault-env)
+# before running so VAULT_ADDR + AppRole creds are in the environment.
+# See playbooks/test-vault-lookup.yml for the proven pattern.
+tailscale_authkey_vault_path: "ansible/tailscale/authkeys/{{ inventory_hostname }}"
+
+# Per-host vars — required (override in inventory):
+#   tailscale_tag                  e.g. "subnet-router" or "exit-node"
+# Per-host vars — optional:
+#   tailscale_advertise_routes     CSV of CIDRs, e.g. "10.0.0.0/16"
+#   tailscale_advertise_exit_node  boolean
+
+# Pass --reset on every `tailscale up` invocation so any flag not
+# explicitly passed reverts to default. Keeps state in sync with
+# inventory; makes re-runs deterministic.
+tailscale_up_reset: true

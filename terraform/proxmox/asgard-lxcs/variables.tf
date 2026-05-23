@@ -4,6 +4,12 @@ variable "proxmox_api_token" {
   sensitive   = true
 }
 
+variable "proxmox_endpoint" {
+  description = "Proxmox API endpoint URL"
+  type = string
+  default = "https://10.0.254.11:8006/api2/json"
+}
+
 variable "ssh_public_key" {
   description = "SSH public key for the ansible user inside each LXC"
   type        = string
