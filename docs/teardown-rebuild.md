@@ -1271,3 +1271,124 @@ ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml --limit einherj
 ```
 
 **Why this is appendix-worthy:** the pod-anti-affinity wall against cordon+migrate is non-obvious; the right answer ("just accept 2/3 voters for the window") feels wrong before you've seen the failure mode. The leadership step-down is also non-obvious without Raft background. And the iproute 6.17 / orphan-LV gotchas surface on fresh-from-template clones — exactly when you're least equipped to debug them, because the node isn't in the cluster yet.
+
+## Appendix D — Munin Tailscale subnet-router install (DSM 7)
+
+Adding Munin (Synology DS223J, DSM 7) to the tailnet as a fourth subnet-router for K3s-independent break-glass. Covered in Phase 5e.3.f.
+
+**Why DSM package, not Docker container or `.spk` from `pkgs.tailscale.com`:** Synology's official Tailscale package is set-and-forget, integrates with DSM's auto-start + Package Center update story. ~One version behind upstream stable — fine for a break-glass advertiser; doesn't need bleeding-edge features.
+
+**Why this is appendix-worthy:** the authkey flow for Munin diverges from the LXC pattern (UI-minted + 1Password instead of TF-minted + Vault — see `homelab-design.md` decision row "Munin Tailscale authkey: out-of-band"); the DSM-7 TUN-permissions boot task is non-obvious from the Synology Package Center UI alone; and the "don't reboot" recovery path (manual `configure-host` script) is necessary while iSCSI PVCs are attached and K3s is live (see CLAUDE.md gotcha on iSCSI session timeout → ext4 journal abort → fs-RO).
+
+### Prereqs
+
+- ghost@xiiisins.com admin user on the tailnet (Authentik OIDC).
+- 1Password "Homelab" vault exists.
+- `tag:subnet-router` defined in `policy.hujson` with `autogroup:admin` as one of its owners (this is the key extension — without it, admin-UI key minting with that tag is rejected because only `tag:terraform-tag-owner` would own it).
+
+### Step 1 — Extend `policy.hujson` to let admins mint `tag:subnet-router` keys
+
+Edit `terraform/tailscale/policy.hujson`:
+
+```hujson
+"tagOwners": {
+    "tag:terraform-tag-owner": [],
+    "tag:subnet-router":       ["tag:terraform-tag-owner", "autogroup:admin"],
+    "tag:exit-node":           ["tag:terraform-tag-owner"],
+},
+```
+
+```fish
+cd terraform/tailscale
+terraform plan   # expect 1 in-place change to tailscale_acl.this
+terraform apply
+```
+
+Leave `tag:exit-node` untouched — Gjallarbru is TF-minted, no admin-UI need.
+
+### Step 2 — Mint authkey via Tailscale admin UI
+
+In Tailscale admin → Settings → Keys → Generate auth key:
+
+- **Reusable:** off (single-use).
+- **Ephemeral:** off.
+- **Pre-approved:** on.
+- **Tags:** `tag:subnet-router`.
+- **Expiration:** default (90d is fine — it's only used once at install).
+
+Copy the key. Store in 1Password "Homelab" vault as a new item `Munin Tailscale authkey` (Password field). Tag/label so future-you can find it.
+
+### Step 3 — Install Tailscale via Synology Package Center
+
+DSM web UI → Package Center → search "Tailscale" → Install. Wait for completion. Open the Tailscale package once installed to confirm it's running (don't log in yet via the UI; we'll authenticate with the authkey from CLI).
+
+### Step 4 — DSM Task Scheduler boot-up task for TUN permissions
+
+DSM 7 requires re-asserting TUN device permissions on every boot (and after every Tailscale package upgrade — see CLAUDE.md gotcha).
+
+DSM Control Panel → Task Scheduler → Create → Triggered Task → User-defined script:
+
+- **Name:** `tailscale-tun-permissions`
+- **User:** `root`
+- **Event:** `Boot-up`
+- **Enabled:** on
+- **Run command:**
+  ```sh
+  /var/packages/Tailscale/target/bin/tailscale configure-host
+  synosystemctl restart pkgctl-Tailscale.service
+  ```
+
+Save. Do **not** click "Run" yet from the UI — we'll do this manually over SSH to avoid a reboot.
+
+### Step 5 — Run `configure-host` manually (skip the reboot)
+
+K3s PVCs are iSCSI-attached to Munin. A reboot risks ext4-journal-abort → fs-RO on multiple PVs (see CLAUDE.md gotcha). Run the same script the boot task would run, but live, over SSH:
+
+```fish
+ssh admin@10.0.254.20
+sudo /var/packages/Tailscale/target/bin/tailscale configure-host
+sudo synosystemctl restart pkgctl-Tailscale.service
+```
+
+The boot task validates organically on the next unrelated reboot (DSM update, etc.). At that point, check Task Scheduler → run history.
+
+### Step 6 — Bring Munin up on the tailnet
+
+Still on SSH:
+
+```fish
+sudo tailscale up \
+    --authkey=tskey-auth-xxxxx \
+    --advertise-routes=10.0.0.0/16 \
+    --hostname=munin
+```
+
+Replace `tskey-auth-xxxxx` with the value from 1Password. The key is consumed on first auth; the daemon will use its node key from then on.
+
+Note: Synology's Tailscale package supports `--advertise-routes` but **not** `--accept-routes` (DSM hybrid networking constraint). That's fine — Munin is a route advertiser, not a tailnet client.
+
+### Step 7 — Verify in admin console
+
+Tailscale admin → Machines → confirm `munin` is:
+- Connected (green dot).
+- Tagged `tag:subnet-router`.
+- Advertising `10.0.0.0/16`, route auto-approved (the `autoApprovers.routes` ACL rule does this).
+- No "cannot relay traffic" / "machine is misconfigured" warning. If you see one, `configure-host` didn't take or `pkgctl-Tailscale.service` didn't restart — rerun step 5.
+
+From another tailnet device, ping a `10.0.X.Y` LAN address that isn't already locally reachable. Should resolve via Munin (or one of the LXC advertisers — Tailscale picks one).
+
+### Recovery: subnet-routing breaks after a Tailscale package upgrade
+
+Per Tailscale's Synology docs, package upgrades wipe the configure-host state. Diagnostic: device shows up in tailnet admin but flags "cannot relay traffic"; SSH-side `tailscale netcheck` shows no relay capability.
+
+Fix without rebooting:
+
+```fish
+ssh admin@10.0.254.20
+sudo /var/packages/Tailscale/target/bin/tailscale configure-host
+sudo synosystemctl restart pkgctl-Tailscale.service
+```
+
+The boot task will also re-apply on the next reboot — but don't wait for that if K3s is healthy and you want subnet-routing back immediately.
+
+Going forward, consider disabling Tailscale auto-update in DSM Package Center so upgrades become operator-driven (paired with explicit configure-host re-run).

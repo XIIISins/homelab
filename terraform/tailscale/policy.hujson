@@ -22,7 +22,7 @@
     //   for off-LAN clients to use the homelab as a default route.
     "tagOwners": {
         "tag:terraform-tag-owner": [],
-        "tag:subnet-router":       ["tag:terraform-tag-owner"],
+        "tag:subnet-router":       ["tag:terraform-tag-owner", "autogroup:admin"],
         "tag:exit-node":           ["tag:terraform-tag-owner"],
     },
 
