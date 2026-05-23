@@ -5,15 +5,21 @@ metadata:
   name: authentik
   namespace: authentik
 spec:
-  # Attach to the niflheim Gateway's HTTPS listener.
+  # Attach to the midgard Gateway, which serves the apex + midgard zones.
   # The Gateway lives in the traefik namespace; cross-namespace attachment
   # is allowed by the Gateway's allowedRoutes.namespaces.from: All.
+  # Two listeners attached: one matches *.midgard.xiiisins.com (internal
+  # alias), the other matches *.xiiisins.com (public via Cloudflared).
   parentRefs:
-    - name: niflheim
+    - name: midgard
       namespace: traefik
-      sectionName: websecure
+      sectionName: websecure-midgard
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
   hostnames:
-    - authentik.niflheim.xiiisins.com
+    - authentik.midgard.xiiisins.com
+    - authentik.xiiisins.com
   rules:
     - matches:
         - path:
