@@ -1,0 +1,3 @@
+# Cloudflare account ID. Find under Cloudflare dashboard → any zone landing
+# page → right sidebar "Account ID". Not a secret, but env-specific.
+cloudflare_account_id = "<your-cloudflare-account-id>"
