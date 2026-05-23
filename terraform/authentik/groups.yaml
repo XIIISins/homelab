@@ -1,0 +1,29 @@
+# terraform/authentik/groups.yaml
+#
+# Authentik groups, identity-as-data. Each top-level key is a group name.
+#
+# Group membership is NOT defined here — see users.yaml. Each user lists
+# the groups they belong to; this file only defines group existence and
+# group-level attributes (is_superuser, attributes, roles).
+#
+# Adding a group:
+#   1. Add an entry below
+#   2. terraform apply
+#   3. Reference the group name in users.yaml `groups:` lists
+
+authentik-admins:
+  is_superuser: true
+  # Full Authentik-administrator group. Members can manage users, providers,
+  # applications, policies — everything.
+
+tailscale-users:
+  is_superuser: false
+  # Members can authenticate via the Tailscale OIDC application. Gates
+  # Tailscale tailnet access through Authentik (see tailscale.tf).
+
+ssh-users:
+  is_superuser: false
+  # Future-fit for SSSD-on-Linux-hosts integration. Members will be able
+  # to SSH into homelab nodes once SSSD + Authentik LDAP outpost are
+  # deployed. No effect today (no consumer yet) — defining now so user
+  # membership is in place when SSSD lands.

@@ -32,7 +32,9 @@ set -g __homelab_env_map \
     "ANSIBLE_HASHI_VAULT_AUTH_METHOD|Ansible - Vault - k3s|method" \
     "ANSIBLE_HASHI_VAULT_ROLE_ID|Ansible - Vault - k3s|username" \
     "ANSIBLE_HASHI_VAULT_SECRET_ID|Ansible - Vault - k3s|password" \
-    "CLOUDFLARE_API_TOKEN|Cloudflare - Terraform|credential"
+    "CLOUDFLARE_API_TOKEN|Cloudflare - Terraform|credential" \
+    "AUTHENTIK_TOKEN|Asgard - Authentik - akadmin API token|credential" \
+    "AUTHENTIK_URL|Asgard - Authentik - akadmin API token|url"
 
 # Each entry: "approle role name|1P item name"
 # 1P item must have fields: username (RoleID), password (SecretID),

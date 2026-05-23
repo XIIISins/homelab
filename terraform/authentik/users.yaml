@@ -1,0 +1,36 @@
+# terraform/authentik/users.yaml
+#
+# Authentik users, identity-as-data. Each top-level key is a username.
+#
+# Group membership lives HERE (each user lists their groups), not on the
+# group side — single-source. Group resources have no `users` attribute;
+# membership is computed from the inverse via the locals in identity.tf.
+#
+# Password handling:
+#   - For users that EXIST and were imported, the `password` lifecycle is
+#     not touched by Terraform. The 1Password-stored password stays
+#     authoritative.
+#   - For NEW users created by Terraform, a random initial password is
+#     generated, written to Vault at
+#         secret/k8s/authentik/users/<username>/initial-password
+#     The user is expected to change it via the Authentik UI on first
+#     login. Force-reset-on-first-login enforcement is deferred (Authentik
+#     doesn't have a native flag; requires custom flow+policy+stage —
+#     tracked in pending tasks).
+#
+# Adding a user:
+#   1. Add an entry below
+#   2. Optionally pre-create the user in Authentik UI if you want to set
+#      the password yourself out-of-band; otherwise TF will mint a random
+#      one to Vault
+#   3. terraform apply
+
+ghost:
+  name: "Ghost"
+  email: "ghost@xiiisins.com"
+  is_active: true
+  skip_initial_password: true
+  groups:
+    - authentik-admins
+    - tailscale-users
+    - ssh-users
