@@ -27,7 +27,9 @@ spec:
       error_reporting:
         enabled: false
       postgresql:
-        host: fulla.niflheim.xiiisins.com
+        # Kept in sync with AUTHENTIK_POSTGRESQL__HOST in externalsecret.yaml,
+        # which is the value that actually wins. See comment there for why IP.
+        host: 10.0.11.230
         port: 5432
         name: authentik
         user: authentik
