@@ -1,9 +1,19 @@
 # k8s/asgard/apps/victorialogs/httproute.yaml
 #
-# Internal-only HTTPRoute on the niflheim Gateway. VL UI is operator-
-# facing — no public ingress, no Cloudflare tunnel. Gated by Authentik
-# ForwardAuth via the shared monitoring/authentik-forward-auth
-# Middleware.
+# Internal-only HTTPRoute on the niflheim Gateway. Two rules:
+#   - /insert/* (NO auth) — shipper ingest path. vlagent / Vector /
+#     etc. can't OAuth, they just POST logs to /insert/jsonline,
+#     /insert/loki/api/v1/push, etc. Path-based unauth is acceptable
+#     for our threat model: hostname is internal-only (AGH-resolved,
+#     no Cloudflare tunnel, no public ingress), so reachability
+#     requires LAN or tailnet (tailnet is OIDC-gated). Revisit when
+#     a workload handling sensitive logs (e.g. Authentik audit) is
+#     in scope.
+#   - / (default, WITH auth) — human UI access. Authentik ForwardAuth
+#     via the shared monitoring/authentik-forward-auth Middleware.
+#
+# Gateway API HTTPRoute uses longest-prefix path matching, so
+# `/insert/` (more specific) wins over `/` (catchall) automatically.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -17,13 +27,22 @@ spec:
   hostnames:
     - logs.niflheim.xiiisins.com
   rules:
+    # Unauthenticated ingest path for shippers — /insert/* covers all
+    # of VL's documented ingest endpoints (jsonline, loki, opentelemetry,
+    # elasticsearch, datadog).
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /insert/
+      backendRefs:
+        - name: victorialogs-victoria-logs-single-server
+          port: 9428
+    # Authenticated catchall for the UI + query endpoints.
     - matches:
         - path:
             type: PathPrefix
             value: /
       filters:
-        # See victoriametrics/httproute.yaml for the Gateway API +
-        # Traefik Middleware ExtensionRef justification + requirements.
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
