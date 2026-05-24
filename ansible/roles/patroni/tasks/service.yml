@@ -1,0 +1,53 @@
+# ansible/roles/patroni/tasks/service.yml
+---
+- name: Flush handlers (apply pending Patroni restart/reload before status checks)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Patroni
+  ansible.builtin.systemd:
+    name: patroni.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Patroni REST API to accept connections
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ patroni_restapi_port }}"
+    state: started
+    timeout: 120
+
+# /readiness returns 200 when this node is participating in the cluster
+# (either as leader or as a synced replica). Polls until consensus reached.
+- name: Wait for this Patroni node to be cluster-ready
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ patroni_restapi_port }}/readiness"
+    status_code: [200]
+  register: patroni_readiness
+  retries: 30
+  delay: 5
+  until: patroni_readiness.status == 200
+
+- name: Query Patroni cluster state
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ patroni_restapi_port }}/cluster"
+    status_code: [200]
+    return_content: true
+  register: patroni_cluster_state
+  changed_when: false
+
+- name: Determine if this node holds the Patroni leader role
+  ansible.builtin.set_fact:
+    patroni_is_leader: >-
+      {{
+        (patroni_cluster_state.json.members
+          | selectattr('name', 'equalto', inventory_hostname)
+          | map(attribute='role')
+          | list
+          | first
+        ) == 'leader'
+      }}
+
+- name: Report Patroni node role
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: role={{ 'leader' if patroni_is_leader else 'replica' }}, cluster members={{ patroni_cluster_state.json.members | map(attribute='name') | list }}"

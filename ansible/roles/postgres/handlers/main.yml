@@ -1,10 +1,17 @@
 ---
+# In Patroni-managed mode the Debian postgresql@<v>-<c>.service is stopped +
+# disabled (Patroni owns the PG lifecycle); on fresh replicas it also has no
+# cluster instance to start. Either way, firing this handler under Patroni
+# would fail. Cert renewal in Patroni-managed mode requires a manual
+# `sudo systemctl reload patroni` (Patroni SIGHUPs PG to re-read ssl_*).
 - name: restart postgresql
   ansible.builtin.service:
     name: "postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
     state: restarted
+  when: not postgres_patroni_managed
 
 - name: reload postgresql
   ansible.builtin.service:
     name: "postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
     state: reloaded
+  when: not postgres_patroni_managed

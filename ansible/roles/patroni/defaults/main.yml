@@ -1,0 +1,75 @@
+# ansible/roles/patroni/defaults/main.yml
+---
+# ---- Version & source ----
+# Concrete pin per the "no floats" rule. Bump procedure:
+#   curl -sL https://github.com/patroni/patroni/archive/refs/tags/v<N>.tar.gz | sha256sum
+# then update both patroni_version and patroni_sha256.
+# Backlog (tracked in homelab-design.md): mirror this tarball to a self-hosted
+# repo so version control lives inside the infra, not on GitHub's CDN.
+patroni_version: 4.1.3
+patroni_sha256: 991937a3bc8678ee836134dcc3e7358bd44478c248db01eb4843314ede424726
+patroni_source_url: "https://github.com/patroni/patroni/archive/refs/tags/v{{ patroni_version }}.tar.gz"
+
+# ---- Install paths ----
+# Venv lives at /opt/patroni; source under /opt/patroni-src-<version>. Mirrors
+# the etcd role's "versioned install dir + stable symlink" pattern.
+patroni_venv_dir: /opt/patroni
+patroni_src_dir: "/opt/patroni-src-{{ patroni_version }}"
+patroni_config_dir: /etc/patroni
+patroni_config_file: "{{ patroni_config_dir }}/patroni.yml"
+patroni_pgpass_path: "{{ patroni_config_dir }}/.pgpass"
+
+# Runs as postgres:postgres — same user that owns the PG data dir, so Patroni
+# can manipulate it without sudo. The `postgres` user is created by the
+# postgresql-common package (dep of postgresql-{{ postgres_version }}).
+patroni_run_user: postgres
+patroni_run_group: postgres
+
+# ---- Cluster identity ----
+patroni_scope: niflheim-pg
+patroni_namespace: /service/
+
+# ---- Replication user ----
+# Used by replicas to authenticate against the primary for pg_basebackup
+# and streaming replication. Created via the postgres role's users.yml
+# pre-Patroni (on the adoption-time primary) so it exists before any
+# replica tries to clone.
+patroni_replication_username: replicator
+patroni_replication_password_vault_path: ansible/postgres/replicator-password
+
+# ---- Superuser (Patroni-internal) ----
+# Patroni uses this to manage PG (REINDEX, CREATE REPLICATION SLOT, etc.).
+# Re-uses the existing `ansible` superuser to avoid yet another credential.
+patroni_superuser_username: ansible
+patroni_superuser_password_vault_path: ansible/postgres/ansible-password
+
+# ---- REST API ----
+# Patroni's REST API answers cluster status + accepts failover/switchover.
+# Basic auth required for any write op; reads are open by default.
+patroni_restapi_port: 8008
+patroni_restapi_username: patroni_admin
+patroni_restapi_password_vault_path: ansible/patroni/restapi-password
+
+# ---- DCS (etcd) ----
+# The HAProxy/etcd trio (Hlin/Eir/Snotra) — etcd is co-located there
+# per the 2026-05-24 decision row.
+patroni_etcd_inventory_group: haproxy_etcd_hosts
+patroni_etcd_client_port: 2379
+
+# ---- Inventory groups for HBA generation ----
+# All Patroni PG nodes (used to render replication HBA rules per peer).
+patroni_pg_inventory_group: postgres_hosts
+
+# ---- DCS dynamic config defaults ----
+# Cluster-wide consensus thresholds. Written to DCS on first Patroni start
+# via bootstrap.dcs. Change post-bootstrap via `patronictl edit-config`.
+patroni_dcs_ttl: 30
+patroni_dcs_loop_wait: 10
+patroni_dcs_retry_timeout: 10
+patroni_dcs_maximum_lag_on_failover: 1048576 # 1 MiB
+
+# ---- Patroni tags (node behavior modifiers) ----
+patroni_tag_nofailover: false
+patroni_tag_noloadbalance: false
+patroni_tag_clonefrom: false
+patroni_tag_nosync: false

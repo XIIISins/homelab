@@ -1,30 +1,11 @@
 ---
-- name: Install PostgreSQL packages
-  ansible.builtin.include_tasks: packages.yml
-  tags: [postgres-packages]
+# Full standalone PG pass. Used by non-patroni-managed callers. For the
+# patroni-managed path, the playbook calls `tasks_from: prepare` before the
+# patroni role and `tasks_from: bootstrap` after, with the patroni role
+# sandwiched between.
+- name: Prepare PG (packages, cluster, TLS, config, hba)
+  ansible.builtin.include_tasks: prepare.yml
 
-- name: Verify/configure the PostgreSQL cluster
-  ansible.builtin.include_tasks: cluster.yml
-  tags: [postgres-cluster]
-
-- name: Generate TLS certificate
-  ansible.builtin.include_tasks: tls.yml
-  when: postgres_tls_enabled
-  tags: [postgres-tls]
-
-- name: Render postgresql.conf
-  ansible.builtin.include_tasks: config.yml
-  tags: [postgres-config]
-
-- name: Render pg_hba.conf
-  ansible.builtin.include_tasks: hba.yml
-  tags: [postgres-hba]
-
-- name: Create management PG roles (admin, ansible)
-  ansible.builtin.include_tasks: users.yml
-  tags: [postgres-users]
-
-- name: Create per-service databases and roles
-  ansible.builtin.include_tasks: databases.yml
-  when: postgres_databases | length > 0
-  tags: [postgres-databases]
+- name: Bootstrap PG objects (management users, per-service DBs)
+  ansible.builtin.include_tasks: bootstrap.yml
+  when: not postgres_patroni_managed

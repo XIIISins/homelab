@@ -1,0 +1,17 @@
+---
+# Post-Patroni (or standalone) PG object bootstrap: management users +
+# per-service databases. In patroni-managed mode, runs leader-only via the
+# `patroni_is_leader` fact set by the patroni role's service.yml. In
+# standalone mode, runs unconditionally (single-node cluster).
+
+- name: Create management PG roles (admin, ansible, replicator)
+  ansible.builtin.include_tasks: users.yml
+  when: (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+  tags: [postgres-users]
+
+- name: Create per-service databases and roles
+  ansible.builtin.include_tasks: databases.yml
+  when:
+    - postgres_databases | length > 0
+    - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+  tags: [postgres-databases]

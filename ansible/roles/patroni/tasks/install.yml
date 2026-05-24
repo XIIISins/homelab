@@ -1,0 +1,104 @@
+# ansible/roles/patroni/tasks/install.yml
+---
+# Install Patroni from a version-pinned source tarball into a dedicated venv.
+# Mirrors the etcd role's "fetch by version + verify by sha + versioned install
+# dir + stable symlink" pattern. Source: GitHub auto-generated archive (Patroni
+# doesn't publish release-asset binaries — it's a Python package).
+#
+# Backlog (homelab-design.md): mirror this tarball to a self-hosted internal
+# repo so the version-control surface lives inside the infra, not on GitHub.
+
+- name: Install build dependencies for Patroni venv
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+      - python3-pip
+      - python3-dev
+      - libpq-dev
+      - build-essential
+    state: present
+
+- name: Check if Patroni binary already exists at the pinned version
+  ansible.builtin.stat:
+    path: "{{ patroni_venv_dir }}/bin/patroni"
+  register: patroni_binary_stat
+
+- name: Check installed Patroni version (if any)
+  ansible.builtin.command:
+    cmd: "{{ patroni_venv_dir }}/bin/patroni --version"
+  register: patroni_installed_version_check
+  failed_when: false
+  changed_when: false
+  when: patroni_binary_stat.stat.exists
+
+- name: Set fact for whether reinstall is needed
+  ansible.builtin.set_fact:
+    patroni_needs_install: >-
+      {{
+        (not patroni_binary_stat.stat.exists) or
+        (patroni_installed_version_check.stdout | default('') is not search('patroni ' ~ patroni_version))
+      }}
+
+- name: Download Patroni source tarball with SHA256 verification
+  ansible.builtin.get_url:
+    url: "{{ patroni_source_url }}"
+    dest: "/tmp/patroni-{{ patroni_version }}.tar.gz"
+    checksum: "sha256:{{ patroni_sha256 }}"
+    mode: '0644'
+    owner: root
+    group: root
+  when: patroni_needs_install
+
+- name: Extract Patroni source to {{ patroni_src_dir }}
+  ansible.builtin.unarchive:
+    src: "/tmp/patroni-{{ patroni_version }}.tar.gz"
+    dest: /opt/
+    remote_src: true
+    creates: "{{ patroni_src_dir }}/setup.py"
+    owner: root
+    group: root
+  when: patroni_needs_install
+
+# GitHub archive extracts to patroni-<version>/ (without the v prefix on tag).
+# Rename if needed so the install path matches patroni_src_dir.
+- name: Normalize extracted directory name
+  ansible.builtin.command:
+    cmd: "mv /opt/patroni-{{ patroni_version }} {{ patroni_src_dir }}"
+    creates: "{{ patroni_src_dir }}"
+    removes: "/opt/patroni-{{ patroni_version }}"
+  when: patroni_needs_install
+
+- name: Create Patroni venv at {{ patroni_venv_dir }}
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ patroni_venv_dir }}"
+    creates: "{{ patroni_venv_dir }}/bin/python3"
+  when: patroni_needs_install
+
+- name: Install Patroni + etcd3 + psycopg2-binary into venv
+  ansible.builtin.pip:
+    name:
+      # psycopg2-binary, NOT psycopg3 — Patroni 4.x's config-reload path
+      # (_get_pg_settings) passes a mixed list of bytes+str keys to the
+      # cursor, which psycopg3's stricter type-homogeneity check rejects
+      # ("cannot dump lists of mixed types; got: bytes, str"). psycopg2 is
+      # permissive about this and is the Patroni-recommended driver for
+      # production. Self-contained wheel — no libpq-dev / build-essential
+      # needed at install time (those deps still installed above as
+      # belt+braces for any future package that wants to compile).
+      - "{{ patroni_src_dir }}[etcd3,psycopg2-binary]"
+    state: present
+    virtualenv: "{{ patroni_venv_dir }}"
+  when: patroni_needs_install
+  notify: restart patroni
+
+- name: Symlink patroni + patronictl into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ patroni_venv_dir }}/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  loop:
+    - patroni
+    - patronictl

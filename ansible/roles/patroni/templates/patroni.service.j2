@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# /etc/systemd/system/patroni.service — Managed by Ansible.
+[Unit]
+Description=Patroni - PostgreSQL HA
+Documentation=https://patroni.readthedocs.io/
+After=network-online.target etcd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ patroni_run_user }}
+Group={{ patroni_run_group }}
+ExecStart={{ patroni_venv_dir }}/bin/patroni {{ patroni_config_file }}
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=process
+KillSignal=SIGINT
+TimeoutSec=30
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

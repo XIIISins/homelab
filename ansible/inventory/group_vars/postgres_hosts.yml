@@ -1,34 +1,41 @@
 ---
 # PostgreSQL host group vars. Composes with role defaults from baseline,
-# postgres, and hardening.
+# postgres, patroni, and hardening.
 #
-# The postgres role manages PostgreSQL 17 from PGDG, TLS-enabled, with
-# two SUPERUSER PG roles whose passwords come from HashiCorp Vault:
-#   - admin   — hand-on-keyboard ops
-#   - ansible — playbook + AWX automation
+# Cluster shape (Phase 5g.2 — PG HA with Patroni):
+#   - Fulla (10.0.11.230, Skuld) — adoption-time primary
+#   - Vor   (10.0.11.231, Urd)   — replica
+#   - Idunn (10.0.11.232, Verd)  — replica
 #
-# Per-service databases (Authentik, Teamspeak, etc.) are added on demand
-# by extending `postgres_databases` below and re-running the playbook.
+# DCS: etcd on the HAProxy/etcd trio (Hlin/Eir/Snotra), auto-discovered
+# from the `haproxy_etcd_hosts` inventory group by the patroni role.
+#
+# Three management PG roles, passwords sourced from HashiCorp Vault:
+#   - admin      — hand-on-keyboard ops (SUPERUSER)
+#   - ansible    — playbook + AWX + Patroni-internal superuser (SUPERUSER)
+#   - replicator — Patroni-internal streaming replication (REPLICATION)
+#
+# Per-service databases are added on demand by extending `postgres_databases`
+# below and re-running the playbook (changes apply on the Patroni leader).
 
-# Cluster topology — single-node for now. When 1131/1132 (Vor, Idunn) come
-# online, add their inventory_hostnames here and the role configures
-# streaming replication.
-postgres_replicas: []
+# Switch the postgres + patroni roles into HA mode. cluster.yml, config.yml,
+# hba.yml are skipped; Patroni owns postgresql.conf + pg_hba.conf + cluster
+# lifecycle. users.yml / databases.yml run leader-only.
+postgres_patroni_managed: true
 
-# Allowed source CIDRs for network auth (scram-sha-256). Localhost and
-# peer auth for the postgres unix superuser are added unconditionally.
+# Allowed source CIDRs for network auth (scram-sha-256). Rendered into
+# Patroni's bootstrap.dcs.postgresql.pg_hba (cluster-wide, propagated to
+# all members via DCS). Localhost / peer / replication rules are added
+# unconditionally by the patroni.yml.j2 template.
 postgres_allowed_cidrs:
-  - 10.0.11.0/24 # asgard LXC subnet (Teamspeak, ops)
+  - 10.0.11.0/24 # asgard LXC subnet (Teamspeak, ops, Authentik via HAProxy VIP later)
   - 10.0.21.0/24 # asgard K3s nodes (Authentik via node NAT)
   - 10.0.31.0/24 # jotunheim K3s nodes (future)
   - 10.0.60.10/32 # MacBook (admin tasks)
 
-# Per-service databases. Empty until Authentik is built.
+# Per-service databases. Created via the leader's Unix socket after Patroni
+# is up. Idempotent — re-running with the same list is a no-op.
 # Schema: { name, owner, password_vault_path }
-# Example:
-#   - name: authentik
-#     owner: authentik
-#     password_vault_path: ansible/postgres/authentik-password
 postgres_databases:
   - name: authentik
     owner: authentik

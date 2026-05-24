@@ -1,0 +1,12 @@
+# ansible/roles/patroni/handlers/main.yml
+---
+- name: restart patroni
+  ansible.builtin.systemd:
+    name: patroni.service
+    state: restarted
+    daemon_reload: true
+
+- name: reload patroni
+  ansible.builtin.systemd:
+    name: patroni.service
+    state: reloaded

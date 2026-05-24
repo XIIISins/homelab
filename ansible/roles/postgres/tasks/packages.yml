@@ -32,6 +32,35 @@
     state: present
     update_cache: true
 
+# Suppress Debian's auto-cluster-creation BEFORE installing postgresql-17.
+# Without this, postgresql-common's post-install hook calls `pg_createcluster
+# 17 main` which initdbs an empty cluster — fine for standalone, but on a
+# fresh Patroni replica it leaves a data dir with a different system_id from
+# the cluster leader. Patroni then refuses to start (system_id mismatch).
+# Setting create_main_cluster=false means apt just installs the binaries and
+# leaves /var/lib/postgresql/17/main empty; Patroni's pg_basebackup populates
+# it from the leader.
+- name: Ensure /etc/postgresql-common exists (drop-in dir for postgresql-common)
+  ansible.builtin.file:
+    path: /etc/postgresql-common
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: postgres_patroni_managed
+
+- name: Suppress auto-cluster creation when Patroni-managed
+  ansible.builtin.copy:
+    dest: /etc/postgresql-common/createcluster.conf
+    content: |
+      # Managed by Ansible — postgres role. Manual edits will be overwritten.
+      # Patroni manages cluster lifecycle; postgresql-common must not auto-init.
+      create_main_cluster = false
+    owner: root
+    group: root
+    mode: "0644"
+  when: postgres_patroni_managed
+
 - name: Install PostgreSQL {{ postgres_version }} and Ansible module deps
   ansible.builtin.apt:
     name:

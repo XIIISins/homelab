@@ -1,0 +1,12 @@
+# ansible/roles/patroni/meta/main.yml
+---
+galaxy_info:
+  author: xiiisins
+  description: Patroni PostgreSQL HA — etcd DCS, version-pinned tarball install
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

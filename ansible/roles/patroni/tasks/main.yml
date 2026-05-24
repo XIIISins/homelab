@@ -1,0 +1,17 @@
+# ansible/roles/patroni/tasks/main.yml
+---
+- name: Install Patroni from versioned source tarball
+  ansible.builtin.include_tasks: install.yml
+  tags: [patroni-install]
+
+- name: Render Patroni config + systemd unit
+  ansible.builtin.include_tasks: config.yml
+  tags: [patroni-config]
+
+- name: Cut over from Debian PG service to Patroni-managed PG
+  ansible.builtin.include_tasks: adoption.yml
+  tags: [patroni-adoption]
+
+- name: Start Patroni + wait for cluster leader
+  ansible.builtin.include_tasks: service.yml
+  tags: [patroni-service]

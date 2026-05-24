@@ -1,0 +1,56 @@
+---
+# Pre-Patroni preparation pass. In standalone mode, also configures the
+# running cluster end-to-end (cluster init + postgresql.conf + pg_hba.conf).
+# In patroni-managed mode, stops at packages + TLS — patroni role takes over.
+
+- name: Install PostgreSQL packages
+  ansible.builtin.include_tasks: packages.yml
+  tags: [postgres-packages]
+
+- name: Verify/configure the PostgreSQL cluster (standalone mode only)
+  ansible.builtin.include_tasks: cluster.yml
+  when: not postgres_patroni_managed
+  tags: [postgres-cluster]
+
+- name: Generate TLS certificate
+  ansible.builtin.include_tasks: tls.yml
+  when: postgres_tls_enabled
+  tags: [postgres-tls]
+
+- name: Render postgresql.conf (standalone mode only)
+  ansible.builtin.include_tasks: config.yml
+  when: not postgres_patroni_managed
+  tags: [postgres-config]
+
+- name: Render pg_hba.conf (standalone mode only)
+  ansible.builtin.include_tasks: hba.yml
+  when: not postgres_patroni_managed
+  tags: [postgres-hba]
+
+# Patroni adoption: create management roles (admin, ansible, replicator) on
+# the existing primary BEFORE Patroni takes over, so replicas can authenticate
+# as `replicator` when Patroni clones via pg_basebackup. Detection: the Debian
+# postgresql@<v>-<c>.service is currently active — only true on the existing
+# primary (Fulla) pre-cutover; on fresh replicas (Vor/Idunn) it's never active
+# because createcluster.conf suppressed auto-cluster creation.
+- name: Detect adoption-time primary (Debian PG service currently active) # noqa command-instead-of-module
+  ansible.builtin.command:
+    cmd: "systemctl is-active postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
+  register: postgres_debian_service_state
+  failed_when: false
+  changed_when: false
+  when: postgres_patroni_managed
+  tags: [postgres-adoption]
+
+- name: Set adoption-primary fact
+  ansible.builtin.set_fact:
+    postgres_is_adoption_primary: "{{ postgres_debian_service_state.rc | default(1) == 0 }}"
+  when: postgres_patroni_managed
+  tags: [postgres-adoption]
+
+- name: Pre-Patroni management role bootstrap (adoption primary only)
+  ansible.builtin.include_tasks: users.yml
+  when:
+    - postgres_patroni_managed
+    - postgres_is_adoption_primary | default(false)
+  tags: [postgres-adoption, postgres-users]

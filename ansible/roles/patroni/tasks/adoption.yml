@@ -1,0 +1,49 @@
+# ansible/roles/patroni/tasks/adoption.yml
+---
+# Cut over from Debian's postgresql@<v>-<c>.service to Patroni-managed PG.
+#
+# Idempotency: this whole file is a no-op when Debian PG is already stopped +
+# disabled (steady state post-adoption). On a fresh replica (Vor/Idunn) it's
+# also a no-op because /etc/postgresql-common/createcluster.conf suppressed
+# auto-cluster creation, so postgresql@17-main was never enabled.
+#
+# Only fires meaningfully on the adoption-time primary (Fulla) the first time
+# the playbook runs against the patroni-managed flag.
+
+- name: Check whether Debian PG service is currently enabled # noqa command-instead-of-module
+  ansible.builtin.command:
+    cmd: "systemctl is-enabled postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
+  register: patroni_debian_pg_enabled_check
+  failed_when: false
+  changed_when: false
+
+- name: Set fact for Debian PG service state
+  ansible.builtin.set_fact:
+    patroni_debian_pg_was_enabled: "{{ patroni_debian_pg_enabled_check.rc == 0 and patroni_debian_pg_enabled_check.stdout == 'enabled' }}"
+
+- name: Remove vestigial conf.d/niflheim.conf (Patroni owns postgresql.conf now)
+  ansible.builtin.file:
+    path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/conf.d/niflheim.conf"
+    state: absent
+  when: patroni_debian_pg_was_enabled
+
+- name: Stop Debian postgresql service
+  ansible.builtin.systemd:
+    name: "postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
+    state: stopped
+  when: patroni_debian_pg_was_enabled
+
+- name: Disable Debian postgresql service
+  ansible.builtin.systemd:
+    name: "postgresql@{{ postgres_version }}-{{ postgres_cluster }}.service"
+    enabled: false
+  when: patroni_debian_pg_was_enabled
+
+# Disable the postgresql.service top-level target too — it's an alias that
+# would re-trigger the per-cluster service on boot. Belt + braces.
+- name: Disable top-level postgresql.service
+  ansible.builtin.systemd:
+    name: postgresql.service
+    enabled: false
+  when: patroni_debian_pg_was_enabled
+  failed_when: false

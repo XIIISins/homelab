@@ -5,6 +5,28 @@
 #
 # Renewal is manual for now (delete server.crt, re-run role). 825-day
 # lifetime gives ~2 years of slack. Future: cert-manager via ESO push.
+#
+# On Patroni-managed fresh replicas, /etc/postgresql/<v>/<c>/ is not created
+# by pg_createcluster (we suppressed that in packages.yml) — ensure it exists
+# explicitly so the cert + key have a home Patroni's config_dir can reference.
+
+- name: Ensure PG cluster config dir + conf.d/ exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0755"
+  loop:
+    - "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}"
+    # conf.d/ is required because Patroni's adoption preserves the
+    # leader's stock Debian postgresql.conf as postgresql.base.conf,
+    # which contains `include_dir = 'conf.d'`. That base.conf gets
+    # synced to replicas during basebackup — and if conf.d/ doesn't
+    # exist on the replica, postgres fails to start with
+    # "could not open configuration directory". Empty conf.d/ is a
+    # harmless no-op for the include_dir directive.
+    - "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/conf.d"
 
 - name: Generate PostgreSQL TLS private key
   community.crypto.openssl_privatekey:

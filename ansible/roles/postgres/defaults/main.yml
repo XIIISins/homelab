@@ -14,6 +14,15 @@ postgres_cluster: main
 postgres_listen_addresses: "*"
 postgres_port: 5432
 
+# ---- Patroni management mode ----
+# When true: cluster lifecycle, postgresql.conf, and pg_hba.conf are owned
+# by the patroni role. This role's prepare.yml stops at packages + TLS;
+# bootstrap.yml runs leader-only via a Patroni REST API check.
+#
+# When false (default): standalone PG. This role manages everything via
+# cluster.yml / config.yml / hba.yml / users.yml / databases.yml.
+postgres_patroni_managed: false
+
 # ---- TLS (self-signed, per-host, Ansible-managed) ----
 # Future: cert-manager-issued via ESO push to LXC.
 postgres_tls_enabled: true
@@ -28,8 +37,9 @@ postgres_tls_cert_org: niflheim-homelab
 postgres_password_encryption: scram-sha-256
 
 # ---- WAL / replication ----
-# Configured for cluster-readiness from day 1. No-op while replicas list is
-# empty; flipping to a real cluster requires no postgresql.conf change.
+# Configured for cluster-readiness from day 1. Patroni-managed mode reads
+# these from its `bootstrap.dcs.postgresql.parameters` block; standalone
+# mode renders them into postgresql-niflheim.conf.j2.
 postgres_wal_level: replica
 postgres_max_wal_senders: 10
 postgres_max_replication_slots: 10
@@ -42,7 +52,10 @@ postgres_shared_buffers: 1GB
 postgres_effective_cache_size: 3GB
 postgres_work_mem: 16MB
 postgres_maintenance_work_mem: 256MB
-postgres_max_connections: 100
+# Bumped to 300 per the 2026-05-24 5g.2.a decision row — cluster-wide demand
+# across all 7 planned consumers (Authentik/Outline/Immich/NetBox/n8n/Zabbix/
+# TeamSpeak) is ~150-200 connections; 300 leaves headroom without pgbouncer.
+postgres_max_connections: 300
 postgres_wal_buffers: 16MB
 
 # ---- Logging (postgresql-common defaults) ----
@@ -59,16 +72,23 @@ postgres_log_line_prefix: "%m [%p] %q%u@%d "
 postgres_timezone: "{{ baseline_timezone }}"
 
 # ---- Management PG roles ----
-# Both SUPERUSER. Passwords from HashiCorp Vault via community.hashi_vault.
+# admin/ansible: SUPERUSER for hand-on-keyboard ops + automation.
+# replicator: REPLICATION-only, used by Patroni for streaming replication
+# and pg_basebackup. Created on the adoption-time primary pre-Patroni so
+# replicas can authenticate when Patroni clones the cluster.
 postgres_management_users:
   - name: admin
     vault_path: ansible/postgres/admin-password
-    superuser: true
+    role_attr_flags: SUPERUSER,LOGIN
     description: "Network-accessible superuser for hand-on-keyboard operations"
   - name: ansible
     vault_path: ansible/postgres/ansible-password
-    superuser: true
-    description: "Playbook + AWX automation user"
+    role_attr_flags: SUPERUSER,LOGIN
+    description: "Playbook + AWX automation user; also Patroni superuser + rewind user"
+  - name: replicator
+    vault_path: ansible/postgres/replicator-password
+    role_attr_flags: REPLICATION,LOGIN
+    description: "Patroni-internal streaming replication + pg_basebackup user"
 
 # ---- Per-service DBs / Replicas / CIDRs ----
 # Set in inventory/group_vars/postgres_hosts.yml.

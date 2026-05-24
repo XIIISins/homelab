@@ -1,0 +1,115 @@
+# {{ ansible_managed }}
+# /etc/patroni/patroni.yml — Patroni HA config for the {{ patroni_scope }} cluster.
+# Managed by Ansible — manual edits will be overwritten.
+#
+# DCS-level (bootstrap.dcs.*) values are written to etcd at first start and
+# managed thereafter via `patronictl edit-config`. Node-local values (under
+# top-level postgresql.*) are managed by this template on each reconcile.
+
+scope: {{ patroni_scope }}
+namespace: {{ patroni_namespace }}
+name: {{ inventory_hostname }}
+
+restapi:
+  listen: {{ ansible_host }}:{{ patroni_restapi_port }}
+  connect_address: {{ ansible_host }}:{{ patroni_restapi_port }}
+  authentication:
+    username: {{ patroni_restapi_username }}
+    password: {{ lookup('community.hashi_vault.vault_kv2_get', patroni_restapi_password_vault_path).secret.value }}
+
+etcd3:
+  hosts:
+{% for h in groups[patroni_etcd_inventory_group] %}
+    - {{ hostvars[h]['ansible_host'] }}:{{ patroni_etcd_client_port }}
+{% endfor %}
+
+bootstrap:
+  dcs:
+    ttl: {{ patroni_dcs_ttl }}
+    loop_wait: {{ patroni_dcs_loop_wait }}
+    retry_timeout: {{ patroni_dcs_retry_timeout }}
+    maximum_lag_on_failover: {{ patroni_dcs_maximum_lag_on_failover }}
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: {{ postgres_max_connections }}
+        shared_buffers: {{ postgres_shared_buffers }}
+        effective_cache_size: {{ postgres_effective_cache_size }}
+        work_mem: {{ postgres_work_mem }}
+        maintenance_work_mem: {{ postgres_maintenance_work_mem }}
+        wal_buffers: {{ postgres_wal_buffers }}
+        wal_level: {{ postgres_wal_level }}
+        max_wal_senders: {{ postgres_max_wal_senders }}
+        max_replication_slots: {{ postgres_max_replication_slots }}
+        hot_standby: 'on'
+        archive_mode: 'on'
+        archive_command: '{{ postgres_archive_command }}'
+        password_encryption: {{ postgres_password_encryption }}
+        log_destination: '{{ postgres_log_destination }}'
+        logging_collector: 'on'
+        log_directory: '{{ postgres_log_directory }}'
+        log_filename: '{{ postgres_log_filename }}'
+        log_rotation_age: '{{ postgres_log_rotation_age }}'
+        log_rotation_size: {{ postgres_log_rotation_size }}
+        log_truncate_on_rotation: 'on'
+        log_line_prefix: '{{ postgres_log_line_prefix }}'
+        log_timezone: '{{ postgres_timezone }}'
+        timezone: '{{ postgres_timezone }}'
+{% if postgres_tls_enabled %}
+        ssl: 'on'
+        ssl_cert_file: '{{ postgres_tls_cert_path }}'
+        ssl_key_file: '{{ postgres_tls_key_path }}'
+        ssl_min_protocol_version: 'TLSv1.2'
+{% endif %}
+
+  # initdb runs only on a truly empty data dir. Fulla (adoption) and replicas
+  # (basebackup target) both skip this path — left here as the documented
+  # contract for any future cluster created fresh from this role.
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+    - locale: {{ baseline_locale }}
+
+postgresql:
+  listen: 0.0.0.0:{{ postgres_port }}
+  connect_address: {{ ansible_host }}:{{ postgres_port }}
+  data_dir: /var/lib/postgresql/{{ postgres_version }}/{{ postgres_cluster }}
+  bin_dir: /usr/lib/postgresql/{{ postgres_version }}/bin
+  config_dir: /etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}
+  pgpass: {{ patroni_pgpass_path }}
+  authentication:
+    replication:
+      username: {{ patroni_replication_username }}
+      password: {{ lookup('community.hashi_vault.vault_kv2_get', patroni_replication_password_vault_path).secret.value }}
+    superuser:
+      username: {{ patroni_superuser_username }}
+      password: {{ lookup('community.hashi_vault.vault_kv2_get', patroni_superuser_password_vault_path).secret.value }}
+    rewind:
+      username: {{ patroni_superuser_username }}
+      password: {{ lookup('community.hashi_vault.vault_kv2_get', patroni_superuser_password_vault_path).secret.value }}
+  parameters:
+    unix_socket_directories: '/var/run/postgresql'
+  # pg_hba lives at top-level postgresql.pg_hba (node-local, applied on every
+  # Patroni reload/restart) — NOT under bootstrap.pg_hba which is initdb-only
+  # and gets skipped during the adoption path (data dir non-empty → no
+  # initdb → bootstrap.pg_hba never applied). Patroni rewrites pg_hba.conf
+  # from this list on each reload, so the file IS Patroni's; Debian's
+  # original entries are superseded (and re-expressed here intentionally).
+  pg_hba:
+    - local all postgres peer
+    - local all all scram-sha-256
+    - host all all 127.0.0.1/32 scram-sha-256
+    - host all all ::1/128 scram-sha-256
+{% for cidr in postgres_allowed_cidrs %}
+    - hostssl all all {{ cidr }} scram-sha-256
+{% endfor %}
+{% for h in groups[patroni_pg_inventory_group] %}
+    - hostssl replication {{ patroni_replication_username }} {{ hostvars[h]['ansible_host'] }}/32 scram-sha-256
+{% endfor %}
+
+tags:
+  nofailover: {{ patroni_tag_nofailover | string | lower }}
+  noloadbalance: {{ patroni_tag_noloadbalance | string | lower }}
+  clonefrom: {{ patroni_tag_clonefrom | string | lower }}
+  nosync: {{ patroni_tag_nosync | string | lower }}

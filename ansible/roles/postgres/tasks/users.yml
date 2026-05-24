@@ -1,17 +1,17 @@
 ---
-# Create management PG roles (admin, ansible) via Unix socket peer auth.
-# Both SUPERUSER for now; tighten later if any consumer actually warrants
-# least-privilege (no current consumer does).
+# Create management PG roles via Unix socket peer auth. Works for both
+# standalone PG (Debian-managed service) and Patroni-managed PG (Patroni
+# preserves /var/run/postgresql via postgresql.parameters.unix_socket_directories).
 #
-# Vault lookup runs on the control node (MacBook or AWX) via the
-# ansible-local AppRole. Vault credentials never touch the DB host.
-# Password rotation in Vault → re-run this task → ALTER USER fires.
+# Each entry's `role_attr_flags` is passed verbatim (e.g. SUPERUSER,LOGIN
+# or REPLICATION,LOGIN). Vault lookup runs on the control node via the
+# ansible-local AppRole. Password rotation in Vault → re-run → ALTER USER fires.
 
 - name: Create management PG roles
   community.postgresql.postgresql_user:
     name: "{{ item.name }}"
     password: "{{ lookup('community.hashi_vault.vault_kv2_get', item.vault_path).secret.value }}"
-    role_attr_flags: "{{ 'SUPERUSER,LOGIN' if item.superuser else 'LOGIN' }}"
+    role_attr_flags: "{{ item.role_attr_flags }}"
     state: present
     login_unix_socket: /var/run/postgresql
     encrypted: true

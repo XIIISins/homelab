@@ -1,0 +1,37 @@
+# ansible/roles/patroni/tasks/config.yml
+---
+- name: Create Patroni config directory
+  ansible.builtin.file:
+    path: "{{ patroni_config_dir }}"
+    state: directory
+    owner: "{{ patroni_run_user }}"
+    group: "{{ patroni_run_group }}"
+    mode: '0750'
+
+- name: Render patroni.yml
+  ansible.builtin.template:
+    src: patroni.yml.j2
+    dest: "{{ patroni_config_file }}"
+    owner: "{{ patroni_run_user }}"
+    group: "{{ patroni_run_group }}"
+    mode: '0640'
+  notify: reload patroni
+
+- name: Ensure pgpass file exists (Patroni writes credentials in at start)
+  ansible.builtin.file:
+    path: "{{ patroni_pgpass_path }}"
+    state: touch
+    owner: "{{ patroni_run_user }}"
+    group: "{{ patroni_run_group }}"
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve
+
+- name: Render Patroni systemd unit
+  ansible.builtin.template:
+    src: patroni.service.j2
+    dest: /etc/systemd/system/patroni.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart patroni
