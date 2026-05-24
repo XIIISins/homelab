@@ -462,3 +462,145 @@ resource "proxmox_virtual_environment_container" "tailscale" {
     type    = "tty"
   }
 }
+
+# ----------------------------------------------------------------------------
+# LXCs 1110/1111/1112 — AdGuard Home trio (Urd/Verd/Skuld)
+# ----------------------------------------------------------------------------
+# Saga (primary, 1110, urd), Mimir (1111, verd), Kvasir (1112, skuld).
+# AdGuard Home is the homelab DNS — every node + LXC + container points
+# at the VIP `10.0.10.200` (floated across the trio by keepalived on
+# VLAN 10). Saga is the canonical config source; adguardhome-sync runs
+# on Saga and pushes config to Mimir + Kvasir on a `*/1` cron.
+#
+# Dual-NIC topology (same class as the HAProxy/etcd trio):
+#   eth0 (VLAN 11, HL-ASG-SVC) — service traffic (DNS queries arrive
+#     here via the VIP DNAT; HTTP admin UI also on this segment) +
+#     default gateway. Per-node IPs 10.0.11.201/202/203.
+#   eth1 (VLAN 10, HL-ASG-VIP) — VRRP advertisements + VIP host. All
+#     peers L2-adjacent on the VIP segment, required for advertisement
+#     source + diagnostics. Per-node IPs 10.0.10.201/202/203, VIP
+#     10.0.10.200/32 floats across whichever node holds it.
+#
+# VRRP virtual_router_id 51 (PG's HAProxy VIP is 61, spacing-by-10
+# convention preserved — see CLAUDE.md "VRID collision on shared L2
+# segment").
+#
+# Sizing: adguardhome is a Go binary, ~50MB RSS steady-state + DB.
+# 1 vCPU / 512MB / 4GB disk is plenty for hundreds of devices.
+#
+# Phase 5b.2 — replaces the 2026-05-14-ish manual install. If the
+# existing manual LXCs occupy 1110/1111/1112, this module's apply
+# would collide; check `qm list` on each Proxmox node and either
+# (a) destroy the manual LXCs first (Saga last so DNS stays up via
+# the surviving replicas + VIP), or (b) `terraform import` the
+# existing IDs and let in-place config converge under Ansible.
+#
+# See:
+#   - docs/architecture/network.md → AGH addressing
+#   - ansible/roles/adguard/README.md (TBD — 5b.2.c)
+#   - ansible/roles/adguardhome-sync/README.md (TBD — 5b.2.d)
+# ----------------------------------------------------------------------------
+
+locals {
+  adguard_nodes = {
+    saga   = { node = "urd",   vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201" }
+    mimir  = { node = "verd",  vmid = 1111, ip = "10.0.11.202", vlan10_ip = "10.0.10.202" }
+    kvasir = { node = "skuld", vmid = 1112, ip = "10.0.11.203", vlan10_ip = "10.0.10.203" }
+  }
+}
+
+# Throwaway root passwords — Proxmox API requires one to create the
+# container, but each LXC is configured for SSH-key-only auth. Never
+# used; persisted in local state, which is gitignored.
+resource "random_password" "adguard_root" {
+  for_each = local.adguard_nodes
+
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "adguard" {
+  for_each = local.adguard_nodes
+
+  description = "AdGuard Home node (${each.key})"
+
+  node_name = each.value.node
+  vm_id     = each.value.vmid
+  tags      = ["asgard", "lxc", "adguard", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  # Sizing is cluster-wide, NOT per-node. Failover symmetry requires
+  # identical resources — same rule as the PG + HAProxy trios.
+  cpu {
+    cores = 1
+  }
+
+  memory {
+    dedicated = 512 # MB
+    swap      = 512
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 4 # GB — adguardhome + sqlite query log
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  network_interface {
+    name     = "eth1"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 10
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = each.key
+
+    # ip_config blocks are matched to network_interface blocks by
+    # declaration order. eth0 carries the default gateway; eth1 has
+    # an address only (source-based policy routing in the keepalived
+    # role handles replies sourced from VLAN-10 IPs).
+    ip_config {
+      ipv4 {
+        address = "${each.value.ip}/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    ip_config {
+      ipv4 {
+        address = "${each.value.vlan10_ip}/24"
+      }
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.adguard_root[each.key].result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 — see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+}

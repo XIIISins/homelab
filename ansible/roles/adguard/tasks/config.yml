@@ -1,0 +1,37 @@
+# ansible/roles/adguard/tasks/config.yml
+---
+# AdGuardHome.yaml render. Two modes:
+#   - `adguard_force_overwrite_config: true` → always render (first
+#     deploy, schema migration).
+#   - else → only render if file is missing (preserve operator + sync
+#     writes).
+#
+# After AdGuardHome bootstrap, adguardhome-sync owns the dynamic
+# state (rewrites, clients, filters). The template here captures
+# only the BASE config — listen addresses, upstream DNS, admin
+# user, retention. Everything operator-tunable lives in NetBox-
+# adjacent state managed by sync.
+
+- name: Check whether AdGuardHome.yaml exists
+  ansible.builtin.stat:
+    path: "{{ adguard_config_path }}"
+  register: adguard_config_stat
+
+- name: Look up admin password hash from Vault
+  ansible.builtin.set_fact:
+    adguard_admin_password_hash: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                adguard_admin_password_hash_vault_path).secret[adguard_admin_password_hash_vault_field] }}
+  no_log: true
+  when: not adguard_config_stat.stat.exists or adguard_force_overwrite_config
+
+- name: Render AdGuardHome.yaml
+  ansible.builtin.template:
+    src: AdGuardHome.yaml.j2
+    dest: "{{ adguard_config_path }}"
+    owner: "{{ adguard_user }}"
+    group: "{{ adguard_group }}"
+    mode: "0600"
+    backup: true
+  when: not adguard_config_stat.stat.exists or adguard_force_overwrite_config
+  notify: restart AdGuardHome

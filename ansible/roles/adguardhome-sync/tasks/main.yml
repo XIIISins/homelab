@@ -1,0 +1,80 @@
+# ansible/roles/adguardhome-sync/tasks/main.yml
+---
+- name: Check installed adguardhome-sync version
+  # Note: `version` subcommand doesn't exist on all release lines —
+  # try --version too, ignore both failures and fall through to "no
+  # binary present yet" semantics on the next task.
+  ansible.builtin.shell: |
+    {{ adguardhome_sync_binary }} --version 2>/dev/null \
+      || {{ adguardhome_sync_binary }} version 2>/dev/null \
+      || echo "none"
+  register: ahs_installed_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Set fact for installed version
+  ansible.builtin.set_fact:
+    adguardhome_sync_installed_version: >-
+      {{ (ahs_installed_version_check.stdout | regex_search('v?[0-9]+\.[0-9]+\.[0-9]+'))
+         | default('none', true) }}
+
+- name: Download adguardhome-sync tarball
+  ansible.builtin.get_url:
+    url: "{{ adguardhome_sync_tarball_url }}"
+    dest: "/tmp/adguardhome-sync_{{ adguardhome_sync_version }}_linux_amd64.tar.gz"
+    mode: "0644"
+  when: adguardhome_sync_installed_version != adguardhome_sync_version
+
+- name: Extract adguardhome-sync binary to /usr/local/bin
+  ansible.builtin.unarchive:
+    src: "/tmp/adguardhome-sync_{{ adguardhome_sync_version }}_linux_amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+    include: ["adguardhome-sync"]
+  when: adguardhome_sync_installed_version != adguardhome_sync_version
+  notify: restart adguardhome-sync
+
+- name: Clean up tarball
+  ansible.builtin.file:
+    path: "/tmp/adguardhome-sync_{{ adguardhome_sync_version }}_linux_amd64.tar.gz"
+    state: absent
+  when: adguardhome_sync_installed_version != adguardhome_sync_version
+
+- name: Look up admin password from Vault
+  ansible.builtin.set_fact:
+    adguardhome_sync_admin_password: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                adguardhome_sync_admin_password_vault_path).secret[adguardhome_sync_admin_password_vault_field] }}
+  no_log: true
+
+- name: Render /etc/adguardhome-sync.yaml
+  ansible.builtin.template:
+    src: adguardhome-sync.yaml.j2
+    dest: "{{ adguardhome_sync_config_path }}"
+    owner: root
+    group: "{{ adguardhome_sync_group }}"
+    mode: "0640" # group-readable so the runtime user can load it
+  notify: restart adguardhome-sync
+
+- name: Install adguardhome-sync.service systemd unit
+  ansible.builtin.template:
+    src: adguardhome-sync.service.j2
+    dest: /etc/systemd/system/adguardhome-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart adguardhome-sync
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start adguardhome-sync.service
+  ansible.builtin.systemd:
+    name: adguardhome-sync.service
+    enabled: true
+    state: started

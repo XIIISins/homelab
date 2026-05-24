@@ -1,0 +1,38 @@
+# ansible/roles/adguard/tasks/packages.yml
+---
+- name: Install required apt packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates # HTTPS to github.com
+      - curl # tarball download
+      - tar # extract
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# AdGuardHome needs port 53 free. systemd-resolved binds it by default
+# on Debian. Disable + mask to release the port.
+- name: Stop + disable systemd-resolved (releases port 53)
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false # OK if it wasn't installed
+
+# After masking systemd-resolved, /etc/resolv.conf may be a dangling
+# symlink to /run/systemd/resolve/stub-resolv.conf. Replace with a
+# static file pointing at the local AdGuard instance (with one external
+# fallback for the bootstrap window before AdGuard is up).
+- name: Replace /etc/resolv.conf with static file (AdGuard local + bootstrap fallback)
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by ansible/roles/adguard. Do NOT edit by hand.
+      # Local AdGuard answers via DNS port on the loopback.
+      nameserver 127.0.0.1
+      # Bootstrap fallback used while AdGuardHome is down for upgrades.
+      nameserver {{ adguard_bootstrap_dns | first }}

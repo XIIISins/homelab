@@ -34,12 +34,14 @@ locals {
     # ── PBS (Proxmox Backup Server, privileged LXC, no IaC) ────────
     PBS = { vmid = "1101", role = "backup-server", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
-    # ── AGH trio (Saga/Mimir/Kvasir, manually installed, no IaC) ───
-    # VMIDs unknown — manual install pre-dates the IaC sweep; fill in
-    # when Phase 5b.2 lifts AdGuard into Ansible+TF.
-    saga   = { vmid = "", role = "dns", device = "urd", cpu = 2, memory = 1024, primary_iface = "eth0" }
-    Mimir  = { vmid = "", role = "dns", device = "verd", cpu = 2, memory = 1024, primary_iface = "eth0" }
-    kvasir = { vmid = "", role = "dns", device = "skuld", cpu = 2, memory = 1024, primary_iface = "eth0" }
+    # ── AGH trio (Saga/Mimir/Kvasir, Phase 5b.2) ──────────────────
+    # VMIDs from network.md: 1110/1111/1112. Sizing matches the
+    # adguard_nodes locals in terraform/proxmox/asgard-lxcs/lxcs.tf
+    # (1 vCPU / 512MB / 4GB disk). Apply this update AFTER the 5b.2
+    # LXC deploy lands so NetBox + reality agree.
+    saga   = { vmid = "1110", role = "dns", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    Mimir  = { vmid = "1111", role = "dns", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    kvasir = { vmid = "1112", role = "dns", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
 
     # ── Tailscale trio (subnet routers Bifrost/Heimdall + exit Gjallarbru) ─
     Bifrost    = { vmid = "1113", role = "tailscale-gateway", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }

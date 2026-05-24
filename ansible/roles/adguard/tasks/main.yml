@@ -1,0 +1,17 @@
+# ansible/roles/adguard/tasks/main.yml
+---
+- name: Install required packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: [adguard, adguard:packages]
+
+- name: Download + install AdGuardHome binary
+  ansible.builtin.import_tasks: install.yml
+  tags: [adguard, adguard:install]
+
+- name: Render AdGuardHome.yaml
+  ansible.builtin.import_tasks: config.yml
+  tags: [adguard, adguard:config]
+
+- name: Install + start AdGuardHome systemd service
+  ansible.builtin.import_tasks: service.yml
+  tags: [adguard, adguard:service]

@@ -1,0 +1,39 @@
+# ansible/playbooks/adguard-host.yml
+---
+- name: Configure AdGuard Home host (DNS trio with keepalived VIP)
+  hosts: adguard_hosts
+  become: true
+
+  # serial: 1 so each node finishes (AdGuard up + serving DNS) before
+  # the next starts. Important during initial bootstrap: if the trio
+  # comes up all at once, the keepalived election can flap before
+  # AdGuardHome is ready to answer queries, and the VIP holder may
+  # not yet be serving. Sequential bring-up gives a clean ordering.
+  # Override with `-e 'adguard_serial=0'` (full parallel) for re-runs
+  # against a steady-state cluster.
+  serial: "{{ adguard_serial | default(1) }}"
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # Install AdGuard Home + base config on every node. The web UI is
+    # bound to the per-node VLAN-11 IP; DNS listens on 0.0.0.0 so the
+    # VIP-bound IP also answers when this node is VRRP master.
+    - role: adguard
+      tags: [adguard]
+
+    # Sync runs on saga (primary) only. The gate prevents Mimir/Kvasir
+    # from ever becoming sync sources by accident.
+    - role: adguardhome-sync
+      tags: [adguardhome-sync]
+      when: inventory_hostname == adguard_primary_host
+
+    # Float the VIP. VRID 51 per the spacing-by-10 convention (PG VIP
+    # uses 61). chk_adguard track-script demotes the VIP-holder if
+    # AdGuardHome stops answering — the VIP follows a healthy node.
+    - role: keepalived
+      tags: [keepalived]
+
+    - role: hardening
+      tags: [hardening]

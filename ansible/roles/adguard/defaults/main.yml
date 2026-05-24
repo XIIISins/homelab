@@ -1,0 +1,94 @@
+# ansible/roles/adguard/defaults/main.yml
+---
+# AdGuard Home version pin. Concrete-pin per repo IaC policy. Bump
+# carefully — config schema can change between minor releases.
+# Current Saga state is v0.107.74; this pin is the latest upstream
+# as of Phase 5b.2 draft (2026-05-24). First apply will bump.
+adguard_version: "v0.107.76"
+adguard_schema_version: 34 # AGH config-schema version, matches v0.107.x
+
+# Tarball URL + checksum file pattern. Upstream publishes per-arch
+# tarballs at this URL pattern. The role pulls + verifies checksum
+# before extract.
+adguard_tarball_url: "https://github.com/AdguardTeam/AdGuardHome/releases/download/{{ adguard_version }}/AdGuardHome_linux_amd64.tar.gz"
+adguard_checksum_url: "https://github.com/AdguardTeam/AdGuardHome/releases/download/{{ adguard_version }}/checksums.txt"
+
+# Identity. AdGuardHome runs as root by default upstream (because of
+# port 53). We follow that to avoid setcap drift across upgrades —
+# the LXC is unprivileged anyway, so "root inside the LXC" is bounded.
+adguard_user: root
+adguard_group: root
+
+# Layout
+adguard_install_dir: /opt/AdGuardHome
+adguard_binary: "{{ adguard_install_dir }}/AdGuardHome"
+adguard_work_dir: "{{ adguard_install_dir }}"
+adguard_config_path: "{{ adguard_install_dir }}/AdGuardHome.yaml"
+
+# Listen addresses
+#   DNS (port 53): 0.0.0.0 so AdGuard answers on whichever IP currently
+#     has the VIP (keepalived-floated 10.0.10.200 on eth1) plus the
+#     per-node eth0 IP for direct queries.
+#   Web UI (port 80): 0.0.0.0 to match the existing operator setup
+#     (lets clients hit `http://saga.niflheim.xiiisins.com/` without
+#     a port). On a non-master node the VIP isn't bound, so the UI is
+#     only reachable via the per-node IP — that's fine. To restrict
+#     UI to the per-node IP only, override to e.g.
+#     adguard_web_bind_addresses: ["{{ ansible_default_ipv4.address }}"].
+adguard_dns_bind_addresses:
+  - "0.0.0.0"
+adguard_dns_port: 53
+adguard_web_bind_addresses:
+  - "0.0.0.0"
+adguard_web_port: 80
+
+# Upstream DNS — DoH for privacy. Quad9 + Cloudflare are the
+# established choices. Bootstrap DNS uses Quad9's ECS-aware
+# endpoints (9.9.9.10) for the initial TLS handshake to the DoH
+# servers. Fallback DNS is consulted if all primaries fail.
+adguard_upstream_dns:
+  - "https://dns10.quad9.net/dns-query"
+  - "https://cloudflare-dns.com/dns-query"
+adguard_bootstrap_dns:
+  - "9.9.9.10"
+  - "149.112.112.10"
+  - "2620:fe::10"
+  - "2620:fe::fe:10"
+adguard_fallback_dns:
+  - "https://cloudflare-dns.com/dns-query"
+  - "1.1.1.1"
+
+# Admin user. Password is bcrypt-hashed in the config; we look up the
+# hash from Vault at the path below. The hash itself is the only
+# secret — operators authenticate via the username + plaintext password
+# pair stored in 1P "Asgard - AdGuard - admin login".
+adguard_admin_user: admin
+adguard_admin_password_hash_vault_path: "ansible/adguard/admin-password-hash"
+adguard_admin_password_hash_vault_field: hash
+
+# Rewrites — DNS-level overrides. Empty by default; the per-host
+# group_vars (adguard_hosts.yml) supplies the actual list. Each entry
+# is `{ domain: "...", answer: "..." }`. adguardhome-sync mirrors
+# these from Saga to Mimir + Kvasir on a cron.
+adguard_rewrites: []
+
+# Query log + statistics retention. Operator chose "long querylog,
+# short stats" — keep 90 days of per-query history (useful for "what
+# was that device doing last month?") but only 24h of aggregated
+# stats (the dashboard view, which gets noisy/large over longer windows).
+adguard_querylog_interval_hours: 2160 # 90 days
+adguard_statistics_interval_hours: 24
+
+# Filter subscription state. AdGuard ships with a curated list; we
+# enable only the canonical "AdGuard DNS filter" by default and
+# leave the rest opt-in via the web UI (operator-managed, mirrored
+# to replicas by adguardhome-sync). Schema-aware: each entry needs
+# id + url + name + enabled.
+adguard_filters:
+  - { id: 1, name: "AdGuard DNS filter", url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt", enabled: true }
+  - { id: 2, name: "AdAway Default Blocklist", url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt", enabled: false }
+
+# Whether to overwrite an existing AdGuardHome.yaml on re-run. Default
+# false (preserves operator edits + the dynamic state adguardhome-sync
+# writes). Set true on first deploy or schema migrations.
+adguard_force_overwrite_config: false

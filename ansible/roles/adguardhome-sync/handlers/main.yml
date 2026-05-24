@@ -1,0 +1,10 @@
+# ansible/roles/adguardhome-sync/handlers/main.yml
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart adguardhome-sync
+  ansible.builtin.systemd:
+    name: adguardhome-sync.service
+    state: restarted

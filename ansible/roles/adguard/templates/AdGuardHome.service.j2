@@ -1,0 +1,25 @@
+{# ansible/roles/adguard/templates/AdGuardHome.service.j2 #}
+{# Filename casing matches the upstream-recommended unit name
+   (AdGuardHome.service, capital A) — operators rely on that string
+   for systemctl muscle memory + the chk_adguard keepalived script. #}
+[Unit]
+Description=AdGuard Home: Network-level blocker
+ConditionFileIsExecutable={{ adguard_binary }}
+After=syslog.target network-online.target
+Wants=network-online.target
+
+[Service]
+StartLimitInterval=5
+StartLimitBurst=10
+ExecStart={{ adguard_binary }} -s run
+WorkingDirectory={{ adguard_work_dir }}
+User={{ adguard_user }}
+Group={{ adguard_group }}
+StandardOutput=file:/var/log/AdGuardHome.out
+StandardError=file:/var/log/AdGuardHome.err
+Restart=always
+RestartSec=10
+EnvironmentFile=-/etc/sysconfig/AdGuardHome
+
+[Install]
+WantedBy=multi-user.target

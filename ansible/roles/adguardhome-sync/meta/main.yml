@@ -1,0 +1,14 @@
+# ansible/roles/adguardhome-sync/meta/main.yml
+---
+galaxy_info:
+  role_name: adguardhome-sync
+  author: ghost
+  description: Install + configure bakito/adguardhome-sync as a systemd service. Cron-driven sync from a single origin (Saga) to N replicas. Pairs with the adguard role.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+dependencies: []

@@ -1,0 +1,21 @@
+# ansible/roles/adguard/tasks/service.yml
+---
+- name: Install AdGuardHome.service systemd unit
+  ansible.builtin.template:
+    src: AdGuardHome.service.j2
+    dest: /etc/systemd/system/AdGuardHome.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart AdGuardHome
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start AdGuardHome.service
+  ansible.builtin.systemd:
+    name: AdGuardHome.service
+    enabled: true
+    state: started

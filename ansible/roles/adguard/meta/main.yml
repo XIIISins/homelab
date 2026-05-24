@@ -1,0 +1,14 @@
+# ansible/roles/adguard/meta/main.yml
+---
+galaxy_info:
+  role_name: adguard
+  author: ghost
+  description: Install + configure AdGuard Home as a DNS server. Pairs with the adguardhome-sync role for primary→replica sync and the generic keepalived role for VIP floating.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+dependencies: []

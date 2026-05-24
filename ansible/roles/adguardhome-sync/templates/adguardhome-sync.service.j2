@@ -1,0 +1,18 @@
+{# ansible/roles/adguardhome-sync/templates/adguardhome-sync.service.j2 #}
+[Unit]
+Description=AdGuard Home Sync — cron-driven config replication from saga to mimir+kvasir
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ adguardhome_sync_user }}
+Group={{ adguardhome_sync_group }}
+ExecStart={{ adguardhome_sync_binary }} run --config {{ adguardhome_sync_config_path }}
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

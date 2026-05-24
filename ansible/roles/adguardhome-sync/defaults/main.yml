@@ -1,0 +1,69 @@
+# ansible/roles/adguardhome-sync/defaults/main.yml
+---
+# bakito/adguardhome-sync version pin.
+adguardhome_sync_version: "v0.9.0"
+# Upstream release-asset URL pattern.
+adguardhome_sync_tarball_url: >-
+  https://github.com/bakito/adguardhome-sync/releases/download/{{ adguardhome_sync_version }}/adguardhome-sync_{{ adguardhome_sync_version | regex_replace('^v', '') }}_linux_amd64.tar.gz
+
+# Identity. Runs as root by default — matches the operator's existing
+# manual deploy + lets it bind any future port without setcap drift.
+# Override to a system user if you want narrower privileges; the
+# systemd unit's ProtectSystem=strict + ReadOnlyPaths already keeps
+# the blast radius small even as root.
+adguardhome_sync_user: root
+adguardhome_sync_group: root
+
+# Layout. Binary at /usr/local/bin/ matches FHS (3.0: "for local
+# executables") + the operator's pre-IaC install. Config in /etc/
+# is standard.
+adguardhome_sync_binary: /usr/local/bin/adguardhome-sync
+adguardhome_sync_config_path: /etc/adguardhome-sync.yaml
+
+# Cron — `*/1` per the long-pending open-question (was `*/30`,
+# which is too long during operational changes like VIP failover).
+# Sync is cheap + idempotent; overkill is fine.
+adguardhome_sync_cron: "*/1 * * * *"
+
+# Whether to run a sync immediately at service start. Useful on
+# replica reboot / replica rebuild — gets them caught up without
+# waiting for the next cron tick.
+adguardhome_sync_run_on_start: true
+
+# Origin (primary) + replica list. URLs are port-less because the
+# adguard role binds AGH's web UI to port 80 (operator choice — lets
+# clients hit `http://saga.niflheim.xiiisins.com/` without a port).
+# If you override `adguard_web_port` somewhere, update these too.
+adguardhome_sync_origin:
+  name: saga
+  url: http://10.0.11.201
+adguardhome_sync_replicas:
+  - name: mimir
+    url: http://10.0.11.202
+  - name: kvasir
+    url: http://10.0.11.203
+
+# Admin user — same across all three nodes (the adguard role
+# bootstraps them with the same Vault-sourced hash). Password is
+# looked up from Vault.
+adguardhome_sync_admin_user: admin
+adguardhome_sync_admin_password_vault_path: "ansible/adguardhome-sync/admin-password"
+adguardhome_sync_admin_password_vault_field: password
+
+# Features to sync. AdGuardHome-sync supports a granular allow/deny
+# list — we sync everything except the global DNS settings (each
+# replica keeps its own listen addresses) and the per-replica TLS
+# config (none configured today; placeholder for the future).
+adguardhome_sync_features:
+  general_settings: true
+  query_log_config: true
+  stats_config: true
+  client_settings: true
+  services: true
+  filters: true
+  dhcp: false # Saga is not the DHCP server; UCG-Ultra is.
+  dns:
+    server_config: false # per-node listen addresses differ
+    access_lists: true
+    rewrites: true
+  theme: true

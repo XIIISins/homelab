@@ -1,0 +1,51 @@
+# ansible/roles/adguard/tasks/install.yml
+---
+# Idempotent download + extract. The version-check fact prevents
+# re-downloads on every run; only fires when the installed version
+# differs from `adguard_version`.
+
+- name: Check installed AdGuardHome version
+  ansible.builtin.command: "{{ adguard_binary }} --version"
+  register: adguard_installed_version_check
+  changed_when: false
+  failed_when: false # binary may not exist yet
+
+- name: Set fact for installed version
+  ansible.builtin.set_fact:
+    adguard_installed_version: >-
+      {{ (adguard_installed_version_check.stdout | regex_search('v?[0-9]+\.[0-9]+\.[0-9]+'))
+         | default('none', true) }}
+
+- name: Download AdGuardHome tarball
+  ansible.builtin.get_url:
+    url: "{{ adguard_tarball_url }}"
+    dest: "/tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz"
+    mode: "0644"
+  when: adguard_installed_version != adguard_version
+
+- name: Ensure install dir exists
+  ansible.builtin.file:
+    path: "{{ adguard_install_dir }}"
+    state: directory
+    owner: "{{ adguard_user }}"
+    group: "{{ adguard_group }}"
+    mode: "0755"
+
+# Extract preserves the tarball's `AdGuardHome/` top-level dir →
+# strip-components=1 lands files directly under adguard_install_dir.
+- name: Extract AdGuardHome tarball
+  ansible.builtin.unarchive:
+    src: "/tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz"
+    dest: "{{ adguard_install_dir }}"
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+    owner: "{{ adguard_user }}"
+    group: "{{ adguard_group }}"
+  when: adguard_installed_version != adguard_version
+  notify: restart AdGuardHome
+
+- name: Clean up tarball
+  ansible.builtin.file:
+    path: "/tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz"
+    state: absent
+  when: adguard_installed_version != adguard_version

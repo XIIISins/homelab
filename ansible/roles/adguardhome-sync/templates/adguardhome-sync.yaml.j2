@@ -1,0 +1,39 @@
+{# ansible/roles/adguardhome-sync/templates/adguardhome-sync.yaml.j2 #}
+{# bakito/adguardhome-sync config. Cron-driven sync from a single
+   origin (Saga) to N replicas (Mimir, Kvasir). #}
+cron: "{{ adguardhome_sync_cron }}"
+runOnStart: {{ adguardhome_sync_run_on_start | to_json }}
+
+origin:
+  url: {{ adguardhome_sync_origin.url }}
+  username: {{ adguardhome_sync_admin_user }}
+  password: "{{ adguardhome_sync_admin_password }}"
+
+replicas:
+{% for r in adguardhome_sync_replicas %}
+  - url: {{ r.url }}
+    username: {{ adguardhome_sync_admin_user }}
+    password: "{{ adguardhome_sync_admin_password }}"
+    autoSetup: false
+{% endfor %}
+
+features:
+  generalSettings: {{ adguardhome_sync_features.general_settings | to_json }}
+  queryLogConfig: {{ adguardhome_sync_features.query_log_config | to_json }}
+  statsConfig: {{ adguardhome_sync_features.stats_config | to_json }}
+  clientSettings: {{ adguardhome_sync_features.client_settings | to_json }}
+  services: {{ adguardhome_sync_features.services | to_json }}
+  filters: {{ adguardhome_sync_features.filters | to_json }}
+  dhcp:
+    serverConfig: {{ adguardhome_sync_features.dhcp | to_json }}
+    staticLeases: {{ adguardhome_sync_features.dhcp | to_json }}
+  dns:
+    serverConfig: {{ adguardhome_sync_features.dns.server_config | to_json }}
+    accessLists: {{ adguardhome_sync_features.dns.access_lists | to_json }}
+    rewrites: {{ adguardhome_sync_features.dns.rewrites | to_json }}
+  theme: {{ adguardhome_sync_features.theme | to_json }}
+
+api:
+  port: 8080
+  metrics:
+    enabled: false

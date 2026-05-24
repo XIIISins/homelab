@@ -1,0 +1,99 @@
+# ansible/inventory/group_vars/adguard_hosts.yml
+---
+# AdGuard Home trio group vars. Composes with role defaults from
+# baseline, adguard, adguardhome-sync, keepalived, hardening.
+#
+# Cluster shape (Phase 5b.2):
+#   - Saga   (10.0.11.201 / 10.0.10.201, Urd)   — VRRP primary (priority 100), sync ORIGIN
+#   - Mimir  (10.0.11.202 / 10.0.10.202, Verd)  — first failover (90), replica
+#   - Kvasir (10.0.11.203 / 10.0.10.203, Skuld) — second failover (80), replica
+#
+# eth0 (VLAN 11): DNS queries (port 53) + web UI (port 3000), default gateway
+# eth1 (VLAN 10): keepalived VRRP + VIP 10.0.10.200 (HL-ASG-VIP zone)
+
+# Which node is the canonical sync origin. The adguardhome-sync role
+# only deploys when inventory_hostname == this value.
+adguard_primary_host: saga
+
+# -----------------------------------------------------------------------------
+# AdGuard Home base settings — composed with role defaults
+# -----------------------------------------------------------------------------
+# Rewrites live here for the static, IaC-tracked entries (mirrors of
+# k8s-fronted FQDNs, infra hostnames). The dynamic set (operator
+# additions via the UI) flows through adguardhome-sync from Saga.
+# Per the "in-cluster K8s-fronted FQDNs" decision, rewrites pointing
+# at MetalLB VIPs apply to off-cluster clients (browsers, tailnet) —
+# in-cluster pods use the CoreDNS rewrite to Traefik ClusterIP.
+
+adguard_rewrites: []
+# Example shape (left commented — operator owns these via UI today):
+# adguard_rewrites:
+#   - { domain: "netbox.niflheim.xiiisins.com", answer: "10.0.20.10" }
+#   - { domain: "authentik.midgard.xiiisins.com", answer: "10.0.20.10" }
+
+# -----------------------------------------------------------------------------
+# adguardhome-sync — only consumed on saga (gated in the playbook)
+# -----------------------------------------------------------------------------
+# Defaults in the role already point at the right Saga/Mimir/Kvasir
+# IPs. No overrides needed unless topology changes.
+
+# -----------------------------------------------------------------------------
+# keepalived — VIP 10.0.10.200 on VLAN 10 (HL-ASG-VIP)
+# -----------------------------------------------------------------------------
+# All peers start as BACKUP; election by priority (avoids dual-MASTER
+# on simultaneous boot when interfaces come up out of order).
+#
+# chk_adguard tracking: the actual workload is AdGuard Home. If it's
+# down on the current VIP holder, the VIP must move regardless of
+# node health. weight -50 drops the holder's effective priority enough
+# that the next peer wins (100→50 < 90 on Saga, 90→40 < 80 on Mimir).
+#
+# virtual_router_id 51: PG HAProxy VIP 10.0.10.210 runs VRRP on the
+# same L2 segment at VRID 61 (spacing-by-10 convention).
+# See CLAUDE.md "VRID collision on shared L2 segment".
+
+keepalived_priorities:
+  saga: { VI_ADGUARD: 100 }
+  mimir: { VI_ADGUARD: 90 }
+  kvasir: { VI_ADGUARD: 80 }
+
+keepalived_vrrp_scripts:
+  - name: chk_adguard
+    # systemctl is-active returns 0 only when the unit is active.
+    # Catches failed/activating/inactive all as failure — more
+    # accurate than the operator's pre-IaC `pgrep AdGuardHome`
+    # (which passes for any process named AdGuardHome regardless
+    # of systemd's view) and avoids psmisc.
+    # NOTE the capital-A unit name — matches upstream + role template.
+    script: "/usr/bin/systemctl is-active --quiet AdGuardHome.service"
+    interval: 2
+    weight: -50
+    fall: 2
+    rise: 2
+
+keepalived_vrrp_instances:
+  - name: VI_ADGUARD
+    interface: eth1
+    virtual_router_id: 51
+    priority: "{{ keepalived_priorities[inventory_hostname].VI_ADGUARD }}"
+    auth_pass: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/keepalived/adguard_vrrp').secret.auth_pass }}"
+    virtual_ipaddresses:
+      - "10.0.10.200/24 dev eth1"
+    track_scripts: [chk_adguard]
+
+# -----------------------------------------------------------------------------
+# Source-based policy routing for VLAN 10
+# -----------------------------------------------------------------------------
+# VIP segment (VLAN 10) is not on the default route (VLAN 11). DNS
+# queries from clients on VLANs other than 10/11 hit the VIP via L3
+# routing. Replies sourced from the VIP IP need to exit on eth1; the
+# default route on eth0 would carry them out a wrong-source-address
+# path and UCG-Ultra's stateful firewall would drop. Same class as
+# the HAProxy/etcd VLAN 10 fix.
+
+keepalived_source_policy_routing:
+  - name: vlan10
+    table_id: 200
+    from: 10.0.10.0/24
+    gateway: 10.0.10.1
+    interface: eth1
