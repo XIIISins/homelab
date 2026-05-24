@@ -178,3 +178,55 @@ resource "vault_kv_secret_v2" "netbox_postgres_k8s" {
     value = random_password.netbox_postgres.result
   })
 }
+
+# -----------------------------------------------------------------------------
+# NetBox app + superuser secrets (K8s-only, no Ansible consumer)
+# -----------------------------------------------------------------------------
+# secret_key is NetBox's Django SECRET_KEY — must be ≥50 chars; 64 chars of
+# alphanumeric gives 380 bits of entropy. Rotating it invalidates all signed
+# data (sessions, password reset tokens, etc.) — operator only, not scheduled.
+#
+# superuser is the bootstrap admin (`admin` user) created at first NetBox
+# startup. Used as a break-glass account when OIDC is down — password lives
+# in 1Password's Homelab vault as the canonical operator-readable copy after
+# first deploy (per the "local admin = 1P break-glass" rule in
+# docs/architecture/identity-secrets.md). The Vault entry here is only the
+# bootstrap-time source for the chart's `superuser.existingSecret` reference;
+# can be rotated independently in Vault if the 1P value drifts.
+#
+# api_token is the superuser's NetBox API token (also bootstrap). Provided
+# pre-minted so any TF integration (Phase 5i.3 — e-breuninger/netbox provider)
+# has a stable token to authenticate with without manual web-UI generation.
+
+resource "random_password" "netbox_secret_key" {
+  length  = 64
+  special = false # printable alphanumeric, no escaping pain in Python literals
+}
+
+resource "vault_kv_secret_v2" "netbox_app" {
+  mount = vault_mount.kv.path
+  name  = "k8s/netbox/app"
+  data_json = jsonencode({
+    secret_key = random_password.netbox_secret_key.result
+  })
+}
+
+resource "random_password" "netbox_superuser_password" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "netbox_superuser_api_token" {
+  length  = 40 # NetBox API tokens are 40 chars by convention
+  special = false
+  upper   = false # NetBox-side convention: lowercase hex-ish
+}
+
+resource "vault_kv_secret_v2" "netbox_superuser" {
+  mount = vault_mount.kv.path
+  name  = "k8s/netbox/superuser"
+  data_json = jsonencode({
+    password  = random_password.netbox_superuser_password.result
+    api_token = random_password.netbox_superuser_api_token.result
+  })
+}

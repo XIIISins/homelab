@@ -1,0 +1,162 @@
+# k8s/asgard/apps/netbox/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: netbox
+  namespace: netbox
+spec:
+  interval: 10m
+  # First-deploy migrations run as a Helm pre-install/upgrade Job and can
+  # take 5–10 min on a fresh PG. 15m gives margin.
+  timeout: 15m
+  chart:
+    spec:
+      chart: netbox
+      # chart 8.2.17 → appVersion v4.6.1 (NetBox community release with
+      # the CVE-2026-29514 fix; pin >=4.6.1).
+      version: "8.2.17"
+      sourceRef:
+        kind: HelmRepository
+        name: netbox
+        namespace: netbox
+  install:
+    # -1 disables uninstall-on-failure for the FIRST deploy — without it,
+    # Helm uninstalls mid-migration on transient errors, leaving orphan
+    # PVCs and partially-migrated DB rows. Restore to `3` once the deploy
+    # is steady-state (see follow-up commit in 5i.f).
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # ── Pin image to chart appVersion explicitly ──────────────────────
+    image:
+      tag: v4.6.1
+
+    # ── External Postgres via HAProxy VIP ─────────────────────────────
+    postgresql:
+      enabled: false # chart's bundled PG off — we use the niflheim-pg cluster
+    externalDatabase:
+      host: 10.0.10.210 # HAProxy VIP, routes to current Patroni leader
+      port: 5432
+      database: netbox
+      username: netbox
+      existingSecretName: netbox-db
+      existingSecretKey: postgresql-password
+      engine: django.db.backends.postgresql
+      connMaxAge: 300
+      disableServerSideCursors: false
+      options:
+        # sslMode key removed in chart v5 — TLS opts moved into options.
+        sslmode: "require"
+        # libpq belt-and-braces against any Patroni VIP edge-case
+        # split-second (HAProxy /master health-check already routes to
+        # the leader; this enforces it at the client-driver level too).
+        target_session_attrs: "read-write"
+
+    # ── Bundled Valkey (Redis-protocol KV store, chart switched from
+    #    Redis → Valkey in v5; consumer keys unchanged) ───────────────
+    valkey:
+      enabled: true
+      sentinel:
+        enabled: false
+      # Auth on by default; chart auto-wires the generated password to
+      # tasksDatabase + cachingDatabase. No external Valkey to configure.
+
+    # ── App secrets (mounted via existingSecret references) ───────────
+    existingSecret: netbox-app # provides secret_key
+
+    superuser:
+      username: admin
+      email: admin@niflheim.xiiisins.com
+      existingSecret: netbox-superuser # provides password + api_token
+
+    # ── ALLOWED_HOSTS (Django setting) ────────────────────────────────
+    allowedHosts:
+      - netbox.niflheim.xiiisins.com
+
+    # ── Authentik OIDC ────────────────────────────────────────────────
+    # NetBox 4.6 still uses python-social-auth (not allauth). Backend
+    # class is the explicit OpenIdConnect one. autoCreateUser=true so a
+    # first OIDC login provisions a NetBox user record automatically
+    # (in-NetBox permissions still assigned manually until we add a
+    # SOCIAL_AUTH_PIPELINE override for OIDC group→permission sync —
+    # deferred per 5i.c research).
+    remoteAuth:
+      enabled: true
+      backends:
+        - social_core.backends.open_id_connect.OpenIdConnectAuth
+      autoCreateUser: true
+
+    extraConfig:
+      # Non-secret OIDC values: discovery endpoint + scopes + logout URL.
+      # OIDC endpoint MUST match the discovery `issuer` value
+      # (https://authentik.midgard.xiiisins.com/application/o/netbox/)
+      # — python-social-auth validates JWT iss claim against this.
+      - values:
+          SOCIAL_AUTH_OIDC_OIDC_ENDPOINT: "https://authentik.midgard.xiiisins.com/application/o/netbox"
+          SOCIAL_AUTH_OIDC_SCOPE:
+            - openid
+            - profile
+            - email
+          LOGOUT_REDIRECT_URL: "https://authentik.midgard.xiiisins.com/application/o/netbox/end-session/"
+      # Secret OIDC values: client_id + client_secret rendered into a
+      # Python config file by the netbox-oidc ExternalSecret. Mounted
+      # via the chart's extraConfig: secret pattern.
+      - secret:
+          secretName: netbox-oidc
+          items:
+            - key: 99-oidc.py
+              path: 99-oidc.py
+
+    # ── DNS pinning for Authentik FQDN ────────────────────────────────
+    # Same class as 5g.2's "use VIP IPs, not internal-zone FQDNs for
+    # K8s-to-LXC service traffic" rule, generalized to K8s-to-K8s via
+    # Traefik. Pod-internal OIDC backchannel (discovery on startup +
+    # token exchange + userinfo per login) bypasses CoreDNS for
+    # midgard zone resolution — eliminates the cached-NXDOMAIN class
+    # (open-questions row 143) for NetBox's OIDC path.
+    # The in-browser auth flow is unaffected (user's browser uses LAN
+    # DNS through AGH directly — not relevant to pod resolution).
+    hostAliases:
+      - ip: 10.0.20.10 # Traefik VIP — Authentik fronted by Traefik
+        hostnames:
+          - authentik.midgard.xiiisins.com
+
+    # ── Media PVC (device photos; optional but cheap) ─────────────────
+    persistence:
+      enabled: true
+      storageClass: synology-csi-iscsi-retain
+      accessMode: ReadWriteOnce
+      size: 5Gi
+
+    # No custom reports or scripts for first deploy.
+    reportsPersistence:
+      enabled: false
+    scriptsPersistence:
+      enabled: false
+
+    # ── Resource sizing ───────────────────────────────────────────────
+    # `small` bitnami preset = 500m/750m CPU, 512Mi/768Mi memory limits.
+    # Right for our scale (<100 devices, single-operator query load).
+    # If OOMKills appear, bump to `medium`.
+    resourcesPreset: small
+    replicaCount: 1 # bump to 2 once steady-state, for rolling-update headroom
+
+    worker:
+      replicaCount: 1
+      resourcesPreset: small
+
+    housekeeping:
+      enabled: true
+      schedule: "30 3 * * *" # 03:30 daily — cheap maintenance pass
+
+    # ── No edge routing via chart ─────────────────────────────────────
+    # HTTPRoute lives as a separate manifest (5i.d), consistent with
+    # the apex-static + authentik pattern. Disable chart's own routing.
+    ingress:
+      enabled: false
+    httpRoute:
+      enabled: false

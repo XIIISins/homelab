@@ -1,0 +1,14 @@
+# k8s/asgard/apps/netbox/helmrepository.yaml
+#
+# OCI HelmRepository for the NetBox community chart. Source switched from
+# the legacy HTTPS index at https://charts.netbox.oss.netboxlabs.com/ to
+# OCI per the chart README's current install instructions.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: netbox
+  namespace: netbox
+spec:
+  type: oci
+  interval: 1h
+  url: oci://ghcr.io/netbox-community/netbox-chart

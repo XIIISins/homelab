@@ -1,0 +1,10 @@
+# k8s/asgard/apps/netbox/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: netbox
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
+  - externalsecret.yaml
+  - helmrelease.yaml
+  # httproute.yaml added in 5i.d

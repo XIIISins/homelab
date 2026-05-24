@@ -4,3 +4,4 @@ kind: Kustomization
 
 resources:
   - apex-static
+  - netbox
