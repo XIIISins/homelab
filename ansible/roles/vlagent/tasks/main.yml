@@ -6,9 +6,17 @@
       - ca-certificates # HTTPS to logs.niflheim.xiiisins.com
       - curl # tarball download (get_url uses libcurl)
       - tar # extract
+      - rsyslog # journald → /var/log/syslog forwarder (Debian 13 ships journald-only by default)
     state: present
     update_cache: true
     cache_valid_time: 3600
+  tags: [vlagent, vlagent:packages]
+
+- name: Enable + start rsyslog (so /var/log/syslog actually gets written)
+  ansible.builtin.systemd:
+    name: rsyslog
+    enabled: true
+    state: started
   tags: [vlagent, vlagent:packages]
 
 - name: Create vlagent directory layout
