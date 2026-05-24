@@ -2,17 +2,19 @@
 
 # Observability stack (Phase 7, prep'd 2026-05-24)
 
-VictoriaMetrics + VictoriaLogs in **jotunheim K3s** (Phase 6 prerequisite). Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. Zabbix LXC (Phase 5h) handles infra-level alerting independently; the Phase-7 stack is for K8s-native metrics + logs queries via the native vmui + VictoriaLogs UI.
+VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. Zabbix LXC (Phase 5h) handles infra-level alerting independently from any K3s state; the Phase-7 stack is for K8s-native metrics + logs queries via the native vmui + VictoriaLogs UI.
 
 **No Grafana.** Dropped from scope after the initial sketch — VM ships vmui (interactive PromQL + chart playground) and VictoriaLogs ships its own LogsQL UI; the dashboard layer Grafana adds isn't load-bearing for our homelab workflow. Revisit if/when we need cross-source dashboards, annotation timelines, or a UI-driven dashboards-as-code pipeline.
 
-**Status:** Manifests staged in `k8s/jotunheim/apps/` ready for deployment when Phase 6 (Jotunheim K3s bootstrap) lands. Nothing applied yet — jotunheim doesn't exist.
+**Asgard, not jotunheim.** Earlier draft placed VM/VL in jotunheim per the "monitoring outside production" instinct; reversed before any deploy. Three reasons: jotunheim's deploy timeline is uncertain; the bulk of log/metric producers live in asgard so in-cluster ingest is shorter; failure-domain separation is already preserved by **Zabbix LXC** (fully outside K3s). Full rationale: [`docs/operations/decisions.md`](../operations/decisions.md) row "VM/VL placement — asgard".
+
+**Status:** Manifests staged in `k8s/asgard/apps/` ready for deployment alongside the existing apps. Nothing applied yet — pending the operator's deploy schedule.
 
 ## Architecture
 
 | Layer | Stack | Notes |
 |-------|-------|-------|
-| Cluster | jotunheim K3s | Phase 6 prerequisite. NOT asgard — monitoring + production share no failure domain. |
+| Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by Zabbix LXC (Phase 5h, fully outside K3s). |
 | Namespace | `monitoring` | Shared by both apps |
 | Metrics store + UI | `victoria-metrics-single` chart `0.38.0` | vmsingle (not vmcluster — homelab scale doesn't need sharding). 50 Gi iSCSI PV, 6mo retention. vmui (built into vmsingle) is the dashboard layer. |
 | Log store + UI | `victoria-logs-single` chart `0.12.5` | vlsingle, 50 Gi iSCSI PV, 6mo retention. Native VL UI for LogsQL queries. |
@@ -26,18 +28,25 @@ VictoriaMetrics + VictoriaLogs in **jotunheim K3s** (Phase 6 prerequisite). Repl
 - **Resource footprint**: VictoriaMetrics is ~10× more efficient than Prometheus for the same ingest rate at homelab scale. Less RAM, less CPU, less disk.
 - **Tradeoff**: smaller community + ecosystem than Prometheus. Most Helm charts that ship Prometheus ServiceMonitors require the Prometheus-Operator CRDs to be installed. VM's vmoperator provides equivalent CRDs (VMServiceScrape) but with a name change — adapter manifests sometimes needed.
 
-## Cross-cluster ingress (asgard → jotunheim)
+## Ingest paths
 
-The Phase-7 stack lives in jotunheim, but the bulk of the workload runs in asgard. Need shippers on asgard that send metrics + logs to jotunheim:
+Three classes of producers feed VL + VM:
 
-| Shipper | Source | Sink | Manifests live in (planned) |
-|---------|--------|------|-----------------------------|
-| `vmagent` | Pod ServiceMonitors + node-exporter + various Prometheus-format endpoints across asgard | jotunheim's `victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8429` via the jotunheim MetalLB IP exposed cluster-externally | `k8s/asgard/infrastructure/vmagent/` (TODO — defer until jotunheim's MetalLB pool + a VictoriaMetrics ingest LoadBalancer Service are known) |
-| `vector` or `vmlogs-agent` | Container logs (`/var/log/containers/*.log`) + journal | jotunheim's VictoriaLogs ingest endpoint | `k8s/asgard/infrastructure/log-shipper/` (TODO — same trigger as vmagent) |
+| Producer | Path | Shipper |
+|----------|------|---------|
+| K3s pods (container logs, application metrics, ServiceMonitor-emitting charts) | DaemonSet on every asgard node tails `/var/log/containers/*.log` + reads the kubelet metrics → in-cluster Service DNS for VL/VM | `vector` chart, DaemonSet — manifests at `k8s/asgard/infrastructure/vector/` (Phase 7 prep) |
+| Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, **Zabbix** — Phase 5h, etc.) | Vector reads journald + per-service log files → in-cluster VL ingest via the MetalLB-exposed VL LoadBalancer Service | `ansible/roles/vector/` (Phase 7 prep) |
+| Proxmox VMs (K3s nodes themselves — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs — Vector via Ansible reading journald + K3s-server-or-agent logs | Same `ansible/roles/vector/` |
 
-**Network path:** asgard worker IPs (`10.0.21.21/22/23` on VLAN 21 + `10.0.20.201/202/203` on VLAN 20) ↔ jotunheim worker IPs (`10.0.31.21/22/23` on VLAN 31 + `10.0.30.x` MetalLB). The two K3s clusters are on different VLANs but both reachable through UCG-Ultra's `Internal → Any: Allow` rule. No special firewall config needed; cross-cluster traffic uses Service-IPs through the LoadBalancer published by jotunheim.
+**In-cluster vs out-of-cluster ingest endpoint:** asgard pods send to VL via in-cluster Service DNS (`victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428`). LXCs + VMs that aren't K8s pods can't resolve cluster DNS, so they need either (a) a MetalLB-exposed LoadBalancer Service for VL, or (b) an HTTPRoute on the niflheim Gateway with an internal-only listener. Picking (a) — a dedicated LoadBalancer Service at a stable IP from the MetalLB pool keeps the off-cluster shipping ingress path simple. The vmui + VL UI HTTPRoutes stay for human use.
 
-**Standing question:** should we use TLS for the cross-cluster shipping? Homelab-internal, all on the trusted UCG-Ultra L3, so plaintext is acceptable for now. Revisit if/when a workload that handles sensitive logs (e.g. Authentik) is added.
+**Rollout priority** (per the operator's 5h follow-on direction):
+
+1. **Zabbix LXC** — first non-system workload to plug in. Its logs flow to VL the same as any other LXC; sets the pattern + validates the agent role.
+2. **VL + VM themselves** — VL's pod logs go via the DaemonSet, VM's similarly. (Recursive but useful: "what did VL just complain about?" answerable inside VL.)
+3. **Other workloads** — cascade out: remaining LXCs, K3s pods, Proxmox VMs. Order doesn't matter much past #1.
+
+**Standing question:** TLS for the in-homelab shipping? All on the trusted UCG-Ultra L3 + Vector→VL HTTP is straightforward. Defer TLS until a workload that handles sensitive log content (e.g. Authentik audit events) is in scope.
 
 ## Secrets
 
@@ -50,19 +59,17 @@ None required for the Phase-7 baseline. VictoriaMetrics + VictoriaLogs expose un
 | VictoriaMetrics UI / vmui | `https://victoriametrics.niflheim.xiiisins.com/` | Native vmui + Prometheus-compatible API at `/api/v1/query`, `/api/v1/query_range`. Operator-facing. |
 | VictoriaLogs UI | `https://victorialogs.niflheim.xiiisins.com/` | Native VL UI for log queries; LogsQL syntax. |
 
-## Deployment dependencies (Phase 6 must land first)
+## Deployment dependencies
 
-Before this stack can deploy, jotunheim must have:
+Asgard already has everything VM/VL need — the stack lands on existing infrastructure with no Phase-6 blocker. Specifically reused:
 
-1. **K3s cluster** with all CPs + workers Ready.
-2. **Flux + GitRepository** pointing at this repo, watching `k8s/jotunheim/` (the bootstrap is the same `flux bootstrap` step as asgard — separate deploy key).
-3. **Sealed Secrets** (for any bootstrap secrets needed before ESO is up).
-4. **External Secrets Operator** + `ClusterSecretStore` named `vault` pointing at asgard's Vault (`http://10.0.20.11:8200`). Jotunheim consumes asgard's Vault — no separate Vault server.
-5. **Synology CSI** with the `synology-csi-iscsi-retain` StorageClass. May share Munin with asgard or use a separate iSCSI target — operator choice.
-6. **MetalLB** with a pool from `10.0.30.0/24` (per CLAUDE.md VLAN table).
-7. **tigera-operator + Calico** with the same MTU 1450 fix as asgard.
-8. **Gateway API + Traefik** with a `niflheim` Gateway in the `traefik` namespace + a `websecure` listener with the jotunheim-domain wildcard cert. AGH split-DNS already routes `*.niflheim.xiiisins.com` → AGH VIP → resolves to jotunheim's Traefik LoadBalancer for any HTTPRoute hosts that we configure here.
-9. **cert-manager** with DNS-01 issuer + the wildcard cert for `niflheim.xiiisins.com` (or jotunheim could use the same wildcard cert as asgard via cert-manager federation — operator decides).
+1. **Synology CSI** + `synology-csi-iscsi-retain` StorageClass for VM/VL PVs (50 Gi each).
+2. **Gateway API + Traefik** + the `niflheim` Gateway already serving NetBox / authentik / etc. — VM/VL get HTTPRoutes attached to the same Gateway.
+3. **cert-manager** + the wildcard `*.niflheim.xiiisins.com` cert (already mounted on the niflheim Gateway).
+4. **AGH split-DNS** for `*.niflheim.xiiisins.com` — adds `victoriametrics.niflheim.xiiisins.com` + `victorialogs.niflheim.xiiisins.com` rewrites pointing at the Traefik VIP.
+5. **MetalLB** — additional LoadBalancer Service for VL ingest (off-cluster shippers can't resolve in-cluster Service DNS). Pick an IP from the asgard MetalLB pool `10.0.20.11–.99`.
+
+NO Vault writes required for the baseline. VM + VL ship with unauthenticated HTTP on internal-only HTTPRoutes. If/when we add TLS to the in-homelab shipping path or wire OIDC for the UIs, that adds Vault paths — defer until needed.
 
 ## Operational notes
 
@@ -73,9 +80,9 @@ Before this stack can deploy, jotunheim must have:
 
 ## Pending follow-ups
 
-- **Phase 6** — jotunheim K3s bootstrap (cluster + infra stack). Blocking everything in this doc.
-- **Phase 7 actual deploy** — once Phase 6 lands, configure jotunheim's ESO ClusterSecretStore, `flux bootstrap` + reconcile. No Vault writes required for the baseline (VM + VL run unauthenticated on internal-only HTTPRoutes).
-- **vmagent + log-shipper on asgard** — once jotunheim's MetalLB IPs are pinned, deploy the asgard-side shippers. Manifests TBD in `k8s/asgard/infrastructure/{vmagent,log-shipper}/`.
+- **Phase 7 actual deploy** — `flux reconcile` on asgard once the operator schedules it. NO Vault writes required for the baseline.
+- **Vector DaemonSet on asgard for K8s container logs** — manifests at `k8s/asgard/infrastructure/vector/` (Phase 7 prep, TBD).
+- **Vector Ansible role for LXCs + VMs** — at `ansible/roles/vector/` (Phase 7 prep, TBD). Zabbix LXC first per the operator's priority.
 - **vmoperator + ServiceMonitor → VMServiceScrape** — Phase 7b.
 - **Cross-source dashboards** — if vmui + LogsQL UI's ad-hoc queries stop scaling for the kinds of analyses we want, revisit Grafana (was dropped from initial Phase 7 scope). Trigger: needing canned dashboards with annotations spanning metrics + logs together, OR needing to share read-only dashboards with non-operator users.
 

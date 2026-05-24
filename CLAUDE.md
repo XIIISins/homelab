@@ -46,7 +46,7 @@ Each rule cross-refs [`docs/operations/decisions.md`](docs/operations/decisions.
 
 ### Services / placement
 - **Jellyfin: privileged LXC on Urd.** Intel QuickSync `/dev/dri` passthrough. Not in K3s.
-- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in jotunheim K3s.** Zabbix stays LXC for monitoring independence. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need.
+- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in asgard K3s.** Zabbix stays LXC for monitoring independence (separate failure domain from K3s). VM + VL live in asgard rather than jotunheim — keeps the log-ingest path in-cluster for the workloads producing logs + sidesteps the jotunheim-deploy timing dependency. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need. Log shipping via **Vector** (DaemonSet on K3s nodes for container logs + Ansible role on LXCs/VMs for journald + per-service logs) → VL ingest endpoint.
 - **Ansible: AWX in jotunheim K3s.** 30-min scheduled reconciliation. Vault-backed credentials.
 - **PBS: privileged LXC on Skuld.** NFS bind-mounted via Proxmox host.
 

@@ -5,3 +5,12 @@ kind: Kustomization
 resources:
   - apex-static
   - netbox
+  # Shared monitoring namespace — both Phase-7 apps live here.
+  - monitoring-namespace
+  # Phase 7 — observability stack (relocated from jotunheim 2026-05-24
+  # for operational reasons: jotunheim's deploy timeline is uncertain;
+  # asgard already has the infrastructure VM/VL need, AND keeping VL
+  # in the same cluster as the workloads producing logs simplifies
+  # the ingest path. See decisions.md "VM/VL placement — asgard".
+  - victoriametrics
+  - victorialogs

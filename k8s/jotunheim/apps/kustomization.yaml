@@ -2,10 +2,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:
-  # Shared monitoring namespace — both Phase-7 apps live here.
-  - monitoring-namespace
-  # Phase 7 — observability stack. Native vmui + VL UI are used
-  # for dashboards; Grafana was dropped from scope (see decisions.md).
-  - victoriametrics
-  - victorialogs
+# Empty for now — jotunheim is reserved as the "can implode" cluster
+# per the architectural invariant. Phase 7 observability moved to
+# asgard 2026-05-24 (see decisions.md "VM/VL placement — asgard").
+# Workloads land here later as Phase 6 (Jotunheim K3s bootstrap)
+# completes + specific apps are designated for jotunheim placement.
+
+resources: []
