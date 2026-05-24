@@ -60,10 +60,26 @@ spec:
     #    Redis → Valkey in v5; consumer keys unchanged) ───────────────
     valkey:
       enabled: true
+      # Chart default is `replication` (1 primary + N replicas). For a
+      # single-tenant cache where reload-on-restart is fine, replication
+      # is unnecessary complexity (and double the disk consumption).
+      architecture: standalone
       sentinel:
         enabled: false
-      # Auth on by default; chart auto-wires the generated password to
-      # tasksDatabase + cachingDatabase. No external Valkey to configure.
+      auth:
+        enabled: true # default; chart auto-wires the password through
+      # Synology CSI iSCSI volumes don't honor fsGroup reliably (see
+      # CLAUDE.md "Storage / iSCSI" gotchas — same class as Vault +
+      # Authentik Redis). bitnami-valkey ships a built-in chown
+      # initContainer for this; enabling it adds a root-running pre-pod
+      # that chowns the data dir to the valkey runtime UID/GID.
+      volumePermissions:
+        enabled: true
+      primary:
+        persistence:
+          enabled: true
+          storageClass: synology-csi-iscsi-retain
+          size: 2Gi
 
     # ── App secrets (mounted via existingSecret references) ───────────
     existingSecret: netbox-app # provides secret_key
