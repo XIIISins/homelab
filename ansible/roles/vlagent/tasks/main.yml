@@ -1,0 +1,112 @@
+# ansible/roles/vlagent/tasks/main.yml
+---
+- name: Install required apt packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates # HTTPS to logs.niflheim.xiiisins.com
+      - curl # tarball download (get_url uses libcurl)
+      - tar # extract
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [vlagent, vlagent:packages]
+
+- name: Create vlagent directory layout
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vlagent_user }}"
+    group: "{{ vlagent_group }}"
+    mode: "0750"
+  loop:
+    - /etc/vlagent
+    - "{{ vlagent_data_dir }}"
+    - "{{ vlagent_log_dir }}"
+  tags: [vlagent, vlagent:dirs]
+
+- name: Check installed vlagent version
+  ansible.builtin.command: "{{ vlagent_binary }} --version"
+  register: vlagent_installed_version_check
+  changed_when: false
+  failed_when: false
+  tags: [vlagent, vlagent:install]
+
+- name: Set fact for installed version
+  ansible.builtin.set_fact:
+    vlagent_installed_version: >-
+      {{ (vlagent_installed_version_check.stdout | regex_search('v?[0-9]+\.[0-9]+\.[0-9]+'))
+         | default('none', true) }}
+  tags: [vlagent, vlagent:install]
+
+- name: Download vlutils tarball
+  ansible.builtin.get_url:
+    url: "{{ vlagent_tarball_url }}"
+    dest: "/tmp/vlutils-{{ vlagent_version }}.tar.gz"
+    mode: "0644"
+  when: vlagent_installed_version != vlagent_version
+  tags: [vlagent, vlagent:install]
+
+- name: Extract vlagent binary to /usr/local/bin
+  ansible.builtin.unarchive:
+    src: "/tmp/vlutils-{{ vlagent_version }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: ["vlagent-prod"]
+    owner: root
+    group: root
+    mode: "0755"
+  when: vlagent_installed_version != vlagent_version
+  notify: restart vlagent
+  tags: [vlagent, vlagent:install]
+
+# Upstream tarball ships the binary as `vlagent-prod`. Symlink to the
+# canonical `vlagent` name so the systemd unit + version-check task
+# don't have to know about the rename.
+- name: Symlink vlagent → vlagent-prod
+  ansible.builtin.file:
+    src: /usr/local/bin/vlagent-prod
+    dest: "{{ vlagent_binary }}"
+    state: link
+    owner: root
+    group: root
+  tags: [vlagent, vlagent:install]
+
+- name: Clean up tarball
+  ansible.builtin.file:
+    path: "/tmp/vlutils-{{ vlagent_version }}.tar.gz"
+    state: absent
+  when: vlagent_installed_version != vlagent_version
+  tags: [vlagent, vlagent:install]
+
+- name: Render /etc/vlagent/vlagent.yaml
+  ansible.builtin.template:
+    src: vlagent.yaml.j2
+    dest: "{{ vlagent_config_path }}"
+    owner: "{{ vlagent_user }}"
+    group: "{{ vlagent_group }}"
+    mode: "0640"
+  notify: restart vlagent
+  tags: [vlagent, vlagent:config]
+
+- name: Install vlagent.service systemd unit
+  ansible.builtin.template:
+    src: vlagent.service.j2
+    dest: /etc/systemd/system/vlagent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart vlagent
+  tags: [vlagent, vlagent:service]
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+  tags: [vlagent, vlagent:service]
+
+- name: Enable + start vlagent.service
+  ansible.builtin.systemd:
+    name: vlagent.service
+    enabled: true
+    state: started
+  tags: [vlagent, vlagent:service]

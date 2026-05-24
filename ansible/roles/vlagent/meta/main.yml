@@ -1,0 +1,17 @@
+# ansible/roles/vlagent/meta/main.yml
+---
+galaxy_info:
+  role_name: vlagent
+  author: ghost
+  description: Install + configure vlagent (VictoriaLogs project shipper) as a systemd binary. Tails /var/log/syslog + /var/log/messages + /var/log/kern.log by default; per-host vlagent_log_inputs override extends for service-specific log files. Ships to VictoriaLogs via the niflheim Gateway HTTPRoute /insert/ unauth path.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+    - name: EL
+      versions:
+        - "9"
+dependencies: []

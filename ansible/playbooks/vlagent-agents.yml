@@ -1,0 +1,35 @@
+# ansible/playbooks/vlagent-agents.yml
+---
+# Cluster-wide vlagent rollout. Same Pattern-B as the zabbix-agents
+# playbook: one playbook for the shipper across all the hosts that
+# need it, run separately from per-service playbooks.
+#
+# Targets everything that ISN'T already covered by the K3s pod-log
+# DaemonSet (k8s/asgard/infrastructure/victoria-logs-collector/):
+#   - All LXCs (factorio, AGH trio, tailscale trio, PG trio,
+#     HAProxy/etcd trio, Zabbix when deployed, PBS)
+#   - K3s VMs themselves (host journald → syslog, NOT pod logs)
+#   - Proxmox PVE hosts (Urd/Verd/Skuld)
+#
+# Excludes the asgard K3s GROUPS from the host pattern because:
+#   - asgard_k3s_cp + asgard_k3s_workers run /var/log/syslog with
+#     mostly K3s-server-or-agent + kernel logs. The K8s container
+#     logs go via the DaemonSet. The host's own journald is a
+#     separate concern — covered HERE (intentionally), since `all`
+#     includes asgard_k3s_*. Read carefully: this playbook INCLUDES
+#     K3s VMs; it just doesn't double-handle the pod logs.
+#
+# Rollout strategy:
+#   - serial: 1 default — sequential, watch each before next
+#   - tags to limit by group: `--limit factorio` first, then cascade
+#   - --check + --diff for the first dry-run
+
+- name: Roll out vlagent cluster-wide
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: "{{ vlagent_serial | default(1) }}"
+
+  roles:
+    - role: vlagent
+      tags: [vlagent]

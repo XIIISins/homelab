@@ -1,0 +1,68 @@
+# ansible/roles/vlagent/defaults/main.yml
+---
+# vlagent (VictoriaLogs project shipper) systemd binary install.
+# Ships journald-piped syslog + per-service log files to VictoriaLogs
+# via the /insert/jsonline HTTP endpoint.
+#
+# Match the VL server version pinned in k8s/asgard/apps/victorialogs/
+# helmrelease.yaml (v1.50.0). vlagent is forward-compatible with newer
+# VL servers but lag-version is fine.
+vlagent_version: "v1.50.0"
+
+# Upstream tarball URL — `vlutils` bundles vlagent + a few sibling
+# tools. Standard release line (not enterprise).
+vlagent_tarball_url: "https://github.com/VictoriaMetrics/VictoriaLogs/releases/download/{{ vlagent_version }}/vlutils-linux-amd64-{{ vlagent_version }}.tar.gz"
+
+# Layout — FHS-aligned.
+vlagent_binary: /usr/local/bin/vlagent
+vlagent_config_path: /etc/vlagent/vlagent.yaml
+vlagent_data_dir: /var/lib/vlagent
+vlagent_log_dir: /var/log/vlagent
+
+# Identity — runs as root because:
+#   (a) needs to read /var/log/syslog (root:adm 640 on Debian; could
+#       work via the `adm` group but root is simpler + matches the
+#       systemd unit's default)
+#   (b) for Proxmox hosts, reads /var/log/pve/* which is root-only
+# The binary is single-purpose + has no network listen by default
+# (other than the metrics endpoint we explicitly disable), so the
+# privilege surface is narrow.
+vlagent_user: root
+vlagent_group: root
+
+# VL ingest endpoint. Off-cluster shippers (LXCs, VMs, Proxmox) reach
+# VL via the HTTPRoute on the niflheim Gateway → Traefik → Service.
+# /insert/* path bypasses the Authentik ForwardAuth middleware (see
+# k8s/asgard/apps/victorialogs/httproute.yaml split). Pods on the
+# K3s cluster use in-cluster Service DNS instead.
+vlagent_remote_write_url: "https://logs.niflheim.xiiisins.com/insert/jsonline"
+
+# Buffer size on disk before remote-write retries time out. vlagent
+# auto-drops the oldest data when full; 1G is generous for homelab
+# scale + handles ~hours of VL downtime.
+vlagent_max_disk_usage_per_url: "1GB"
+
+# `host` is the most common identifying field in VL queries. Default
+# to inventory_hostname; per-host override possible via host_vars.
+vlagent_host_label: "{{ inventory_hostname }}"
+
+# Log inputs — list of `path` patterns to tail + optional fields.
+# Defaults below cover the universal Debian/RHEL paths. Per-host or
+# per-group overrides go in group_vars/<group>.yml or host_vars/<host>.yml.
+#
+# Each entry:
+#   path:        glob pattern (vlagent expands)
+#   service:     populated into a `service` field on every entry
+#   format:      `text` (default) or `json` (if the log file is JSON-per-line)
+vlagent_log_inputs:
+  # Debian: /var/log/syslog catches everything routed via rsyslog +
+  # systemd-journald's syslog forwarder. Universal-ish.
+  - path: /var/log/syslog
+    service: syslog
+  # RHEL/Alma/Rocky: /var/log/messages is the equivalent. Harmless
+  # on Debian (file just doesn't exist; vlagent skips missing paths).
+  - path: /var/log/messages
+    service: syslog
+  # Kernel ring buffer — captured via /var/log/kern.log on Debian.
+  - path: /var/log/kern.log
+    service: kernel

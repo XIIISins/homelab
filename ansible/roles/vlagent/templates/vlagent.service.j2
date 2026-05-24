@@ -1,0 +1,32 @@
+{# ansible/roles/vlagent/templates/vlagent.service.j2 #}
+[Unit]
+Description=vlagent — VictoriaLogs project log shipper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ vlagent_user }}
+Group={{ vlagent_group }}
+ExecStart={{ vlagent_binary }} \
+    --remoteWrite.url='{{ vlagent_remote_write_url }}' \
+    --remoteWrite.tmpDataPath={{ vlagent_data_dir }} \
+    --filelog.config={{ vlagent_config_path }} \
+    --loggerOutput=stderr \
+    --loggerLevel=INFO
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Modest hardening — vlagent reads logs (variable paths), writes the
+# data dir, and only network-talks outbound. No PrivateTmp because
+# vlagent uses /tmp for staging in some code paths. No ProtectSystem=
+# strict because we need /var/log read access on the host.
+NoNewPrivileges=true
+ProtectHome=true
+PrivateDevices=true
+ReadWritePaths={{ vlagent_data_dir }} {{ vlagent_log_dir }}
+
+[Install]
+WantedBy=multi-user.target

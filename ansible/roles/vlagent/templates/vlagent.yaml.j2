@@ -1,0 +1,29 @@
+{# ansible/roles/vlagent/templates/vlagent.yaml.j2 #}
+{# vlagent config — filelog input(s) → VL ingest endpoint via HTTP.
+   No native journald support yet upstream (issue #1274), so we
+   tail /var/log/syslog (Debian) + /var/log/messages (RHEL) which
+   journald already routes to via rsyslog/syslog-ng. #}
+
+remoteWrite:
+  - url: "{{ vlagent_remote_write_url }}"
+    maxDiskUsagePerURL: "{{ vlagent_max_disk_usage_per_url }}"
+
+# filelog input — vlagent tails each matched path, watches for
+# rotation (inode change + truncate handling baked in), and ships
+# each new line as a log entry. JSON lines are parsed natively;
+# text lines go to the `_msg` field with `_time` = ingest time.
+filelog:
+{% for input in vlagent_log_inputs %}
+  - path: "{{ input.path }}"
+    # ignore_missing: don't crash if a path doesn't exist on this OS
+    # (e.g. /var/log/messages on Debian-only nodes). vlagent skips +
+    # rechecks periodically; useful for cross-distro role.
+    ignore_missing: true
+    fields:
+      host: "{{ vlagent_host_label }}"
+      service: "{{ input.service | default('unknown') }}"
+{%   if input.format is defined and input.format == 'json' %}
+    # Parse each line as JSON; vlagent maps fields → log entry.
+    format: json
+{%   endif %}
+{% endfor %}
