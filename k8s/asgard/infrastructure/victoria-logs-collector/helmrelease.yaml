@@ -67,9 +67,23 @@ spec:
       # gives you all logs from a chart-deployed workload, etc.
       includePodLabels: true
 
-    # DaemonSet runs as root (privileged enough to read /var/log/
-    # containers/* + the kubelet's log directories). Synology CSI
-    # fsGroup quirk doesn't apply here — no PV, hostPath only.
+    # DaemonSet runs as root. Required because the chart mounts
+    # /var/log + /var/lib from the host (hostPath, both root:root)
+    # and vlagent needs to mkdir /var/lib/vl-collector for its
+    # remote-write buffer. The vlagent image's default user is non-
+    # root → without these overrides, the pod CrashLoopBackOff's on
+    # the very first mkdir attempt:
+    #   FATAL: cannot create directory: mkdir /var/lib/vl-collector/
+    #   vlagent-remotewrite-data: permission denied
+    podSecurityContext:
+      enabled: true
+      runAsUser: 0
+      runAsGroup: 0
+      fsGroup: 0
+    securityContext:
+      enabled: true
+      runAsUser: 0
+      runAsNonRoot: false
 
     # Resource sizing — vlagent is ~50-100 MiB RSS per node steady-
     # state, spikes during catch-up after a node reboot. Reasonable
