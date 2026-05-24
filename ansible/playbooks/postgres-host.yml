@@ -18,22 +18,25 @@
     # management user creation. In Patroni-managed mode this skips
     # cluster.yml / config.yml / hba.yml — Patroni owns those.
     - role: postgres
-      tasks_from: prepare
       tags: [postgres, postgres-prepare]
 
     # Phase 2: Install Patroni, render config, stop+disable Debian PG service
     # on the adoption primary, start Patroni, wait for cluster-readiness.
-    # Sets the `is_patroni_leader` fact consumed by the bootstrap pass.
+    # Sets the `patroni_is_leader` fact consumed by the postgres-common pass.
     - role: patroni
       tags: [patroni]
 
     # Phase 3: Idempotent re-creation of management users + per-service DBs
-    # against the Patroni leader (skipped on replicas — read-only). On Fulla
-    # post-cutover this is a no-op; on a future leader election it's where
-    # new per-service DBs get provisioned.
-    - role: postgres
-      tasks_from: bootstrap
-      tags: [postgres, postgres-bootstrap]
+    # against the Patroni leader (skipped on replicas — read-only). On the
+    # current leader this is a no-op for existing entries; new per-service
+    # DBs land here when `postgres_databases` is extended in group_vars.
+    #
+    # The split-out postgres-common role (2026-05-24) replaces the previous
+    # `postgres tasks_from: bootstrap` pattern — `tasks_from:` is silently
+    # ignored in the play-level `roles:` block, only honored by
+    # include_role / import_role. Separate role = no foot-gun.
+    - role: postgres-common
+      tags: [postgres-common, postgres-bootstrap]
 
     - role: hardening
       tags: [hardening]

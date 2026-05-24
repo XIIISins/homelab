@@ -1,11 +1,9 @@
 ---
-# Full standalone PG pass. Used by non-patroni-managed callers. For the
-# patroni-managed path, the playbook calls `tasks_from: prepare` before the
-# patroni role and `tasks_from: bootstrap` after, with the patroni role
-# sandwiched between.
+# Server-side preparation only: packages, cluster init (standalone),
+# TLS, postgresql.conf + pg_hba.conf (standalone), adoption-time
+# user creation (patroni-managed). PG OBJECT provisioning (management
+# roles + per-service DBs) lives in the postgres-common role —
+# invoke after this role + the patroni role (if applicable) in the
+# playbook. See postgres-common/README.md for invocation patterns.
 - name: Prepare PG (packages, cluster, TLS, config, hba)
   ansible.builtin.include_tasks: prepare.yml
-
-- name: Bootstrap PG objects (management users, per-service DBs)
-  ansible.builtin.include_tasks: bootstrap.yml
-  when: not postgres_patroni_managed

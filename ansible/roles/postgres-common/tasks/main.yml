@@ -1,0 +1,25 @@
+# ansible/roles/postgres-common/tasks/main.yml
+---
+# Idempotent PG object provisioning. Runs:
+#   - Unconditionally in standalone mode (postgres_patroni_managed=false).
+#   - Leader-only in Patroni-managed mode (gated on patroni_is_leader).
+#
+# Re-runs are safe — postgresql_user compares hashed passwords and ALTERs
+# on drift; postgresql_db is no-op if the DB already exists.
+#
+# Sub-task entry points (callable via tasks_from):
+#   - users     — management roles only (used by postgres/prepare.yml for
+#                 the adoption-time pre-Patroni primary)
+#   - databases — per-service DBs only (rare standalone use)
+
+- name: Create management PG roles (admin, ansible, replicator)
+  ansible.builtin.include_tasks: users.yml
+  when: (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+  tags: [postgres-common-users]
+
+- name: Create per-service databases and owning roles
+  ansible.builtin.include_tasks: databases.yml
+  when:
+    - postgres_databases | length > 0
+    - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+  tags: [postgres-common-databases]

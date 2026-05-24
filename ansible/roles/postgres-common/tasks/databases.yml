@@ -1,6 +1,7 @@
+# ansible/roles/postgres-common/tasks/databases.yml
 ---
 # Per-service database + owning role provisioning. Driven by
-# postgres_databases in group_vars — empty until Authentik lands.
+# postgres_databases in group_vars.
 #
 # Each entry creates:
 #   - A LOGIN role named `item.owner` with password from Vault

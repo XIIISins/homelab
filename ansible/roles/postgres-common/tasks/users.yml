@@ -1,3 +1,4 @@
+# ansible/roles/postgres-common/tasks/users.yml
 ---
 # Create management PG roles via Unix socket peer auth. Works for both
 # standalone PG (Debian-managed service) and Patroni-managed PG (Patroni

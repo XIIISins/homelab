@@ -1,0 +1,12 @@
+# ansible/roles/postgres-common/meta/main.yml
+---
+galaxy_info:
+  author: xiiisins
+  description: PostgreSQL common object provisioning — management roles + per-service DBs, shared between standalone and Patroni-managed deploys
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

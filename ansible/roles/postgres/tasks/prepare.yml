@@ -49,7 +49,9 @@
   tags: [postgres-adoption]
 
 - name: Pre-Patroni management role bootstrap (adoption primary only)
-  ansible.builtin.include_tasks: users.yml
+  ansible.builtin.include_role:
+    name: postgres-common
+    tasks_from: users
   when:
     - postgres_patroni_managed
     - postgres_is_adoption_primary | default(false)
