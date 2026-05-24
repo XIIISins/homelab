@@ -43,3 +43,13 @@ netbox-viewers:
   # Same OIDC-access gate as netbox-admins, but for users who should
   # only get read-only NetBox permissions. Manual assignment in NetBox
   # UI on first login (same caveat re: automatic sync).
+
+monitoring-admins:
+  is_superuser: false
+  # Members can authenticate to the Phase-7 observability stack —
+  # VictoriaMetrics (metric.niflheim.xiiisins.com) + VictoriaLogs
+  # (logs.niflheim.xiiisins.com) — gated by Authentik ForwardAuth
+  # through Traefik. The apps themselves don't have an internal
+  # permission model; access = full read+write to the UI/API. Treat
+  # this group as operator-only. is_superuser=false (no Authentik-
+  # side privileges); gating is the per-app policy binding.

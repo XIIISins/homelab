@@ -1,0 +1,51 @@
+# k8s/asgard/apps/monitoring-namespace/middleware-authentik-forward-auth.yaml
+#
+# Shared Traefik ForwardAuth Middleware. Both VL (logs.niflheim.) and
+# VM (metric.niflheim.) HTTPRoutes reference this via the Gateway API
+# `extensionRef` filter. Same-namespace reference is the simple path —
+# Middleware lives in `monitoring`, HTTPRoutes are in `monitoring`.
+#
+# How ForwardAuth-with-Authentik works:
+#   1. Browser hits https://logs.niflheim.xiiisins.com.
+#   2. Traefik invokes this Middleware → HTTP GET to the address below.
+#   3. Authentik's embedded outpost (running INSIDE authentik-server,
+#      same pod as the main Authentik instance — no separate outpost
+#      Service) checks the auth cookie.
+#      - Authenticated → returns 200 + the X-authentik-* headers.
+#      - Not authenticated → returns 302 to authentik.midgard.xiiisins.com
+#        for the auth flow.
+#   4. Traefik either forwards the request to the backend (with the
+#      X-authentik-* headers attached per authResponseHeaders) OR
+#      returns the 302 to the browser.
+#
+# The authentik-server Service in the authentik namespace serves both
+# the main app + the outpost endpoints at the same port (80). The
+# outpost path is `/outpost.goauthentik.io/auth/traefik`.
+#
+# trustForwardHeader=true tells the outpost to read X-Forwarded-Host
+# from Traefik to know which proxied app this request is for.
+# Authentik matches that against the `external_host` field on the
+# corresponding authentik_provider_proxy (see terraform/authentik/
+# observability.tf).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authentik-forward-auth
+  namespace: monitoring
+spec:
+  forwardAuth:
+    address: http://authentik-server.authentik.svc.cluster.local:80/outpost.goauthentik.io/auth/traefik
+    trustForwardHeader: true
+    authResponseHeaders:
+      - X-authentik-username
+      - X-authentik-groups
+      - X-authentik-email
+      - X-authentik-name
+      - X-authentik-uid
+      - X-authentik-jwt
+      - X-authentik-meta-jwks
+      - X-authentik-meta-outpost
+      - X-authentik-meta-provider
+      - X-authentik-meta-app
+      - X-authentik-meta-version
+      - X-authentik-entitlements

@@ -1,8 +1,9 @@
-# k8s/jotunheim/apps/victoriametrics/httproute.yaml
+# k8s/asgard/apps/victoriametrics/httproute.yaml
 #
-# Internal-only HTTPRoute on the niflheim Gateway (which Phase 6
-# wires up in k8s/jotunheim/gateway-config/). VM's web UI is
-# operator-facing — no public ingress, no Cloudflare tunnel.
+# Internal-only HTTPRoute on the niflheim Gateway. VM's vmui is
+# operator-facing — no public ingress, no Cloudflare tunnel. Gated
+# by Authentik ForwardAuth via the shared monitoring/authentik-
+# forward-auth Middleware.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -14,12 +15,22 @@ spec:
       namespace: traefik
       sectionName: websecure
   hostnames:
-    - victoriametrics.niflheim.xiiisins.com
+    - metric.niflheim.xiiisins.com
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
+      filters:
+        # Traefik v3 / chart v40 supports Gateway API HTTPRoute filters
+        # of type ExtensionRef referencing a Traefik Middleware CR.
+        # Requires kubernetesCRD provider enabled (it is, see
+        # infrastructure/traefik/helmrelease.yaml).
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authentik-forward-auth
       backendRefs:
         - name: victoriametrics-victoria-metrics-single-server
           port: 8428

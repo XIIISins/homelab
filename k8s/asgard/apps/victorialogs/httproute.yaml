@@ -1,4 +1,9 @@
-# k8s/jotunheim/apps/victorialogs/httproute.yaml
+# k8s/asgard/apps/victorialogs/httproute.yaml
+#
+# Internal-only HTTPRoute on the niflheim Gateway. VL UI is operator-
+# facing — no public ingress, no Cloudflare tunnel. Gated by Authentik
+# ForwardAuth via the shared monitoring/authentik-forward-auth
+# Middleware.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -10,12 +15,20 @@ spec:
       namespace: traefik
       sectionName: websecure
   hostnames:
-    - victorialogs.niflheim.xiiisins.com
+    - logs.niflheim.xiiisins.com
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
+      filters:
+        # See victoriametrics/httproute.yaml for the Gateway API +
+        # Traefik Middleware ExtensionRef justification + requirements.
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authentik-forward-auth
       backendRefs:
         - name: victorialogs-victoria-logs-single-server
           port: 9428

@@ -35,3 +35,4 @@ ghost:
     - tailscale-users
     - ssh-users
     - netbox-admins
+    - monitoring-admins

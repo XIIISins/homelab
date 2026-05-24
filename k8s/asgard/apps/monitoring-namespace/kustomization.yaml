@@ -1,5 +1,10 @@
-# k8s/jotunheim/apps/monitoring-namespace/kustomization.yaml
+# k8s/asgard/apps/monitoring-namespace/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - namespace.yaml
+  # Shared ForwardAuth Middleware used by both VL + VM HTTPRoutes
+  # via the Gateway API `extensionRef` filter. See the file's header
+  # for the full ForwardAuth flow + why the outpost lives in
+  # authentik-server (embedded).
+  - middleware-authentik-forward-auth.yaml
