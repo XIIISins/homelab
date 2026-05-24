@@ -1,0 +1,35 @@
+# k8s/asgard/apps/victorialogs/ingest-service.yaml
+#
+# Companion ClusterIP Service for client access to VictoriaLogs.
+# Chart's primary Service is headless (StatefulSet pod discovery);
+# this one is what K3s host-network vlagent pods dial.
+#
+# Why a second Service: K3s nodes can't reach the MetalLB-announced
+# Traefik VIP from their HOST namespace (same class as the in-cluster
+# pod→VIP tromboning gotcha — CoreDNS rewrite for pods, separate
+# workaround for host network). They CAN dial ClusterIPs because
+# kube-proxy installs iptables NAT rules into the host's namespace
+# for the cluster CIDR.
+#
+# In-cluster pods (the vlagent DaemonSet) still target the headless
+# Service's FQDN via cluster DNS — that resolves to pod IPs directly
+# and bypasses this Service. This Service is purely for the host-
+# namespace consumers.
+apiVersion: v1
+kind: Service
+metadata:
+  name: victorialogs-ingest
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: victoria-logs-single
+    app.kubernetes.io/component: ingest-client-service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9428
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: victoria-logs-single
+    app.kubernetes.io/instance: victorialogs

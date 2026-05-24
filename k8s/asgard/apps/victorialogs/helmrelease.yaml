@@ -48,6 +48,11 @@ spec:
         limits: { cpu: 1000m, memory: 2Gi }
       service:
         type: ClusterIP
+        # Chart's primary Service is headless (clusterIP: None) for
+        # StatefulSet pod discovery. A SECOND, non-headless Service
+        # for client access lives in victorialogs-ingest-service.yaml
+        # — it's what K3s host-network vlagent dials (host can't reach
+        # the MetalLB VIP from host namespace).
 
       # Anti-affinity preferred (not required) — single replica today,
       # but if scaled to >1 keeps them apart.
