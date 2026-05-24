@@ -1,0 +1,61 @@
+# k8s/jotunheim/apps/victorialogs/helmrelease.yaml
+#
+# VictoriaLogs (single-instance) — log storage + query engine.
+# Replaces Loki in our homelab per the CLAUDE.md architectural
+# invariant.
+#
+# Reuses the `victoriametrics` HelmRepository declared next door
+# (same chart collection at oci://ghcr.io/victoriametrics/helm-charts).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victorialogs
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: victoria-logs-single
+      version: "0.12.5" # chart 0.12.5 → vlsingle v1.x
+      sourceRef:
+        kind: HelmRepository
+        name: victoriametrics
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    server:
+      enabled: true
+      persistentVolume:
+        enabled: true
+        storageClass: synology-csi-iscsi-retain
+        size: 50Gi # ~6 months of homelab-scale logs
+      retentionPeriod: 6m # months
+      resources:
+        requests: { cpu: 200m, memory: 512Mi }
+        limits: { cpu: 1000m, memory: 2Gi }
+      service:
+        type: ClusterIP
+
+      # Anti-affinity preferred (not required) — single replica today,
+      # but if scaled to >1 keeps them apart.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: victoria-logs-single
+                topologyKey: kubernetes.io/hostname
+
+      # Self-scraping requires the (Victoria) operator's CRDs — off
+      # for first deploy, enable after Phase 6's vmoperator lands.
+      serviceMonitor:
+        enabled: false

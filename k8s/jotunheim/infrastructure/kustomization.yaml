@@ -1,0 +1,16 @@
+# k8s/jotunheim/infrastructure/kustomization.yaml
+#
+# Phase-6 infrastructure stack for jotunheim. Mirror of
+# k8s/asgard/infrastructure/ — Sealed Secrets, ESO, MetalLB,
+# tigera-operator, Synology CSI, Vault (probably just ESO-consumer,
+# not a Vault server — jotunheim consumes asgard's Vault),
+# cert-manager, Gateway API, Traefik.
+#
+# Empty for now — Phase 6 (Jotunheim K3s bootstrap) fills this in.
+# The empty resources list keeps Flux happy + lets the apps
+# Kustomization's dependsOn resolve cleanly.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources: []

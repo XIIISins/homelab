@@ -1,0 +1,25 @@
+# k8s/jotunheim/apps/victoriametrics/httproute.yaml
+#
+# Internal-only HTTPRoute on the niflheim Gateway (which Phase 6
+# wires up in k8s/jotunheim/gateway-config/). VM's web UI is
+# operator-facing — no public ingress, no Cloudflare tunnel.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: victoriametrics
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - victoriametrics.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: victoriametrics-victoria-metrics-single-server
+          port: 8428

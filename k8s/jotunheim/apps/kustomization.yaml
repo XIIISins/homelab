@@ -1,0 +1,11 @@
+# k8s/jotunheim/apps/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Shared monitoring namespace — all three Phase-7 apps live here.
+  - monitoring-namespace
+  # Phase 7 — observability stack.
+  - victoriametrics
+  - victorialogs
+  - grafana

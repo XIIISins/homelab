@@ -1,0 +1,15 @@
+# k8s/jotunheim/apps/victoriametrics/helmrepository.yaml
+#
+# OCI HelmRepository for the VictoriaMetrics helm-charts collection.
+# Hosts both `victoria-metrics-single` (this app) and
+# `victoria-logs-single` (sibling). Single HelmRepository shared by
+# both — same source registry.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: victoriametrics
+  namespace: monitoring
+spec:
+  type: oci
+  interval: 1h
+  url: oci://ghcr.io/victoriametrics/helm-charts

@@ -1,0 +1,90 @@
+# k8s/jotunheim/apps/grafana/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: grafana
+      version: "9.4.5"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # Admin credentials come from ExternalSecret (grafana-admin).
+    admin:
+      existingSecret: grafana-admin
+      userKey: admin-user
+      passwordKey: admin-password
+
+    # Storage — Grafana keeps its sqlite DB + plugins on disk. Small
+    # PV is plenty (sqlite dashboards don't grow much for a homelab).
+    persistence:
+      enabled: true
+      type: pvc
+      storageClassName: synology-csi-iscsi-retain
+      size: 4Gi
+
+    # Resources — Grafana is light. Bump if dashboards get heavy.
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 1Gi }
+
+    # Datasources — wire to the sibling Helm releases via in-cluster
+    # DNS. Names match the Service names emitted by the VM/VL charts.
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: VictoriaMetrics
+            type: prometheus # VM exposes a Prometheus-compatible API
+            access: proxy
+            url: http://victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8428
+            isDefault: true
+            jsonData:
+              timeInterval: "30s"
+          - name: VictoriaLogs
+            type: victoriametrics-logs-datasource # Grafana plugin
+            access: proxy
+            url: http://victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428
+
+    # Datasource plugin for VictoriaLogs — community plugin, needs
+    # explicit install via the chart's `plugins` list. The Prometheus
+    # datasource (used for VM) is built-in.
+    plugins:
+      - victoriametrics-logs-datasource
+
+    # No-op default dashboards — operator adds dashboards via the
+    # web UI initially. Later: hoist into IaC via the chart's
+    # `dashboards` value or sidecar pattern.
+    dashboards: {}
+
+    # No ingress from the chart — HTTPRoute handles it (next file).
+    ingress:
+      enabled: false
+
+    # Default user creation is fine for now (anonymous off, signups
+    # off — only admin can log in). Authentik OIDC integration
+    # deferred to Phase 7b.
+    grafana.ini:
+      analytics:
+        check_for_updates: false
+        reporting_enabled: false
+      auth.anonymous:
+        enabled: false
+      users:
+        allow_sign_up: false
+      server:
+        root_url: "https://grafana.niflheim.xiiisins.com"

@@ -1,0 +1,19 @@
+# k8s/jotunheim/flux-system/apps.yaml
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/jotunheim/apps
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Apps depend on infrastructure (ESO, MetalLB, Traefik, Gateway API,
+  # cert-manager). Without this, an app reconciling before its
+  # dependencies are Ready can flap or stall on missing CRDs.
+  dependsOn:
+    - name: infrastructure

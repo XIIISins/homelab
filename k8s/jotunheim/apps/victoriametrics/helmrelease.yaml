@@ -1,0 +1,74 @@
+# k8s/jotunheim/apps/victoriametrics/helmrelease.yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoriametrics
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: victoria-metrics-single
+      version: "0.38.0" # chart 0.38.0 → vmsingle v1.x (single-binary mode)
+      sourceRef:
+        kind: HelmRepository
+        name: victoriametrics
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # Single-instance VictoriaMetrics. For homelab scale (low hundreds
+    # of series), vmsingle is the right choice — vmcluster adds shard
+    # complexity that we don't need. Migrate to vmcluster only if
+    # ingest > 100k samples/sec or retention > 1 year.
+    server:
+      enabled: true
+      # Storage — relies on jotunheim's Synology CSI from Phase 6.
+      # Same SC name as asgard for consistency. Migrate via VL
+      # backup tools if jotunheim's SC ends up different.
+      persistentVolume:
+        enabled: true
+        storageClass: synology-csi-iscsi-retain
+        size: 50Gi # ~3-6 months of metrics at homelab scale
+      retentionPeriod: "6" # months
+      # Resource sizing — VM is single-binary, light. Bump if homelab
+      # grows enough to spike ingest.
+      resources:
+        requests: { cpu: 200m, memory: 512Mi }
+        limits: { cpu: 1000m, memory: 2Gi }
+      # Expose VM via a ClusterIP Service (default). HTTPRoute below
+      # wires the external hostname → this Service.
+      service:
+        type: ClusterIP
+      # Anti-affinity preferred (not required) — single replica anyway,
+      # but if scaled to >1 keeps them apart.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: victoria-metrics-single
+                topologyKey: kubernetes.io/hostname
+      # ServiceMonitor for self-scraping. Adds VM's own metrics to the
+      # TSDB once it's up. Enable after Phase 6 puts a Prometheus
+      # operator (or vmoperator) in place; defaults to false here
+      # because the CRD doesn't exist on a fresh cluster.
+      serviceMonitor:
+        enabled: false
+
+    # vmalert + alertmanager — disabled for first deploy. Enable when
+    # alerting rules are needed. Pairs naturally with Zabbix in our
+    # setup (Zabbix is the alerting layer for infra, VM is the
+    # metrics-database layer for K8s).
+    vmalert:
+      enabled: false
+    alertmanager:
+      enabled: false
