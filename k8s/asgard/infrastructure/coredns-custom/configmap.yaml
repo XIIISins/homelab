@@ -2,8 +2,12 @@
 #
 # K3s-conventional CoreDNS customization. The k3s-shipped CoreDNS
 # deployment watches for a ConfigMap named `coredns-custom` in
-# kube-system and appends data-keys ending in `.server` to the
-# default `.:53` server block, or `.override` to override defaults.
+# kube-system. Per the K3s Corefile import pattern:
+#   - `*.override` keys → imported INSIDE the default `.:53` block
+#     (plugin directives like `rewrite`, `forward`, `hosts`, etc.)
+#   - `*.server` keys  → imported at TOP LEVEL, must be a full server
+#     block (`new-zone:53 { ... }`)
+# We want plugin directives in the existing default zone → `.override`.
 #
 # Used for in-cluster split-horizon DNS: when a pod queries an
 # internal-zone FQDN that's actually served by a K8s workload behind
@@ -37,5 +41,5 @@ metadata:
   name: coredns-custom
   namespace: kube-system
 data:
-  rewrites.server: |
+  rewrites.override: |
     rewrite name exact authentik.midgard.xiiisins.com traefik.traefik.svc.cluster.local
