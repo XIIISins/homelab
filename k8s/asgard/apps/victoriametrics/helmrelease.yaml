@@ -29,13 +29,17 @@ spec:
     # ingest > 100k samples/sec or retention > 1 year.
     server:
       enabled: true
-      # Storage — relies on jotunheim's Synology CSI from Phase 6.
-      # Same SC name as asgard for consistency. Migrate via VL
-      # backup tools if jotunheim's SC ends up different.
+      # Storage on the existing asgard Synology CSI iSCSI StorageClass.
+      # Sizing: ~30 hosts × ~1000 series × ~1 byte/sample × 10s scrape
+      # × 180 days ≈ 45 GB raw + 20% index overhead + 25% merge headroom
+      # ≈ ~65-70 GB. 100 GB gives breathing room for: (a) host count
+      # growth, (b) higher-cardinality scrapes from K3s ServiceMonitors
+      # once vm-operator lands. Synology CSI supports online expansion
+      # if we under-shot; resize the LUN + restart vmsingle pod.
       persistentVolume:
         enabled: true
         storageClass: synology-csi-iscsi-retain
-        size: 50Gi # ~3-6 months of metrics at homelab scale
+        size: 100Gi
       retentionPeriod: "6" # months
       # Resource sizing — VM is single-binary, light. Bump if homelab
       # grows enough to spike ingest.

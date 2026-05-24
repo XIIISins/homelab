@@ -46,7 +46,7 @@ Each rule cross-refs [`docs/operations/decisions.md`](docs/operations/decisions.
 
 ### Services / placement
 - **Jellyfin: privileged LXC on Urd.** Intel QuickSync `/dev/dri` passthrough. Not in K3s.
-- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in asgard K3s.** Zabbix stays LXC for monitoring independence (separate failure domain from K3s). VM + VL live in asgard rather than jotunheim — keeps the log-ingest path in-cluster for the workloads producing logs + sidesteps the jotunheim-deploy timing dependency. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need. Log shipping via **Vector** (DaemonSet on K3s nodes for container logs + Ansible role on LXCs/VMs for journald + per-service logs) → VL ingest endpoint.
+- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in asgard K3s.** Zabbix stays LXC for monitoring independence (separate failure domain from K3s). VM + VL live in asgard rather than jotunheim — keeps the log-ingest path in-cluster for the workloads producing logs + sidesteps the jotunheim-deploy timing dependency. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need. Log shipping via **vlagent** (the official VictoriaLogs project shipper) — DaemonSet on K3s nodes via the `victoria-logs-collector` Helm chart (vlagent with `-kubernetesCollector`, native pod-log discovery), plus an Ansible role deploying vlagent as a systemd binary on LXCs/VMs. Vector + Fluent Bit deliberately NOT used — both have file-rotation correctness issues + the 2026 benchmark shows vlagent at 4-10× lower CPU. Off-cluster shippers (LXCs, VMs) reach VL via an HTTPRoute on the niflheim Gateway (cleaner than a MetalLB LoadBalancer + matches the K8s-fronted-FQDN pattern). vm-operator (`VLSingle` / `VMSingle` CRDs) is the Phase 7b refactor target — Helm chart for now.
 - **Ansible: AWX in jotunheim K3s.** 30-min scheduled reconciliation. Vault-backed credentials.
 - **PBS: privileged LXC on Skuld.** NFS bind-mounted via Proxmox host.
 
@@ -177,6 +177,24 @@ NOT for: implementation gotchas (batch to post-flight), findings not affecting a
 - If the owner explicitly says "skip the pre-flight, just write the manifest" — skip it. They're the architect, not Claude.
 - The pre-flight is a few-minutes-of-doc-search step, not a multi-turn interrogation. Output: "I checked these things; here's what I found" — not a list of clarifying questions.
 - Pending tasks: flag as prerequisites when they're prerequisites; not when they're orthogonal. Use judgment.
+
+### Parallel agents — fan out for independent work
+
+The Agent tool can run multiple sub-agents in parallel. Use this aggressively for any work that's read-only / non-mutating and where the sub-tasks are independent:
+
+- **Research** — upstream docs, GitHub issues, release notes, benchmarks. One agent per source class, run concurrently, each capped at a tight word budget. Beats serial fetching by ~Nx the agent count.
+- **Investigation** — "find every reference to X across the repo", "audit which manifests use storage class Y", "list all open-questions older than 30 days". Pure read, independent shards.
+- **State / reality pulls** — read-only SSH sweeps across multiple hosts (e.g. "what's installed on each AGH node?"), read-only kubectl across namespaces, parallel `qm list` against multiple Proxmox hosts. Fan out per host.
+- **Cross-source reconciliation** — agent A reads the IaC spec, agent B reads the live state, then Claude diffs the two reports.
+
+**When NOT to parallelize:**
+- When the second agent's task depends on the first's output (serial-by-design).
+- When the work is mutating (writes to shared state — a single ordered actor avoids races).
+- When the cost of context-switching between sub-agent reports exceeds the parallelism gain (small jobs where one agent's full report fits in a single Read).
+
+**Briefing:** each agent gets a self-contained prompt — context, what to do, what NOT to do, a strict word budget, and the format of the expected return. Sub-agents can't see your conversation, so prompt them like a smart colleague who just walked in.
+
+Pattern: when launching parallel agents, put all the Agent tool calls in a single message. The harness fans them out concurrently; results return in parallel.
 
 ---
 

@@ -35,8 +35,14 @@ spec:
       persistentVolume:
         enabled: true
         storageClass: synology-csi-iscsi-retain
-        size: 50Gi # ~6 months of homelab-scale logs
-      retentionPeriod: 6m # months
+        # Retention starts at 30 days — VL is ~15× denser than ES so
+        # 50 Gi at 30d is generous for low-moderate verbosity, but K8s
+        # pod logs can blow this up fast once the vlagent DaemonSet
+        # lights up cluster-wide. Measure ingest after the first month,
+        # then resize the LUN online (Synology CSI supports it) before
+        # bumping retention toward the eventual 6-month target.
+        size: 50Gi
+      retentionPeriod: "30d"
       resources:
         requests: { cpu: 200m, memory: 512Mi }
         limits: { cpu: 1000m, memory: 2Gi }

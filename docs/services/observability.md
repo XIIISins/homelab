@@ -16,8 +16,8 @@ VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per
 |-------|-------|-------|
 | Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by Zabbix LXC (Phase 5h, fully outside K3s). |
 | Namespace | `monitoring` | Shared by both apps |
-| Metrics store + UI | `victoria-metrics-single` chart `0.38.0` | vmsingle (not vmcluster — homelab scale doesn't need sharding). 50 Gi iSCSI PV, 6mo retention. vmui (built into vmsingle) is the dashboard layer. |
-| Log store + UI | `victoria-logs-single` chart `0.12.5` | vlsingle, 50 Gi iSCSI PV, 6mo retention. Native VL UI for LogsQL queries. |
+| Metrics store + UI | `victoria-metrics-single` chart `0.38.0` → app v1.143.0 | vmsingle (not vmcluster — homelab scale doesn't need sharding). 100 Gi iSCSI PV, 6mo retention. vmui (built into vmsingle) is the dashboard layer. |
+| Log store + UI | `victoria-logs-single` chart `0.12.5` → app v1.50.0 | vlsingle, 50 Gi iSCSI PV, **30d retention initially** (measure + resize before extending to the eventual 6mo target — VL pod-log ingest can spike disk use fast once the cluster-wide DaemonSet lights up). Native VL UI for LogsQL queries. |
 | Edge | HTTPRoute on niflheim Gateway → ClusterIP Services | Internal-only, no public ingress, no Cloudflare tunnel. Hostnames: `victoriametrics`/`victorialogs`.niflheim.xiiisins.com |
 
 ## Why VM + VL instead of Prometheus + Loki
@@ -30,15 +30,19 @@ VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per
 
 ## Ingest paths
 
+All shipping uses **vlagent** — the official VictoriaLogs project shipper. Picked over Vector and Fluent Bit per the 2026 upstream benchmark: vlagent at ~143k logs/s vs Fluent Bit at 31k vs Vector at 25k, 4-10× lower CPU, and Vector + Fluent Bit both have file-rotation correctness issues (incomplete records during log rotation; Vector has an FD leak under load). vlagent's data-loss surface is upstream-managed by the same team that runs VL.
+
 Three classes of producers feed VL + VM:
 
 | Producer | Path | Shipper |
 |----------|------|---------|
-| K3s pods (container logs, application metrics, ServiceMonitor-emitting charts) | DaemonSet on every asgard node tails `/var/log/containers/*.log` + reads the kubelet metrics → in-cluster Service DNS for VL/VM | `vector` chart, DaemonSet — manifests at `k8s/asgard/infrastructure/vector/` (Phase 7 prep) |
-| Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, **Zabbix** — Phase 5h, etc.) | Vector reads journald + per-service log files → in-cluster VL ingest via the MetalLB-exposed VL LoadBalancer Service | `ansible/roles/vector/` (Phase 7 prep) |
-| Proxmox VMs (K3s nodes themselves — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs — Vector via Ansible reading journald + K3s-server-or-agent logs | Same `ansible/roles/vector/` |
+| K3s pods (container logs, application metrics, ServiceMonitor-emitting charts) | vlagent DaemonSet on every asgard node uses `-kubernetesCollector` for native pod-log discovery; ships to VL via in-cluster Service DNS | `victoria-logs-collector` chart `0.3.4` — manifests at `k8s/asgard/infrastructure/victoria-logs-collector/` (Phase 7 prep, TBD) |
+| Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, **Zabbix** — Phase 5h, etc.) | vlagent systemd binary reads journald + per-service log files → VL ingest via HTTPRoute on the niflheim Gateway | `ansible/roles/vlagent/` (Phase 7 prep, TBD) |
+| Proxmox VMs (K3s nodes themselves — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs — vlagent via Ansible reading journald + K3s-server-or-agent logs | Same `ansible/roles/vlagent/` |
 
-**In-cluster vs out-of-cluster ingest endpoint:** asgard pods send to VL via in-cluster Service DNS (`victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428`). LXCs + VMs that aren't K8s pods can't resolve cluster DNS, so they need either (a) a MetalLB-exposed LoadBalancer Service for VL, or (b) an HTTPRoute on the niflheim Gateway with an internal-only listener. Picking (a) — a dedicated LoadBalancer Service at a stable IP from the MetalLB pool keeps the off-cluster shipping ingress path simple. The vmui + VL UI HTTPRoutes stay for human use.
+**In-cluster vs off-cluster ingest endpoint.** Asgard pods send to VL via in-cluster Service DNS (`victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428`). LXCs + VMs that aren't K8s pods can't resolve cluster DNS, so they need an off-cluster endpoint. **Picking HTTPRoute on the niflheim Gateway** (e.g. `vl-ingest.niflheim.xiiisins.com`) — cleaner than a MetalLB LoadBalancer because it: (a) reuses the existing wildcard TLS cert + Gateway plumbing, (b) gives a stable FQDN target instead of a MetalLB IP, (c) matches the "K8s-fronted internal FQDN" pattern already in use (NetBox, Authentik). The vmui + VL UI HTTPRoutes stay for human use.
+
+**Native journald** in vlagent is proposed-but-not-yet-merged ([VictoriaLogs issue #1274](https://github.com/VictoriaMetrics/VictoriaLogs/issues/1274)). Bridge for LXCs/VMs is either: (a) `systemd-journal-upload` → vlagent, or (b) vlagent's filelog input scraping `/var/log/journal/*.journal` directly. Pick whichever lands first when the role is implemented.
 
 **Rollout priority** (per the operator's 5h follow-on direction):
 
@@ -46,7 +50,7 @@ Three classes of producers feed VL + VM:
 2. **VL + VM themselves** — VL's pod logs go via the DaemonSet, VM's similarly. (Recursive but useful: "what did VL just complain about?" answerable inside VL.)
 3. **Other workloads** — cascade out: remaining LXCs, K3s pods, Proxmox VMs. Order doesn't matter much past #1.
 
-**Standing question:** TLS for the in-homelab shipping? All on the trusted UCG-Ultra L3 + Vector→VL HTTP is straightforward. Defer TLS until a workload that handles sensitive log content (e.g. Authentik audit events) is in scope.
+**Standing question:** TLS for the in-homelab shipping? The HTTPRoute path is already TLS (Traefik wildcard cert). For in-cluster Service-DNS path, plaintext is fine. Add Basic Auth via Traefik middleware on the ingest HTTPRoute if we want auth on the off-cluster path.
 
 ## Secrets
 
@@ -75,7 +79,7 @@ NO Vault writes required for the baseline. VM + VL ship with unauthenticated HTT
 
 - **VictoriaMetrics retention** is set to `6` (months — chart accepts integer months OR strings like `1y`). Bump if disk allows. The chart's PVC is iSCSI; growing the LUN on Synology side + restarting the pod picks up new size.
 - **VictoriaLogs retention** similarly 6 months. VL compresses well (~10× vs raw); 50 Gi is plenty for log query volume of a homelab.
-- **vmoperator** (the VM-side equivalent of prometheus-operator) is NOT installed by default. ServiceMonitor → VMServiceScrape CRD bridges exist but require vmoperator. Phase 7b: install vmoperator + migrate any ServiceMonitor-emitting charts (cert-manager, ESO, etc.).
+- **vm-operator** (the VM-side equivalent of prometheus-operator) is NOT installed by default. CRDs `VLSingle` / `VMSingle` / `VMServiceScrape` etc. exist but require vm-operator. The deprecated `VLogs` CRD has been replaced by `VLSingle` in current versions. Phase 7b: install vm-operator + migrate from the Helm charts to the CRD-based deploys + migrate any ServiceMonitor-emitting charts (cert-manager, ESO, etc.) to VMServiceScrape.
 - **Alerts** — VictoriaMetrics has `vmalert` (commented out in helmrelease.yaml). The split with Zabbix: Zabbix watches infra (host up/down, disk full, etc.), vmalert watches application metrics (request rate, error %, latency). Enable vmalert + alertmanager when you have specific alerts to ship.
 
 ## Pending follow-ups
@@ -83,7 +87,7 @@ NO Vault writes required for the baseline. VM + VL ship with unauthenticated HTT
 - **Phase 7 actual deploy** — `flux reconcile` on asgard once the operator schedules it. NO Vault writes required for the baseline.
 - **Vector DaemonSet on asgard for K8s container logs** — manifests at `k8s/asgard/infrastructure/vector/` (Phase 7 prep, TBD).
 - **Vector Ansible role for LXCs + VMs** — at `ansible/roles/vector/` (Phase 7 prep, TBD). Zabbix LXC first per the operator's priority.
-- **vmoperator + ServiceMonitor → VMServiceScrape** — Phase 7b.
+- **vm-operator + Helm → CRD migration** — Phase 7b. Switches the VL/VM/vmagent lifecycle from Helm-managed Deployments to `VLSingle`/`VMSingle`/`VMAgent` CRDs. Also brings ServiceMonitor → VMServiceScrape conversion for cert-manager / ESO / other ServiceMonitor-emitting charts.
 - **Cross-source dashboards** — if vmui + LogsQL UI's ad-hoc queries stop scaling for the kinds of analyses we want, revisit Grafana (was dropped from initial Phase 7 scope). Trigger: needing canned dashboards with annotations spanning metrics + logs together, OR needing to share read-only dashboards with non-operator users.
 
 ## See also
