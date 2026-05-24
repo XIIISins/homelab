@@ -115,6 +115,45 @@ When work lands successfully:
 
 5. **Name what's next.** Apply pre-flight to the next step.
 
+### Never echo secrets in tool calls or chat output
+
+Credentials (passwords, tokens, API keys, AppRole SecretIDs, Vault root tokens, anything sensitive) must NEVER appear literally in:
+
+- Bash tool commands (`curl -u 'user:LITERAL'`, `VAR=literalvalue cmd ...`, etc.)
+- Chat text shown to the owner (recommended invocations, copy-paste blocks)
+- Any tool input or output
+
+**Always fetch dynamically inside the shell process** so the value lives only in that command's env and never lands in the transcript:
+
+```bash
+# Right: 1P value resolved inside the shell, never in tool input
+ADGUARD_PASSWORD="$(op read 'op://Homelab 2.0/Adguard - admin/password')" \
+ADGUARD_USERNAME="$(op read 'op://Homelab 2.0/Adguard - admin/username')" \
+terraform apply
+
+# Wrong: literal password lands in the tool call + transcript
+ADGUARD_PASSWORD='hunter2' terraform apply
+```
+
+For the operator's own use, prefer the existing `homelab-env` shim — it loads from 1P + caches without ever echoing the values. That's the right path to recommend in user-facing instructions.
+
+For Claude's own machine commands needing several env vars at once, **source the shim's cache file** rather than calling `op read` per-var:
+
+```bash
+# Preferred for any multi-var command (cache is almost always warm in this repo)
+. ~/.cache/homelab/env.sh && terraform apply
+```
+
+`~/.cache/homelab/env.sh` (POSIX) and `~/.cache/homelab/env.fish` (fish) are written by `homelab-env` and contain every 1P-fetched + static var (`KUBECONFIG`, `VAULT_*`, `ADGUARD_*`, `CLOUDFLARE_API_TOKEN`, `AUTHENTIK_*`, plus `VAULT_TOKEN` if set). TTL 24h. Adding a new var means appending to `__homelab_env_map` / `__homelab_static_env_map` in BOTH shim files + `homelab-env --refresh`.
+
+For Vault: `$(vault kv get -field=<f> secret/<path>)` follows the same pattern. For Ansible Vault: `--vault-password-file` or `ansible-vault view | grep` piped into the consumer, never copy-paste-in-prompt.
+
+**Why:** Transcripts persist (Claude bg-session logs, terminal scrollback, `gh pr view` for any pasted command). Even on a private workstation + private repo, the discipline matters because (a) transcripts get shared during debugging, (b) the owner shouldn't have to mentally redact what they're showing someone, and (c) it normalizes a habit that DOES matter in shared/production contexts.
+
+**How to apply:** Before any Bash tool call needing a credential, ask: "is the literal value about to appear in the tool input?" If yes, restructure to `$(op read ...)` / `$(vault kv get ...)`. Same check before pasting any invocation into chat.
+
+**Recovery if a credential leaked in-session:** flag it to the owner and recommend rotation — don't auto-rotate without an explicit ask, that call is theirs.
+
 ### Persistence validation — reboot-test before declaring done
 
 After any change that must survive reboot — physical hardware operations, persistent config edits (`/etc/network/interfaces`, `/etc/sysctl.d/`, systemd units, kernel/module changes), OS updates — reboot the affected node BEFORE re-loading workloads or marking the work complete. Common failure mode: runtime fix worked (`ip link set`, `sysctl -w`) but on-disk file has a typo / wrong path / syntax error — surfaces only at next reboot, often days or weeks later when context is lost. Established 2026-05-23 during Phase 4c Verd refresh.
@@ -579,6 +618,7 @@ homelab/
 │   ├── authentik/                         # OIDC providers + identity-as-data (users.yaml + groups.yaml)
 │   ├── tailscale/                         # Tailnet ACL (policy.hujson) + auth keys
 │   ├── netbox/                            # TF→NetBox writes (sites, VMs, IPs, tags) via e-breuninger/netbox
+│   ├── adguard/                           # TF→AGH rewrites (gmichels/adguard, write-to-origin Saga)
 │   └── {dns,aws,k3s}/                     # Scaffolding (empty)
 ├── ansible/
 │   ├── inventory/                         # hosts.yml + group_vars/ (auto-discovered adjacent)

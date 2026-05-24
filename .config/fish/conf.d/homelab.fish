@@ -12,24 +12,40 @@
 # Both files MUST stay in sync — same public surface, same 1P items.
 #
 # Public functions:
-#   homelab-env          — load homelab env vars from 1P, then prompt for VAULT_TOKEN source
+#   homelab-env          — load homelab env vars (cached 24h, --refresh|--clear)
 #   set-vault-token      — set VAULT_TOKEN from a named source (root|approle)
 #   vault-root-token     — echo the Vault root token from 1P (value-producer)
 #   rotate-approle       — rotate a Vault AppRole SecretID (--help, --fix)
 #
 # Extending:
 #   - New env var loaded by homelab-env: append to $__homelab_env_map.
+#     (After editing the map, run: homelab-env --refresh)
 #   - New VAULT_TOKEN source: add a case to set-vault-token's switch.
 #   - New AppRole role for rotation: append to $__homelab_approle_items.
 #
-# All credentials come from the 1Password "Homelab" vault. Nothing
-# sensitive on disk in this file.
+# Cache: homelab-env writes the loaded env (1P-sourced vars + static vars
+# like KUBECONFIG, + VAULT_TOKEN if set) to TWO sibling files atomically:
+#
+#   $__homelab_cache_path_fish — fish-format (set -gx KEY 'value')
+#   $__homelab_cache_path_sh   — POSIX-format (export KEY='value')
+#
+# Both files are written on every cache update so bash/zsh and fish can
+# share the same cache. Each shell sources its own format. The bash/zsh
+# sibling (.config/scripts/homelab.sh) reads the .sh file; this fish file
+# reads the .fish file. Permissions: 0600 under 0700 parent dir.
+#
+# Cache is considered fresh while file mtime is within
+# $__homelab_cache_ttl_seconds; on hit, homelab-env sources the file and
+# skips 1P entirely.
+#
+# All credentials come from the 1Password "Homelab" vault.
 
 # === Config ===
 
 set -g __homelab_op_vault 'Homelab 2.0'
 
 # Each entry: "ENV_VAR|1P item name|field"
+# Fetched from 1Password by homelab-env, cached to disk.
 set -g __homelab_env_map \
     "VAULT_ADDR|Ansible - Vault - k3s|url" \
     "ANSIBLE_HASHI_VAULT_AUTH_METHOD|Ansible - Vault - k3s|method" \
@@ -37,7 +53,25 @@ set -g __homelab_env_map \
     "ANSIBLE_HASHI_VAULT_SECRET_ID|Ansible - Vault - k3s|password" \
     "CLOUDFLARE_API_TOKEN|Cloudflare - Terraform|credential" \
     "AUTHENTIK_TOKEN|Asgard - Authentik - akadmin API token|credential" \
-    "AUTHENTIK_URL|Asgard - Authentik - akadmin API token|url"
+    "AUTHENTIK_URL|Asgard - Authentik - akadmin API token|url" \
+    "ADGUARD_USERNAME|Adguard - admin|username" \
+    "ADGUARD_PASSWORD|Adguard - admin|password"
+
+# Each entry: "ENV_VAR|literal value"
+# Static (non-1P) env vars — written into the cache alongside 1P vars on
+# every refresh. Edit + run: homelab-env --refresh
+# (Cache hit sources the cached values; changes here require --refresh.)
+set -g __homelab_static_env_map \
+    "KUBECONFIG|$HOME/.kube/niflheim-asgard.yaml" \
+    "ADGUARD_HOST|10.0.11.201" \
+    "ADGUARD_SCHEME|http"
+
+# Dual-format cache (see header). Both files have the same TTL — freshness
+# is checked against the fish file's mtime (both are written together).
+set -g __homelab_cache_dir "$HOME/.cache/homelab"
+set -g __homelab_cache_path_fish "$__homelab_cache_dir/env.fish"
+set -g __homelab_cache_path_sh "$__homelab_cache_dir/env.sh"
+set -g __homelab_cache_ttl_seconds 86400
 
 # Each entry: "approle role name|1P item name"
 # 1P item must have fields: username (RoleID), password (SecretID),
@@ -51,6 +85,84 @@ set -g __homelab_approle_items \
 function __homelab_op_field --argument-names item field \
     --description "Read a field from a 1P item in the Homelab vault"
     op read "op://$__homelab_op_vault/$item/$field"
+end
+
+function __homelab_apply_static_env \
+    --description "Set the static (non-1P) env vars from __homelab_static_env_map"
+    for entry in $__homelab_static_env_map
+        set -l parts (string split -m 1 "|" -- $entry)
+        set -gx $parts[1] $parts[2]
+    end
+end
+
+function __homelab_posix_quote --argument-names v \
+    --description "POSIX single-quoted form, handling embedded single quotes"
+    # POSIX: ' inside '...' is impossible; the idiom is '\'' (close, literal, reopen).
+    set -l escaped (printf '%s' $v | sed "s/'/'\\\\''/g")
+    printf "'%s'" $escaped
+end
+
+function __homelab_cache_age_seconds \
+    --description "Echo seconds since fish-cache mtime; return 1 if missing"
+    if not test -f $__homelab_cache_path_fish
+        return 1
+    end
+    # macOS BSD stat; the control node is macOS so no GNU fallback needed.
+    set -l mtime (stat -f %m $__homelab_cache_path_fish)
+    or return 1
+    set -l now (date +%s)
+    math $now - $mtime
+end
+
+function __homelab_cache_is_fresh \
+    --description "True if cache exists and is younger than the TTL"
+    set -l age (__homelab_cache_age_seconds)
+    or return 1
+    test $age -lt $__homelab_cache_ttl_seconds
+end
+
+function __homelab_cache_write \
+    --description "Persist env (static + 1P + VAULT_TOKEN) to BOTH fish + sh cache files atomically"
+    mkdir -p $__homelab_cache_dir
+    chmod 700 $__homelab_cache_dir
+
+    # Order of emission: static first (KUBECONFIG etc.), then 1P, then VAULT_TOKEN.
+    set -l vars
+    for entry in $__homelab_static_env_map
+        set -l parts (string split -m 1 "|" -- $entry)
+        set -a vars $parts[1]
+    end
+    for entry in $__homelab_env_map
+        set -l parts (string split "|" -- $entry)
+        set -a vars $parts[1]
+    end
+    if set -q VAULT_TOKEN
+        set -a vars VAULT_TOKEN
+    end
+
+    set -l ts (date -u '+%Y-%m-%dT%H:%M:%SZ')
+    set -l header_fish "# homelab env cache (fish) — written $ts, TTL "$__homelab_cache_ttl_seconds"s
+# Sourced by homelab-env when fresh. Do not edit; run: homelab-env --refresh"
+    set -l header_sh "# homelab env cache (sh/bash/zsh) — written $ts, TTL "$__homelab_cache_ttl_seconds"s
+# Sourced by homelab-env when fresh. Do not edit; run: homelab-env --refresh"
+
+    set -l tmp_fish (mktemp "$__homelab_cache_dir/env.fish.XXXXXX")
+    or return 1
+    set -l tmp_sh (mktemp "$__homelab_cache_dir/env.sh.XXXXXX")
+    or begin; rm -f $tmp_fish; return 1; end
+    chmod 600 $tmp_fish $tmp_sh
+
+    echo $header_fish > $tmp_fish
+    echo $header_sh > $tmp_sh
+    for env_var in $vars
+        if set -q $env_var
+            echo "set -gx $env_var "(string escape -- $$env_var) >> $tmp_fish
+            echo "export $env_var="(__homelab_posix_quote $$env_var) >> $tmp_sh
+        end
+    end
+
+    mv $tmp_fish $__homelab_cache_path_fish
+    mv $tmp_sh $__homelab_cache_path_sh
 end
 
 function __homelab_approle_item_for --argument-names role \
@@ -184,7 +296,51 @@ end
 
 # === Public: env loading ===
 
-function homelab-env --description "Load homelab environment from 1Password"
+function homelab-env --description "Load homelab env vars (cached 24h, --refresh|--clear)"
+    argparse -n homelab-env h/help r/refresh c/clear -- $argv
+    or return
+
+    if set -q _flag_help
+        echo "Usage:"
+        echo "  homelab-env             Source cache if fresh, else fetch from 1P + cache."
+        echo "  homelab-env --refresh   Skip cache, re-fetch from 1P, rewrite cache."
+        echo "  homelab-env --clear     Remove the cache files (both fish + sh)."
+        echo "  homelab-env --help      This help."
+        echo ""
+        echo "Cache (fish): $__homelab_cache_path_fish"
+        echo "Cache (sh):   $__homelab_cache_path_sh"
+        echo "TTL:          $__homelab_cache_ttl_seconds seconds"
+        return 0
+    end
+
+    if set -q _flag_clear
+        set -l removed 0
+        for path in $__homelab_cache_path_fish $__homelab_cache_path_sh
+            if test -f $path
+                rm $path
+                echo "Cleared $path"
+                set removed (math $removed + 1)
+            end
+        end
+        if test $removed -eq 0
+            echo "No cache to clear."
+        end
+        return 0
+    end
+
+    if not set -q _flag_refresh; and __homelab_cache_is_fresh
+        source $__homelab_cache_path_fish
+        set -l age (__homelab_cache_age_seconds)
+        set -l remaining_h (math --scale=1 "($__homelab_cache_ttl_seconds - $age) / 3600")
+        echo "Loaded homelab env from cache (refresh in "$remaining_h"h, or: homelab-env --refresh)"
+        return 0
+    end
+
+    # Cache miss: apply static, fetch 1P, prompt, write cache.
+    __homelab_apply_static_env
+
+    # === Fresh fetch from 1P ===
+
     set -l errors 0
     set -l loaded 0
     for entry in $__homelab_env_map
@@ -207,21 +363,32 @@ function homelab-env --description "Load homelab environment from 1Password"
         echo "If 1Password isn't signed in, run: op signin" >&2
         return 1
     end
-    echo "Loaded $loaded homelab env vars"
+    echo "Loaded $loaded homelab env vars from 1P"
 
     echo ""
     read -P "Set VAULT_TOKEN? [root/approle/skip]: " choice
+    set -l choice_status 0
     switch $choice
         case root r
             set-vault-token root
+            set choice_status $status
         case approle a
             set-vault-token approle
+            set choice_status $status
         case skip s ''
             echo "Skipped VAULT_TOKEN (unchanged)."
         case '*'
             echo "Unknown choice '$choice'; VAULT_TOKEN unchanged." >&2
-            return 1
+            set choice_status 1
     end
+
+    # Write cache regardless of VAULT_TOKEN outcome — env vars loaded fine.
+    # If VAULT_TOKEN is set (from this run or a prior one), it gets cached too.
+    __homelab_cache_write
+    set -l ttl_h (math --scale=1 "$__homelab_cache_ttl_seconds / 3600")
+    echo "Cached for "$ttl_h"h ($__homelab_cache_dir/env.{fish,sh})"
+
+    return $choice_status
 end
 
 # === Public: vault tokens ===

@@ -149,7 +149,7 @@ Per the bootstrap-vs-runtime architecture: bootstrap secrets stay in Ansible Vau
 - [ ] Decide which services get external Cloudflare Tunnel exposure (in addition to direct port-forwards via UCG). Standing decision; pick services as their deploy phases land. First entry locked in 5e.2: Authentik. Process going forward — each new service's phase explicitly answers "external via tunnel? yes/no" in its prereqs block.
 - [ ] **Retroactive sweep: add file-path header `# <repo-relative-path>` to all source files** (`.tf`, `.yaml`, `.yml`, `.j2`, `.sh`, `.fish`, `.py`) that pre-date the convention (added 2026-05-23). Single sweep commit, grep `head -1 <file>` to identify uncovered files. Convention documented in CLAUDE.md Conventions section.
 - [ ] Fallback static HTML doc on Munin for core K3s recovery.
-- [ ] AdGuard DNS records for new VMs/services as provisioned.
+- [x] AdGuard DNS records for new VMs/services as provisioned. ✅ 2026-05-24 — `terraform/adguard/` module (gmichels/adguard v1.7.0) retrofits the 27 hand-created rewrites via TF 1.7+ for_each `import {}` block; new rewrites now land via `locals.rewrites` map edits + `terraform apply`. Provider targets Saga (origin), adguardhome-sync fans out to Mimir/Kvasir. See decisions row "AGH rewrites — Terraform managed via gmichels/adguard, write-to-origin".
 - [ ] Proxmox HA for asgard LXCs.
 - [ ] Jotunheim K3s cluster.
 - [ ] Confirm whether Vault's `tls_disable` posture should change — revisit at Vault hardening.
