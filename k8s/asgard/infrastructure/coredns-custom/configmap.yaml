@@ -1,0 +1,41 @@
+# k8s/asgard/infrastructure/coredns-custom/configmap.yaml
+#
+# K3s-conventional CoreDNS customization. The k3s-shipped CoreDNS
+# deployment watches for a ConfigMap named `coredns-custom` in
+# kube-system and appends data-keys ending in `.server` to the
+# default `.:53` server block, or `.override` to override defaults.
+#
+# Used for in-cluster split-horizon DNS: when a pod queries an
+# internal-zone FQDN that's actually served by a K8s workload behind
+# Traefik (Authentik, future Grafana, etc.), CoreDNS rewrites the
+# query to Traefik's ClusterIP DNS name. The pod connects to Traefik
+# ClusterIP directly, sends the original SNI + Host header, Traefik
+# routes by hostname.
+#
+# Why this matters: pod-to-MetalLB-VIP traffic for in-cluster
+# Services has known tromboning issues with L2 mode (same class as
+# the existing "Cloudflared targets ClusterIP DNS, NEVER MetalLB IPs"
+# rule in CLAUDE.md). Without this rewrite, NetBox's OIDC backchannel
+# to Authentik times out because the FQDN resolves to 10.0.20.10 via
+# AGH, which is the MetalLB VIP and unreachable from pod CIDR.
+#
+# `answer auto` (CoreDNS rewrite plugin default for `name` rewrites)
+# makes the response use the original query name so the pod's
+# resolver caches the right key.
+#
+# External clients (browsers on the LAN, devices on tailnet, etc.)
+# never hit CoreDNS — they resolve via AGH directly, which still
+# returns the MetalLB VIP (correct path for external traffic).
+#
+# Add more rewrites here as new K8s-fronted internal FQDNs land.
+# Do NOT add rewrites for FQDNs that resolve to LXCs / VMs — those
+# aren't behind Traefik and would break.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  rewrites.server: |
+    rewrite name exact authentik.midgard.xiiisins.com traefik.traefik.svc.cluster.local

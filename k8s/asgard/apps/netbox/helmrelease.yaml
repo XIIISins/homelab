@@ -127,19 +127,20 @@ spec:
             - key: 99-oidc.py
               path: 99-oidc.py
 
-    # ── DNS pinning for Authentik FQDN ────────────────────────────────
-    # Same class as 5g.2's "use VIP IPs, not internal-zone FQDNs for
-    # K8s-to-LXC service traffic" rule, generalized to K8s-to-K8s via
-    # Traefik. Pod-internal OIDC backchannel (discovery on startup +
-    # token exchange + userinfo per login) bypasses CoreDNS for
-    # midgard zone resolution — eliminates the cached-NXDOMAIN class
-    # (open-questions row 143) for NetBox's OIDC path.
-    # The in-browser auth flow is unaffected (user's browser uses LAN
-    # DNS through AGH directly — not relevant to pod resolution).
-    hostAliases:
-      - ip: 10.0.20.10 # Traefik VIP — Authentik fronted by Traefik
-        hostnames:
-          - authentik.midgard.xiiisins.com
+    # ── In-cluster Authentik resolution via CoreDNS rewrite ───────────
+    # No per-pod hostAlias needed — the cluster-wide `coredns-custom`
+    # ConfigMap (k8s/asgard/infrastructure/coredns-custom/) rewrites
+    # `authentik.midgard.xiiisins.com` queries to
+    # `traefik.traefik.svc.cluster.local`, resolved at query time via
+    # standard cluster DNS. Pod connects to Traefik's ClusterIP (no
+    # MetalLB VIP tromboning — same class as the existing "Cloudflared
+    # targets ClusterIP DNS, NEVER MetalLB IPs" rule), sends original
+    # SNI + Host header so Traefik's *.midgard cert matches and the
+    # HTTPRoute for Authentik resolves the backend correctly.
+    #
+    # In-browser auth flow is unaffected — user's browser uses LAN DNS
+    # through AGH directly, hits the MetalLB VIP path which works fine
+    # for external clients.
 
     # ── Media: emptyDir for first deploy ──────────────────────────────
     # Chart shares one media PVC between netbox (server) + netbox-worker
