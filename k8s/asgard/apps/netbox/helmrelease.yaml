@@ -141,12 +141,22 @@ spec:
         hostnames:
           - authentik.midgard.xiiisins.com
 
-    # ── Media PVC (device photos; optional but cheap) ─────────────────
+    # ── Media: emptyDir for first deploy ──────────────────────────────
+    # Chart shares one media PVC between netbox (server) + netbox-worker
+    # as RWO. Synology CSI is iSCSI-only — no RWX support — so an RWO
+    # claim forces both pods to the same node (otherwise the second
+    # blocks unmounting from the first). Combined with chart's default
+    # anti-affinity, this can deadlock scheduling.
+    #
+    # For day 1 we have zero device photos; emptyDir is fine. Tradeoff:
+    # uploaded photos are pod-local and lost on rescheduling. Revisit
+    # when actual photos start landing — options at that point are
+    # (a) accept same-node server+worker scheduling, (b) split worker
+    # off from the shared volume so only server mounts it (cluster
+    # singleton — netbox-server replicaCount=1 is already the case),
+    # or (c) deploy a small NFS export on Munin for RWX.
     persistence:
-      enabled: true
-      storageClass: synology-csi-iscsi-retain
-      accessMode: ReadWriteOnce
-      size: 5Gi
+      enabled: false
 
     # No custom reports or scripts for first deploy.
     reportsPersistence:
