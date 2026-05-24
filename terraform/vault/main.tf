@@ -130,3 +130,51 @@ resource "vault_kv_secret_v2" "keepalived_pg_vrrp" {
     auth_pass = random_password.keepalived_pg_vrrp.result
   })
 }
+
+# -----------------------------------------------------------------------------
+# Per-service PG passwords — single mint, dual path
+# -----------------------------------------------------------------------------
+# For every per-service PG consumer, one random_password is generated and
+# written to BOTH Vault paths:
+#   - ansible/postgres/<service>-password   (read by the postgres Ansible
+#                                            role via AppRole policy
+#                                            `secret/data/ansible/*`)
+#   - k8s/<service>/postgres-password       (read by ESO on behalf of the
+#                                            workload via the broader
+#                                            `secret/data/*` policy)
+#
+# Same secret in two locations is operational debt — rotation needs both
+# paths updated. With both managed by TF from a single random_password
+# resource, "rotate" is just `terraform taint random_password.<service>` +
+# apply, and both paths update atomically. Rotation cadence is manual today
+# (no schedule); revisit when secret-rotation tooling lands.
+#
+# Path convention preserved (ansible vs k8s domain) despite the duplication
+# because (a) Ansible's narrow policy can't read `k8s/...` and (b) widening
+# Ansible's policy to read K8s paths would couple secret-domain boundaries
+# in ways that don't compose with future per-workload policies.
+#
+# Backfill TODO: authentik PG password (currently manually put in Vault
+# during 5e initial deploy) is not yet TF-managed — surfaced 2026-05-24
+# during 5i.a write. Bundle into the next vault TF apply.
+
+resource "random_password" "netbox_postgres" {
+  length  = 32
+  special = false   # PG password field; avoid quoting issues in env vars / config files
+}
+
+resource "vault_kv_secret_v2" "netbox_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/netbox-password"
+  data_json = jsonencode({
+    value = random_password.netbox_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "netbox_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/netbox/postgres-password"
+  data_json = jsonencode({
+    value = random_password.netbox_postgres.result
+  })
+}

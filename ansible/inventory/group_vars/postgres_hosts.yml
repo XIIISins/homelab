@@ -40,3 +40,6 @@ postgres_databases:
   - name: authentik
     owner: authentik
     password_vault_path: ansible/postgres/authentik-password
+  - name: netbox
+    owner: netbox
+    password_vault_path: ansible/postgres/netbox-password
