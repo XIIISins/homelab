@@ -76,8 +76,15 @@ locals {
     # CoreDNS rewrite (k8s/asgard/infrastructure/coredns-custom/) so
     # in-cluster pods can reach it without VIP tromboning. See CLAUDE.md
     # "In-cluster K8s-fronted FQDNs" gotcha.
-    "factorio.niflheim.xiiisins.com" = "10.0.11.220"
-    "netbox.niflheim.xiiisins.com"   = "10.0.20.10"
+    "factorio.niflheim.xiiisins.com"  = "10.0.11.220"
+    "netbox.niflheim.xiiisins.com"    = "10.0.20.10"
+    # Smoketest endpoint — backed by the apex-static Caddy pod with a
+    # hostname-keyed site that returns "smoketest ok" + HTTP 200 to ANY
+    # path. After any AGH change, `curl https://smoketest.niflheim.xiiisins.com/`
+    # from a LAN/tailnet client gives a one-step confirmation that
+    # rewrites landed end-to-end (resolution → Traefik routing → backend).
+    # K8s side: k8s/asgard/apps/apex-static/{configmap.yaml,smoketest-httproute.yaml}.
+    "smoketest.niflheim.xiiisins.com" = "10.0.20.10"
 
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"

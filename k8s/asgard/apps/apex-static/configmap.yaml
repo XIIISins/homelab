@@ -8,6 +8,9 @@
 # Current routes:
 #   - /.well-known/webfinger → JRD JSON for OIDC discovery (Tailscale
 #                              custom-OIDC tailnet creation needs this)
+#   - smoketest.niflheim.xiiisins.com (any path) → 200 "smoketest ok"
+#                              — used to verify AGH rewrites + Traefik
+#                                routing end-to-end after any change
 #
 # Future routes (deferred — separate phase):
 #   - / → personal startpage (Git-pulled, see Pending tasks in design
@@ -44,6 +47,20 @@ data:
         handle {
             respond "Not Found" 404
         }
+    }
+
+    # Smoketest site — hostname-specific, returns HTTP 200 to ANY path.
+    # Caddy picks the most-specific site address; this hostname-keyed
+    # block wins over the wildcard `:80` above whenever Host matches.
+    #
+    # `http://` prefix tells Caddy "plain HTTP only, no auto-HTTPS" —
+    # TLS terminates at Traefik upstream; the pod only ever sees :80.
+    #
+    # The AGH rewrite (terraform/adguard/rewrites.tf) points
+    # smoketest.niflheim.xiiisins.com at Traefik VIP 10.0.20.10; the
+    # niflheim Gateway routes it here via smoketest-httproute.yaml.
+    http://smoketest.niflheim.xiiisins.com {
+        respond "smoketest ok" 200
     }
 
   webfinger.json: |

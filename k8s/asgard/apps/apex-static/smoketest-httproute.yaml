@@ -1,0 +1,35 @@
+# k8s/asgard/apps/apex-static/smoketest-httproute.yaml
+#
+# Routes smoketest.niflheim.xiiisins.com traffic to the apex-static
+# pod, which has a dedicated Caddy site for this hostname returning
+# "smoketest ok" + HTTP 200 to any path (see configmap.yaml).
+#
+# Attaches to the niflheim Gateway (internal-only) — this endpoint
+# exists to verify AGH rewrites + ingress routing from inside the
+# LAN/tailnet, not for external exposure. No matching apex/midgard
+# HTTPRoute is created on purpose; if someone curls smoketest from
+# outside, NXDOMAIN is the right answer.
+#
+# The "live" smoketest URL after a Flux reconcile:
+#   curl http://smoketest.niflheim.xiiisins.com/anything
+# Expected response body: "smoketest ok" (HTTP 200).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: smoketest
+  namespace: apex-static
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - smoketest.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: apex-static
+          port: 80
