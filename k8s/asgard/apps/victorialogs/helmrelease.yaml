@@ -75,7 +75,9 @@ spec:
       # Pattern (same class as Vault's vault-data-chown, Authentik's
       # redis-data-chown): busybox initContainer as UID 0 chowns the
       # mount dir to the runtime UID:GID before the main container.
-      extraInitContainers:
+      # Chart values key is `server.initContainers` (NOT `extraInitContainers`
+      # — that key is silently ignored by victoria-logs-single chart 0.12.5).
+      initContainers:
         - name: vl-data-chown
           image: busybox
           command:
