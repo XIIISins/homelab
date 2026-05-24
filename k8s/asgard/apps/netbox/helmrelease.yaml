@@ -118,14 +118,33 @@ spec:
             - profile
             - email
           LOGOUT_REDIRECT_URL: "https://authentik.midgard.xiiisins.com/application/o/netbox/end-session/"
-      # Secret OIDC values: client_id + client_secret rendered into a
-      # Python config file by the netbox-oidc ExternalSecret. Mounted
-      # via the chart's extraConfig: secret pattern.
-      - secret:
+
+    # ── OIDC client_id + secret via direct volume mount ───────────────
+    # The chart's `extraConfig: secret:` path mounts at
+    # /run/config/extra/<index>/, which NetBox's standard configuration
+    # loader (which scans /etc/netbox/config/*.py) doesn't read.
+    # Variables defined in those files don't reach Django settings.
+    #
+    # Mount the netbox-oidc Secret's 99-oidc.py key as a single file
+    # directly into /etc/netbox/config/ via subPath. `subPath` is
+    # critical — mounting the volume at /etc/netbox/config/ without
+    # subPath would replace the entire dir (clobbering configuration.py,
+    # extra.py, etc.) with just our one secret file.
+    # The `99-` prefix ensures it loads AFTER the other configs (NetBox
+    # loads .py files in lexical order), so SOCIAL_AUTH_OIDC_KEY and
+    # SECRET are set last and override any defaults.
+    extraVolumes:
+      - name: netbox-oidc
+        secret:
           secretName: netbox-oidc
           items:
             - key: 99-oidc.py
               path: 99-oidc.py
+    extraVolumeMounts:
+      - name: netbox-oidc
+        mountPath: /etc/netbox/config/99-oidc.py
+        subPath: 99-oidc.py
+        readOnly: true
 
     # ── In-cluster Authentik resolution via CoreDNS rewrite ───────────
     # No per-pod hostAlias needed — the cluster-wide `coredns-custom`
