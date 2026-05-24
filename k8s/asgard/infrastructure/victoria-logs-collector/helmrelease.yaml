@@ -1,0 +1,85 @@
+# k8s/asgard/infrastructure/victoria-logs-collector/helmrelease.yaml
+#
+# vlagent DaemonSet — ships K3s pod container logs to VictoriaLogs.
+# Replaces the Vector/Fluent Bit pattern we'd have used in the
+# pre-research draft. vlagent is the official VictoriaLogs project
+# shipper (4-10× lower CPU than Vector + Fluent Bit, no file-rotation
+# correctness issues, single-vendor pairing with VL).
+#
+# DaemonSet runs on every K3s node (CPs + workers). Each instance
+# tails /var/log/containers/*.log via the kubernetesCollector input,
+# enriches with pod metadata (labels, namespace, container_name),
+# ships to VL via in-cluster Service DNS — no HTTPRoute hop, no auth.
+#
+# Why infrastructure/ and not apps/: this is a cluster-wide observability
+# concern that should reconcile alongside other infrastructure (vault,
+# cert-manager, traefik). Apps treat it as "always there." Lives in
+# infrastructure/ alongside other cluster-scoped log/metric collectors
+# we'll add later (vmagent).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-logs-collector
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: victoria-logs-collector
+      version: "0.3.4" # chart 0.3.4 → vlagent v1.x
+      sourceRef:
+        kind: HelmRepository
+        # Reuse the OCI repo declared by k8s/asgard/apps/victoriametrics/
+        # — same OCI registry collection (oci://ghcr.io/victoriametrics/
+        # helm-charts) hosts both. Cross-namespace ref is allowed for
+        # Flux HelmRepository.
+        name: victoriametrics
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # Ship to in-cluster VL Service DNS — fastest path, no HTTPRoute
+    # hop, no auth (matches the /insert/* unauth split on the VL
+    # HTTPRoute for off-cluster shippers, but pods bypass the route
+    # entirely).
+    remoteWrite:
+      - url: http://victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428
+
+    collector:
+      # Defaults are sensible; lock in the stream fields we want for
+      # nice grouping in vlui.
+      streamFields:
+        - kubernetes.container_name
+        - kubernetes.pod_name
+        - kubernetes.pod_namespace
+
+      # Exclude vlagent's own logs — otherwise the DaemonSet ingests
+      # its own output in a loop. Quiet but wasteful.
+      excludeFilter: "kubernetes.pod_name:=%{HOSTNAME}"
+
+      # Pod labels are useful for filtering — `app.kubernetes.io/name`
+      # gives you all logs from a chart-deployed workload, etc.
+      includePodLabels: true
+
+    # DaemonSet runs as root (privileged enough to read /var/log/
+    # containers/* + the kubelet's log directories). Synology CSI
+    # fsGroup quirk doesn't apply here — no PV, hostPath only.
+
+    # Resource sizing — vlagent is ~50-100 MiB RSS per node steady-
+    # state, spikes during catch-up after a node reboot. Reasonable
+    # cap below; bump if a noisy log producer lands.
+    resources:
+      requests: { cpu: 50m, memory: 100Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+    # ServiceMonitor (Prometheus-Operator CRD) — off until vm-operator
+    # lands in Phase 7b. The chart's serviceMonitor.enabled accepts
+    # `auto` (only if CRDs present) but explicit false is clearer.
+    serviceMonitor:
+      enabled: false
