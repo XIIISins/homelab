@@ -165,15 +165,16 @@ spec:
       enabled: false
 
     # ── Resource sizing ───────────────────────────────────────────────
-    # `small` bitnami preset = 500m/750m CPU, 512Mi/768Mi memory limits.
-    # Right for our scale (<100 devices, single-operator query load).
-    # If OOMKills appear, bump to `medium`.
-    resourcesPreset: small
+    # `medium` bitnami preset = 500m/750m CPU, 1024Mi/1536Mi memory.
+    # Bumped from `small` (768Mi) on first deploy — Django bootstrap +
+    # migrations + gunicorn workers OOMKilled at 768Mi. 1536Mi is the
+    # documented stable size for a small-to-medium NetBox install.
+    resourcesPreset: medium
     replicaCount: 1 # bump to 2 once steady-state, for rolling-update headroom
 
     worker:
       replicaCount: 1
-      resourcesPreset: small
+      resourcesPreset: medium
 
     housekeeping:
       enabled: true
