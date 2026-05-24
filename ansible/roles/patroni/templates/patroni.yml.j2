@@ -101,6 +101,14 @@ postgresql:
     - local all all scram-sha-256
     - host all all 127.0.0.1/32 scram-sha-256
     - host all all ::1/128 scram-sha-256
+    # Localhost replication — required for pg_rewind and Patroni's local
+    # replication-protocol checks during rejoin. The `host all all 127.0.0.1`
+    # line above does NOT match the `replication` pseudo-database; it needs
+    # its own entry. Plain `host` (not `hostssl`) because loopback traffic
+    # doesn't negotiate TLS by default and we want both encrypted +
+    # unencrypted local attempts to succeed.
+    - host replication {{ patroni_replication_username }} 127.0.0.1/32 scram-sha-256
+    - host replication {{ patroni_replication_username }} ::1/128 scram-sha-256
 {% for cidr in postgres_allowed_cidrs %}
     - hostssl all all {{ cidr }} scram-sha-256
 {% endfor %}
