@@ -6,9 +6,9 @@ locals {
   }
 
   workers = {
-    einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "urd", template_id = 10006, cores = 2, memory = 4096 }
-    einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 4096 }
-    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004, cores = 2, memory = 4096 }
+    einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "urd", template_id = 10006, cores = 2, memory = 8192 }
+    einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 8192 }
+    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004, cores = 2, memory = 8192 }
   }
 }
 
