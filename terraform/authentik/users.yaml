@@ -34,3 +34,4 @@ ghost:
     - authentik-admins
     - tailscale-users
     - ssh-users
+    - netbox-admins

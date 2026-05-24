@@ -27,3 +27,19 @@ ssh-users:
   # to SSH into homelab nodes once SSSD + Authentik LDAP outpost are
   # deployed. No effect today (no consumer yet) — defining now so user
   # membership is in place when SSSD lands.
+
+netbox-admins:
+  is_superuser: false
+  # Members can authenticate to NetBox via the OIDC Application (see
+  # netbox.tf for the policy binding). NetBox-side permissions
+  # (admin/staff/specific object permissions) are assigned manually in
+  # the NetBox UI on first OIDC login — automatic group→permission sync
+  # requires a custom SOCIAL_AUTH_PIPELINE override and is deferred.
+  # is_superuser=false because the group grants no Authentik-side
+  # privileges; gating is via the per-app policy binding only.
+
+netbox-viewers:
+  is_superuser: false
+  # Same OIDC-access gate as netbox-admins, but for users who should
+  # only get read-only NetBox permissions. Manual assignment in NetBox
+  # UI on first login (same caveat re: automatic sync).
