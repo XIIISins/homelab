@@ -78,15 +78,9 @@
   when: vlagent_installed_version != vlagent_version
   tags: [vlagent, vlagent:install]
 
-- name: Render /etc/vlagent/vlagent.yaml
-  ansible.builtin.template:
-    src: vlagent.yaml.j2
-    dest: "{{ vlagent_config_path }}"
-    owner: "{{ vlagent_user }}"
-    group: "{{ vlagent_group }}"
-    mode: "0640"
-  notify: restart vlagent
-  tags: [vlagent, vlagent:config]
+# Note: vlagent has no YAML/file-based config — all settings go via
+# CLI flags in the systemd unit's ExecStart. Per-host overrides
+# happen by changing role variables, which re-render the unit.
 
 - name: Install vlagent.service systemd unit
   ansible.builtin.template:

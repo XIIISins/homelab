@@ -1,4 +1,8 @@
 {# ansible/roles/vlagent/templates/vlagent.service.j2 #}
+{# vlagent takes ALL config via CLI flags (no YAML config file).
+   -fileCollector.glob + -fileCollector.extraFields are array flags,
+   passing each multiple times aligns by position to give per-file
+   tags ({"host":"<host>","service":"<service>"}). #}
 [Unit]
 Description=vlagent — VictoriaLogs project log shipper
 After=network-online.target
@@ -11,7 +15,12 @@ Group={{ vlagent_group }}
 ExecStart={{ vlagent_binary }} \
     --remoteWrite.url='{{ vlagent_remote_write_url }}' \
     --remoteWrite.tmpDataPath={{ vlagent_data_dir }} \
-    --filelog.config={{ vlagent_config_path }} \
+    --remoteWrite.maxDiskUsagePerURL={{ vlagent_max_disk_usage_per_url }} \
+    --fileCollector.checkpointsPath={{ vlagent_data_dir }}/file-checkpoints.json \
+{% for input in vlagent_log_inputs %}
+    --fileCollector.glob='{{ input.path }}' \
+    --fileCollector.extraFields='{"host":"{{ vlagent_host_label }}","service":"{{ input.service | default("unknown") }}"}' \
+{% endfor %}
     --loggerOutput=stderr \
     --loggerLevel=INFO
 Restart=always
@@ -19,10 +28,7 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Modest hardening — vlagent reads logs (variable paths), writes the
-# data dir, and only network-talks outbound. No PrivateTmp because
-# vlagent uses /tmp for staging in some code paths. No ProtectSystem=
-# strict because we need /var/log read access on the host.
+# Modest hardening
 NoNewPrivileges=true
 ProtectHome=true
 PrivateDevices=true
