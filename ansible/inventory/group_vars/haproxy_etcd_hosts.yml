@@ -57,13 +57,12 @@ haproxy_listens:
 # health. weight -50 drops the holder's effective priority enough that
 # the next peer wins (100→50 < 90 on Hlin, 90→40 < 80 on Eir, etc.)
 #
-# virtual_router_id 51: AdGuard VIP 10.0.10.200 already runs VRRP on
-# the same L2 segment with an unknown-but-different VRID. Two VRRPs
-# on the same broadcast domain MUST have different VRIDs or they
-# misinterpret each other's adverts and elect wrong. If VIP election
-# misbehaves after deploy, capture AGH's VRID (`grep virtual_router_id
-# /etc/keepalived/keepalived.conf` on Saga) and pick a non-colliding
-# value here.
+# virtual_router_id 61: AdGuard VIP 10.0.10.200 runs VRRP on the same
+# L2 segment at VRID 51. Two VRRPs on one broadcast domain MUST have
+# different VRIDs — otherwise each receives the other's adverts,
+# auth-fails, and logs "received an invalid passwd from <peer>"
+# continuously. Spacing convention: increment by 10 (AGH=51, PG=61,
+# next VRRP=71, ...) leaves room without renumbering.
 
 keepalived_priorities:
   hlin:   { VI_PG: 100 }
@@ -85,7 +84,7 @@ keepalived_vrrp_scripts:
 keepalived_vrrp_instances:
   - name: VI_PG
     interface: eth1
-    virtual_router_id: 51
+    virtual_router_id: 61
     priority: "{{ keepalived_priorities[inventory_hostname].VI_PG }}"
     auth_pass: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/keepalived/pg_vrrp').secret.auth_pass }}"
     virtual_ipaddresses:
