@@ -1,6 +1,6 @@
 # ansible/roles/vlagent/tasks/main.yml
 ---
-- name: Install required apt packages
+- name: Install required apt packages (Debian/Proxmox)
   ansible.builtin.apt:
     name:
       - ca-certificates # HTTPS to logs.niflheim.xiiisins.com
@@ -10,9 +10,21 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  when: ansible_os_family == 'Debian'
   tags: [vlagent, vlagent:packages]
 
-- name: Enable + start rsyslog (so /var/log/syslog actually gets written)
+- name: Install required dnf packages (RHEL)
+  ansible.builtin.dnf:
+    name:
+      - ca-certificates
+      - curl
+      - tar
+      - rsyslog # already installed on RHEL by default, but be explicit
+    state: present
+  when: ansible_os_family == 'RedHat'
+  tags: [vlagent, vlagent:packages]
+
+- name: Enable + start rsyslog (so /var/log/syslog or /var/log/messages gets written)
   ansible.builtin.systemd:
     name: rsyslog
     enabled: true
