@@ -28,8 +28,8 @@ spec:
         enabled: false
       postgresql:
         # Kept in sync with AUTHENTIK_POSTGRESQL__HOST in externalsecret.yaml,
-        # which is the value that actually wins. See comment there for why IP.
-        host: 10.0.11.230
+        # which is the value that actually wins. See comment there for why VIP IP.
+        host: 10.0.10.210
         port: 5432
         name: authentik
         user: authentik
