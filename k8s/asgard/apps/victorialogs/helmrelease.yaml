@@ -1,4 +1,4 @@
-# k8s/jotunheim/apps/victorialogs/helmrelease.yaml
+# k8s/asgard/apps/victorialogs/helmrelease.yaml
 #
 # VictoriaLogs (single-instance) — log storage + query engine.
 # Replaces Loki in our homelab per the CLAUDE.md architectural
@@ -62,6 +62,29 @@ spec:
                 topologyKey: kubernetes.io/hostname
 
       # Self-scraping requires the (Victoria) operator's CRDs — off
-      # for first deploy, enable after Phase 6's vmoperator lands.
+      # for first deploy, enable after Phase 7b's vm-operator lands.
       serviceMonitor:
         enabled: false
+
+      # Synology CSI iSCSI volumes don't honor `securityContext.fsGroup`
+      # — see CLAUDE.md "Storage / iSCSI / Synology CSI" gotchas. The
+      # chart's pod runs as runAsUser=1000 / fsGroup=2000 but the ext4
+      # LUN gets formatted root-owned, so the runtime user can't create
+      # /storage/flock.lock and the pod panics on first boot with:
+      #   FATAL: cannot create lock file: ... permission denied
+      # Pattern (same class as Vault's vault-data-chown, Authentik's
+      # redis-data-chown): busybox initContainer as UID 0 chowns the
+      # mount dir to the runtime UID:GID before the main container.
+      extraInitContainers:
+        - name: vl-data-chown
+          image: busybox
+          command:
+            - sh
+            - -c
+            - chown -R 1000:2000 /storage && chmod 750 /storage
+          volumeMounts:
+            - name: server-volume
+              mountPath: /storage
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
