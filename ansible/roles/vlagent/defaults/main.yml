@@ -35,7 +35,10 @@ vlagent_group: root
 # /insert/* path bypasses the Authentik ForwardAuth middleware (see
 # k8s/asgard/apps/victorialogs/httproute.yaml split). Pods on the
 # K3s cluster use in-cluster Service DNS instead.
-vlagent_remote_write_url: "https://logs.niflheim.xiiisins.com/insert/jsonline"
+# /insert/native = vlagent's native protobuf protocol (what it sends
+# by default; more efficient than /insert/jsonline). The HTTPRoute's
+# /insert/* PathPrefix catches both endpoints.
+vlagent_remote_write_url: "https://logs.niflheim.xiiisins.com/insert/native"
 
 # Buffer size on disk before remote-write retries time out. vlagent
 # auto-drops the oldest data when full; 1G is generous for homelab
