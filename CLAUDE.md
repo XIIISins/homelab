@@ -395,7 +395,7 @@ KPN Experia Box (192.168.2.0/24, untouched) — DMZ → UCG-Ultra WAN
 
 **Pending:**
 - 🟡 AdGuard Home — functionally ✅ (Saga/Mimir/Kvasir, VIP 10.0.10.200, sync) but **manually installed, no Ansible role**. Sync bumped `*/30` → `*/1` cron. Phase 5b.2 — AdGuard IaC — pending (Terraform LXC + Ansible roles).
-- 🟡 Phase 5g.2 — PG HA with Patroni. Design ✅ 2026-05-24 (5g.2.a): Patroni for HA mgmt, etcd co-located on HAProxy trio (Hlin/Eir/Snotra), no pgbouncer (revisit triggers documented), single HAProxy VIP for all consumers. 5g.2.b ✅: HAProxy/etcd trio (1133/1134/1135) + Vör/Idunn PG LXCs (1131/1132) provisioned. Sub-phases 5g.2.c–5g.2.j pending: etcd cluster bootstrap → Patroni Fulla adoption + replica join → HAProxy + keepalived VIP `10.0.10.210` → Authentik cutover from IP-stopgap to VIP → failover validation.
+- 🟡 Phase 5g.2 — PG HA with Patroni. Done: design + decision rows (2026-05-24), HAProxy/etcd trio + Vör/Idunn PG LXCs provisioned + baseline (1131-1135), etcd 3-node cluster bootstrapped on Hlin/Eir/Snotra (Snotra leader). Remaining: Patroni Fulla adoption + replica join → HAProxy + keepalived VIP `10.0.10.210` → Authentik cutover from IP-stopgap → failover validation. Step-list checkboxes tracked in `docs/homelab-design.md` pending tasks. (Phase 5g.2 commits 3ad9077/6b9830e/f83657a were originally labelled `5g.2.a/b/c` — those subjects stay as historical record per the rule, but the L4 letters are not the canonical sub-phase tracking.)
 - 🔲 Remaining asgard LXCs (Teamspeak, Zabbix, Jellyfin)
 - 🔲 Jotunheim K3s
 - 🔲 Services (Outline, Immich, Grafana, VictoriaMetrics, VictoriaLogs, Netbox, n8n, Privatebin, Startpage)
