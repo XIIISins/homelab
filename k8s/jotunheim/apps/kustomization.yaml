@@ -3,9 +3,9 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  # Shared monitoring namespace — all three Phase-7 apps live here.
+  # Shared monitoring namespace — both Phase-7 apps live here.
   - monitoring-namespace
-  # Phase 7 — observability stack.
+  # Phase 7 — observability stack. Native vmui + VL UI are used
+  # for dashboards; Grafana was dropped from scope (see decisions.md).
   - victoriametrics
   - victorialogs
-  - grafana

@@ -46,7 +46,7 @@ Each rule cross-refs [`docs/operations/decisions.md`](docs/operations/decisions.
 
 ### Services / placement
 - **Jellyfin: privileged LXC on Urd.** Intel QuickSync `/dev/dri` passthrough. Not in K3s.
-- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs/Grafana in jotunheim K3s.** Zabbix stays LXC for monitoring independence. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus.
+- **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in jotunheim K3s.** Zabbix stays LXC for monitoring independence. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need.
 - **Ansible: AWX in jotunheim K3s.** 30-min scheduled reconciliation. Vault-backed credentials.
 - **PBS: privileged LXC on Skuld.** NFS bind-mounted via Proxmox host.
 
@@ -250,7 +250,7 @@ CP cpu/memory parameterized per-node in `locals.control_planes` map in `terrafor
 - ✅ Phase 5g.2 — PG HA with Patroni + HAProxy/keepalived VIP (2026-05-24). Patroni cluster `niflheim-pg` 3/3 streaming, HAProxy VIP `10.0.10.210` routes writes to current leader via Patroni REST API `/master` health-check, keepalived floats VIP across Hlin/Eir/Snotra (eth1 VLAN 10, priorities 100/90/80, all-BACKUP election, `chk_haproxy` track-script demotes VIP-holder if HAProxy dies). Authentik cut over to VIP (literal-fulla-IP stopgap retired). Failover validated: kill-leader → election → VIP follows + Authentik survives without operator intervention. Generic data-driven `haproxy` + `keepalived` roles built — reusable for any backend/VIP by supplying group_vars. Four pending PG params landed via orchestrated `patronictl restart` (replicas first: `max_connections=300`, `wal_log_hints=on`, `cluster_name`, `listen_addresses`).
 - 🔲 Remaining asgard LXCs (Teamspeak, Zabbix, Jellyfin)
 - 🔲 Jotunheim K3s
-- 🔲 Services (Outline, Immich, Grafana, VictoriaMetrics, VictoriaLogs, n8n, Privatebin, Startpage)
+- 🔲 Services (Outline, Immich, VictoriaMetrics, VictoriaLogs, n8n, Privatebin, Startpage)
 
 ---
 
