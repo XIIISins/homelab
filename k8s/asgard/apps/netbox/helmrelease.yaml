@@ -20,12 +20,13 @@ spec:
         name: netbox
         namespace: netbox
   install:
-    # -1 disables uninstall-on-failure for the FIRST deploy — without it,
-    # Helm uninstalls mid-migration on transient errors, leaving orphan
-    # PVCs and partially-migrated DB rows. Restore to `3` once the deploy
-    # is steady-state (see follow-up commit in 5i.f).
+    # Restored to the standard `3` in 5i.f post-flight after first-deploy
+    # validation. Was `-1` during initial deploy because mid-migration
+    # uninstall-on-failure would have left orphan PVCs + partially-
+    # migrated DB rows; once migrations completed cleanly that risk is
+    # gone and `3` is the safer default for transient upgrade failures.
     remediation:
-      retries: -1
+      retries: 3
   upgrade:
     remediation:
       retries: 3
