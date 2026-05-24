@@ -8,8 +8,11 @@
 # Sourced once at shell init; env vars are only set when functions are
 # invoked.
 #
+# Shell-independent sibling (bash/zsh): <homelab-repo>/.config/scripts/homelab.sh
+# Both files MUST stay in sync — same public surface, same 1P items.
+#
 # Public functions:
-#   homelab-env          — load homelab env vars from 1Password
+#   homelab-env          — load homelab env vars from 1P, then prompt for VAULT_TOKEN source
 #   set-vault-token      — set VAULT_TOKEN from a named source (root|approle)
 #   vault-root-token     — echo the Vault root token from 1P (value-producer)
 #   rotate-approle       — rotate a Vault AppRole SecretID (--help, --fix)
@@ -205,6 +208,20 @@ function homelab-env --description "Load homelab environment from 1Password"
         return 1
     end
     echo "Loaded $loaded homelab env vars"
+
+    echo ""
+    read -P "Set VAULT_TOKEN? [root/approle/skip]: " choice
+    switch $choice
+        case root r
+            set-vault-token root
+        case approle a
+            set-vault-token approle
+        case skip s ''
+            echo "Skipped VAULT_TOKEN (unchanged)."
+        case '*'
+            echo "Unknown choice '$choice'; VAULT_TOKEN unchanged." >&2
+            return 1
+    end
 end
 
 # === Public: vault tokens ===
