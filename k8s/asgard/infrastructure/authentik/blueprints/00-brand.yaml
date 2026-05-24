@@ -1,7 +1,28 @@
 # k8s/asgard/infrastructure/authentik/blueprints/00-brand.yaml
-version: 1
-metadata:
-  name: default-brand
+#
+# Brand domain = the hostname Authentik uses when generating self-
+# referring URLs (e.g. OAuth redirect URLs, ForwardAuth auth-init
+# redirects). MUST be a hostname that resolves to Authentik from
+# wherever the browser is. Two existing options:
+#   - authentik.midgard.xiiisins.com — internal alias (AGH-rewritten
+#     to Traefik VIP). Works from LAN + tailnet (split-DNS). Doesn't
+#     resolve off-tailnet, which is fine — off-tailnet users can't
+#     reach internal services anyway.
+#   - authentik.xiiisins.com — external apex (Cloudflare-tunnelled).
+#     Works from anywhere but tromboles internal traffic through CF.
+#
+# We pick midgard for the brand domain — internal flows stay internal.
+#
+# Migration history: this domain was previously `authentik.niflheim
+# .xiiisins.com`, which didn't actually resolve anywhere — no AGH
+# rewrite, no public DNS record. Symptom: ForwardAuth-protected apps
+# (Phase 7 vmui/VL UI) hit the redirect URL and got NXDOMAIN /
+# connection-refused. Fixed 2026-05-25 with the rename below; the
+# `identifiers` block uses the new value so Authentik's blueprint
+# applier UPSERTs (finds nothing matching → creates the new one).
+# The previous niflheim brand should be cleaned up post-apply (the
+# blueprint demote-shipped-default trick doesn't help here since
+# the niflheim brand has default=true and isn't the shipped one).
 entries:
   # Demote the shipped default brand
   - model: authentik_brands.brand
@@ -10,10 +31,19 @@ entries:
     attrs:
       default: false
 
-  # Your domain becomes the default
+  # Demote the OLD wrongly-named brand from previous deploy. This
+  # entry can be removed after the next post-flight once we confirm
+  # the leftover is gone.
   - model: authentik_brands.brand
     identifiers:
       domain: authentik.niflheim.xiiisins.com
+    attrs:
+      default: false
+
+  # Our brand — uses the internal alias domain that actually resolves.
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik.midgard.xiiisins.com
     attrs:
       branding_title: niflheim
       branding_logo: /static/dist/assets/icons/icon.png
