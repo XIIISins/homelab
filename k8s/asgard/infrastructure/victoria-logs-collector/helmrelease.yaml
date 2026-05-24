@@ -67,14 +67,20 @@ spec:
       # gives you all logs from a chart-deployed workload, etc.
       includePodLabels: true
 
-    # DaemonSet runs as root. Required because the chart mounts
-    # /var/log + /var/lib from the host (hostPath, both root:root)
-    # and vlagent needs to mkdir /var/lib/vl-collector for its
-    # remote-write buffer. The vlagent image's default user is non-
-    # root → without these overrides, the pod CrashLoopBackOff's on
-    # the very first mkdir attempt:
-    #   FATAL: cannot create directory: mkdir /var/lib/vl-collector/
-    #   vlagent-remotewrite-data: permission denied
+    # DaemonSet runs as root + privileged. Required because:
+    #   - chart mounts host's /var/log + /var/lib as hostPath (both
+    #     root:root) and vlagent mkdir's /var/lib/vl-collector for the
+    #     remote-write buffer → needs root inside the container
+    #   - RHEL 9 K3s workers run SELinux Enforcing, and even root
+    #     inside a non-privileged container can't write to host paths
+    #     labelled var_lib_t. Symptom: same "permission denied" error
+    #     even after runAsUser=0. SELinux dontaudit hides the AVC.
+    #
+    # privileged=true relaxes the container's SELinux confinement to
+    # allow writes to host-labelled paths. Standard pattern for
+    # log-collector DaemonSets on RHEL — same shape that Calico,
+    # Fluent Bit, Vector, and the synology-csi-node DaemonSet all
+    # use here.
     podSecurityContext:
       enabled: true
       runAsUser: 0
@@ -84,6 +90,7 @@ spec:
       enabled: true
       runAsUser: 0
       runAsNonRoot: false
+      privileged: true
 
     # Resource sizing — vlagent is ~50-100 MiB RSS per node steady-
     # state, spikes during catch-up after a node reboot. Reasonable
