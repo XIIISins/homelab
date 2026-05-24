@@ -20,10 +20,14 @@ provider "tailscale" {
 
   # Scopes requested at token-issue time. Must be a subset of what the
   # OAuth client was created with in the UI:
-  #   - policy_file:write (ACL)
+  #   - policy_file:write  (ACL)
   #   - devices:core:write
   #   - devices:routes:write
   #   - auth_keys:write
+  #   - dns:write          (MagicDNS, split DNS, search paths — added
+  #                         in-place to the existing client 2026-05-24
+  #                         during 5e.4; no remint, same client_id/
+  #                         client_secret in Vault)
   # Provider auto-handles requesting these via the standard OAuth flow.
 }
 
