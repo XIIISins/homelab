@@ -1,0 +1,23 @@
+# ansible/roles/etcd/defaults/main.yml
+---
+etcd_version: v3.6.11
+
+etcd_user: etcd
+etcd_group: etcd
+
+etcd_data_dir: /var/lib/etcd
+etcd_config_dir: /etc/etcd
+etcd_install_dir: "/opt/etcd-{{ etcd_version }}-linux-amd64"
+
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# Cluster token serves as a bootstrap-time consistency check —
+# nodes with mismatched tokens refuse to form a cluster, which
+# guards against accidentally pulling a stale node from one
+# cluster into another.
+etcd_cluster_token: niflheim-etcd
+
+# Inventory group whose members form the cluster. Override if
+# deploying a second etcd cluster against a different group.
+etcd_inventory_group: haproxy_etcd_hosts

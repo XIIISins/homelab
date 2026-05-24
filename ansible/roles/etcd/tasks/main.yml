@@ -1,0 +1,114 @@
+# ansible/roles/etcd/tasks/main.yml
+---
+- name: Create etcd group
+  ansible.builtin.group:
+    name: "{{ etcd_group }}"
+    system: true
+    state: present
+
+- name: Create etcd user
+  ansible.builtin.user:
+    name: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: "{{ etcd_data_dir }}"
+    state: present
+
+- name: Create etcd directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    mode: '0750'
+  loop:
+    - "{{ etcd_data_dir }}"
+    - "{{ etcd_config_dir }}"
+
+- name: Check if etcd binary is already installed at this version
+  ansible.builtin.stat:
+    path: "{{ etcd_install_dir }}/etcd"
+  register: etcd_binary_stat
+
+- name: Download upstream SHA256SUMS for this release
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/SHA256SUMS"
+    dest: "/tmp/etcd-{{ etcd_version }}.sha256sums"
+    mode: '0644'
+    owner: root
+    group: root
+  when: not etcd_binary_stat.stat.exists
+
+- name: Extract SHA256 for the linux-amd64 tarball
+  ansible.builtin.command:
+    cmd: "grep 'etcd-{{ etcd_version }}-linux-amd64.tar.gz' /tmp/etcd-{{ etcd_version }}.sha256sums"
+  register: etcd_sha256_line
+  changed_when: false
+  check_mode: false
+  when: not etcd_binary_stat.stat.exists
+
+- name: Download etcd tarball with checksum verification
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    checksum: "sha256:{{ etcd_sha256_line.stdout.split()[0] }}"
+    mode: '0644'
+    owner: root
+    group: root
+  when: not etcd_binary_stat.stat.exists
+
+- name: Extract etcd archive to /opt
+  ansible.builtin.unarchive:
+    src: "/tmp/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: /opt/
+    remote_src: true
+    creates: "{{ etcd_install_dir }}/etcd"
+    owner: root
+    group: root
+
+- name: Symlink etcd binaries into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ etcd_install_dir }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  loop:
+    - etcd
+    - etcdctl
+    - etcdutl
+
+- name: Template etcd config file
+  ansible.builtin.template:
+    src: etcd.conf.yml.j2
+    dest: "{{ etcd_config_dir }}/etcd.conf.yml"
+    owner: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    mode: '0640'
+  notify: restart etcd
+
+- name: Template etcd systemd unit
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart etcd
+
+- name: Enable and start etcd
+  ansible.builtin.systemd:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for etcd client port to be listening
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ etcd_client_port }}"
+    state: started
+    timeout: 30

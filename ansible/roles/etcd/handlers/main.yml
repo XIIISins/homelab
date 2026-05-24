@@ -1,0 +1,7 @@
+# ansible/roles/etcd/handlers/main.yml
+---
+- name: restart etcd
+  ansible.builtin.systemd:
+    name: etcd
+    state: restarted
+    daemon_reload: true

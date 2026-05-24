@@ -1,0 +1,19 @@
+# ansible/roles/etcd/templates/etcd.service.j2
+# Managed by Ansible — edits will be overwritten
+[Unit]
+Description=etcd key-value store
+Documentation=https://etcd.io/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ etcd_user }}
+Group={{ etcd_group }}
+ExecStart=/usr/local/bin/etcd --config-file={{ etcd_config_dir }}/etcd.conf.yml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

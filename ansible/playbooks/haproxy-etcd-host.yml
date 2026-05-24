@@ -7,5 +7,7 @@
   roles:
     - role: baseline
       tags: [baseline]
+    - role: etcd
+      tags: [etcd]
     - role: hardening
       tags: [hardening]

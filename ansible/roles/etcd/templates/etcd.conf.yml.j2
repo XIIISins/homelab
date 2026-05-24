@@ -1,0 +1,17 @@
+# ansible/roles/etcd/templates/etcd.conf.yml.j2
+# Managed by Ansible — edits will be overwritten
+name: '{{ inventory_hostname }}'
+data-dir: '{{ etcd_data_dir }}'
+
+listen-client-urls: 'http://{{ ansible_host }}:{{ etcd_client_port }},http://127.0.0.1:{{ etcd_client_port }}'
+advertise-client-urls: 'http://{{ ansible_host }}:{{ etcd_client_port }}'
+
+listen-peer-urls: 'http://{{ ansible_host }}:{{ etcd_peer_port }}'
+initial-advertise-peer-urls: 'http://{{ ansible_host }}:{{ etcd_peer_port }}'
+
+initial-cluster-token: '{{ etcd_cluster_token }}'
+initial-cluster-state: 'new'
+initial-cluster: '{% for h in groups[etcd_inventory_group] %}{{ h }}=http://{{ hostvars[h]["ansible_host"] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}'
+
+logger: 'zap'
+log-outputs: ['stderr']
