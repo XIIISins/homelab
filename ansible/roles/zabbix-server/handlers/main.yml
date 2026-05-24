@@ -1,0 +1,20 @@
+# ansible/roles/zabbix-server/handlers/main.yml
+---
+- name: apt update
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: restart zabbix-server
+  ansible.builtin.systemd:
+    name: zabbix-server
+    state: restarted
+
+- name: restart nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: restarted
+
+- name: restart php-fpm
+  ansible.builtin.systemd:
+    name: php8.2-fpm
+    state: restarted

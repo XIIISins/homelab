@@ -604,3 +604,101 @@ resource "proxmox_virtual_environment_container" "adguard" {
     type    = "tty"
   }
 }
+
+# ----------------------------------------------------------------------------
+# LXC 1102 — Zabbix server (Skuld)
+# ----------------------------------------------------------------------------
+# Monitoring server for the homelab. Stays outside K3s (per the
+# architectural invariant) for monitoring independence — when K3s
+# is the thing on fire, we don't want our visibility into the fire
+# to share the failure domain.
+#
+# Stack:
+#   - zabbix-server-pgsql 7.x — server backend
+#   - zabbix-frontend-php + nginx — web UI on port 80
+#   - zabbix-agent2 — local monitoring
+#   - PostgreSQL backend via the niflheim Patroni HAProxy VIP
+#     (10.0.10.210), dedicated `zabbix` DB
+#
+# zabbix-agent2 also deploys to every other host in the inventory
+# (via a separate playbook + role) — they push metrics to this LXC's
+# port 10051. See ansible/roles/zabbix-agent/.
+#
+# Sizing: 2 vCPU / 2GB / 8GB disk. Server + frontend share the
+# memory; DB lives elsewhere so the LXC stays small. Bump RAM if
+# the dashboard starts to feel slow.
+#
+# See:
+#   - docs/architecture/network.md → IP 10.0.11.21, VMID 1102 (skuld)
+#   - ansible/roles/zabbix-server/README.md (TBD — 5h.zabbix.c)
+#   - ansible/roles/zabbix-agent/README.md (TBD — 5h.zabbix.d)
+# ----------------------------------------------------------------------------
+
+resource "random_password" "zabbix_root" {
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "zabbix" {
+  description = "Zabbix server + frontend + agent"
+
+  node_name = "skuld"
+  vm_id     = 1102
+  tags      = ["asgard", "lxc", "zabbix", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  cpu {
+    cores = 2
+  }
+
+  memory {
+    dedicated = 2048 # MB
+    swap      = 1024
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 8 # GB — server + frontend; DB is external (Patroni)
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = "zabbix"
+
+    ip_config {
+      ipv4 {
+        address = "10.0.11.21/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.zabbix_root.result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 — see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+}

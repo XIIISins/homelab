@@ -1,0 +1,27 @@
+{# ansible/roles/zabbix-server/templates/zabbix_server.conf.j2 #}
+{# Zabbix server config. DB connection points at Patroni HAProxy VIP
+   (10.0.10.210). Sizing tuned for ~50-host homelab. #}
+ListenPort={{ zabbix_server_listen_port }}
+LogFile={{ zabbix_server_log_file }}
+LogFileSize=10
+PidFile=/run/zabbix/zabbix_server.pid
+SocketDir=/run/zabbix
+DBHost={{ zabbix_db_host }}
+DBPort={{ zabbix_db_port }}
+DBName={{ zabbix_db_name }}
+DBUser={{ zabbix_db_user }}
+DBPassword={{ zabbix_db_password }}
+DBTLSConnect=required
+DBSchema=public
+SNMPTrapperFile=/var/log/snmptrap/snmptrap.log
+Timeout=4
+AlertScriptsPath=/usr/lib/zabbix/alertscripts
+ExternalScripts=/usr/lib/zabbix/externalscripts
+FpingLocation=/usr/bin/fping
+Fping6Location=/usr/bin/fping6
+LogSlowQueries=3000
+StatsAllowedIP=127.0.0.1
+CacheSize={{ zabbix_server_cache_size }}
+HistoryCacheSize={{ zabbix_server_history_cache_size }}
+TrendCacheSize={{ zabbix_server_trend_cache_size }}
+ValueCacheSize={{ zabbix_server_value_cache_size }}

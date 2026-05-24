@@ -1,0 +1,49 @@
+# ansible/roles/zabbix-server/tasks/schema.yml
+---
+# Zabbix server schema bootstrap. Loaded from /usr/share/zabbix-sql-
+# scripts/postgresql/server.sql.gz against the (already-existing)
+# `zabbix` DB. The DB + user are created by the postgres-common role
+# on the Patroni leader (see postgres_databases entry in
+# group_vars/postgres_hosts.yml).
+#
+# Idempotency: check for the existence of the `users` table (one of
+# the first tables created by the schema). If present, schema is
+# loaded — skip the slow load.
+
+- name: Look up Zabbix DB password from Vault
+  ansible.builtin.set_fact:
+    zabbix_db_password: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_db_password_vault_path).secret[zabbix_db_password_vault_field] }}
+  no_log: true
+
+- name: Check whether zabbix schema is already loaded
+  ansible.builtin.command:
+    cmd: >-
+      psql "host={{ zabbix_db_host }} port={{ zabbix_db_port }}
+           dbname={{ zabbix_db_name }} user={{ zabbix_db_user }}
+           sslmode={{ zabbix_db_sslmode }}"
+      -tAc "SELECT to_regclass('public.users');"
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
+  register: zabbix_schema_check
+  changed_when: false
+  no_log: true
+
+- name: Set schema-loaded fact
+  ansible.builtin.set_fact:
+    zabbix_schema_loaded: "{{ zabbix_schema_check.stdout | trim == 'users' }}"
+
+- name: Load zabbix schema (first deploy)
+  ansible.builtin.shell:
+    cmd: >-
+      zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz |
+      psql "host={{ zabbix_db_host }} port={{ zabbix_db_port }}
+           dbname={{ zabbix_db_name }} user={{ zabbix_db_user }}
+           sslmode={{ zabbix_db_sslmode }}"
+  environment:
+    PGPASSWORD: "{{ zabbix_db_password }}"
+  when: not zabbix_schema_loaded
+  no_log: true
+  register: zabbix_schema_load
+  changed_when: zabbix_schema_load.rc == 0

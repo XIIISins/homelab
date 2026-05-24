@@ -1,0 +1,17 @@
+# ansible/roles/zabbix-agent/meta/main.yml
+---
+galaxy_info:
+  role_name: zabbix-agent
+  author: ghost
+  description: Install + configure zabbix-agent2 for cluster-wide monitoring. Pushes metrics to the Zabbix server LXC (10.0.11.21). Lightweight — apply to every host in the inventory that should appear on the dashboard.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+    - name: EL
+      versions:
+        - "9"
+dependencies: []

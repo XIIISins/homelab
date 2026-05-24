@@ -1,0 +1,68 @@
+# ansible/roles/zabbix-server/defaults/main.yml
+---
+# Zabbix release line — 7.0 LTS is current as of Phase 5h draft.
+# 7.x is the modern major; 6.0 LTS was deprecated in 2025. Bump
+# carefully — schema migrations happen between majors (Zabbix runs
+# them automatically on first start, but downgrade isn't supported).
+zabbix_major: "7.0"
+
+# Repo URL pattern — Zabbix ships an apt repo .deb that registers
+# their package signing key + repo lines. Pin the repo version to
+# match `zabbix_major`. The OS-codename gets templated in by
+# {{ ansible_distribution_release }} at task time.
+zabbix_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
+
+# Apt packages — server-pgsql + the frontend + agent2. Nginx is
+# preferred over Apache (lighter, simpler config). The sql-scripts
+# package ships /usr/share/zabbix-sql-scripts/postgresql/*.sql.gz
+# which is what we use to bootstrap the schema on first deploy.
+zabbix_server_packages:
+  - zabbix-server-pgsql
+  - zabbix-frontend-php
+  - zabbix-nginx-conf
+  - zabbix-sql-scripts
+  - zabbix-agent2
+  - postgresql-client # for psql + the schema-load step
+  - php-pgsql
+
+# PG connection — points at the Patroni HAProxy VIP. The VIP routes
+# writes to the current leader; if the leader fails over, Zabbix
+# reconnects within the HAProxy idle timeout (default 30s).
+zabbix_db_host: "10.0.10.210" # Patroni HAProxy VIP
+zabbix_db_port: 5432
+zabbix_db_name: zabbix
+zabbix_db_user: zabbix
+zabbix_db_password_vault_path: "ansible/postgres/zabbix-password"
+zabbix_db_password_vault_field: password
+zabbix_db_sslmode: require # libpq enforces TLS to the VIP
+
+# Server config — most defaults are fine for homelab scale.
+# CacheSize tuned for ~50 hosts × 30 metrics each ≈ 1500 series;
+# upstream recommends 32MB minimum, doubling for headroom.
+zabbix_server_listen_port: 10051
+zabbix_server_cache_size: 64M
+zabbix_server_history_cache_size: 32M
+zabbix_server_trend_cache_size: 16M
+zabbix_server_value_cache_size: 32M
+zabbix_server_log_file: /var/log/zabbix/zabbix_server.log
+
+# Web UI / nginx — port 80, server_name = zabbix.niflheim.xiiisins.com
+# (resolved by AGH rewrite).
+zabbix_web_server_name: "zabbix.niflheim.xiiisins.com"
+zabbix_web_listen_port: 80
+zabbix_php_timezone: "Europe/Amsterdam" # local timezone
+
+# Admin user — Zabbix creates a default `Admin` user during schema
+# load (with password `zabbix`). The role rotates this immediately
+# to the Vault-stored value. Manual one-time step on first deploy
+# OR the role can call the API to update it (deferred — initial
+# `zabbix` → operator-set password via UI on first login is fine).
+zabbix_admin_user: Admin
+zabbix_admin_password_vault_path: "ansible/zabbix/admin-password"
+zabbix_admin_password_vault_field: password
+
+# Whether to bootstrap the DB schema on first run. Default true —
+# the task is idempotent (skips if schema is already loaded). Set
+# false on a re-run if you're certain schema is loaded and want
+# to skip the slow grep-check.
+zabbix_bootstrap_schema: true

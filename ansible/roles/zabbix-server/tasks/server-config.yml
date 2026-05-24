@@ -1,0 +1,19 @@
+# ansible/roles/zabbix-server/tasks/server-config.yml
+---
+- name: Look up Zabbix DB password from Vault (server config)
+  ansible.builtin.set_fact:
+    zabbix_db_password: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_db_password_vault_path).secret[zabbix_db_password_vault_field] }}
+  no_log: true
+
+- name: Render /etc/zabbix/zabbix_server.conf
+  ansible.builtin.template:
+    src: zabbix_server.conf.j2
+    dest: /etc/zabbix/zabbix_server.conf
+    owner: root
+    group: zabbix
+    mode: "0640" # group-readable so the zabbix runtime user can load it
+    backup: true
+  no_log: true # password embedded inline
+  notify: restart zabbix-server

@@ -1,0 +1,15 @@
+# ansible/roles/zabbix-server/tasks/services.yml
+---
+- name: Flush pending handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start zabbix-server, nginx, php-fpm, zabbix-agent2
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - zabbix-server
+    - nginx
+    - php8.2-fpm # Debian 13 trixie ships PHP 8.2; bump if Zabbix package brings a different one
+    - zabbix-agent2

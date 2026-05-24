@@ -1,0 +1,10 @@
+# ansible/roles/zabbix-agent/handlers/main.yml
+---
+- name: apt update
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: restart zabbix-agent2
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    state: restarted

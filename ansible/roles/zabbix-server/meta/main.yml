@@ -1,0 +1,14 @@
+# ansible/roles/zabbix-server/meta/main.yml
+---
+galaxy_info:
+  role_name: zabbix-server
+  author: ghost
+  description: Install + configure Zabbix server + frontend (nginx + php-fpm) + local agent. Backend on external Patroni PG via HAProxy VIP. See README for the DB-side bootstrap that must happen on the Patroni leader first.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+        - trixie
+dependencies: []

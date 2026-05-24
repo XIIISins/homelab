@@ -1,0 +1,19 @@
+{# ansible/roles/zabbix-agent/templates/zabbix_agent2.conf.j2 #}
+{# zabbix-agent2 config. Both passive (server polls agent) + active
+   (agent pushes to server) channels point at the Zabbix LXC. #}
+PidFile=/run/zabbix/zabbix_agent2.pid
+LogType={{ zabbix_agent_log_type }}
+LogFile={{ zabbix_agent_log_file }}
+LogFileSize=10
+Server={{ zabbix_agent_server }}
+ServerActive={{ zabbix_agent_server_active }}
+ListenPort={{ zabbix_agent_listen_port }}
+ListenIP={{ zabbix_agent_listen_ip }}
+Hostname={{ zabbix_agent_hostname }}
+HostMetadata={{ zabbix_agent_host_metadata }}
+TLSConnect={{ zabbix_agent_tls_connect }}
+TLSAccept={{ zabbix_agent_tls_accept }}
+ControlSocket=/run/zabbix/agent.sock
+PluginSocket=/run/zabbix/agent.plugin.sock
+Include=/etc/zabbix/zabbix_agent2.d/*.conf
+Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf

@@ -1,0 +1,30 @@
+# ansible/roles/zabbix-server/tasks/web-config.yml
+---
+- name: Render /etc/zabbix/nginx.conf
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/zabbix/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart nginx
+
+- name: Render /etc/zabbix/web/zabbix.conf.php
+  ansible.builtin.template:
+    src: zabbix.conf.php.j2
+    dest: /etc/zabbix/web/zabbix.conf.php
+    owner: www-data
+    group: www-data
+    mode: "0640"
+  no_log: true # DB password inside
+  notify: restart nginx
+
+- name: Set PHP timezone for the Zabbix frontend
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/php-fpm.conf
+    regexp: '^;?php_value\[date\.timezone\]\s*='
+    line: "php_value[date.timezone] = {{ zabbix_php_timezone }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart php-fpm

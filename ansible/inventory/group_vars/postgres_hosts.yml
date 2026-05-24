@@ -43,3 +43,9 @@ postgres_databases:
   - name: netbox
     owner: netbox
     password_vault_path: ansible/postgres/netbox-password
+  # Phase 5h — Zabbix server. The zabbix-server role's schema-bootstrap
+  # task loads /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz
+  # into this DB on first deploy. See ansible/roles/zabbix-server/README.md.
+  - name: zabbix
+    owner: zabbix
+    password_vault_path: ansible/postgres/zabbix-password

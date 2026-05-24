@@ -1,0 +1,22 @@
+# ansible/roles/zabbix-server/tasks/main.yml
+---
+- name: Install Zabbix apt repo + packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: [zabbix, zabbix:packages]
+
+- name: Bootstrap PG schema (first deploy only)
+  ansible.builtin.import_tasks: schema.yml
+  tags: [zabbix, zabbix:schema]
+  when: zabbix_bootstrap_schema
+
+- name: Render zabbix_server.conf
+  ansible.builtin.import_tasks: server-config.yml
+  tags: [zabbix, zabbix:server-config]
+
+- name: Render nginx + php config
+  ansible.builtin.import_tasks: web-config.yml
+  tags: [zabbix, zabbix:web-config]
+
+- name: Enable + start systemd units
+  ansible.builtin.import_tasks: services.yml
+  tags: [zabbix, zabbix:services]

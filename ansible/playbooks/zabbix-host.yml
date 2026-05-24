@@ -1,0 +1,23 @@
+# ansible/playbooks/zabbix-host.yml
+---
+- name: Configure Zabbix server host
+  hosts: zabbix_hosts
+  become: true
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # zabbix-server is the heavy lifter — installs server + frontend
+    # + nginx + php-fpm + sql-scripts + bootstraps schema against
+    # the existing zabbix DB on Patroni.
+    - role: zabbix-server
+      tags: [zabbix-server]
+
+    # The Zabbix LXC also runs the agent locally — gives the dashboard
+    # visibility into its own host as a sanity check.
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

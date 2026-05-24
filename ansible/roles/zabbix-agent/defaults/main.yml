@@ -1,0 +1,41 @@
+# ansible/roles/zabbix-agent/defaults/main.yml
+---
+# Match the server's release line. Bumping `zabbix_major` updates
+# the agent's repo source; the agent itself is fully forward-compatible
+# with newer servers (lagging versions OK), so this isn't strictly
+# required to match — but match for tidiness.
+zabbix_major: "7.0"
+
+zabbix_agent_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
+
+# zabbix-agent2 — the Go-based replacement for the C agent. Lower
+# RSS, native concurrency, better defaults. Same protocol; works
+# with any Zabbix server version.
+zabbix_agent_packages:
+  - zabbix-agent2
+
+# Server to push to — the Zabbix LXC at 10.0.11.21 (skuld, vmid 1102).
+zabbix_agent_server: "10.0.11.21"
+zabbix_agent_server_active: "10.0.11.21"
+zabbix_agent_listen_port: 10050
+zabbix_agent_listen_ip: "0.0.0.0" # listen on all interfaces — server reaches in via VLAN 11
+
+# Hostname Zabbix uses to identify this agent. Defaults to inventory
+# hostname (FQDN-style if inventory uses that). Override per-host
+# via host_vars if needed.
+zabbix_agent_hostname: "{{ inventory_hostname }}"
+
+# HostMetadata — used by auto-registration on the server side. Lets
+# the server's auto-registration action match hosts by metadata
+# (e.g. tag-on `host_group` to bucket them automatically into
+# "k3s workers" vs "k3s CPs" vs "LXCs").
+zabbix_agent_host_metadata: "{{ inventory_hostname }}"
+
+# TLS — currently OFF (homelab-internal traffic on VLAN 11 + 21).
+# Bump to PSK or cert-based later if we expose agents over tailnet.
+zabbix_agent_tls_connect: unencrypted
+zabbix_agent_tls_accept: unencrypted
+
+# Log destination
+zabbix_agent_log_type: file
+zabbix_agent_log_file: /var/log/zabbix/zabbix_agent2.log
