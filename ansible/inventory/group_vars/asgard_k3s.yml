@@ -1,0 +1,28 @@
+# ansible/inventory/group_vars/asgard_k3s.yml
+---
+# K3s VMs (CPs + workers) — composes with role defaults from
+# vlagent + whatever else lands here later.
+#
+# vlagent ingest URL override: K3s host-namespace can't dial the
+# MetalLB-announced Traefik VIP (10.0.20.10 — same class as the in-
+# cluster pod→VIP tromboning gotcha). Host CAN dial cluster ClusterIPs
+# because kube-proxy installs iptables NAT rules into the host's
+# namespace for cluster CIDR. Targets the companion ClusterIP
+# Service at k8s/asgard/apps/victorialogs/ingest-service.yaml.
+#
+# ClusterIP is auto-assigned and stable across pod restarts (only
+# changes if the Service itself is deleted + recreated). For a one-
+# off resilient pin, we could `kubectl get svc -n monitoring
+# victorialogs-ingest -o jsonpath={.spec.clusterIP}` here, but it's
+# easier to just leave it hardcoded + let next-deploy update if it
+# ever flips.
+vlagent_remote_write_url: "http://10.43.14.105:9428/insert/native"
+
+# RHEL writes to /var/log/messages, not /var/log/syslog. Strip the
+# missing-file warnings by overriding the inputs list to RHEL paths
+# only. /var/log/messages already includes kernel ring buffer
+# entries (rsyslog routes via *.info; kernel logs are facility=kern
+# which falls under that selector).
+vlagent_log_inputs:
+  - path: /var/log/messages
+    service: syslog
