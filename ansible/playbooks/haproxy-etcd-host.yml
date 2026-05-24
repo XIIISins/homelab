@@ -9,5 +9,9 @@
       tags: [baseline]
     - role: etcd
       tags: [etcd]
+    - role: haproxy
+      tags: [haproxy]
+    - role: keepalived
+      tags: [keepalived]
     - role: hardening
       tags: [hardening]

@@ -103,3 +103,30 @@ resource "vault_kv_secret_v2" "ansible_test" {
     value = "world"
   })
 }
+
+# -----------------------------------------------------------------------------
+# keepalived VRRP shared secret
+# -----------------------------------------------------------------------------
+# VRRPv2 auth_type PASS uses an 8-byte (max) shared secret carried in
+# each advertisement. All peers in a VRRP instance must agree on it,
+# otherwise they ignore each other's adverts and elect independently
+# (dual-MASTER, split VIP). This is not cryptographic — it prevents
+# accidental VRRP storms from misconfigured devices on the same L2
+# broadcast domain, not deliberate attack. 8 chars is the protocol cap;
+# keepalived silently truncates anything longer.
+#
+# Consumed by the keepalived role on the HAProxy/etcd trio
+# (Hlin/Eir/Snotra) via the standard community.hashi_vault AppRole
+# lookup pattern.
+resource "random_password" "keepalived_pg_vrrp" {
+  length  = 8
+  special = false   # VRRP auth field is ASCII-only; keep it printable
+}
+
+resource "vault_kv_secret_v2" "keepalived_pg_vrrp" {
+  mount = vault_mount.kv.path
+  name  = "ansible/keepalived/pg_vrrp"
+  data_json = jsonencode({
+    auth_pass = random_password.keepalived_pg_vrrp.result
+  })
+}

@@ -1,0 +1,12 @@
+# ansible/roles/haproxy/meta/main.yml
+---
+galaxy_info:
+  author: xiiisins
+  description: Generic, data-driven HAProxy install + config
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

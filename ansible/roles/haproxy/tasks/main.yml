@@ -1,0 +1,37 @@
+# ansible/roles/haproxy/tasks/main.yml
+---
+- name: Install HAProxy
+  ansible.builtin.apt:
+    name: "{{ haproxy_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure /etc/haproxy exists
+  ansible.builtin.file:
+    path: /etc/haproxy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# Validate the rendered config before swapping it in. `haproxy -c -f`
+# parses without starting; if it fails the template task errors and
+# the in-place haproxy.cfg is untouched. Prevents a typo from taking
+# the listener down on `systemctl reload`.
+- name: Render HAProxy config
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ haproxy_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'haproxy -c -f %s'
+  notify: reload haproxy
+
+- name: Enable and start HAProxy
+  ansible.builtin.systemd:
+    name: "{{ haproxy_service }}"
+    enabled: true
+    state: started
+    daemon_reload: true

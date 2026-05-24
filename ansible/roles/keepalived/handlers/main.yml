@@ -1,0 +1,24 @@
+# ansible/roles/keepalived/handlers/main.yml
+---
+# Restart over reload: keepalived SIGHUP reloads the config but does
+# not always re-evaluate VRRP state transitions cleanly. Restart costs
+# sub-second VIP downtime (another peer takes over via priority) on a
+# healthy cluster, which is acceptable for config changes.
+- name: restart keepalived
+  ansible.builtin.systemd:
+    name: "{{ keepalived_service }}"
+    state: restarted
+    daemon_reload: true
+
+# Source-policy-routing systemd units are templated per entry; the
+# handler restarts each one whose unit file changed. The systemd
+# module is idempotent for state:restarted (it actually restarts),
+# and daemon_reload picks up unit-file changes.
+- name: reload keepalived policy routing
+  ansible.builtin.systemd:
+    name: "{{ item.name }}-policy-routing.service"
+    state: restarted
+    daemon_reload: true
+  loop: "{{ keepalived_source_policy_routing }}"
+  loop_control:
+    label: "{{ item.name }}-policy-routing.service"

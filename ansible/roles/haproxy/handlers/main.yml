@@ -1,0 +1,17 @@
+# ansible/roles/haproxy/handlers/main.yml
+---
+# Prefer reload over restart — HAProxy's reload is graceful (existing
+# sessions drain on the old worker while new sessions hit the new one).
+# Restart drops every active connection, so the role only restarts on
+# changes that reload won't pick up (init script changes, package
+# upgrades requiring full process replacement).
+- name: reload haproxy
+  ansible.builtin.systemd:
+    name: "{{ haproxy_service }}"
+    state: reloaded
+
+- name: restart haproxy
+  ansible.builtin.systemd:
+    name: "{{ haproxy_service }}"
+    state: restarted
+    daemon_reload: true

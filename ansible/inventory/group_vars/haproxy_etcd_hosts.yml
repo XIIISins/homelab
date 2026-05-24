@@ -1,0 +1,110 @@
+# ansible/inventory/group_vars/haproxy_etcd_hosts.yml
+---
+# HAProxy/etcd trio group vars. Composes with role defaults from
+# baseline, etcd, haproxy, keepalived, hardening.
+#
+# Cluster shape (Phase 5g.2 — PG HA with Patroni):
+#   - Hlin   (10.0.11.233 / 10.0.10.233, Urd)   — VRRP primary (priority 100)
+#   - Eir    (10.0.11.234 / 10.0.10.234, Verd)  — first failover (90)
+#   - Snotra (10.0.11.235 / 10.0.10.235, Skuld) — second failover (80)
+#
+# eth0 (VLAN 11): etcd peer + Patroni REST API traffic, default gateway
+# eth1 (VLAN 10): keepalived VRRP + VIP 10.0.10.210 (HL-ASG-VIP zone)
+
+# -----------------------------------------------------------------------------
+# HAProxy — PostgreSQL frontend with Patroni REST-API leader detection
+# -----------------------------------------------------------------------------
+# Patroni exposes /master on its REST API (port 8008); only the current
+# leader returns HTTP 200. HAProxy probes each PG node on the check
+# port, marks the two replicas DOWN, routes writes to the leader.
+# `balance first` + one-UP-at-a-time = deterministic routing.
+# `on-marked-down: shutdown-sessions` forces clients to reconnect on
+# leader demotion (otherwise long-lived sessions stick to the deposed
+# primary until they error out — defeats failover transparency).
+
+haproxy_stats:
+  bind: "127.0.0.1:9000"
+  uri: "/"
+
+haproxy_listens:
+  - name: pg_write
+    bind: ["*:5432"]
+    mode: tcp
+    balance: first
+    options:
+      - "tcplog"
+      - "httpchk GET /master HTTP/1.0"
+    http_check:
+      expect: "status 200"
+    default_server:
+      inter: 3s
+      fall: 3
+      rise: 2
+      on-marked-down: shutdown-sessions
+    servers:
+      - { name: fulla, address: 10.0.11.230, port: 5432, check_port: 8008 }
+      - { name: vor,   address: 10.0.11.231, port: 5432, check_port: 8008 }
+      - { name: idunn, address: 10.0.11.232, port: 5432, check_port: 8008 }
+
+# -----------------------------------------------------------------------------
+# keepalived — VIP 10.0.10.210 on VLAN 10 (HL-ASG-VIP)
+# -----------------------------------------------------------------------------
+# All peers start as BACKUP; election by priority (avoids dual-MASTER
+# on simultaneous boot when interfaces come up out of order).
+#
+# chk_haproxy tracking: HAProxy is the actual workload — if it's down
+# on the current VIP holder, the VIP must move regardless of node
+# health. weight -50 drops the holder's effective priority enough that
+# the next peer wins (100→50 < 90 on Hlin, 90→40 < 80 on Eir, etc.)
+#
+# virtual_router_id 51: AdGuard VIP 10.0.10.200 already runs VRRP on
+# the same L2 segment with an unknown-but-different VRID. Two VRRPs
+# on the same broadcast domain MUST have different VRIDs or they
+# misinterpret each other's adverts and elect wrong. If VIP election
+# misbehaves after deploy, capture AGH's VRID (`grep virtual_router_id
+# /etc/keepalived/keepalived.conf` on Saga) and pick a non-colliding
+# value here.
+
+keepalived_priorities:
+  hlin:   { VI_PG: 100 }
+  eir:    { VI_PG: 90 }
+  snotra: { VI_PG: 80 }
+
+keepalived_vrrp_scripts:
+  - name: chk_haproxy
+    # systemctl returns 0 only when the unit is active (running). Catches
+    # "failed", "activating", and "inactive" states all as failure — more
+    # accurate than `killall -0` (which passes for any process named
+    # haproxy regardless of systemd's view) and avoids depending on psmisc.
+    script: "/usr/bin/systemctl is-active --quiet haproxy.service"
+    interval: 2
+    weight: -50
+    fall: 2
+    rise: 2
+
+keepalived_vrrp_instances:
+  - name: VI_PG
+    interface: eth1
+    virtual_router_id: 51
+    priority: "{{ keepalived_priorities[inventory_hostname].VI_PG }}"
+    auth_pass: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/keepalived/pg_vrrp').secret.auth_pass }}"
+    virtual_ipaddresses:
+      - "10.0.10.210/24 dev eth1"
+    track_scripts: [chk_haproxy]
+
+# -----------------------------------------------------------------------------
+# Source-based policy routing for VLAN 10
+# -----------------------------------------------------------------------------
+# VIP segment (VLAN 10) is not on the default route (VLAN 11). Without
+# policy routing, replies to clients on a third subnet (K8s pods via
+# worker eth1 / Teamspeak LXC / etc.) exit eth0 carrying the VIP source
+# IP — UCG-Ultra sees src=10.0.10.x on a VLAN-11 packet and stateful-drops
+# the reply. Same class as the K3s workers' VLAN 20 fix, generalised
+# into the keepalived role.
+
+keepalived_source_policy_routing:
+  - name: vlan10
+    table_id: 200
+    from: 10.0.10.0/24
+    gateway: 10.0.10.1
+    interface: eth1

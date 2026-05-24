@@ -1,0 +1,44 @@
+# ansible/roles/keepalived/tasks/policy-routing.yml
+---
+# Same pattern as roles/k3s/tasks/network.yml VLAN 20 policy routing —
+# generalised to N entries. Each entry mints a custom routing table,
+# installs a systemd oneshot that maintains the `ip rule` and default
+# route via `ip` commands at network-online.target. OS-independent
+# (works on any systemd Linux), no NetworkManager / networkd / ifcfg
+# coupling.
+
+- name: Register custom routing tables in /etc/iproute2/rt_tables
+  ansible.builtin.lineinfile:
+    path: /etc/iproute2/rt_tables
+    line: "{{ item.table_id }} {{ item.name }}"
+    regexp: '^\d+\s+{{ item.name }}$'
+    state: present
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ keepalived_source_policy_routing }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.table_id }})"
+
+- name: Install per-entry policy-routing systemd units
+  ansible.builtin.template:
+    src: policy-routing.service.j2
+    dest: "/etc/systemd/system/{{ item.name }}-policy-routing.service"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ keepalived_source_policy_routing }}"
+  loop_control:
+    label: "{{ item.name }}-policy-routing.service"
+  notify: reload keepalived policy routing
+
+- name: Enable + start per-entry policy-routing units
+  ansible.builtin.systemd:
+    name: "{{ item.name }}-policy-routing.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ keepalived_source_policy_routing }}"
+  loop_control:
+    label: "{{ item.name }}-policy-routing.service"

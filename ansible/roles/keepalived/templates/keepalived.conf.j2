@@ -1,0 +1,49 @@
+{# ansible/roles/keepalived/templates/keepalived.conf.j2 #}
+! Managed by Ansible — edits will be overwritten on next play.
+
+global_defs {
+{% for k, v in keepalived_global_defs.items() %}
+    {{ k }} {{ v }}
+{% endfor %}
+}
+
+{% for script in keepalived_vrrp_scripts %}
+vrrp_script {{ script.name }} {
+    script "{{ script.script }}"
+    interval {{ script.interval }}
+    weight {{ script.weight }}
+{% if script.fall is defined %}
+    fall {{ script.fall }}
+{% endif %}
+{% if script.rise is defined %}
+    rise {{ script.rise }}
+{% endif %}
+}
+
+{% endfor %}
+{% for inst in keepalived_vrrp_instances %}
+vrrp_instance {{ inst.name }} {
+    state {{ inst.state | default('BACKUP') }}
+    interface {{ inst.interface }}
+    virtual_router_id {{ inst.virtual_router_id }}
+    priority {{ inst.priority }}
+    advert_int {{ inst.advert_int | default(1) }}
+    authentication {
+        auth_type {{ inst.auth_type | default('PASS') }}
+        auth_pass {{ inst.auth_pass }}
+    }
+    virtual_ipaddress {
+{% for vip in inst.virtual_ipaddresses %}
+        {{ vip }}
+{% endfor %}
+    }
+{% if inst.track_scripts is defined %}
+    track_script {
+{% for s in inst.track_scripts %}
+        {{ s }}
+{% endfor %}
+    }
+{% endif %}
+}
+
+{% endfor %}

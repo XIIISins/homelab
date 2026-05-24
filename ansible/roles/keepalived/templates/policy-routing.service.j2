@@ -1,0 +1,16 @@
+{# ansible/roles/keepalived/templates/policy-routing.service.j2 #}
+[Unit]
+Description={{ item.name }} source-based policy routing ({{ item.from }} via {{ item.gateway }} dev {{ item.interface }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/ip rule del from {{ item.from }} table {{ item.name }}
+ExecStart=/usr/sbin/ip route replace default via {{ item.gateway }} dev {{ item.interface }} table {{ item.name }}
+ExecStart=/usr/sbin/ip rule add from {{ item.from }} table {{ item.name }}
+ExecStop=/usr/sbin/ip rule del from {{ item.from }} table {{ item.name }}
+
+[Install]
+WantedBy=multi-user.target

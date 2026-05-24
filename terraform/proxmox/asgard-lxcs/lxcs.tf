@@ -226,10 +226,18 @@ resource "proxmox_virtual_environment_container" "postgres" {
 # ----------------------------------------------------------------------------
 
 locals {
+  # eth0 on VLAN 11 (HL-ASG-SVC) carries etcd peer + Patroni REST API
+  # traffic. eth1 on VLAN 10 (HL-ASG-VIP) hosts the keepalived VIP
+  # 10.0.10.210 — VRRP requires all peers L2-adjacent on the VIP's
+  # segment, so each node needs a real address there for advertisement
+  # source + diagnostics. Default gateway stays on eth0; replies from
+  # VLAN 10 source IPs route out eth1 via source-based policy routing
+  # installed by the keepalived role (same pattern as K3s workers'
+  # VLAN 20 fix — see CLAUDE.md "Networking / multi-homed workers").
   haproxy_etcd_nodes = {
-    hlin   = { node = "urd",   vmid = 1133, ip = "10.0.11.233" }
-    eir    = { node = "verd",  vmid = 1134, ip = "10.0.11.234" }
-    snotra = { node = "skuld", vmid = 1135, ip = "10.0.11.235" }
+    hlin   = { node = "urd",   vmid = 1133, ip = "10.0.11.233", vlan10_ip = "10.0.10.233" }
+    eir    = { node = "verd",  vmid = 1134, ip = "10.0.11.234", vlan10_ip = "10.0.10.234" }
+    snotra = { node = "skuld", vmid = 1135, ip = "10.0.11.235", vlan10_ip = "10.0.10.235" }
   }
 }
 
@@ -282,13 +290,30 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
     enabled  = true
   }
 
+  network_interface {
+    name     = "eth1"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 10
+    firewall = false
+    enabled  = true
+  }
+
   initialization {
     hostname = each.key
 
+    # ip_config blocks are matched to network_interface blocks by
+    # declaration order. eth0 carries the default gateway; eth1 has
+    # an address only (source-based policy routing handles replies).
     ip_config {
       ipv4 {
         address = "${each.value.ip}/24"
         gateway = "10.0.11.1"
+      }
+    }
+
+    ip_config {
+      ipv4 {
+        address = "${each.value.vlan10_ip}/24"
       }
     }
 

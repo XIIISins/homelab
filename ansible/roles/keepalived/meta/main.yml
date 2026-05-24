@@ -1,0 +1,12 @@
+# ansible/roles/keepalived/meta/main.yml
+---
+galaxy_info:
+  author: xiiisins
+  description: Generic, data-driven keepalived install + config with optional source-based policy routing
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

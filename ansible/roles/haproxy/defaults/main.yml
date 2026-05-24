@@ -1,0 +1,48 @@
+# ansible/roles/haproxy/defaults/main.yml
+---
+# Generic HAProxy role. All configuration is data-driven via the
+# variables below — the role itself is backend-agnostic and can be
+# reused for any number of frontends (PG, HTTP, raw TCP, etc.) by
+# providing a different haproxy_listens list per inventory group.
+
+# Package + service
+haproxy_package: haproxy
+haproxy_service: haproxy
+haproxy_config_path: /etc/haproxy/haproxy.cfg
+haproxy_user: haproxy
+haproxy_group: haproxy
+
+# Raw lines appended to the `global` section. Use for tuning knobs
+# the role doesn't model (maxconn, tune.*, ssl-default-bind-*).
+haproxy_global_extra: []
+
+# Raw lines appended to the `defaults` section.
+haproxy_defaults_extra: []
+
+# Optional stats listener. Omit (or set to {}) to skip.
+# Example:
+#   haproxy_stats:
+#     bind: "127.0.0.1:9000"
+#     uri: "/stats"
+#     auth: "admin:hunter2"
+haproxy_stats: {}
+
+# The main attraction. List of listen blocks; each entry:
+#   name:           identifier rendered as `listen <name>`
+#   bind:           list of bind strings ("*:5432", "10.0.10.210:443", ...)
+#   mode:           "tcp" or "http"
+#   balance:        optional ("first", "roundrobin", "leastconn", ...)
+#   options:        list of strings rendered as `option <string>` lines
+#   http_check:     optional dict {expect: "status 200"}
+#   default_server: optional dict, rendered as `default-server k v k v ...`
+#                   (use kebab keys like "on-marked-down" verbatim — they
+#                    are passed through unmodified)
+#   servers:        list of dicts:
+#                     name (str), address (str), port (int)
+#                     check (bool, default false)  - emits `check`
+#                     check_port (int)             - emits `check port N`
+#                                                    (mutually exclusive with check)
+#                     extra (str)                  - appended verbatim to the line
+#   extra:          list of raw lines appended inside the block
+#                   (escape hatch for stick-tables, acl, http-request, ...)
+haproxy_listens: []

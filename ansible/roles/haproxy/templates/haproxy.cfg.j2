@@ -1,0 +1,66 @@
+{# ansible/roles/haproxy/templates/haproxy.cfg.j2 #}
+# Managed by Ansible — edits will be overwritten on next play.
+
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user {{ haproxy_user }}
+    group {{ haproxy_group }}
+    daemon
+{% for line in haproxy_global_extra %}
+    {{ line }}
+{% endfor %}
+
+defaults
+    log global
+    option dontlognull
+    timeout connect 5s
+    timeout client 50s
+    timeout server 50s
+{% for line in haproxy_defaults_extra %}
+    {{ line }}
+{% endfor %}
+
+{% if haproxy_stats %}
+listen stats
+    bind {{ haproxy_stats.bind }}
+    mode http
+    stats enable
+    stats uri {{ haproxy_stats.uri | default('/') }}
+    stats refresh 10s
+{% if haproxy_stats.auth is defined %}
+    stats auth {{ haproxy_stats.auth }}
+{% endif %}
+
+{% endif %}
+{% for l in haproxy_listens %}
+listen {{ l.name }}
+{% for bind in l.bind %}
+    bind {{ bind }}
+{% endfor %}
+    mode {{ l.mode }}
+{% if l.balance is defined %}
+    balance {{ l.balance }}
+{% endif %}
+{% for opt in l.options | default([]) %}
+    option {{ opt }}
+{% endfor %}
+{% if l.http_check is defined %}
+    http-check expect {{ l.http_check.expect }}
+{% endif %}
+{% if l.default_server is defined %}
+    default-server{% for k, v in l.default_server.items() %} {{ k }} {{ v }}{% endfor %}
+
+{% endif %}
+{% for s in l.servers | default([]) %}
+    server {{ s.name }} {{ s.address }}:{{ s.port }}{% if s.check_port is defined %} check port {{ s.check_port }}{% elif s.check | default(false) %} check{% endif %}{% if s.extra is defined %} {{ s.extra }}{% endif %}
+
+{% endfor %}
+{% for line in l.extra | default([]) %}
+    {{ line }}
+{% endfor %}
+
+{% endfor %}

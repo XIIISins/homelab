@@ -1,0 +1,63 @@
+# ansible/roles/keepalived/defaults/main.yml
+---
+# Generic keepalived role. All configuration is data-driven via the
+# variables below — the role is VIP-agnostic and can be reused for any
+# number of VRRP instances + tracking scripts.
+
+# Package + service
+keepalived_package: keepalived
+keepalived_service: keepalived
+keepalived_config_path: /etc/keepalived/keepalived.conf
+
+# global_defs block. Keys are emitted as `<key> <value>` inside
+# `global_defs { ... }`. router_id defaults to inventory_hostname.
+keepalived_global_defs:
+  router_id: "{{ inventory_hostname }}"
+
+# vrrp_script blocks. Each entry:
+#   name:      script identifier (referenced from instance.track_scripts)
+#   script:    shell command (quoted in output) — return 0 = OK, non-zero = fail
+#   interval:  seconds between checks
+#   weight:    priority adjustment on script failure (negative shifts election
+#              away from this node — e.g. -50 with priority 100 → 50 on failure)
+#   fall:      consecutive failures before script considered FAULT (optional)
+#   rise:      consecutive successes before script considered OK (optional)
+keepalived_vrrp_scripts: []
+
+# vrrp_instance blocks. Each entry:
+#   name:                 instance identifier
+#   state:                MASTER | BACKUP (default BACKUP — election by priority
+#                         avoids split-brain on simultaneous boot)
+#   interface:            interface VRRP advertisements use
+#   virtual_router_id:    int 1-255, unique per VRRP domain on the LAN segment
+#   priority:             int 1-254 (255 reserved for owner of the VIP IP)
+#                         Per-host via keepalived_priorities map (see below)
+#   advert_int:           seconds between adverts (default 1)
+#   auth_type:            PASS (default) | AH
+#   auth_pass:            shared secret (8 chars max for PASS — VRRPv2 limit)
+#   virtual_ipaddresses:  list of "<ip>/<prefix> dev <iface>" strings
+#   track_scripts:        list of script names (must reference keepalived_vrrp_scripts entries)
+keepalived_vrrp_instances: []
+
+# Per-host priorities map. Lets a single group-level vrrp_instances list
+# express different priorities per node without per-host instance lists.
+# Schema: { <inventory_hostname>: { <vrrp_instance_name>: <priority>, ... }, ... }
+# Caller dereferences in the instance entry:
+#   priority: "{{ keepalived_priorities[inventory_hostname].VI_PG }}"
+keepalived_priorities: {}
+
+# Optional source-based policy routing. If set, the role installs one
+# systemd oneshot per entry that maintains an `ip rule` + table +
+# default route, ensuring reply packets from a non-default-route subnet
+# exit via the correct interface. Required when the VIP's L2 segment
+# (eth1 here) is not on the host's default route (eth0 here) — without
+# it, replies exit eth0 with the VIP's source IP, breaking stateful
+# firewalls (UCG-Ultra in our case).
+#
+# Each entry:
+#   name:       routing-table name (lowercase, alphanumeric)
+#   table_id:   routing-table ID, unique on this host (range 1-252)
+#   from:       source CIDR matched by the `ip rule`
+#   gateway:    next-hop IP for the table's default route
+#   interface:  outbound interface
+keepalived_source_policy_routing: []

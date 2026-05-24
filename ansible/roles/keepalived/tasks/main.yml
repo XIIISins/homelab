@@ -1,0 +1,36 @@
+# ansible/roles/keepalived/tasks/main.yml
+---
+- name: Install keepalived
+  ansible.builtin.apt:
+    name: "{{ keepalived_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure /etc/keepalived exists
+  ansible.builtin.file:
+    path: /etc/keepalived
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render keepalived config
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: "{{ keepalived_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart keepalived
+
+- name: Install source-based policy routing
+  ansible.builtin.include_tasks: policy-routing.yml
+  when: keepalived_source_policy_routing | length > 0
+
+- name: Enable and start keepalived
+  ansible.builtin.systemd:
+    name: "{{ keepalived_service }}"
+    enabled: true
+    state: started
+    daemon_reload: true
