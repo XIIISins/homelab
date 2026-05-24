@@ -86,28 +86,28 @@ resource "proxmox_virtual_environment_container" "factorio" {
 # ----------------------------------------------------------------------------
 # LXCs 1130/1131/1132 — PostgreSQL cluster (Skuld/Urd/Verd)
 # ----------------------------------------------------------------------------
-# Cluster nodes for the asgard PostgreSQL service. Each LXC runs PostgreSQL 17.
-# Streaming replication between nodes and HAProxy VIP frontend
-# (10.0.10.210) are configured via Ansible, not Terraform.
+# Cluster nodes for the asgard PostgreSQL service. Each LXC runs PostgreSQL 17
+# under Patroni, with etcd-DCS on the adjacent HAProxy/etcd trio (1133-1135).
+# HAProxy VIP frontend (10.0.10.210) is configured via keepalived on that
+# trio. Patroni handles auto-failover; manual primary promotion is not the
+# design.
 #
-# Initial deploy (2026-05-XX): only postgres1 (Skuld) is active. Cluster
-# expansion to postgres2/3 deferred until post-Authentik — clustering gets
-# validated against a real consumer rather than synthetic load.
-#
+# Phase 5g.2 expanded the cluster from Fulla-standalone to Patroni-managed
+# 3-node HA, driven by operational pressure (Authentik PG-DNS flapping).
 # Each node lives on a different Proxmox host so a single-host failure
 # never takes down >1 PG node.
 #
 # See:
-#   - docs/homelab-design.md → "Asgard LXCs" table, "Database (1130-1139)"
-#   - ansible/roles/postgres/README.md (TBD)
+#   - docs/homelab-design.md → "Phase 5g.2" build sequence row + decision log
+#   - ansible/roles/postgres/README.md
+#   - ansible/roles/patroni/README.md (TBD — 5g.2.e)
 # ----------------------------------------------------------------------------
 
 locals {
   postgres_nodes = {
     fulla = { node = "skuld", vmid = 1130, ip = "10.0.11.230" }
-    # Uncomment when expanding to cluster (post-Authentik):
-    # vor = { node = "urd",  vmid = 1131, ip = "10.0.11.231" }
-    # idunn = { node = "verd", vmid = 1132, ip = "10.0.11.232" }
+    vor   = { node = "urd",   vmid = 1131, ip = "10.0.11.231" }
+    idunn = { node = "verd",  vmid = 1132, ip = "10.0.11.232" }
   }
 }
 
@@ -183,6 +183,128 @@ resource "proxmox_virtual_environment_container" "postgres" {
 
   features {
     nesting = true
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+}
+
+# ----------------------------------------------------------------------------
+# LXCs 1133/1134/1135 — HAProxy + etcd trio (Urd/Verd/Skuld)
+# ----------------------------------------------------------------------------
+# Fronts the PostgreSQL cluster. Each LXC runs three services:
+#   - etcd: distributed config store for Patroni's leader election
+#     (~300-500MB working set, fsync-heavy)
+#   - HAProxy: TCP frontend with Patroni REST API leader-detection
+#     (checks /master endpoint on each PG node, only the current
+#     leader returns 200)
+#   - keepalived: VIP `10.0.10.210` floats across the trio, providing
+#     a stable connection-string target for all PG consumers
+#
+# Why etcd co-located on the HAProxy trio rather than on PG nodes or
+# in a dedicated etcd cluster:
+#   - fsync separation: etcd and PG are both fsync-heavy; co-locating
+#     them on PG nodes puts them in competition for disk slots (the
+#     2026-05-14 K3s-etcd storm is the reference incident)
+#   - failure-domain separation: a PG node death doesn't touch DCS
+#     quorum and vice versa
+#   - zero additional LXC cost vs the original HAProxy-only trio
+#     (HAProxy + keepalived are <100MB; etcd fits comfortably in the
+#     remaining headroom on a 2GB LXC)
+# See homelab-design.md decision row "Patroni DCS placement".
+#
+# Each node lives on a different Proxmox host so a single-host
+# failure never takes down >1 of either service. Sizing identical
+# across nodes per the failover-symmetry rule.
+#
+# See:
+#   - docs/homelab-design.md → "Phase 5g.2" build sequence + decision log
+#   - ansible/roles/etcd/README.md (TBD — 5g.2.c)
+#   - ansible/roles/haproxy/README.md (TBD — 5g.2.g)
+# ----------------------------------------------------------------------------
+
+locals {
+  haproxy_etcd_nodes = {
+    hlin   = { node = "urd",   vmid = 1133, ip = "10.0.11.233" }
+    eir    = { node = "verd",  vmid = 1134, ip = "10.0.11.234" }
+    snotra = { node = "skuld", vmid = 1135, ip = "10.0.11.235" }
+  }
+}
+
+# Throwaway root passwords — Proxmox API requires one to create the
+# container, but each LXC is configured for SSH-key-only auth. Never
+# used; persisted in local state, which is gitignored.
+resource "random_password" "haproxy_etcd_root" {
+  for_each = local.haproxy_etcd_nodes
+
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "haproxy_etcd" {
+  for_each = local.haproxy_etcd_nodes
+
+  description = "HAProxy + etcd + keepalived trio member (${each.key})"
+
+  node_name = each.value.node
+  vm_id     = each.value.vmid
+  tags      = ["asgard", "lxc", "haproxy-etcd", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  # Sizing is cluster-wide, NOT per-node. Failover symmetry requires
+  # identical resources — same rule as the PG nodes. 2GB accommodates
+  # etcd (~300-500MB working set + Raft log) + HAProxy (~50MB) +
+  # keepalived (~20MB) with headroom for logs/metrics.
+  cpu {
+    cores = 2
+  }
+
+  memory {
+    dedicated = 2048    # MB
+    swap      = 1024
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 16   # GB — etcd snapshots + WAL + OS
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = each.key
+
+    ip_config {
+      ipv4 {
+        address = "${each.value.ip}/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.haproxy_etcd_root[each.key].result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true     # systemd 257 on Debian 13 — see gotchas
   }
 
   console {
