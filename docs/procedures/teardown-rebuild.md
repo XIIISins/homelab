@@ -1,3 +1,5 @@
+<!-- docs/procedures/teardown-rebuild.md -->
+
 # Teardown & rebuild — must-run K3s → asgard
 
 *Last updated: 2026-05-17 — validated end-to-end this same day*
@@ -572,7 +574,7 @@ cd ~/Dev/xiiisins/homelab
 
 # Confirm no stale references
 git grep -nE 'must.run|must_run|can.run|HL-CORE|HL-CR' \
-    | grep -v 'docs/teardown-rebuild.md'  # this file itself
+    | grep -v 'docs/procedures/teardown-rebuild.md'  # this file itself
 # Expected: empty (or only this runbook's own contents)
 ```
 

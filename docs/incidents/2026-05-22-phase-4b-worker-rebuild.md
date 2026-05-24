@@ -1,0 +1,36 @@
+<!-- docs/incidents/2026-05-22-phase-4b-worker-rebuild.md -->
+
+### 2026-05-22 — Phase 4b + einherjar-urd worker rebuild
+
+Two operations in one session, neither catastrophic. The Phase 4b CP migration (Göndul Verd → Urd) went clean. The follow-on worker rebuild (einherjar-urd template/template_node correction) surfaced four findings — three of them about the procedure rather than the infrastructure.
+
+**What landed in IaC:**
+- `terraform/proxmox/asgard-k3s/main.tf` — `locals.control_planes.gondul.node` Verd → Urd (Phase 4b).
+- `terraform/proxmox/asgard-k3s/main.tf` — einherjar-urd worker `template` + `template_node` corrected to Urd (worker rebuild).
+- `ansible/roles/k3s/tasks/network.yml` — `lineinfile` task for `/etc/iproute2/rt_tables` gained `create: yes` + explicit `owner: root` / `group: root` / `mode: '0644'`.
+- `docs/procedures/teardown-rebuild.md` — Appendix C added for stateful worker rebuild procedure.
+- `docs/homelab-design.md` Open questions — Phase 4b closed; new pending items for `serial: 1` default and OS-update tagging.
+- `CLAUDE.md` — Known gotchas additions; current build status flipped for Phase 4b.
+
+**Findings, in order of discovery:**
+
+1. **Orphan LVs from a host that died mid-clone** blocked Phase 4b's first `terraform apply`. `lvcreate` failed because `pve/vm-2001-cloudinit` already existed on Urd. Source: an attempted Göndul migration during the Urd-on-NUC7 era that froze mid-clone, leaving LVs allocated with no VM config to manage them. The Proxmox UI couldn't clean them — the "Remove" action needs the VM config to exist. Recovery: `qm list | grep 2001` (empty — no phantom config), `lvs | grep 2001` (two orphans), `lvremove -f /dev/pve/vm-2001-cloudinit /dev/pve/vm-2001-disk-0`. Then `terraform apply` succeeded. Class of gotcha: **mid-clone host failure leaves orphan LVs**. Documented in CLAUDE.md.
+
+2. **Worker rebuild — pod anti-affinity blocks cordon+migrate.** The drafted worker-rebuild procedure tried to migrate vault-0 off einherjar-urd by cordoning + `kubectl delete pod -n vault vault-0`, expecting the new pod to land on einherjar-verd or einherjar-skuld. It went Pending instead. `kubectl describe pod` showed `2 node(s) didn't match pod anti-affinity rules` — Vault's chart ships pod anti-affinity as `requiredDuringSchedulingIgnoredDuringExecution`. At 3 replicas on 3 workers, there's literally no other worker that satisfies the rule. **Architectural lesson:** the cordon+migrate dance is fundamentally incompatible with hard-required pod anti-affinity at full-replication. Two options: (a) relax anti-affinity to `preferred` for the maintenance window (HelmRelease values change + Flux suspend/resume — significant surface area), (b) accept 2/3 voters during the rebuild window. Picked (b) — the gain from staying at 3/3 voters for a ~25 min window is not worth the surface area of (a). Captured as decision row.
+
+3. **iproute 6.17 doesn't ship `/etc/iproute2/rt_tables`.** Playbook ran cleanly on fresh einherjar-urd through baseline + most of the K3s role's `network.yml`, then errored at "Add custom routing table for VLAN 20" with `Destination /etc/iproute2/rt_tables does not exist !`. Diagnosis: `rpm -ql iproute | grep rt_tables` → `/usr/share/iproute2/rt_tables` (only). The package's stock file is at `/usr/share/`; `/etc/iproute2/rt_tables` is the user-editable override and is NOT shipped by iproute 6.17. Older workers (einherjar-verd, einherjar-skuld) have `/etc/iproute2/rt_tables` only because the role's earlier `lineinfile` task created it side-effect-style under a more permissive Ansible/iproute combination, or because earlier iproute versions did ship it at `/etc/`. Fresh install on RHEL 9 + iproute 6.17 reveals the latent role bug. **Fix shipped** in the same session: `lineinfile` task gained `create: yes` plus explicit `owner` / `group` / `mode`. The CLAUDE.md "always set owner/group/mode explicitly" gotcha — already documented — would have caught this if applied; reinforces that the rule is meant for *every* file-creating task, including `lineinfile`. Documented as its own gotcha class in CLAUDE.md.
+
+4. **Procedure drafting pattern — failed to apply documented gotchas to the case at hand.** The worker-rebuild procedure draft missed two things that were already in CLAUDE.md and homelab-design.md: (a) the StatefulSet scale-down ordinal behavior (scaling Vault to 2 drops vault-2, not vault-0 — user caught this); (b) pod anti-affinity as a scheduling blocker for migration (no separate doc entry, but the related CSI-pinning gotchas were close enough that this should have been pre-flighted). Same pattern flagged at Phase 4a session close: "gap is applying the discipline consistently in long sessions, not in writing it down." Worth keeping the assistant's procedure drafts under review specifically for "what gotchas would I hit if I executed this exactly as written" — not just "what gotchas relate to the components involved."
+
+**Successes worth noting:**
+- Phase 4b itself: clean execution of Appendix B (kubectl delete node + `-e k3s_init_node=hlokk` override + ssh-keygen -R) once the orphan LVs were cleared. No duplicate-node-name loop, no surprise etcd churn, Vault Raft stayed 3/3 throughout.
+- The 2/3-voters worker rebuild path: ~25 min window, vault-0 came back to the new einherjar-urd within ~30 seconds of the new node going Ready, Raft reconverged without manual intervention. The "operationally fine" framing of accepting 2/3 for short windows was empirically validated.
+- All findings closed in the same session (orphan LVs cleaned, anti-affinity worked around by 2/3 acceptance, iproute fix landed in IaC, procedure documented as Appendix C).
+
+**Resolution:** Cluster healthy. Göndul on Urd (Hardware refresh + Phase 4b realized the original 2026-05-14 design intent). einherjar-urd on Urd hardware with corrected TF template references. Vault Raft 3/3. asgard-health + vault-health both green. Phase 4b ticked in build sequence; worker rebuild added as a row.
+
+**Root-cause patterns:**
+- *Orphan state surviving host hardware events.* The orphan LVs that blocked Phase 4b came from a NUC7-era event days earlier; Proxmox's destroy path doesn't reach into LVs once the VM config is gone. Class of "state surviving outside the orchestrator's view" — same shape as the iSCSI node-record class flagged after Phase 4a. Whenever hardware-level state mutates without going through the IaC layer, the IaC layer's destroy is incomplete.
+- *Hard-required scheduling constraints at full replication.* Pod anti-affinity tuned for "no two replicas on the same node" works as intended at HA-level — until you need to evict one of those replicas for maintenance. With N replicas spread across exactly N nodes, you can't move any of them anywhere. This argues for *either* (N+1) workers (always one spare slot) *or* `preferred` anti-affinity (degrades gracefully). The cluster has 3 workers and 3 Vault replicas; the constraint is structural.
+- *Procedure-design discipline ≠ doc-writing discipline.* The same gotcha can be both well-documented and missed during procedure drafting. Worth a pre-flight step explicitly: "for each step of this procedure, what gotcha-class entries apply?" — not "for each component involved, what gotchas are documented?"
+

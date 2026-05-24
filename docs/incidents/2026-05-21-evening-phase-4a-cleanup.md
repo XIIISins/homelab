@@ -1,0 +1,37 @@
+<!-- docs/incidents/2026-05-21-evening-phase-4a-cleanup.md -->
+
+### 2026-05-21 evening — Phase 4a cleanup: hostkey corruption, iSCSI orphan reconciliation, Authentik restart pattern triage
+
+Follow-on cleanup session after Phase 4a. Three items on the queue: einherjar-urd sshd dead, orphan iSCSI sessions on einherjar-skuld, authentik-server with 53 restarts. All three closed in one session.
+
+**einherjar-urd sshd dead — root cause: NUC7-era crash corrupted hostkeys mid-write.**
+
+Diagnosis ladder narrowed quickly. `journalctl` showed `sshd: no hostkeys available -- exiting.` on the 21:34 boot. `ls -la /etc/ssh/ssh_host_*_key` revealed three zero-byte files with mtime `2026-05-20 07:00`. `last reboot` showed three "still running" entries spanning May 17 11:38 → May 21 21:34 — phantom entries left by sessions that ended unclean. `journalctl --list-boots` showed only the current boot, meaning journald was running in volatile mode (`/var/log/journal/` didn't exist) on every prior boot — journal data from the crashes is permanently gone. `find /etc /var -size 0 -newermt '2026-05-20 06:30' ! -newermt '2026-05-20 07:30'` surfaced corroborating evidence: the cloud-init instance directory's semaphore files (zero-byte by design — markers only), but also `network-config.json` (real content, should not be empty). Five-minute gap between the corruption mtimes (07:00) and the next boot (07:05) supports an "in-flight writes lost during crash, journal replay restored inode metadata but not data" mechanism rather than a write-time bug.
+
+Attribution: the NUC7 was running einherjar-urd between May 19 and the NUC7's terminal crash. The May 20 07:00 crash is one of the three "still running" entries and falls within NUC7's life. einherjar-urd's VM disk physically traveled NUC7 → Cubi (memory + disk swap when replacement hardware arrived), so the corruption survived intact onto the current hardware. sshd kept serving from in-memory hostkeys for ~25 hours after the corruption — it loads hostkeys at start and doesn't re-read them per-connection — until the May 21 21:34 boot (Phase 4a's reboot) was the first sshd start after the corruption. That's when the failure surfaced.
+
+Recovery: `rm` the empties (`ssh-keygen -A` treats `exists` as `skip`), `ssh-keygen -A`, `systemctl start sshd`, then `ssh-keygen -R` on control nodes. Functional in ~30 seconds once diagnosed.
+
+Cause closed at the architectural level rather than the proximate level: the corruption mechanism doesn't depend on cloud-init or NUC7 specifically — any hard crash mid-write to hostkey files produces the same outcome, and ext4's journal-restores-metadata-not-data behavior is by design. Going-forward defense: baseline role asserts hostkey existence + non-emptiness on every play, regenerates if not. Same OS-invariant class as resolv.conf management. CLAUDE.md gotchas added for the hostkey class itself and the `last reboot` diagnostic technique.
+
+**Orphan iSCSI sessions on einherjar-skuld — partial cleanup, structural class identified.**
+
+The three UUIDs flagged in the Phase 4a incident log (`pvc-c519f687`, `pvc-31b7c785`, `pvc-3264d489`) had already aged out by the time this session ran — no active sessions, no node records. Either cleaned earlier, or torn down by reboots between Phase 4a and now.
+
+Current state on einherjar-skuld: two active sessions (`pvc-76ac564c` Redis, `pvc-e5b5e842` vault-1), both legitimate consumers running on this worker. Plus four node records — the two active sessions' records, plus two stale entries for `pvc-450130ba` (vault-0, actually on einherjar-urd) and `pvc-60a43ab8` (vault-2, actually on einherjar-verd). Cross-checked via `kubectl get volumeattachment` to confirm K8s thinks the latter two are bound elsewhere. Cleaned via `iscsiadm -m node -o delete` for the two orphan records; sessions left alone. No NAS-side cleanup needed (LUNs are legitimately in use by the relocated consumers).
+
+**Structural finding:** This is a different class from the existing "stale session after ungraceful reboot" gotcha. iSCSI node records (the persistent reconnect config in `/var/lib/iscsi/nodes/`) are NOT touched by kubelet's CSI hooks when pods migrate. After every worker-to-worker pod migration involving an iSCSI PV, the source worker keeps its node record forever. Latent risk: on the source worker's next iscsid restart or boot, it will attempt to log in to all known targets — including stale ones — and may succeed, creating cross-node sessions that block legitimate consumers. The cleanup task is recurring, not one-time. Pending architectural decision: automate via timer + diff script vs accept periodic manual sweeps. CLAUDE.md gotcha added.
+
+**authentik-server with 53 restarts on einherjar-skuld — not currently restarting, closed.**
+
+Last restart was `2026-05-21 17:56 UTC`, exit code 0, reason `Completed`. Clean self-shutdown, not OOM (would be 137 `OOMKilled`), not crash (non-zero), not liveness-probe-kill in the usual signal sense. Logs from the previous container showed a normal shutdown sequence with a DNS issue ~80 minutes prior (unrelated to the shutdown). Container ran exactly 10 minutes (started 17:46:11, finished 17:56:11) — suggestive of probe-driven recycling or an internal lifecycle hook, but not investigated further since the pod has been stable for ~4 hours at session close and the two newer server replicas (born during Phase 4a's reshuffle) have 0 restarts each on einherjar-verd and einherjar-urd.
+
+Interpretation: the accumulated 53 restarts are a historical artifact of the pre-4a workload-concentration period when this pod was colocated with Redis + vault-1 on the stressed einherjar-skuld node. Post-Phase 4a, load has redistributed and this pod has stabilized. Monitoring posture: if the restart count climbs past ~55 in the coming days, that's a recurrence worth investigating — at that point `kubectl get events` at the moment of a fresh restart will tell us whether it's probe-driven, OOM-driven, or something else.
+
+**Resolution:** All three Phase 4a cleanup items closed. Two architectural decisions resolved: (a) Synology CSI DaemonSet stays workers-only — the cross-node-iSCSI-fight class is the bigger risk, and the unmount-hang risk is mitigated by a "drain stateful workloads from a CP before tainting" operational rule; (b) helm chart pin policy deferred to a separate decision (still pending — open questions section).
+
+**Root-cause patterns:**
+- *Failure modes that hide in in-memory state.* sshd was the example today: a daemon holding loaded state survives the on-disk corruption that should have killed it, until a restart forces a re-read. Long-lived daemons that load config/keys/state at start without re-reading per-operation are a category — they convert "broken now" into "broken on next restart, days later, with no obvious correlation."
+- *Persistent-state cleanup that no system owns.* iSCSI node records are CSI-managed during attach but unowned during pod migration. K8s doesn't know about them, CSI doesn't clean them, the kubelet doesn't clean them. Recurring orphan classes that fall through ownership gaps need either explicit automation or operational discipline.
+- *Diagnostic-data loss as a separate failure.* Journald running volatile meant we couldn't see what cloud-init was doing at the moment of corruption. Decided not to fix the journald gap (VictoriaLogs is the long-term home), but flagged as a known tradeoff — future post-mortems on similar incidents will be evidence-limited until VictoriaLogs lands.
+

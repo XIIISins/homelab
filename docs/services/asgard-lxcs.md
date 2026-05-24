@@ -1,0 +1,27 @@
+<!-- docs/services/asgard-lxcs.md -->
+
+# Asgard LXCs
+
+| LXC | ID | Node | IP | Role | Status |
+|-----|----|------|----|------|--------|
+| PBS | 1101 | Skuld | `10.0.11.20` | Proxmox Backup Server | ✅ |
+| Zabbix | 1102 | Skuld | `10.0.11.21` | Infrastructure monitoring | 🔲 |
+| Saga (AdGuard 1) | 1110 | Urd | `10.0.11.201` | DNS primary | ✅ |
+| Mimir (AdGuard 2) | 1111 | Verd | `10.0.11.202` | DNS replica | ✅ |
+| Kvasir (AdGuard 3) | 1112 | Skuld | `10.0.11.203` | DNS replica | ✅ |
+| Bifrost (Tailscale 1) | 1113 | Urd | `10.0.11.213` | Tailscale subnet router (advertises `10.0.0.0/16` supernet; auto-renewing key — Tailscale caps at 90d, see decision row + auth-key gotcha — `tag:subnet-router`). Primary of the bridge-pair. | ✅ |
+| Heimdall (Tailscale 2) | 1114 | Verd | `10.0.11.214` | Tailscale subnet router (same routes as Bifrost; auto-renewing key, `tag:subnet-router`). Guardian-of-the-bridge replica — naming-principle: primary defines theme, replica expands within it. | ✅ |
+| Gjallarbru (Tailscale 3) | 1115 | Skuld | `10.0.11.215` | Tailscale exit node (`--advertise-exit-node`; auto-renewing key, `tag:exit-node`). The bridge to Helheim — way out of the realm. | ✅ |
+| Factorio | 1120 | Urd | `10.0.11.220` | Game server + SFTPGo | ✅ |
+| Teamspeak | 1121 | Verd | `10.0.11.221` | Voice + PostgreSQL | 🔲 |
+| Fulla (PostgreSQL 1) | 1130 | Skuld | `10.0.11.230` | DB primary, PG 17 + TLS | ✅ |
+| Vör (PostgreSQL 2) | 1131 | Urd | `10.0.11.231` | DB replica (planned) | 🔲 |
+| Idunn (PostgreSQL 3) | 1132 | Verd | `10.0.11.232` | DB replica (planned) | 🔲 |
+| HAProxy 1 | 1133 | Urd | `10.0.11.233` | Load balancer | 🔲 |
+| HAProxy 2 | 1134 | Verd | `10.0.11.234` | Load balancer | 🔲 |
+| HAProxy 3 | 1135 | Skuld | `10.0.11.235` | Load balancer | 🔲 |
+| Jellyfin | TBD | Urd | TBD | Media + QuickSync LXC | 🔲 |
+
+**AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
+
+> **LXC build order — revised (2026-05-15):** The original sequence said "asgard K3s before all LXCs" because of Tailscale's dependency on Authentik. That conflates services that *don't* share that dependency. Revised sequence: Factorio (no deps, ship it standalone), then PostgreSQL + Teamspeak (no Authentik dependency), then Authentik + Redis in K3s, then Tailscale LXCs (needs Authentik for SSO).
