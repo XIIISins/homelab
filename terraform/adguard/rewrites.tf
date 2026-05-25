@@ -39,11 +39,11 @@ locals {
     # adguard.* is a generic alias on the primary (Saga). adguard-vip.*
     # is the keepalived VIP — used by tooling that should follow the
     # active node rather than pin to a specific one.
-    "saga.niflheim.xiiisins.com"         = "10.0.11.201"
-    "mimir.niflheim.xiiisins.com"        = "10.0.11.202"
-    "kvasir.niflheim.xiiisins.com"       = "10.0.11.203"
-    "adguard.niflheim.xiiisins.com"      = "10.0.11.201"
-    "adguard-vip.niflheim.xiiisins.com"  = "10.0.10.200"
+    "saga.niflheim.xiiisins.com"        = "10.0.11.201"
+    "mimir.niflheim.xiiisins.com"       = "10.0.11.202"
+    "kvasir.niflheim.xiiisins.com"      = "10.0.11.203"
+    "adguard.niflheim.xiiisins.com"     = "10.0.11.201"
+    "adguard-vip.niflheim.xiiisins.com" = "10.0.10.200"
 
     # ── niflheim.xiiisins.com — Asgard K3s control planes ──────────
     "gondul.niflheim.xiiisins.com" = "10.0.21.11"
