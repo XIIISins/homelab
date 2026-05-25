@@ -10,8 +10,25 @@ ansible_user: root
 
 # Zabbix host record taxonomy. Proxmox lives under a separate root
 # from Asgard's LXCs — these hosts ARE the substrate, not workloads.
+# Linux baseline (host-level via agent) + `Proxmox VE by HTTP`
+# (cluster/VM/LXC/storage state via the PVE API).
+#
+# Auth: TF-managed `zabbix-monitor@pve` user + API token, both
+# created by terraform/proxmox/zabbix-access. Token secret stashed
+# in Vault at ansible/proxmox/zabbix-token (fields: token_id +
+# secret). Single user+token serves all 3 nodes (PVE cluster auth);
+# per-host {$PVE.URL.HOST} just steers each scrape to the right node.
 zabbix_agent_host_groups:
   - "Linux servers"
   - "Hypervisors/Proxmox"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  - "Proxmox VE by HTTP"
+zabbix_agent_host_macros:
+  - macro: "{$PVE.URL.HOST}"
+    value: "{{ ansible_host }}"
+  - macro: "{$PVE.TOKEN.ID}"
+    value: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/proxmox/zabbix-token').secret.token_id }}"
+  - macro: "{$PVE.TOKEN.SECRET}"
+    value: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/proxmox/zabbix-token').secret.secret }}"
+    type: secret
