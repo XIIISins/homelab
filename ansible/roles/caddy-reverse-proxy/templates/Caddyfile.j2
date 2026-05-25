@@ -1,0 +1,38 @@
+{# ansible/roles/caddy-reverse-proxy/templates/Caddyfile.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/caddy-reverse-proxy/templates/Caddyfile.j2
+# Sites rendered from `caddy_sites` group_var.
+
+# Global options. admin off — no Caddy admin API exposure (we don't need
+# the runtime config API; the role re-renders + reloads on changes).
+{
+    admin off
+}
+
+{% for site in caddy_sites %}
+{# Per-site block. One per caddy_sites entry. #}
+# ── {{ site.name }} ──
+{{ site.listen }} {
+    @allowed remote_ip {{ site.allowed_cidrs | join(' ') }}
+
+    handle @allowed {
+        reverse_proxy {{ site.upstream }}
+{% for directive in site.extra_directives | default([]) %}
+        {{ directive }}
+{% endfor %}
+    }
+
+    handle {
+        respond "{{ site.forbidden_body | default('forbidden') }}" 403
+    }
+
+    log {
+        output file {{ site.log_path | default(caddy_log_dir + '/' + site.name + '.log') }} {
+            roll_size  {{ caddy_log_roll_size_mb }}mb
+            roll_keep  {{ caddy_log_roll_keep }}
+        }
+        format json
+    }
+}
+
+{% endfor %}

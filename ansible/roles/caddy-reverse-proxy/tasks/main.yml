@@ -1,0 +1,70 @@
+# ansible/roles/caddy-reverse-proxy/tasks/main.yml
+---
+- name: No-op when caddy_sites is empty
+  ansible.builtin.meta: end_play
+  when: caddy_sites | length == 0
+  tags: [caddy, caddy:guard]
+
+- name: Install Caddy APT repository signing key
+  ansible.builtin.get_url:
+    url: "{{ caddy_apt_gpg_key_url }}"
+    dest: "{{ caddy_apt_keyring_path }}"
+    mode: "0644"
+    owner: root
+    group: root
+    force: true
+  tags: [caddy, caddy:repo]
+
+- name: Add Caddy APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ caddy_apt_keyring_path }}] {{ caddy_apt_repo_url }} any-version main"
+    filename: caddy-stable
+    state: present
+    update_cache: true
+  tags: [caddy, caddy:repo]
+
+- name: Install Caddy package (pinned)
+  ansible.builtin.apt:
+    name: "caddy={{ caddy_version }}"
+    state: present
+    update_cache: false
+    # allow_downgrade for the case where someone manually upgraded out-
+    # of-band and the role re-runs at a lower pin. Doesn't auto-downgrade
+    # at every run — only when version is explicitly lower than installed.
+    allow_downgrade: true
+  tags: [caddy, caddy:install]
+
+- name: Ensure Caddy log directory exists
+  ansible.builtin.file:
+    path: "{{ caddy_log_dir }}"
+    state: directory
+    owner: "{{ caddy_log_owner }}"
+    group: "{{ caddy_log_group }}"
+    mode: "{{ caddy_log_mode }}"
+    # recurse fixes ownership on any pre-existing log files left by
+    # an earlier run-as-root (transient testing, manual caddy invocation,
+    # etc.) — without this, caddy fails to open existing files with
+    # `permission denied`.
+    recurse: true
+  tags: [caddy, caddy:logs]
+
+- name: Render Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: caddy
+    mode: "0640"
+    validate: "caddy validate --config %s --adapter caddyfile"
+  notify: reload caddy
+  tags: [caddy, caddy:config]
+
+- name: Ensure Caddy service is enabled and started
+  ansible.builtin.systemd:
+    name: caddy
+    enabled: true
+    state: started
+    # No daemon_reload: Caddy's apt package owns its systemd unit;
+    # there's nothing for us to reload. Including it forces "changed"
+    # on every run.
+  tags: [caddy, caddy:service]

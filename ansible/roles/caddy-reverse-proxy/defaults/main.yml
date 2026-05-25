@@ -1,0 +1,67 @@
+# ansible/roles/caddy-reverse-proxy/defaults/main.yml
+---
+# ============================================================================
+# caddy-reverse-proxy role defaults
+# ============================================================================
+# Installs Caddy from the official Cloudsmith APT repo and renders a single
+# Caddyfile composed of N site blocks, one per entry in `caddy_sites`. Each
+# site is independently:
+#   - bound to a listener (port + optional hostname)
+#   - source-IP allowlisted via Caddy's `remote_ip` matcher
+#   - reverse-proxied to a single upstream
+#   - logged in JSON to its own log file
+#
+# Genericness: caller supplies `caddy_sites` as a list-of-dicts. The role
+# itself has no per-service knowledge — it's pure Caddy wiring.
+#
+# Built for Phase 5h.2 (Hermod, gating AppriseAPI) but reusable for any
+# future LXC needing a thin reverse proxy with IP allowlisting.
+# ============================================================================
+
+# ---- APT repository ----
+# Cloudsmith is Caddy's official Debian/Ubuntu package source. The key is
+# served as ASCII-armored from the same host.
+caddy_apt_repo_url: "https://dl.cloudsmith.io/public/caddy/stable/deb/debian"
+caddy_apt_gpg_key_url: "https://dl.cloudsmith.io/public/caddy/stable/gpg.key"
+caddy_apt_keyring_path: "/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+
+# ---- Package version pin ----
+# Pin a specific apt version per the IaC pin policy. apt-list of available:
+#   apt-cache policy caddy
+# At role-write time (2026-05-25) Cloudsmith stable was at 2.11.3.
+# Cloudsmith rolls forward + drops older versions periodically — when
+# bumping, verify the target version is still in the candidate list
+# before changing this pin (apt errors out on a missing pin).
+caddy_version: "2.11.3"
+
+# ---- Sites ----
+# List-of-dicts. Each entry renders one Caddyfile block. Required fields:
+#   name           — friendly identifier (used in log file path + comments)
+#   listen         — Caddy address: ":80", ":443", "hostname:80", etc.
+#   upstream       — reverse_proxy target ("127.0.0.1:8000", "10.0.x.y:NNNN")
+#   allowed_cidrs  — list of CIDRs/IPs permitted (Caddy `remote_ip` matcher)
+#
+# Optional fields:
+#   log_path       — JSON access log destination (default: /var/log/caddy/<name>.log)
+#   forbidden_body — body returned on 403 (default: "forbidden")
+#   extra_directives — list of raw Caddy directives appended inside the site
+#                      block (e.g. headers, rewrites). Used sparingly — keep
+#                      the role declarative for the common case.
+#
+# Empty list = no Caddyfile rendered + caddy service stays stopped (the role
+# is a no-op).
+caddy_sites: []
+
+# ---- Log directory ----
+# All site access logs live under this directory. Owned by the caddy
+# system user (created by the apt package).
+caddy_log_dir: "/var/log/caddy"
+caddy_log_owner: "caddy"
+caddy_log_group: "caddy"
+caddy_log_mode: "0755"
+
+# Log rotation — Caddy's built-in JSON file output supports size-based
+# rotation. roll_size in MB, roll_keep is the count of historical files
+# to retain. Cheap defaults; bump for noisy sites.
+caddy_log_roll_size_mb: 10
+caddy_log_roll_keep: 5

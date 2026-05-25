@@ -1,0 +1,15 @@
+# ansible/roles/caddy-reverse-proxy/meta/main.yml
+---
+galaxy_info:
+  role_name: caddy_reverse_proxy
+  author: XIIISins
+  description: >
+    Generic Caddy reverse proxy with per-site IP allowlisting + JSON
+    access logs. Renders one Caddyfile block per entry in `caddy_sites`.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+
+dependencies: []

@@ -1,0 +1,7 @@
+# ansible/roles/caddy-reverse-proxy/handlers/main.yml
+---
+- name: reload caddy
+  ansible.builtin.systemd:
+    name: caddy
+    state: reloaded
+    daemon_reload: false
