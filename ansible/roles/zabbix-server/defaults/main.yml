@@ -8,9 +8,12 @@ zabbix_major: "7.0"
 
 # Repo URL pattern — Zabbix ships an apt repo .deb that registers
 # their package signing key + repo lines. Pin the repo version to
-# match `zabbix_major`. The OS-codename gets templated in by
-# {{ ansible_distribution_release }} at task time.
-zabbix_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
+# match `zabbix_major`. Debian-major (12 bookworm / 13 trixie) is
+# templated from ansible_distribution_major_version at task time.
+# Path is `/zabbix/<major>/debian/pool/...` — note there is NO
+# `release/` segment (the `.../release/debian/...` variant 404s;
+# verified against repo.zabbix.com directory listing 2026-05-25).
+zabbix_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
 
 # PHP-FPM service name + version pin. Zabbix 7.0 LTS officially
 # supports PHP 8.0.0 - 8.5.X (with PHP 8.4 supported since 7.0.10).
