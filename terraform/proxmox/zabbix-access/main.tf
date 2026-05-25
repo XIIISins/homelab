@@ -52,6 +52,13 @@ resource "vault_kv_secret_v2" "zabbix_pve_token" {
   data_json = jsonencode({
     # token_id format the PVE Zabbix template expects: USER@REALM!TOKENNAME
     token_id = "${proxmox_virtual_environment_user.zabbix_monitoring.user_id}!${proxmox_virtual_environment_user_token.zabbix_monitoring.token_name}"
-    secret   = proxmox_virtual_environment_user_token.zabbix_monitoring.value
+    # bpg/proxmox's `value` returns the FULL `USER@REALM!TOKENNAME=UUID`
+    # string (intended for direct use as `Authorization: PVEAPIToken=<value>`).
+    # The Zabbix template composes the header itself and expects {$PVE.
+    # TOKEN.SECRET} to be ONLY the UUID — passing the full string gave
+    # us `Authorization: PVEAPIToken=USER@REALM!TOKENNAME=USER@REALM!
+    # TOKENNAME=UUID` and a 401 on every scrape. Take everything after
+    # the LAST `=` (token_id contains no `=`, UUID format is hex+dashes).
+    secret = element(reverse(split("=", proxmox_virtual_environment_user_token.zabbix_monitoring.value)), 0)
   })
 }
