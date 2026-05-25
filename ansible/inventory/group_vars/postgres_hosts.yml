@@ -49,3 +49,11 @@ postgres_databases:
   - name: zabbix
     owner: zabbix
     password_vault_path: ansible/postgres/zabbix-password
+  # Teamspeak 3 server, asgard K3s (k8s/asgard/apps/teamspeak/).
+  # TS3 3.13+ ships a first-party PostgreSQL plugin; on first connect
+  # with an empty schema it auto-runs create_postgresql.sql to bootstrap
+  # tables. The role+DB just need to exist with full ownership on the
+  # `teamspeak3` schema — handled by postgres-common.
+  - name: teamspeak3
+    owner: teamspeak3
+    password_vault_path: ansible/postgres/teamspeak3-password

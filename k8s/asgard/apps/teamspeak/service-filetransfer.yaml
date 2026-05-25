@@ -1,0 +1,25 @@
+# k8s/asgard/apps/teamspeak/service-filetransfer.yaml
+#
+# Companion Service to teamspeak-voice — same VIP via the shared-ip
+# annotation, different protocol (TCP). File transfer carries avatars,
+# channel icons, and channel-shared files. Independently exposable, but
+# clients expect it on the same hostname; sharing the VIP keeps DNS + UCG
+# port-forward setup trivial.
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamspeak-filetransfer
+  namespace: teamspeak
+  annotations:
+    metallb.universe.tf/allow-shared-ip: teamspeak
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.0.20.12
+  externalTrafficPolicy: Local
+  selector:
+    app: teamspeak
+  ports:
+    - name: filetransfer
+      port: 30033
+      targetPort: filetransfer
+      protocol: TCP

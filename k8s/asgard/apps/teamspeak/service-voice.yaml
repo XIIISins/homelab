@@ -1,0 +1,45 @@
+# k8s/asgard/apps/teamspeak/service-voice.yaml
+#
+# Two LoadBalancer Services (voice/UDP + filetransfer/TCP) sharing one
+# MetalLB VIP via the `metallb.universe.tf/allow-shared-ip` annotation.
+# K8s forbids mixing protocols in a single Service's ports[] for LB type
+# on most clouds; MetalLB's shared-IP annotation is the canonical workaround
+# and keeps friends with a single hostname/IP to remember.
+#
+# externalTrafficPolicy: Local is MANDATORY for TeamSpeak. With Cluster,
+# kube-proxy SNATs and the server sees every client as the cluster node
+# IP — breaking per-IP bans, flood protection, and log forensics. With
+# Local + MetalLB L2, the elected speaker is one of the workers running
+# the pod (single replica → that worker IS the announcing node), and
+# kube-proxy preserves the source IP end-to-end.
+#
+# Return path: reply src = 10.0.20.12 (VIP, in 10.0.20.0/24). Without the
+# existing vlan20-policy-routing.service on workers (CLAUDE.md "VLAN 20
+# source-based policy routing"), the reply would exit via eth0 → UCG
+# stateful firewall would drop the asymmetric flow.
+# NOTE on IP choice: Vault UI's LB Service in infrastructure/vault/ uses
+# `serviceType: LoadBalancer` WITHOUT a static loadBalancerIP — MetalLB
+# auto-allocates (currently 10.0.20.11). Claiming .12 statically sits
+# adjacent without colliding. If the Vault Service is ever recreated and
+# MetalLB tries to re-assign it, MetalLB's static-beats-dynamic precedence
+# protects this allocation. Long-term: pin Vault's UI to a static IP +
+# carve the IPAddressPool into static (.10-.49) and dynamic (.50-.99)
+# bands; deferred until more LB Services land.
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamspeak-voice
+  namespace: teamspeak
+  annotations:
+    metallb.universe.tf/allow-shared-ip: teamspeak
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.0.20.12
+  externalTrafficPolicy: Local
+  selector:
+    app: teamspeak
+  ports:
+    - name: voice
+      port: 9987
+      targetPort: voice
+      protocol: UDP

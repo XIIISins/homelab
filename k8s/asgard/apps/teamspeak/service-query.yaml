@@ -1,0 +1,24 @@
+# k8s/asgard/apps/teamspeak/service-query.yaml
+#
+# ServerQuery (raw TCP 10011) — admin/automation port. NEVER expose
+# externally. ClusterIP only; admin access is via `kubectl port-forward`:
+#   kubectl port-forward -n teamspeak svc/teamspeak-query 10011:10011
+#   telnet localhost 10011
+#
+# Also serves as the headless `serviceName` for the StatefulSet (gives the
+# pod a stable in-cluster DNS name at teamspeak-0.teamspeak-query).
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamspeak-query
+  namespace: teamspeak
+spec:
+  type: ClusterIP
+  clusterIP: None # headless — StatefulSet pod DNS
+  selector:
+    app: teamspeak
+  ports:
+    - name: query
+      port: 10011
+      targetPort: query
+      protocol: TCP
