@@ -22,6 +22,13 @@ metadata:
   namespace: garage
 spec:
   clusterIP: None
+  # Bootstrap chicken-and-egg: garage-0's readiness probe hits /health
+  # on the admin API, which returns 503 (degraded) until a layout is
+  # assigned. But the layout-init Job needs to reach the admin API to
+  # assign the layout — and Service DNS only resolves to Ready pods
+  # by default. publishNotReadyAddresses lets the Job find garage-0
+  # while it's still in the not-yet-Ready state.
+  publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: garage
   ports:
