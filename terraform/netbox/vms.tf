@@ -37,9 +37,6 @@ locals {
     # ── Hugin — Zabbix server (LXC 1102, Phase 7c) ─────────────────
     hugin = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
 
-    # ── Hermod — notifications (LXC 1103, Phase 5h.2) ──────────────
-    hermod = { vmid = "1103", role = "monitoring", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
-
     # ── AGH trio (Saga/Mimir/Kvasir, Phase 5b.2) ──────────────────
     # VMIDs from network.md: 1110/1111/1112. Sizing matches the
     # adguard_nodes locals in terraform/proxmox/asgard-lxcs/lxcs.tf
@@ -85,10 +82,9 @@ locals {
     "einherjar-skuld.eth0" = { vm = "einherjar-skuld", name = "eth0", ip = "10.0.21.23/24" }
     "einherjar-skuld.eth1" = { vm = "einherjar-skuld", name = "eth1", ip = "10.0.20.203/24" }
 
-    # PBS + Hugin (Zabbix) + Hermod (notifications) + AGH trio + Tailscale trio + Factorio + PG trio (single-homed VLAN 11)
+    # PBS + Hugin (Zabbix) + AGH trio + Tailscale trio + Factorio + PG trio (single-homed VLAN 11)
     "PBS.eth0"        = { vm = "PBS", name = "eth0", ip = "10.0.11.20/24" }
     "hugin.eth0"      = { vm = "hugin", name = "eth0", ip = "10.0.11.21/24" }
-    "hermod.eth0"     = { vm = "hermod", name = "eth0", ip = "10.0.11.22/24" }
     "saga.eth0"       = { vm = "saga", name = "eth0", ip = "10.0.11.201/24" }
     "Mimir.eth0"      = { vm = "Mimir", name = "eth0", ip = "10.0.11.202/24" }
     "kvasir.eth0"     = { vm = "kvasir", name = "eth0", ip = "10.0.11.203/24" }
