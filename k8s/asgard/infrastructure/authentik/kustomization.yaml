@@ -14,5 +14,6 @@ configMapGenerator:
     files:
       - blueprints/00-brand.yaml
       - blueprints/01-users.yaml
+      - blueprints/02-embedded-outpost.yaml
 generatorOptions:
   disableNameSuffixHash: true

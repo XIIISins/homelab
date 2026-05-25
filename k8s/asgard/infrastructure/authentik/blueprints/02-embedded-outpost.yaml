@@ -1,0 +1,53 @@
+# k8s/asgard/infrastructure/authentik/blueprints/02-embedded-outpost.yaml
+#
+# Pins the embedded outpost's `config.authentik_host` to the same
+# internal alias the brand uses (authentik.midgard.xiiisins.com over
+# HTTPS). Without this, the outpost ships with whatever default the
+# Authentik chart bootstraps to — which in our case was
+# `http://authentik.niflheim.xiiisins.com` (wrong host AND wrong
+# scheme; the hostname has no DNS record, AGH or otherwise).
+#
+# Why this is separate from the brand blueprint (00-brand.yaml):
+# the outpost reads `config.authentik_host` at ForwardAuth-flow
+# time and uses it verbatim for the 302 Location header. It does
+# NOT consult the brand for that lookup. Brand=midgard is correct
+# but the outpost was still emitting niflheim redirects. Authentik
+# documents this as "configure each outpost's authentik_host"
+# explicitly — the brand is for end-user UX (login page branding,
+# default flows), the outpost config is for outpost-to-Authentik
+# wire URLs.
+#
+# Refresh model: outposts re-read this config every 5 minutes
+# (config.refresh_interval). A blueprint apply triggers the read
+# faster — the authentik-worker watches the blueprint ConfigMap +
+# triggers outpost reconciliation on change.
+#
+# Other fields in config — left intact via !Find lookup + spread
+# pattern. We only override authentik_host; the rest stays whatever
+# Authentik defaulted to (refresh interval, container image,
+# Kubernetes namespace, etc.).
+version: 1
+metadata:
+  name: embedded-outpost-config
+entries:
+  - model: authentik_outposts.outpost
+    identifiers:
+      name: authentik Embedded Outpost
+    attrs:
+      config:
+        authentik_host: https://authentik.midgard.xiiisins.com
+        authentik_host_browser: ""
+        authentik_host_insecure: false
+        log_level: info
+        refresh_interval: minutes=5
+        kubernetes_replicas: 1
+        kubernetes_namespace: authentik
+        kubernetes_service_type: ClusterIP
+        kubernetes_ingress_secret_name: authentik-outpost-tls
+        kubernetes_disabled_components: []
+        kubernetes_image_pull_secrets: []
+        kubernetes_ingress_annotations: {}
+        kubernetes_httproute_annotations: {}
+        kubernetes_httproute_parent_refs: []
+        object_naming_template: ak-outpost-%(name)s
+        docker_map_ports: true
