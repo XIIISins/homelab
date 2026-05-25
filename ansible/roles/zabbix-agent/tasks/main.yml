@@ -17,3 +17,8 @@
 - name: Render config + start
   ansible.builtin.import_tasks: configure.yml
   tags: [zabbix-agent, zabbix-agent:configure]
+
+- name: Register host in Zabbix server (declarative, via API)
+  ansible.builtin.import_tasks: register-host.yml
+  when: zabbix_agent_register_host
+  tags: [zabbix-agent, zabbix-agent:register]

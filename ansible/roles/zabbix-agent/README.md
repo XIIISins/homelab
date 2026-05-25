@@ -8,10 +8,10 @@ Lightweight — adds ~25 MB RSS per host, ~80 packages from the Zabbix repo. Saf
 
 ## What this role does
 
-1. Installs Zabbix's apt repo (same `.deb` as `zabbix-server` role).
-2. Installs `zabbix-agent2`.
-3. Renders `/etc/zabbix/zabbix_agent2.conf` (Server + ServerActive both pointing at `10.0.10.21`).
-4. Starts the agent.
+1. OS-routes: `install-debian.yml` (apt) or `install-rhel.yml` (dnf) by `ansible_os_family`. K3s VMs run RHEL 9; everything else is Debian-family.
+2. Installs Zabbix's release package + `zabbix-agent2`. On RHEL also sets the `zabbix_can_network` SELinux boolean.
+3. `configure.yml` renders `/etc/zabbix/zabbix_agent2.conf` (Server + ServerActive both pointing at `10.0.11.21`) + enables + starts the unit.
+4. `register-host.yml` calls Zabbix's API (`delegate_to: localhost`, `community.zabbix.zabbix_host`) to ensure a host record exists with the right Agent interface + host groups + linked templates. Idempotent; declarative.
 
 ## Variables
 
@@ -33,7 +33,10 @@ We use Pattern B — keeps the per-service playbooks tight and lets agent-rollou
 
 ## Operational notes
 
-- **Auto-registration on first contact**: the Zabbix server's "auto-registration" action (set up via UI, after server first deploy) auto-adds new hosts that connect with the configured `HostMetadata`. Once added, the server polls them every minute (or whatever the host's check interval is).
+- **Declarative host registration** (default `zabbix_agent_register_host: true`): each playbook run calls Zabbix's API to ensure a host record exists for this agent with the right interface + groups + templates. Idempotent. Disable per-host by setting the var `false` if a host is managed differently. Server-side auto-registration actions are NOT used — declarative wins for an inventory-as-truth setup.
+  - **One-time API token bootstrap**: log into Zabbix UI as Admin → top-right user icon → **API tokens** → **Add** → no expiry → **Generate**. Copy the token (shown once) and stash via `vault kv put secret/ansible/zabbix/api-token value=<token>`. The Vault path was minted as a placeholder in 7c.1; `lifecycle.ignore_changes` on `data_json` means this manual put won't be clobbered by future `terraform apply`.
+  - Without a real token in Vault, the `register-host` task fails loud (401) — disable it via `--skip-tags zabbix-agent:register` for re-runs while the token is being set up.
+- **Host groups / templates** must already exist on the server before the API call. Defaults are `["Linux servers"]` + `["Linux by Zabbix agent"]` (both shipped by Zabbix's stock schema). Override per inventory group via `group_vars/<group>.yml` once you've created custom groups in the UI (e.g. `K3s workers`, `PostgreSQL`, etc.).
 - **Firewall**: agent listens on port 10050. Zabbix server polls in (passive checks); agent connects out to port 10051 (active checks). VLAN 11 is internal so both directions work.
 - **No upgrades needed** on agent for server upgrades — zabbix-agent2 is forward-compatible with newer Zabbix servers.
 

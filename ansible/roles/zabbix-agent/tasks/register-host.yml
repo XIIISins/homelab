@@ -1,0 +1,37 @@
+# ansible/roles/zabbix-agent/tasks/register-host.yml
+---
+# Declarative host registration: ensure the Zabbix server has a host
+# record for this agent, with the right agent interface + host groups
+# + linked templates. Idempotent — community.zabbix.zabbix_host
+# handles create-vs-update. Runs delegate_to: localhost so the API
+# call goes from the control node (where Vault lookups + kubeconfig
+# + 1P env live), not the target host.
+
+- name: Look up Zabbix API token from Vault
+  ansible.builtin.set_fact:
+    zabbix_agent_api_token: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+  no_log: true
+  run_once: true
+  delegate_to: localhost
+
+- name: Register host in Zabbix (create or update)
+  community.zabbix.zabbix_host:
+    host_name: "{{ zabbix_agent_hostname }}"
+    host_groups: "{{ zabbix_agent_host_groups }}"
+    link_templates: "{{ zabbix_agent_link_templates }}"
+    interfaces:
+      - type: agent
+        main: 1
+        useip: 1
+        ip: "{{ zabbix_agent_register_ip }}"
+        dns: "{{ zabbix_agent_hostname }}"
+        port: "{{ zabbix_agent_listen_port }}"
+    state: present
+  delegate_to: localhost
+  environment:
+    ZABBIX_API_URL: "{{ zabbix_agent_api_url }}"
+    ZABBIX_API_TOKEN: "{{ zabbix_agent_api_token }}"
+    ZABBIX_VALIDATE_CERTS: "false" # internal HTTP, no TLS yet (7c.5)
+  no_log: true # token in env

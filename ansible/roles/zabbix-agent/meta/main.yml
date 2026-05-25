@@ -15,3 +15,6 @@ galaxy_info:
       versions:
         - "9"
 dependencies: []
+collections:
+  - community.hashi_vault # Vault lookup for the API token (register-host.yml)
+  - community.zabbix # zabbix_host module — declarative host registration
