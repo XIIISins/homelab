@@ -1,0 +1,23 @@
+# ansible/roles/zabbix-agent/tasks/configure.yml
+---
+# Common configure step — runs after either install-debian.yml or
+# install-rhel.yml. Both paths leave us with the same package +
+# /etc/zabbix/ layout + systemd unit name (zabbix-agent2).
+
+- name: Render /etc/zabbix/zabbix_agent2.conf
+  ansible.builtin.template:
+    src: zabbix_agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.conf
+    owner: root
+    group: zabbix
+    mode: "0640"
+  notify: restart zabbix-agent2
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start zabbix-agent2
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: started

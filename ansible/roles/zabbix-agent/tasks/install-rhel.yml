@@ -1,0 +1,40 @@
+# ansible/roles/zabbix-agent/tasks/install-rhel.yml
+---
+# RHEL 9 path. Used by the K3s VMs (asgard CPs + workers). The
+# zabbix-release rpm registers the Zabbix repo + GPG key; dnf then
+# pulls zabbix-agent2 from there. Unlike Debian, the RHEL repo has
+# NO `_latest_` filename alias — operator pins a revision via
+# zabbix_agent_rhel_release_revision in defaults; bump when needed.
+#
+# SELinux: the rancher/selinux + container-selinux modules cover
+# K3s. zabbix-agent2 ships its own SELinux module via the
+# zabbix-selinux-policy package on newer Zabbix builds; if not
+# present the `zabbix_can_network` boolean covers the common
+# "agent can't reach the server" denial. We set the boolean
+# defensively — no-op if SELinux is permissive or if the policy
+# module isn't loaded.
+
+- name: Check if zabbix-release is already installed
+  ansible.builtin.command: rpm -q zabbix-release
+  register: zabbix_release_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install zabbix-release rpm
+  ansible.builtin.dnf:
+    name: "{{ zabbix_agent_repo_rpm_url }}"
+    state: present
+    disable_gpg_check: true # bootstrapping the GPG key via this package itself
+  when: zabbix_release_installed.rc != 0
+
+- name: Install zabbix-agent2 (dnf)
+  ansible.builtin.dnf:
+    name: "{{ zabbix_agent_packages }}"
+    state: present
+
+- name: Allow zabbix agent network access (SELinux)
+  ansible.posix.seboolean:
+    name: zabbix_can_network
+    state: true
+    persistent: true
+  failed_when: false # silent on permissive / boolean-not-present

@@ -6,11 +6,20 @@
 # required to match — but match for tidiness.
 zabbix_major: "7.0"
 
-# Path is /zabbix/<major>/debian/pool/... — NO `release/` segment
-# (the .../release/debian/... variant 404s, verified 2026-05-25).
-# Same correction as roles/zabbix-server's defaults; the two should
-# bump in lockstep when zabbix_major moves.
+# Debian repo URL — path is /zabbix/<major>/debian/pool/... — NO
+# `release/` segment (the .../release/debian/... variant 404s, verified
+# 2026-05-25). Same correction as roles/zabbix-server's defaults; the
+# two should bump in lockstep when zabbix_major moves.
 zabbix_agent_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
+
+# RHEL 9 repo URL — used on K3s VMs. Unlike Debian, the RHEL tree has
+# NO `_latest_` filename — the operator picks a revision explicitly.
+# Highest at the time of this write: zabbix-release-7.0-5.el9.noarch.rpm
+# (2026-05-25). Bump `zabbix_agent_rhel_release_revision` when Zabbix
+# ships a new release-pkg revision; the rest of the URL derives from
+# zabbix_major + ansible_distribution_major_version.
+zabbix_agent_rhel_release_revision: "5"
+zabbix_agent_repo_rpm_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/rhel/{{ ansible_distribution_major_version }}/x86_64/zabbix-release-{{ zabbix_major }}-{{ zabbix_agent_rhel_release_revision }}.el{{ ansible_distribution_major_version }}.noarch.rpm"
 
 # zabbix-agent2 — the Go-based replacement for the C agent. Lower
 # RSS, native concurrency, better defaults. Same protocol; works

@@ -1,0 +1,34 @@
+# ansible/roles/zabbix-agent/tasks/install-debian.yml
+---
+# Debian/Proxmox path. Idempotency via dpkg-query — the failed_when:
+# false swallows the rc=1 "not installed yet" case.
+
+- name: Check if zabbix-release is already installed
+  ansible.builtin.command: dpkg-query -W -f='${Version}' zabbix-release
+  register: zabbix_release_installed
+  changed_when: false
+  failed_when: false
+
+- name: Download zabbix-release package
+  ansible.builtin.get_url:
+    url: "{{ zabbix_agent_repo_deb_url }}"
+    dest: "/tmp/zabbix-release.deb"
+    mode: "0644"
+  when: zabbix_release_installed.rc != 0
+
+- name: Install zabbix-release package
+  ansible.builtin.apt:
+    deb: "/tmp/zabbix-release.deb"
+    state: present
+  when: zabbix_release_installed.rc != 0
+  notify: apt update
+
+- name: Flush handlers (apt update before installing agent packages)
+  ansible.builtin.meta: flush_handlers
+
+- name: Install zabbix-agent2 (apt)
+  ansible.builtin.apt:
+    name: "{{ zabbix_agent_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
