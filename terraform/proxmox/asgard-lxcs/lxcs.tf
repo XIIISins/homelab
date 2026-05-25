@@ -601,4 +601,16 @@ resource "proxmox_virtual_environment_container" "zabbix" {
     enabled = true
     type    = "tty"
   }
+
+  # bpg/proxmox doesn't return template_file_id or user_account from the API
+  # on read (Proxmox forgets the source template after creation; user_account
+  # is create-only seed) — without ignore_changes, every post-create plan
+  # would show both as "forces replacement", proposing destroy-recreate of
+  # the running container. See CLAUDE.md "LXC / Proxmox" gotchas.
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+    ]
+  }
 }
