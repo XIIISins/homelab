@@ -49,11 +49,22 @@ spec:
       limits: { cpu: 500m, memory: 512Mi }
 
     # ServiceAccount with cluster-read for the kubernetes_sd_configs
-    # below. Chart creates the RBAC automatically when this is true.
+    # below. Chart creates the RBAC automatically when `create: true`.
+    # rbac.extraRules adds `nodes/proxy` + `nodes/metrics` — required
+    # for the apiserver-proxy pattern that scrapes kubelet + cAdvisor
+    # by relabelling __address__ to `kubernetes.default.svc:443` and
+    # __metrics_path__ to `/api/v1/nodes/<name>/proxy/metrics[/cadvisor]`.
+    # Without this, vmagent gets 403 Forbidden on every kubelet+cadvisor
+    # scrape → `container_cpu_usage_seconds_total` etc. never reach VM
+    # → the resource-usage dashboard is empty.
     serviceAccount:
       create: true
     rbac:
       create: true
+      extraRules:
+        - apiGroups: [""]
+          resources: ["nodes/proxy", "nodes/metrics"]
+          verbs: ["get", "list", "watch"]
 
     # Scrape config inline. Covers:
     #   - vmagent self-metrics (sanity check)
