@@ -243,6 +243,18 @@ The Agent tool can run multiple sub-agents in parallel. Use this aggressively fo
 
 Pattern: when launching parallel agents, put all the Agent tool calls in a single message. The harness fans them out concurrently; results return in parallel.
 
+### Mutating operations — what runs where
+
+Rules for keeping multi-agent + multi-worktree work coherent against shared infra. Established 2026-05-25.
+
+**Worktree → local main: ff-merge on completion.** When work in an `EnterWorktree`-isolated branch is clean AND has been tested, ff-merge into the operator's local `main` (`git -C /Users/ghost/Dev/xiiisins/homelab merge --ff-only <branch>`) and `ExitWorktree`. Do NOT `git push` — pushing remains an explicit operator action; this avoids the operator having to `git pull --rebase` to absorb agent commits after the fact. If `--ff-only` refuses (main diverged), flag it rather than force-merging or rebasing without permission. Skip the auto-merge if the change couldn't be tested (UI work without browser test, persistent OS config without reboot validation) — leave the branch + explain why. Sub-agent fanouts still require parent-agent diff review before merge (see "Merging back" above) — this auto-merge default applies only to a top-level agent's own worktree work.
+
+**`terraform apply` runs only from the main checkout, never from a worktree.** `terraform plan` and HCL editing from worktrees are fine. S3 state locking prevents corruption; this rule prevents *intentionality loss* — multiple agents applying different modules in parallel produces outcomes the operator can't reason about post-hoc. Sequence: edit/plan in worktree → ff-merge per above → apply from main checkout. Unconditional.
+
+**`kubectl apply` is never used directly — Flux reconciles state.** Manifests land in `k8s/` via the normal git path; `flux reconcile kustomization …` is the explicit nudge when needed. No `kubectl apply -f` against the cluster from any agent.
+
+**`ansible-playbook` may run from a worktree, but only one at a time across all agents.** Worktrees isolate git state, not the live infra Ansible targets — concurrent playbooks race on SSH (MaxAuthTries from the hardening role), package locks, and notify-handler restarts (e.g. `restart-k3s` firing twice across nodes is catastrophic). Currently coordinated manually via the conversation. Planned mechanization: `flock(2)`-based Python wrapper at `~/.cache/homelab/ansible-playbook.lock` (machine-wide path so every worktree sees it; auto-releases on process death) — deferred until parallel-agent ansible work becomes a recurring pattern. Until the wrapper exists: ask before running `ansible-playbook` if there's any chance another agent is mid-playbook.
+
 ---
 
 ## Mechanisms
