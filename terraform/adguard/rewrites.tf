@@ -36,13 +36,14 @@ locals {
     "pbs.niflheim.xiiisins.com"   = "10.0.11.20"
 
     # ── niflheim.xiiisins.com — Hugin (Zabbix server) ──────────────
-    # hugin.* is the host identity (SSH, direct LAN access). zabbix-
+    # hugin.* is the host identity (SSH, direct LAN access). hugin-
     # direct.* is the explicit-backdoor FQDN nginx accepts on the LXC
-    # for cases where Traefik is itself the thing being debugged.
-    # zabbix.midgard.* + zabbix.xiiisins.com bypasses land in 7c.5
-    # when Traefik gets a custom backend route to 10.0.11.21:80.
-    "hugin.niflheim.xiiisins.com"         = "10.0.11.21"
-    "zabbix-direct.niflheim.xiiisins.com" = "10.0.11.21"
+    # for cases where Traefik is itself the thing being debugged
+    # (Zabbix HTTP frontend; bypasses Traefik). zabbix.midgard.* +
+    # zabbix.xiiisins.com bypasses land in 7c.5 when Traefik gets a
+    # custom backend route to 10.0.11.21:80.
+    "hugin.niflheim.xiiisins.com"        = "10.0.11.21"
+    "hugin-direct.niflheim.xiiisins.com" = "10.0.11.21"
 
     # ── niflheim.xiiisins.com — AGH trio (DNS LXCs) ────────────────
     # adguard.* is a generic alias on the primary (Saga). adguard-vip.*

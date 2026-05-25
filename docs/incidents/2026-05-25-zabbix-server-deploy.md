@@ -64,7 +64,7 @@ Fix: rename the schema-default host. Data collection → Hosts → click `Zabbix
 
 `zabbix-nginx-conf` package wires our server block via `/etc/nginx/conf.d/zabbix.conf` → `/etc/zabbix/nginx.conf`, but does NOT touch `/etc/nginx/sites-enabled/default`. Debian's default site listens on `*:80 default_server`. Result: any Host header that doesn't match one of `zabbix_web_server_names` falls through to the default → "Welcome to nginx" page instead of Zabbix.
 
-Operator hit this trying `hugin.niflheim.xiiisins.com` (intentionally NOT in the role's `zabbix_web_server_names` — host-identity FQDN is for SSH only, per the design intent "internal serves Zabbix via `zabbix-direct.*` only"); fell through to welcome page. Worked around by hitting `zabbix-direct.niflheim.xiiisins.com` (which IS in `zabbix_web_server_names`).
+Operator hit this trying `hugin.niflheim.xiiisins.com` (intentionally NOT in the role's `zabbix_web_server_names` — host-identity FQDN is for SSH only, per the design intent "internal serves Zabbix via the direct-backdoor FQDN only"); fell through to welcome page. Worked around by hitting `zabbix-direct.niflheim.xiiisins.com` (which WAS in `zabbix_web_server_names` at deploy time — post-deploy rename to `hugin-direct.niflheim.xiiisins.com` landed for identity-theme consistency across all three zones).
 
 **Fix landed in f55d1f4:** `tasks/web-config.yml` now does `state=absent` on `/etc/nginx/sites-enabled/default` + notifies `restart nginx`. Idempotent; `/etc/nginx/sites-available/default` left intact so re-enabling is a one-symlink revert. Re-apply via `ansible-playbook zabbix-host.yml --tags=zabbix:web-config` (validated in this session).
 
@@ -76,7 +76,7 @@ Zabbix LXC's Norse identity = **Hugin** (Odin's raven of Thought — flies daily
 
 - **7c.3** — Authentik SAML provider via Terraform (`terraform/authentik/zabbix.tf`).
 - **7c.4** — Role's `saml.yml` task + SAML `$SSO[]` block in `zabbix.conf.php.j2`.
-- **7c.5** — Traefik fronting for `zabbix.midgard.xiiisins.com` + `zabbix.xiiisins.com` (AGH rewrites for midgard + apex deferred; only `hugin.*` + `zabbix-direct.*` niflheim rewrites landed in 0070a0a).
+- **7c.5** — Traefik fronting for `hugin.midgard.xiiisins.com` + `hugin.xiiisins.com` (AGH rewrites for midgard + apex deferred; only `hugin.*` + `hugin-direct.*` niflheim rewrites landed — the latter post-rename from `zabbix-direct.*`).
 - **7c.6** — SAML cutover + 3-path validation (LAN/WAN/backdoor).
 - **7c.7** — Zabbix API bootstrap (admin password auto-rotate, host groups, auto-registration action).
 - **7c.8** — `zabbix-agent` role cluster-wide rollout (the next operator step).

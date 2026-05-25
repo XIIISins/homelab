@@ -66,13 +66,13 @@ zabbix_server_value_cache_size: 32M
 zabbix_server_log_file: /var/log/zabbix/zabbix_server.log
 
 # Web UI / nginx — port 80. server_name accepts every Host header
-# Traefik may forward upstream:
-#   - zabbix-direct.niflheim.xiiisins.com  → direct LXC backdoor (AGH rewrite)
-#   - zabbix.midgard.xiiisins.com          → LAN, via Traefik (Phase 7c.5)
-#   - zabbix.xiiisins.com                  → WAN, via Cloudflared+Traefik
-# nginx default-server rejects unknown Hosts with 404; listing all
-# accepted FQDNs keeps that rule strict while not relying on Host-
-# rewrite middleware. Rendered space-separated by the template.
+# Traefik may forward upstream. All FQDNs are identity-themed
+# (hugin = the LXC's Norse identity), not service-themed:
+#   - hugin-direct.niflheim.xiiisins.com  → direct LXC backdoor (AGH rewrite, bypasses Traefik)
+#   - hugin.midgard.xiiisins.com          → LAN, via Traefik (Phase 7c.5)
+#   - hugin.xiiisins.com                  → WAN, via Cloudflared+Traefik
+# Rendered space-separated by the template into a single
+# `server_name` directive; first match wins.
 zabbix_web_server_names:
   - hugin-direct.niflheim.xiiisins.com
   - hugin.midgard.xiiisins.com
