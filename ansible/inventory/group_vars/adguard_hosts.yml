@@ -108,3 +108,17 @@ keepalived_source_policy_routing:
     from: 10.0.10.0/24
     gateway: 10.0.10.1
     interface: eth1
+
+# -----------------------------------------------------------------------------
+# Zabbix host record taxonomy
+# -----------------------------------------------------------------------------
+# Hierarchical group naming so the Zabbix UI tree groups Asgard/LXCs/*
+# together. No AdGuard-specific template ships with Zabbix; Linux
+# baseline covers OS metrics. AGH-specific monitoring (query rate,
+# block rate, upstream latency) would need a custom template in
+# a Round 2 phase.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/AdGuard"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

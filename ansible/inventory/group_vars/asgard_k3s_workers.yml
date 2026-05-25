@@ -1,0 +1,10 @@
+# ansible/inventory/group_vars/asgard_k3s_workers.yml
+---
+# Asgard K3s workers (einherjar-urd/verd/skuld). Composes on top
+# of asgard_k3s.yml (parent group covers both CPs + workers).
+
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/K3s/Workers"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

@@ -7,3 +7,11 @@
 # is on root only. Override the global ansible_user default here so
 # any playbook targeting proxmox_hosts works transparently.
 ansible_user: root
+
+# Zabbix host record taxonomy. Proxmox lives under a separate root
+# from Asgard's LXCs — these hosts ARE the substrate, not workloads.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Hypervisors/Proxmox"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

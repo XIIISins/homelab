@@ -17,3 +17,14 @@
 # Self-monitoring metadata — distinguishes the Zabbix server from
 # the other agents in any HostMetadata-driven auto-registration.
 zabbix_agent_host_metadata: "role=zabbix-server location=urd"
+
+# Host record taxonomy. Hugin gets the standard Linux template plus
+# `Zabbix server health` — internal monitoring (queue depth, cache
+# hit rate, DB write throughput, etc.) that works out of the box on
+# the server itself.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Zabbix"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"
+  - "Zabbix server health"

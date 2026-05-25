@@ -1,12 +1,21 @@
 # ansible/playbooks/zabbix-agents.yml
 ---
-# Cluster-wide zabbix-agent2 rollout. Run after the Zabbix server LXC
-# is provisioned + the auto-registration action is set up on the
-# server side. Targets every host in the inventory EXCEPT the Zabbix
-# LXC itself (which already gets the agent via zabbix-host.yml).
+# Cluster-wide zabbix-agent2 rollout. Targets every host in the inventory
+# EXCEPT the Zabbix LXC itself (which already gets the agent via
+# zabbix-host.yml). Pattern B from the zabbix-agent role README — keeps
+# the per-service playbooks tight, agent rollout is a separate one-shot
+# operation.
 #
-# Pattern B from the zabbix-agent role README — keeps the per-service
-# playbooks tight, agent rollout is a separate one-shot operation.
+# Declarative model:
+#   1. Bootstrap (imported) — aggregates `zabbix_agent_host_groups` across
+#      the inventory and ensures every named group exists in Zabbix
+#      (idempotent).
+#   2. Per-host install + configure + register — the role applies on
+#      every target host; register-host.yml creates/updates each host
+#      record with its group memberships + linked templates (groups
+#      are guaranteed to exist at that point).
+
+- import_playbook: zabbix-host-groups.yml
 
 - name: Roll out zabbix-agent2 cluster-wide
   hosts: all:!zabbix_hosts

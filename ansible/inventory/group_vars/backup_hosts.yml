@@ -5,3 +5,10 @@
 # no `ansible` user with sudo exists. Override the global default
 # so any playbook targeting backup_hosts works transparently.
 ansible_user: root
+
+# Zabbix host record taxonomy.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Backup"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

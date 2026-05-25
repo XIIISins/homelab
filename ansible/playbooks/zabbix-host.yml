@@ -1,5 +1,11 @@
 # ansible/playbooks/zabbix-host.yml
 ---
+# Bootstrap host groups first (imported) so the agent role's
+# register-host task can attach hugin's host record to "Asgard/LXCs/
+# Zabbix" + "Linux servers" without the call failing on missing
+# groups. Idempotent + no-op if groups already exist.
+- import_playbook: zabbix-host-groups.yml
+
 - name: Configure Zabbix server host
   hosts: zabbix_hosts
   become: true

@@ -1,0 +1,15 @@
+# ansible/inventory/group_vars/asgard_k3s_cp.yml
+---
+# Asgard K3s control planes (gondul/hlokk/sigrun). Composes on top
+# of asgard_k3s.yml (parent group covers both CPs + workers).
+
+# Zabbix host record taxonomy — hierarchical group naming so the
+# Zabbix UI tree groups Asgard/K3s/* together. Linux baseline
+# template covers OS metrics; K8s-layer metrics already come via
+# vmagent + kube-state-metrics in-cluster (Phase 7a), so no
+# Kubernetes-specific Zabbix template is layered on the agent side.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/K3s/CP"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

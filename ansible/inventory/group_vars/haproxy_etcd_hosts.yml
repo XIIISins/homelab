@@ -107,3 +107,17 @@ keepalived_source_policy_routing:
     from: 10.0.10.0/24
     gateway: 10.0.10.1
     interface: eth1
+
+# -----------------------------------------------------------------------------
+# Zabbix host record taxonomy
+# -----------------------------------------------------------------------------
+# Linux baseline only for now. `HAProxy by Zabbix agent` + `Etcd by
+# HTTP` templates exist but both need per-host macros + endpoint
+# enablement (HAProxy stats socket, etcd metrics access with TLS) —
+# deferred to a Round 2 monitoring-depth phase that bundles the
+# agent-side config with the template attach.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/HAProxy-etcd"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

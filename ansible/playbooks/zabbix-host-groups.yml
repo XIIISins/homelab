@@ -1,0 +1,55 @@
+# ansible/playbooks/zabbix-host-groups.yml
+---
+# Declarative bootstrap of Zabbix host groups from inventory. Each
+# inventory group's `zabbix_agent_host_groups` list contributes its
+# named groups; we aggregate across `all` and ensure each one exists
+# in Zabbix via community.zabbix.zabbix_hostgroup (state=present,
+# idempotent).
+#
+# This play is imported as a prerequisite by zabbix-host.yml (server
+# deploy, including hugin's own host record) and zabbix-agents.yml
+# (cluster-wide agent rollout). Either playbook can run first; the
+# bootstrap ensures groups exist before any host record is created.
+#
+# Throttle 1 because Zabbix's hostgroup.create API doesn't handle
+# the default 5 parallel ansible forks cleanly — same class as
+# host.create. Run_once because the aggregation result is play-
+# global, not per-host.
+
+- name: Bootstrap Zabbix host groups (declarative, from inventory)
+  hosts: all
+  become: false
+  gather_facts: false
+
+  tasks:
+    - name: Aggregate referenced host groups across inventory
+      ansible.builtin.set_fact:
+        _zabbix_all_host_groups: >-
+          {{ ansible_play_hosts_all
+             | map('extract', hostvars)
+             | map(attribute='zabbix_agent_host_groups', default=[])
+             | flatten | unique | sort }}
+      run_once: true
+      delegate_to: localhost
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap]
+
+    - name: Ensure host groups exist in Zabbix
+      community.zabbix.zabbix_group:
+        host_groups: "{{ _zabbix_all_host_groups }}"
+        state: present
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap]

@@ -1,0 +1,9 @@
+# ansible/inventory/group_vars/tailscale_hosts.yml
+---
+# Tailscale LXCs — subnet routers Bifrost/Heimdall + exit-node Gjallarbru.
+
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Tailscale"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

@@ -66,3 +66,12 @@ sftpgo_users:
     max_sessions: 4
     quota_size: 0 # unlimited; LXC disk is the cap
     quota_files: 0
+
+# -----------------------------------------------------------------------------
+# Zabbix host record taxonomy
+# -----------------------------------------------------------------------------
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Factorio"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

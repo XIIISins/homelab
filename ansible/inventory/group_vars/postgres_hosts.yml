@@ -57,3 +57,17 @@ postgres_databases:
   - name: teamspeak3
     owner: teamspeak3
     password_vault_path: ansible/postgres/teamspeak3-password
+
+# -----------------------------------------------------------------------------
+# Zabbix host record taxonomy
+# -----------------------------------------------------------------------------
+# Linux baseline only for now. `PostgreSQL by Zabbix agent 2` exists
+# but requires {$PG.CONNSTRING}/{$PG.USER}/{$PG.PASSWORD} macros + a
+# zbx_monitor PG role with pg_monitor privilege — deferred to a
+# Round 2 phase that mints the monitoring user + sets the macros
+# per host alongside the template attach.
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Postgres"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"
