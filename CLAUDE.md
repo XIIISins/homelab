@@ -220,19 +220,26 @@ NOT for: implementation gotchas (batch to post-flight), findings not affecting a
 
 ### Parallel agents — fan out for independent work
 
-The Agent tool can run multiple sub-agents in parallel. Use this aggressively for any work that's read-only / non-mutating and where the sub-tasks are independent:
+The Agent tool can run multiple sub-agents in parallel. Use this aggressively for any work where the sub-tasks are independent:
 
 - **Research** — upstream docs, GitHub issues, release notes, benchmarks. One agent per source class, run concurrently, each capped at a tight word budget. Beats serial fetching by ~Nx the agent count.
 - **Investigation** — "find every reference to X across the repo", "audit which manifests use storage class Y", "list all open-questions older than 30 days". Pure read, independent shards.
 - **State / reality pulls** — read-only SSH sweeps across multiple hosts (e.g. "what's installed on each AGH node?"), read-only kubectl across namespaces, parallel `qm list` against multiple Proxmox hosts. Fan out per host.
 - **Cross-source reconciliation** — agent A reads the IaC spec, agent B reads the live state, then Claude diffs the two reports.
+- **Mutating work on disjoint scopes** — e.g. one agent edits `terraform/netbox/`, another edits `k8s/asgard/apps/foo/`, a third writes an Ansible role. **Requires worktree isolation** (see below) — otherwise they race on the working tree and every commit lands on `main`.
+
+**Worktree isolation is the default for any agent that may edit files.** Pass `isolation: "worktree"` on every Agent call where the agent might write — every research/investigation call without writes can skip it. The harness creates a temp git worktree on a fresh branch; the agent commits there; if it made no changes the worktree auto-cleans, otherwise the harness returns the branch + path so the parent agent can merge or discard deliberately. This prevents the "3 agents all committing to `main`" failure mode entirely.
+
+**Disjoint scope is the parent agent's job, not the harness's.** Worktrees isolate git state, NOT shared external systems. Two agents both `terraform apply`ing the same module serialize at the S3 lock (the second errors with "Error acquiring the state lock"); two agents `kubectl apply`ing to the same namespace race on the live cluster regardless of worktree; same for Vault writes, NetBox writes, Cloudflare zone edits. When fanning out mutating work, brief each agent on a non-overlapping slice (different TF module, different K8s namespace, different Ansible role) — and call out the shared-state surfaces in the prompt so the agent knows what NOT to touch.
 
 **When NOT to parallelize:**
 - When the second agent's task depends on the first's output (serial-by-design).
-- When the work is mutating (writes to shared state — a single ordered actor avoids races).
+- When the work mutates the same external system (same TF module, same K8s namespace, same Vault path) — worktrees don't help; sequence them instead.
 - When the cost of context-switching between sub-agent reports exceeds the parallelism gain (small jobs where one agent's full report fits in a single Read).
 
-**Briefing:** each agent gets a self-contained prompt — context, what to do, what NOT to do, a strict word budget, and the format of the expected return. Sub-agents can't see your conversation, so prompt them like a smart colleague who just walked in.
+**Briefing:** each agent gets a self-contained prompt — context, what to do, what NOT to do, a strict word budget, and the format of the expected return. Sub-agents can't see your conversation, so prompt them like a smart colleague who just walked in. Mutating agents also need: the branch name convention (`feat/<slug>`, `fix/<slug>`, etc.), the commit message style (conventional commits, no `Co-Authored-By` per repo norm), and an explicit "do NOT push, do NOT merge to main — return the branch + summary, the parent agent decides."
+
+**Merging back:** when an agent returns with a branch, the parent agent (or operator) reviews the diff and either `git merge --ff-only <branch>` / `git rebase main <branch> && git merge --ff-only` / discards via `git branch -D <branch> && git worktree remove <path>`. Never auto-merge multi-agent output without a diff review — that's the polluting-main failure mode in a different costume.
 
 Pattern: when launching parallel agents, put all the Agent tool calls in a single message. The harness fans them out concurrently; results return in parallel.
 
