@@ -1,59 +1,70 @@
 # ansible/roles/keepalived/tasks/main.yml
 ---
-- name: Install keepalived
-  ansible.builtin.apt:
-    name: "{{ keepalived_package }}"
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
+# The role runs one host at a time: VRRP is the cluster's source of
+# truth for VIP ownership, so simultaneous reconfigure / restart across
+# peers risks dual-MASTER + auth-flap + VIP drops. `throttle: 1` on the
+# enclosing block scopes that constraint to the role only — the parent
+# play (and any other roles in it) keep their default parallelism.
+# Note: `serial` is play-level; there's no role-level `serial`. `throttle`
+# is the equivalent at block/task level.
+- name: Keepalived role tasks
+  throttle: 1
+  block:
+    - name: Install keepalived
+      ansible.builtin.apt:
+        name: "{{ keepalived_package }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
 
-- name: Ensure /etc/keepalived exists
-  ansible.builtin.file:
-    path: /etc/keepalived
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
+    - name: Ensure /etc/keepalived exists
+      ansible.builtin.file:
+        path: /etc/keepalived
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
 
-# script_security: keepalived drops to this user/group before exec'ing
-# each vrrp_script. Created before the config render so the template's
-# `script_user` reference resolves to an existing account on first apply.
-- name: Create keepalived_script system group
-  ansible.builtin.group:
-    name: "{{ keepalived_script_group }}"
-    system: true
-    state: present
-  when: keepalived_enable_script_security
+    # script_security: keepalived drops to this user/group before
+    # exec'ing each vrrp_script. Created before the config render so
+    # the template's `script_user` reference resolves to an existing
+    # account on first apply.
+    - name: Create keepalived_script system group
+      ansible.builtin.group:
+        name: "{{ keepalived_script_group }}"
+        system: true
+        state: present
+      when: keepalived_enable_script_security
 
-- name: Create keepalived_script system user
-  ansible.builtin.user:
-    name: "{{ keepalived_script_user }}"
-    group: "{{ keepalived_script_group }}"
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
-    home: /nonexistent
-    password: '*'
-    comment: keepalived track-script runner
-    state: present
-  when: keepalived_enable_script_security
+    - name: Create keepalived_script system user
+      ansible.builtin.user:
+        name: "{{ keepalived_script_user }}"
+        group: "{{ keepalived_script_group }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        home: /nonexistent
+        password: '*'
+        comment: keepalived track-script runner
+        state: present
+      when: keepalived_enable_script_security
 
-- name: Render keepalived config
-  ansible.builtin.template:
-    src: keepalived.conf.j2
-    dest: "{{ keepalived_config_path }}"
-    owner: root
-    group: root
-    mode: '0644'
-  notify: restart keepalived
+    - name: Render keepalived config
+      ansible.builtin.template:
+        src: keepalived.conf.j2
+        dest: "{{ keepalived_config_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart keepalived
 
-- name: Install source-based policy routing
-  ansible.builtin.include_tasks: policy-routing.yml
-  when: keepalived_source_policy_routing | length > 0
+    - name: Install source-based policy routing
+      ansible.builtin.include_tasks: policy-routing.yml
+      when: keepalived_source_policy_routing | length > 0
 
-- name: Enable and start keepalived
-  ansible.builtin.systemd:
-    name: "{{ keepalived_service }}"
-    enabled: true
-    state: started
-    daemon_reload: true
+    - name: Enable and start keepalived
+      ansible.builtin.systemd:
+        name: "{{ keepalived_service }}"
+        enabled: true
+        state: started
+        daemon_reload: true

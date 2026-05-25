@@ -1,5 +1,11 @@
 # ansible/roles/keepalived/handlers/main.yml
 ---
+# Handlers run at flush time outside the role's task block, so they
+# carry their own `throttle: 1` — without it, a config change that
+# notifies every peer would restart keepalived across the cluster
+# simultaneously, dropping the VIP for the duration. The block-level
+# `throttle: 1` in tasks/main.yml does not propagate to handlers.
+
 # Restart over reload: keepalived SIGHUP reloads the config but does
 # not always re-evaluate VRRP state transitions cleanly. Restart costs
 # sub-second VIP downtime (another peer takes over via priority) on a
@@ -9,6 +15,7 @@
     name: "{{ keepalived_service }}"
     state: restarted
     daemon_reload: true
+  throttle: 1
 
 # Source-policy-routing systemd units are templated per entry; the
 # handler restarts each one whose unit file changed. The systemd
@@ -22,3 +29,4 @@
   loop: "{{ keepalived_source_policy_routing }}"
   loop_control:
     label: "{{ item.name }}-policy-routing.service"
+  throttle: 1

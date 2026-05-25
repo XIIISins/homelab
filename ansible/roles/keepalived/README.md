@@ -55,6 +55,19 @@ works for any user — no script needs root. Override per-script with
 `script_user` inside a `vrrp_script` entry if a future check genuinely
 does (rare).
 
+### Concurrency — `throttle: 1`
+
+The role wraps its tasks in a block with `throttle: 1` and applies the
+same to both handlers. Effect: every keepalived peer is reconfigured
+and (if notified) restarted one host at a time, while the rest of the
+parent play keeps its default parallelism.
+
+`serial` is play-level in Ansible — there is no role-level `serial`.
+`throttle` at block/task/handler level is the equivalent at smaller
+scope. Without this, a config change that notifies every peer would
+restart keepalived across the cluster simultaneously, dropping the VIP
+for the duration of the restart.
+
 ### Election model
 
 All instances should set `state: BACKUP` (the default) and rely on
