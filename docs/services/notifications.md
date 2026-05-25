@@ -89,6 +89,11 @@ Rendered by `roles/hermod-api` from a Jinja template, installed at `/etc/apprise
 
 Vault stores each Discord webhook as a **single `url` field** containing the full webhook URL (`https://discord.com/api/webhooks/<id>/<token>`) — the form Discord copy-pastes natively. The Jinja template strips the `https://discord.com/api/webhooks/` prefix and prepends Apprise's `discord://` scheme at render time, keeping the operator workflow to one paste per webhook (no manual ID/token splitting).
 
+**Apprise YAML schema — URL is the dict KEY, not a `url:` field.** Subtle but load-bearing — see [2026-05-25 deploy retro](../incidents/2026-05-25-hermod-deploy.md). Two valid forms:
+
+- **Tagged routing**: URL is a dict key, options (incl. `tag`) under it as a list of single-key dicts.
+- **Untagged fallback**: URL as a bare string list entry, no nested options — matches notifications with no `tag` field.
+
 ```jinja2
 {%- macro discord_apprise(url) -%}
 discord://{{ url | regex_replace('^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/', '') }}
@@ -96,20 +101,29 @@ discord://{{ url | regex_replace('^https?://(?:ptb\.|canary\.)?discord(?:app)?\.
 
 # Tag-driven routing. Sources tag; Hermod dispatches.
 urls:
-  - url: {{ discord_apprise(vault_discord_critical_url) }}/?format=markdown&username=Hrist
-    tag: critical
+  - {{ discord_apprise(vault_discord_critical_url) }}/?format=markdown&username=Hrist:
+      - tag: critical
 
-  - url: {{ discord_apprise(vault_discord_alert_url) }}/?format=markdown&username=Mist
-    tag: alert
+  - {{ discord_apprise(vault_discord_alert_url) }}/?format=markdown&username=Mist:
+      - tag: alert
 
-  - url: {{ discord_apprise(vault_discord_media_url) }}/?format=markdown&username=Olrun
-    tag: media
+  - {{ discord_apprise(vault_discord_media_url) }}/?format=markdown&username=Olrun:
+      - tag: media
 
-  # Quarantine: catches notifications POSTed without a `tag` field.
-  # Apprise yaml semantics: a URL with `tag:` omitted matches notifications
-  # whose tag is empty/unset. Producers fanning to tagged URLs (`critical`,
-  # `alert`, `media`) DO NOT also land here.
-  - url: {{ discord_apprise(vault_discord_untagged_url) }}/?format=markdown&username=Hel
+  # Quarantine: bare URL (no nested options) catches POSTs with no `tag`
+  # field. Apprise YAML semantics: a URL with no tag-options matches
+  # notifications with empty/unset tag. Producers fanning to tagged URLs
+  # (`critical`, `alert`, `media`) DO NOT also land here.
+  - {{ discord_apprise(vault_discord_untagged_url) }}/?format=markdown&username=Hel
+```
+
+**What does NOT work** (the wrong shape — silently fails with "Ignored entry url found under urls, entry #N" + "Unsupported URL, entry #N" → "no service(s) to notify"):
+
+```yaml
+# WRONG — Apprise rejects this format.
+urls:
+  - url: discord://...     # ❌ url-as-sibling-field
+    tag: critical          # ❌ tag-as-sibling-field
 ```
 
 Webhook display names per tag — **Hrist** (critical, "the shaker" — canonical Valkyrie from Grímnismál), **Mist** (alert, "cloud" — watchful), **Ölrún** (media, "ale-rune" — feast/social), **Hel** (untagged, the underworld of lost messages). Set via Apprise `?username=` override so the Discord-side display name is consistent regardless of how the webhook itself was named in the Discord UI.
