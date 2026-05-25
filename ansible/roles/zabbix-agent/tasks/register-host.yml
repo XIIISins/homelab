@@ -6,6 +6,16 @@
 # handles create-vs-update. Runs delegate_to: localhost so the API
 # call goes from the control node (where Vault lookups + kubeconfig
 # + 1P env live), not the target host.
+#
+# become: false on the delegated tasks is required — without it, the
+# play-level `become: true` (set in zabbix-agents.yml for the target
+# hosts' package + service tasks) is inherited even on the localhost
+# delegation, which then triggers sudo on the operator workstation.
+# Operator's user doesn't have passwordless sudo; the task hangs with
+# "sudo: a password is required" (no_log: true on the task hides this
+# from the playbook output, so the symptom is "every host fails with
+# zero diagnostic info"). The control-node-side API call has no need
+# for root anyway.
 
 - name: Look up Zabbix API token from Vault
   ansible.builtin.set_fact:
@@ -15,6 +25,7 @@
   no_log: true
   run_once: true
   delegate_to: localhost
+  become: false
 
 - name: Register host in Zabbix (create or update)
   community.zabbix.zabbix_host:
@@ -30,6 +41,7 @@
         port: "{{ zabbix_agent_listen_port }}"
     state: present
   delegate_to: localhost
+  become: false
   environment:
     ZABBIX_API_URL: "{{ zabbix_agent_api_url }}"
     ZABBIX_API_TOKEN: "{{ zabbix_agent_api_token }}"
