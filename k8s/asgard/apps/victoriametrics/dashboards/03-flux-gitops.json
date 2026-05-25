@@ -1,0 +1,52 @@
+{
+  "title": "03 — Flux / GitOps health",
+  "rows": [
+    {
+      "panels": [
+        {
+          "title": "Flux Kustomizations Ready",
+          "width": 4,
+          "expr": ["sum by(name) (gotk_reconcile_condition{kind=\"Kustomization\",type=\"Ready\",status=\"True\"})"]
+        },
+        {
+          "title": "Flux HelmReleases Ready",
+          "width": 4,
+          "expr": ["sum by(name) (gotk_reconcile_condition{kind=\"HelmRelease\",type=\"Ready\",status=\"True\"})"]
+        },
+        {
+          "title": "Flux GitRepositories Ready",
+          "width": 4,
+          "expr": ["sum by(name) (gotk_reconcile_condition{kind=\"GitRepository\",type=\"Ready\",status=\"True\"})"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "Reconcile duration p99 by kind (s)",
+          "width": 6,
+          "expr": ["histogram_quantile(0.99, sum by(kind, le) (rate(gotk_reconcile_duration_seconds_bucket[10m])))"]
+        },
+        {
+          "title": "Reconcile rate by kind (per second)",
+          "width": 6,
+          "expr": ["sum by(kind) (rate(gotk_reconcile_duration_seconds_count[5m]))"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "Failed reconciles (Stalled=True or Ready=False)",
+          "width": 6,
+          "expr": ["sum by(kind, name) (gotk_reconcile_condition{type=\"Stalled\",status=\"True\"})"]
+        },
+        {
+          "title": "Suspended resources",
+          "width": 6,
+          "expr": ["sum by(kind, name) (gotk_suspend_status > 0)"]
+        }
+      ]
+    }
+  ]
+}

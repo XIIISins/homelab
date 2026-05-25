@@ -1,0 +1,57 @@
+{
+  "title": "01 — Asgard cluster overview",
+  "rows": [
+    {
+      "panels": [
+        {
+          "title": "Nodes Ready",
+          "width": 3,
+          "expr": ["sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})"]
+        },
+        {
+          "title": "Pods Running",
+          "width": 3,
+          "expr": ["sum(kube_pod_status_phase{phase=\"Running\"})"]
+        },
+        {
+          "title": "Pods NotReady (Pending/Failed/Unknown)",
+          "width": 3,
+          "expr": ["sum(kube_pod_status_phase{phase=~\"Pending|Failed|Unknown\"})"]
+        },
+        {
+          "title": "Deployments not at desired replicas",
+          "width": 3,
+          "expr": ["sum(kube_deployment_spec_replicas != kube_deployment_status_replicas_available)"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "Pod phases over time (by phase)",
+          "width": 6,
+          "expr": ["sum by(phase) (kube_pod_status_phase)"]
+        },
+        {
+          "title": "Pod restart count rate (5m, by namespace)",
+          "width": 6,
+          "expr": ["sum by(namespace) (rate(kube_pod_container_status_restarts_total[5m]))"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "Pods per namespace",
+          "width": 6,
+          "expr": ["sum by(namespace) (kube_pod_status_phase{phase=\"Running\"})"]
+        },
+        {
+          "title": "Scrape targets up (sanity)",
+          "width": 6,
+          "expr": ["sum by(job) (up)"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "title": "04 — Victoria stack self-metrics",
+  "rows": [
+    {
+      "panels": [
+        {
+          "title": "VL ingest rate (logs/s by source)",
+          "width": 6,
+          "expr": ["sum by(type) (rate(vl_rows_ingested_total[5m]))"]
+        },
+        {
+          "title": "VL disk usage (bytes)",
+          "width": 6,
+          "expr": ["vl_data_size_bytes"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "VL query rate by API path (req/s)",
+          "width": 6,
+          "expr": ["sum by(path) (rate(vl_http_requests_total[5m]))"]
+        },
+        {
+          "title": "VL query error rate by path",
+          "width": 6,
+          "expr": ["sum by(path) (rate(vl_http_request_errors_total[5m]))"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "VM ingest rate (samples/s by type)",
+          "width": 6,
+          "expr": ["sum by(type) (rate(vm_rows_inserted_total[5m]))"]
+        },
+        {
+          "title": "VM total series",
+          "width": 6,
+          "expr": ["vm_cache_entries{type=\"storage/indexdb\"} or vm_cache_entries{type=\"storage/hour_metric_ids\"}"]
+        }
+      ]
+    },
+    {
+      "panels": [
+        {
+          "title": "vmagent scrape success rate (last 5m)",
+          "width": 6,
+          "expr": ["sum by(job) (rate(vm_promscrape_scrapes_total{status_code=\"200\"}[5m])) / sum by(job) (rate(vm_promscrape_scrapes_total[5m]))"]
+        },
+        {
+          "title": "vmagent remote_write queue (pending bytes)",
+          "width": 6,
+          "expr": ["sum by(url) (vmagent_remotewrite_pending_data_bytes)"]
+        }
+      ]
+    }
+  ]
+}

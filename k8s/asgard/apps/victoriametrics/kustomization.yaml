@@ -1,4 +1,4 @@
-# k8s/jotunheim/apps/victoriametrics/kustomization.yaml
+# k8s/asgard/apps/victoriametrics/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: monitoring
@@ -6,3 +6,16 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - httproute.yaml
+configMapGenerator:
+  - name: vmui-dashboards
+    files:
+      - dashboards/01-cluster-overview.json
+      - dashboards/02-resource-usage.json
+      - dashboards/03-flux-gitops.json
+      - dashboards/04-victoria-self.json
+generatorOptions:
+  # Static name so the helmrelease's extraVolumes can reference it.
+  # Update-in-place semantics: any change to a dashboard JSON
+  # updates the ConfigMap; vmsingle pod restart picks it up
+  # (-vmui.customDashboardsPath is read at startup).
+  disableNameSuffixHash: true
