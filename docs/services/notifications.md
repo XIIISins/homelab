@@ -87,24 +87,32 @@ Source-side conformance (example — Ansible failure handler):
 
 Rendered by `roles/hermod-api` from a Jinja template, installed at `/etc/apprise/config/<config-key>.yml` where `<config-key>` is a long random string (acting as soft-auth in the URL — Caddy's IP allowlist is the primary gate, this is belt-and-braces). Secrets via Vault.
 
-```yaml
+Vault stores each Discord webhook as a **single `url` field** containing the full webhook URL (`https://discord.com/api/webhooks/<id>/<token>`) — the form Discord copy-pastes natively. The Jinja template strips the `https://discord.com/api/webhooks/` prefix and prepends Apprise's `discord://` scheme at render time, keeping the operator workflow to one paste per webhook (no manual ID/token splitting).
+
+```jinja2
+{%- macro discord_apprise(url) -%}
+discord://{{ url | regex_replace('^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/', '') }}
+{%- endmacro -%}
+
 # Tag-driven routing. Sources tag; Hermod dispatches.
 urls:
-  - url: discord://{{ vault_discord_critical_id }}/{{ vault_discord_critical_token }}/?format=markdown&username=CRITICAL&avatar_url={{ critical_avatar_url }}
+  - url: {{ discord_apprise(vault_discord_critical_url) }}/?format=markdown&username=Hrist
     tag: critical
 
-  - url: discord://{{ vault_discord_alert_id }}/{{ vault_discord_alert_token }}/?format=markdown
+  - url: {{ discord_apprise(vault_discord_alert_url) }}/?format=markdown&username=Mist
     tag: alert
 
-  - url: discord://{{ vault_discord_media_id }}/{{ vault_discord_media_token }}/?format=markdown
+  - url: {{ discord_apprise(vault_discord_media_url) }}/?format=markdown&username=Olrun
     tag: media
 
   # Quarantine: catches notifications POSTed without a `tag` field.
   # Apprise yaml semantics: a URL with `tag:` omitted matches notifications
   # whose tag is empty/unset. Producers fanning to tagged URLs (`critical`,
   # `alert`, `media`) DO NOT also land here.
-  - url: discord://{{ vault_discord_untagged_id }}/{{ vault_discord_untagged_token }}/?format=markdown&username=UNTAGGED
+  - url: {{ discord_apprise(vault_discord_untagged_url) }}/?format=markdown&username=Hel
 ```
+
+Webhook display names per tag — **Hrist** (critical, "the shaker" — canonical Valkyrie from Grímnismál), **Mist** (alert, "cloud" — watchful), **Ölrún** (media, "ale-rune" — feast/social), **Hel** (untagged, the underworld of lost messages). Set via Apprise `?username=` override so the Discord-side display name is consistent regardless of how the webhook itself was named in the Discord UI.
 
 Adding a delivery channel later (e.g. ntfy for phone push on `critical`) is one yaml line — the source-side code does not change.
 
@@ -132,14 +140,16 @@ Changes to this table are policy decisions worth a PR. The Apprise yaml is just 
 ## Vault layout
 
 ```
-secret/ansible/hermod/discord/critical    { id, token }
-secret/ansible/hermod/discord/alert       { id, token }
-secret/ansible/hermod/discord/media       { id, token }
-secret/ansible/hermod/discord/untagged    { id, token }
+secret/ansible/hermod/discord/critical    { url }
+secret/ansible/hermod/discord/alert       { url }
+secret/ansible/hermod/discord/media       { url }
+secret/ansible/hermod/discord/untagged    { url }
 secret/ansible/hermod/config-key          { value }
 ```
 
-Path under `ansible/` because Hermod's configuration is Ansible-managed at runtime — matches the consumer-domain convention (see CLAUDE.md "Vault path convention"). Discord webhook entries minted in Discord UI, written to Vault out-of-band by the operator (no TF→Discord provider in scope). `config-key` is TF-minted in `terraform/vault/` via `random_password` (length 32, special=false) — gates the AppriseAPI `/notify/<key>` URL as soft-auth behind Caddy.
+Path under `ansible/` because Hermod's configuration is Ansible-managed at runtime — matches the consumer-domain convention (see CLAUDE.md "Vault path convention"). Discord webhook entries minted in Discord UI, written to Vault out-of-band by the operator (no TF→Discord provider in scope, no TF resource for these paths either — operator-managed end-to-end). `config-key` is TF-minted in `terraform/vault/` via `random_password` (length 32, special=false) — gates the AppriseAPI `/notify/<key>` URL as soft-auth behind Caddy.
+
+Each Discord path's `url` field stores the **full webhook URL** (`https://discord.com/api/webhooks/<id>/<token>`) as a single paste-friendly value — the Jinja template handles the conversion to Apprise's `discord://<id>/<token>` URL scheme at config-render time (see Apprise yaml section). Avoids the operator having to split ID + token by hand; Discord's UI exposes the URL, not the parts.
 
 The Caddy IP-allowlist is the *primary* access gate; the config-key is *additional* depth. Producers receive the full URL `http://hermod.niflheim.xiiisins.com/notify/<config-key>` via their respective integration mechanisms (Zabbix media-type macro, Ansible group_vars, etc.).
 
@@ -206,19 +216,19 @@ Sized small — AppriseAPI is stateless Python/uvicorn, single-digit RSS. Bumps 
 Slotted **after** Phase 7c (Zabbix LXC). Until Zabbix exists, this phase has nothing to alert about.
 
 1. **5h.2.a** — `terraform/proxmox/asgard-lxcs/lxcs.tf` Hermod resource (Debian 13, 1 vCPU / 512 MB / 4 GB, VLAN 11 / 10.0.11.22, unprivileged + nesting). Standard LXC pattern — no `device_passthrough` / `keyctl` / `fuse`, so the main API-token module not the root-pam variant. `lifecycle.ignore_changes` for `operating_system[0].template_file_id` + `initialization[0].user_account` per the import-drift gotcha (defensive even on fresh creates). Apply from main per the `terraform apply` rule.
-2. **5h.2.b** — `terraform/netbox/vms.tf` Hermod records: `netbox_virtual_machine` (vmid=1103, role=`monitoring`, cluster=niflheim, device=verd) + `netbox_interface` (eth0) + `netbox_ip_address` (10.0.11.22/24) + primary_ip binding. Per the TF→NetBox standing-pattern rule. Apply from main.
-3. **5h.2.c** — `terraform/vault/main.tf` (additions): `random_password.hermod_config_key` (length=32, special=false) + `vault_kv_secret_v2` at `secret/ansible/hermod/config-key`. Empty placeholder KVs for the four Discord webhook paths so the structure exists before operator writes. Apply from main.
+2. **5h.2.b** — `terraform/netbox/vms.tf` Hermod records: `netbox_virtual_machine` (vmid=1103, role=`notifications` [new role in `roles.tf` — semantically distinct from `monitoring`/Zabbix], cluster=niflheim, device=verd) + `netbox_interface` (eth0) + `netbox_ip_address` (10.0.11.22/24) + primary_ip binding. Per the TF→NetBox standing-pattern rule. Apply from main.
+3. **5h.2.c** — `terraform/vault/main.tf` (additions): `random_password.hermod_config_key` (length=32, special=false) + `vault_kv_secret_v2` at `secret/ansible/hermod/config-key`. **Discord webhook paths are NOT TF-managed** — they're operator-minted (Discord UI), operator-rotated, operator-written. Keeping them out of TF avoids the create-time placeholder overwriting real values. Apply from main.
 4. **5h.2.d** — `ansible/roles/caddy-reverse-proxy/` — generic role: install `caddy` apt package, render Caddyfile from `caddy_sites` list-of-dicts (each: name, listen, allowlist_cidrs, upstream, log_path), systemd-managed, log dir owned by `caddy` user, vlagent picks up `/var/log/caddy/access.log` via group_vars override. Reusable for any future LXC needing a thin reverse proxy.
 5. **5h.2.e** — `ansible/roles/hermod-api/` — installs AppriseAPI:
    - `apt install python3-venv python3-pip` (idempotent)
    - `python3 -m venv /opt/apprise-api`
    - `pip install apprise-api[all]==<pin>` (concrete-pin per IaC policy; capture latest stable at role-write time)
-   - Render `/etc/apprise/config/{{ hermod_config_key }}.yml` from Jinja template; Discord webhook id/token via `community.hashi_vault.vault_kv2_get`; config-key via the same Vault lookup
+   - Render `/etc/apprise/config/{{ hermod_config_key }}.yml` from Jinja template; Discord webhook `url` field per tag via `community.hashi_vault.vault_kv2_get` (template strips the `https://discord.com/api/webhooks/` prefix + prepends `discord://`); config-key via the same Vault lookup
    - systemd unit `apprise-api.service` invoking `/opt/apprise-api/bin/uvicorn AppriseAPI.asgi:application --host 127.0.0.1 --port 8000`
    - `APPRISE_CONFIG_DIR=/etc/apprise/config` env var so the API auto-loads on startup
    - Config render task notifies a `reload apprise-api` handler (`systemctl reload apprise-api` — uvicorn handles SIGHUP for config reload; if not, fall back to restart)
 6. **5h.2.f** — `ansible/playbooks/asgard-hermod.yml` — baseline + caddy-reverse-proxy + hermod-api + hardening. Add `hermod_hosts` group to `ansible/inventory/hosts.yml` with `hermod` host entry; group_vars in `group_vars/hermod_hosts.yml` for `caddy_allowed_cidrs` + `caddy_sites` config. vlagent log-input override for `/var/log/caddy/access.log` (JSON-structured field hints).
-7. **5h.2.g** — Operator: Discord UI channel creation (`#infra-critical`, `#infra-alerts`, `#media`, `#hermod-untagged`); mint four webhooks; `vault kv put secret/ansible/hermod/discord/{critical,alert,media,untagged} id=... token=...`; 1P "Homelab" recovery copy. Then re-run `asgard-hermod.yml` to re-render config now that Vault is populated.
+7. **5h.2.g** — Operator: Discord UI channel creation (`#infra-critical`, `#infra-alerts`, `#media`, `#hermod-untagged`); mint four webhooks (named Hrist / Mist / Ölrún / Hel respectively, though display names are also enforced via Apprise `?username=` override — the webhook name is informational); `vault kv put secret/ansible/hermod/discord/<tag> url=https://discord.com/api/webhooks/...` for each of `critical,alert,media,untagged`. 1P "Homelab" recovery copy per webhook (`Hermod - Discord webhook - <tag>`, fields = `url`). Then re-run `asgard-hermod.yml` to re-render config now that Vault is populated.
 8. **5h.2.h** — `terraform/adguard/rewrites.tf` entry for `hermod.niflheim.xiiisins.com → 10.0.11.22`. Apply from main.
 9. **5h.2.i** — Zabbix media-type integration in `ansible/roles/zabbix-server/tasks/hermod-mediatype.yml` (or a separate task file):
    - `community.zabbix.zabbix_mediatype` declaratively registers a Webhook media-type (JavaScript) that maps Zabbix trigger severity → Apprise tag (`Disaster`/`High` → `critical`, `Average` → `alert`, lower severities → suppressed) and POSTs JSON `{title, body, type, tag}` to `http://hermod.../notify/<config-key>`
