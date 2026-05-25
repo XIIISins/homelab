@@ -28,3 +28,10 @@ zabbix_agent_host_groups:
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
   - "Zabbix server health"
+  # Hugin runs nginx + php-fpm as the Zabbix frontend itself. Both
+  # templates fetch via HTTP from localhost — zabbix-server role's
+  # web-config.yml exposes /basic_status (nginx stub_status) and
+  # /status + /ping (proxied PHP-FPM) restricted to
+  # `allow 127.0.0.1; deny all`.
+  - "Nginx by Zabbix agent"
+  - "PHP-FPM by Zabbix agent"

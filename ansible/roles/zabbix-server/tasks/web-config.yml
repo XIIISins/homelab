@@ -44,3 +44,29 @@
     group: root
     mode: "0644"
   notify: restart php-fpm
+
+# PHP-FPM status + ping endpoints — fed to the `PHP-FPM by Zabbix
+# agent` template via nginx-proxied HTTP. The pool config sets the
+# FPM-side path; nginx.conf.j2 proxies HTTP /status and /ping into
+# the FastCGI socket (localhost-only via allow/deny).
+- name: Enable PHP-FPM status endpoint
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/php-fpm.conf
+    regexp: '^;?pm\.status_path\s*='
+    line: "pm.status_path = /status"
+    insertafter: '^\[zabbix\]'
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart php-fpm
+
+- name: Enable PHP-FPM ping endpoint
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/php-fpm.conf
+    regexp: '^;?ping\.path\s*='
+    line: "ping.path = /ping"
+    insertafter: '^\[zabbix\]'
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart php-fpm

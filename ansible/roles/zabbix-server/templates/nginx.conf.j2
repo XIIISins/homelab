@@ -38,6 +38,30 @@ server {
         return 404;
     }
 
+    {# Localhost-only monitoring endpoints (Zabbix agent fetches them
+       via web.page.get / web.page.regexp from 127.0.0.1).
+       - /basic_status — nginx `stub_status` for the Nginx-by-Zabbix-agent
+         template.
+       - /status + /ping — proxied to PHP-FPM's status + ping endpoints
+         for the PHP-FPM-by-Zabbix-agent template. The agent fetches
+         them as HTTP from localhost:80; nginx FastCGI-proxies them
+         into the PHP-FPM unix socket. #}
+    location = /basic_status {
+        stub_status;
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+    }
+
+    location ~ ^/(status|ping)$ {
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+        fastcgi_pass unix:/run/php/zabbix.sock;
+        fastcgi_param SCRIPT_FILENAME $fastcgi_script_name;
+        include fastcgi_params;
+    }
+
     location ~ [^/]\.php(/|$) {
         fastcgi_pass    unix:/run/php/zabbix.sock;
         fastcgi_split_path_info ^(.+\.php)(/.+)$;
