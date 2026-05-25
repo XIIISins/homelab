@@ -524,14 +524,28 @@ resource "proxmox_virtual_environment_container" "adguard" {
 # (via a separate playbook + role) — they push metrics to this LXC's
 # port 10051. See ansible/roles/zabbix-agent/.
 #
-# Sizing: 2 vCPU / 2GB / 8GB disk. Server + frontend share the
-# memory; DB lives elsewhere so the LXC stays small. Bump RAM if
-# the dashboard starts to feel slow.
+# Sizing: 2 vCPU / 4GB / 8GB disk. Server + frontend share the
+# memory; DB lives elsewhere (Patroni VIP) so no PG memory pressure
+# here. 4GB is the realistic floor for Zabbix 7.0 server + frontend
+# (PHP-FPM workers ~50MB each) with headroom for initial schema
+# import + migration peaks. Bump further if dashboard latency or
+# OOMKills appear in vmui.
+#
+# Placement: Urd (not Skuld). Original 7c.2 spec placed this on
+# Skuld for ID-block locality (1101-1109 backup+mon) — relocated
+# 2026-05-25 because (a) Skuld is the 16GB outlier with only ~3.6GB
+# available after current workloads, (b) Skuld already carries Fulla
+# (PG leader), Snotra (etcd), Sigrún (CP), Einherjar-skuld (worker),
+# Kvasir (AGH), Gjallarbru (TS) — losing Skuld would also lose Zabbix
+# precisely when monitoring matters most. Urd has 16GB available and
+# only Saga/Bifrost/Factorio/Vor/Hlin + Göndul CP + Einherjar-urd.
+# Future Jellyfin LXC on Urd will be heavy but Zabbix is light —
+# coexistence is fine.
 #
 # See:
-#   - docs/architecture/network.md → IP 10.0.11.21, VMID 1102 (skuld)
-#   - ansible/roles/zabbix-server/README.md (TBD — 5h.zabbix.c)
-#   - ansible/roles/zabbix-agent/README.md (TBD — 5h.zabbix.d)
+#   - docs/architecture/network.md → IP 10.0.11.21, VMID 1102 (urd)
+#   - ansible/roles/zabbix-server/README.md (TBD — 7c.4)
+#   - ansible/roles/zabbix-agent/README.md (TBD — 7c.8)
 # ----------------------------------------------------------------------------
 
 resource "random_password" "zabbix_root" {
@@ -542,7 +556,7 @@ resource "random_password" "zabbix_root" {
 resource "proxmox_virtual_environment_container" "zabbix" {
   description = "Zabbix server + frontend + agent"
 
-  node_name = "skuld"
+  node_name = "urd"
   vm_id     = 1102
   tags      = ["asgard", "lxc", "zabbix", "managed-by-terraform"]
 
@@ -555,7 +569,7 @@ resource "proxmox_virtual_environment_container" "zabbix" {
   }
 
   memory {
-    dedicated = 2048 # MB
+    dedicated = 4096 # MB — see header for sizing rationale
     swap      = 1024
   }
 

@@ -35,7 +35,7 @@ locals {
     PBS = { vmid = "1101", role = "backup-server", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
     # ── Zabbix (LXC 1102, Phase 5h) ────────────────────────────────
-    zabbix = { vmid = "1102", role = "monitoring", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
+    zabbix = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
 
     # ── AGH trio (Saga/Mimir/Kvasir, Phase 5b.2) ──────────────────
     # VMIDs from network.md: 1110/1111/1112. Sizing matches the
