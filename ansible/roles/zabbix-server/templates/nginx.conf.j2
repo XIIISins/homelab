@@ -1,10 +1,11 @@
 {# ansible/roles/zabbix-server/templates/nginx.conf.j2 #}
 {# Zabbix frontend nginx site. Replaces the default zabbix-nginx-conf
    ships at the same path. listen on port {{ zabbix_web_listen_port }}
-   (default 80). server_name matches the AGH rewrite. #}
+   (default 80). server_name lists every Host header Traefik may
+   forward upstream (see zabbix_web_server_names in defaults). #}
 server {
     listen          {{ zabbix_web_listen_port }};
-    server_name     {{ zabbix_web_server_name }};
+    server_name     {{ zabbix_web_server_names | join(' ') }};
 
     root /usr/share/zabbix;
 

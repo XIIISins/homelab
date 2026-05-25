@@ -12,10 +12,25 @@ zabbix_major: "7.0"
 # {{ ansible_distribution_release }} at task time.
 zabbix_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
 
+# PHP-FPM service name + version pin. Zabbix 7.0 LTS officially
+# supports PHP 8.0.0 - 8.5.X (with PHP 8.4 supported since 7.0.10).
+# Zabbix's own apt repo for Debian 13 trixie declares only generic
+# `php-*` virtuals on zabbix-frontend-php (and notably NO `php-fpm`
+# dep at all — the FPM runtime is operator-supplied). Debian 13
+# trixie resolves `php-*` virtuals to PHP 8.4, so we pin to 8.4 here:
+# inside Zabbix's officially-supported window AND matches what trixie
+# ships natively. Bump in lockstep with the Debian base when trixie
+# defaults move. Used for both the package install + systemd unit name.
+zabbix_php_version: "8.4"
+zabbix_php_fpm_service: "php{{ zabbix_php_version }}-fpm"
+zabbix_php_fpm_package: "php{{ zabbix_php_version }}-fpm"
+
 # Apt packages — server-pgsql + the frontend + agent2. Nginx is
 # preferred over Apache (lighter, simpler config). The sql-scripts
 # package ships /usr/share/zabbix-sql-scripts/postgresql/*.sql.gz
 # which is what we use to bootstrap the schema on first deploy.
+# php-fpm is explicit here (Zabbix's frontend-php declares only PHP
+# module deps, not the FPM runtime); pinned by zabbix_php_fpm_package.
 zabbix_server_packages:
   - zabbix-server-pgsql
   - zabbix-frontend-php
@@ -24,6 +39,7 @@ zabbix_server_packages:
   - zabbix-agent2
   - postgresql-client # for psql + the schema-load step
   - php-pgsql
+  - "{{ zabbix_php_fpm_package }}"
 
 # PG connection — points at the Patroni HAProxy VIP. The VIP routes
 # writes to the current leader; if the leader fails over, Zabbix
@@ -33,7 +49,7 @@ zabbix_db_port: 5432
 zabbix_db_name: zabbix
 zabbix_db_user: zabbix
 zabbix_db_password_vault_path: "ansible/postgres/zabbix-password"
-zabbix_db_password_vault_field: password
+zabbix_db_password_vault_field: value # TF-minted secrets store under `value` field (matches netbox/teamspeak convention)
 zabbix_db_sslmode: require # libpq enforces TLS to the VIP
 
 # Server config — most defaults are fine for homelab scale.
@@ -46,9 +62,18 @@ zabbix_server_trend_cache_size: 16M
 zabbix_server_value_cache_size: 32M
 zabbix_server_log_file: /var/log/zabbix/zabbix_server.log
 
-# Web UI / nginx — port 80, server_name = zabbix.niflheim.xiiisins.com
-# (resolved by AGH rewrite).
-zabbix_web_server_name: "zabbix.niflheim.xiiisins.com"
+# Web UI / nginx — port 80. server_name accepts every Host header
+# Traefik may forward upstream:
+#   - zabbix-direct.niflheim.xiiisins.com  → direct LXC backdoor (AGH rewrite)
+#   - zabbix.midgard.xiiisins.com          → LAN, via Traefik (Phase 7c.5)
+#   - zabbix.xiiisins.com                  → WAN, via Cloudflared+Traefik
+# nginx default-server rejects unknown Hosts with 404; listing all
+# accepted FQDNs keeps that rule strict while not relying on Host-
+# rewrite middleware. Rendered space-separated by the template.
+zabbix_web_server_names:
+  - zabbix-direct.niflheim.xiiisins.com
+  - zabbix.midgard.xiiisins.com
+  - zabbix.xiiisins.com
 zabbix_web_listen_port: 80
 zabbix_php_timezone: "Europe/Amsterdam" # local timezone
 
@@ -59,7 +84,7 @@ zabbix_php_timezone: "Europe/Amsterdam" # local timezone
 # `zabbix` → operator-set password via UI on first login is fine).
 zabbix_admin_user: Admin
 zabbix_admin_password_vault_path: "ansible/zabbix/admin-password"
-zabbix_admin_password_vault_field: password
+zabbix_admin_password_vault_field: value # TF-minted secrets store under `value` field
 
 # Whether to bootstrap the DB schema on first run. Default true —
 # the task is idempotent (skips if schema is already loaded). Set

@@ -11,5 +11,5 @@
   loop:
     - zabbix-server
     - nginx
-    - php8.2-fpm # Debian 13 trixie ships PHP 8.2; bump if Zabbix package brings a different one
+    - "{{ zabbix_php_fpm_service }}" # pinned via zabbix_php_version (see defaults/main.yml)
     - zabbix-agent2

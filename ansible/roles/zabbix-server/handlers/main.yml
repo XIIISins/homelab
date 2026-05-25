@@ -16,5 +16,5 @@
 
 - name: restart php-fpm
   ansible.builtin.systemd:
-    name: php8.2-fpm
+    name: "{{ zabbix_php_fpm_service }}"
     state: restarted
