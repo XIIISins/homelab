@@ -1,0 +1,92 @@
+#!/bin/bash
+# {{ patroni_hermod_callback_path }}
+#
+# Managed by Ansible — do not edit by hand.
+# Source: roles/patroni/templates/hermod-callback.sh.j2
+#
+# Patroni on_role_change callback. Invoked synchronously by the Patroni
+# supervisor loop on role transitions:
+#   $1 = action  (always 'on_role_change' from on_role_change hook)
+#   $2 = role    ('master', 'replica', or 'standby_leader')
+#   $3 = scope   (Patroni cluster name — niflheim-pg)
+#
+# Maps the (action, role) tuple to an Apprise tag + type and POSTs JSON
+# to Hermod. Failures (curl error, non-2xx) log to {{ patroni_hermod_callback_log }}
+# but never block Patroni — the callback always exits 0 so a Hermod outage
+# can't deadlock the supervisor loop.
+
+set -u  # NOT `set -e` — we want to log failures, not propagate them
+
+ACTION="${1:-unknown}"
+ROLE="${2:-unknown}"
+SCOPE="${3:-unknown}"
+HOST="$(hostname -s)"
+TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# URL with embedded soft-auth config-key — rendered from Vault at template time.
+HERMOD_URL='{{ patroni_hermod_scheme }}://{{ patroni_hermod_host }}/notify/{{ lookup("community.hashi_vault.vault_kv2_get", patroni_hermod_config_key_vault_path).secret[patroni_hermod_config_key_vault_field] }}'
+
+# Map role transition → (tag, type, title). Type drives Discord embed colour:
+#   warning (yellow) → promotion (cluster geometry changing)
+#   info    (blue)   → demotion / steady-state role assignment
+#   failure (red)    → unexpected role drops not covered here (none today)
+case "${ROLE}" in
+    master)
+        TAG="alert"
+        TYPE="warning"
+        TITLE="Patroni: ${HOST} promoted to LEADER (${SCOPE})"
+        ;;
+    replica)
+        TAG="alert"
+        TYPE="info"
+        TITLE="Patroni: ${HOST} is REPLICA (${SCOPE})"
+        ;;
+    standby_leader)
+        TAG="alert"
+        TYPE="info"
+        TITLE="Patroni: ${HOST} now STANDBY LEADER (${SCOPE})"
+        ;;
+    *)
+        echo "${TS} ${HOST} hermod-callback: unknown role '${ROLE}', skipping" \
+            >> "{{ patroni_hermod_callback_log }}"
+        exit 0
+        ;;
+esac
+
+# Body — markdown. Reused by Apprise → Discord embed.
+BODY="**Action:** ${ACTION}
+**Role:** ${ROLE}
+**Scope:** ${SCOPE}
+**Host:** ${HOST}
+**Timestamp:** ${TS}"
+
+# JSON payload. printf-quoting BODY through %s with jq would be cleaner but
+# jq isn't on every PG node by default; manual escape via python3 stdin is
+# portable + present.
+PAYLOAD="$(python3 -c '
+import json, sys
+print(json.dumps({
+    "title":  sys.argv[1],
+    "body":   sys.argv[2],
+    "type":   sys.argv[3],
+    "tag":    sys.argv[4],
+    "format": "markdown",
+}))
+' "${TITLE}" "${BODY}" "${TYPE}" "${TAG}")"
+
+# Fire the POST. --max-time bounds the supervisor block in the worst case
+# (Hermod down + Caddy not responding). curl returns non-zero on network
+# error; we log + continue.
+HTTP_STATUS="$(curl --silent --show-error \
+    --max-time {{ patroni_hermod_curl_timeout }} \
+    -o /dev/null -w '%{http_code}' \
+    -X POST \
+    -H 'Content-Type: application/json' \
+    --data "${PAYLOAD}" \
+    "${HERMOD_URL}" 2>>"{{ patroni_hermod_callback_log }}")" || HTTP_STATUS="curl-failed"
+
+echo "${TS} ${HOST} hermod-callback: action=${ACTION} role=${ROLE} scope=${SCOPE} → HTTP ${HTTP_STATUS} (tag=${TAG}, type=${TYPE})" \
+    >> "{{ patroni_hermod_callback_log }}"
+
+# Always succeed: Hermod failures must not deadlock Patroni's state machine.
+exit 0

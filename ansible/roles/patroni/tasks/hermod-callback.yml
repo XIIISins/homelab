@@ -1,0 +1,35 @@
+# ansible/roles/patroni/tasks/hermod-callback.yml
+---
+# Phase 5h.2.j — Patroni → Hermod role-change callback wiring.
+#
+# Renders the callback script with an embedded Hermod URL (incl.
+# Vault-resolved soft-auth config-key) + creates the log file with the
+# right ownership. The patroni.yml.j2 template gates `postgresql.callbacks`
+# on patroni_hermod_enabled, so this task file lands the script first
+# (so Patroni doesn't try to exec a missing file at reload time).
+#
+# Idempotent. Re-running rotates the embedded URL if the config-key was
+# rotated in Vault; the new script takes effect on Patroni's next reload
+# (handled by the patroni.yml render task's notify chain).
+
+- name: Render Hermod callback script
+  ansible.builtin.template:
+    src: hermod-callback.sh.j2
+    dest: "{{ patroni_hermod_callback_path }}"
+    owner: "{{ patroni_run_user }}"
+    group: "{{ patroni_run_group }}"
+    mode: "0500"  # read+exec for postgres only — no write (Ansible-managed)
+  no_log: true  # script content embeds the Hermod config-key
+  notify: reload patroni
+  tags: [patroni, patroni:hermod-callback]
+
+- name: Ensure callback log file exists
+  ansible.builtin.file:
+    path: "{{ patroni_hermod_callback_log }}"
+    state: touch
+    owner: "{{ patroni_run_user }}"
+    group: "{{ patroni_run_group }}"
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+  tags: [patroni, patroni:hermod-callback]

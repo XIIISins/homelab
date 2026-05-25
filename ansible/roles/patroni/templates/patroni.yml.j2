@@ -90,6 +90,16 @@ postgresql:
       password: {{ lookup('community.hashi_vault.vault_kv2_get', patroni_superuser_password_vault_path).secret.value }}
   parameters:
     unix_socket_directories: '/var/run/postgresql'
+{% if patroni_hermod_enabled %}
+  # Phase 5h.2.j — role-change callback to Hermod (notifications hub).
+  # Script rendered by roles/patroni/tasks/hermod-callback.yml; runs
+  # synchronously on each role transition (master/replica/standby_leader).
+  # Failures inside the script log to {{ patroni_hermod_callback_log }} but
+  # never propagate — Patroni's state machine cannot be blocked by a
+  # Hermod outage.
+  callbacks:
+    on_role_change: {{ patroni_hermod_callback_path }}
+{% endif %}
   # pg_hba lives at top-level postgresql.pg_hba (node-local, applied on every
   # Patroni reload/restart) — NOT under bootstrap.pg_hba which is initdb-only
   # and gets skipped during the adoption path (data dir non-empty → no

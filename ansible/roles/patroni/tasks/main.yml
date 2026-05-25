@@ -4,9 +4,20 @@
   ansible.builtin.include_tasks: install.yml
   tags: [patroni-install]
 
+- name: Render Hermod role-change callback script (5h.2.j)
+  ansible.builtin.include_tasks:
+    file: hermod-callback.yml
+    apply:
+      tags: [patroni, patroni-hermod-callback]
+  tags: [patroni, patroni-hermod-callback]
+  when: patroni_hermod_enabled
+
 - name: Render Patroni config + systemd unit
-  ansible.builtin.include_tasks: config.yml
-  tags: [patroni-config]
+  ansible.builtin.include_tasks:
+    file: config.yml
+    apply:
+      tags: [patroni, patroni-config]
+  tags: [patroni, patroni-config]
 
 - name: Cut over from Debian PG service to Patroni-managed PG
   ansible.builtin.include_tasks: adoption.yml

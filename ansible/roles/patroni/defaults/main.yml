@@ -73,3 +73,38 @@ patroni_tag_nofailover: false
 patroni_tag_noloadbalance: false
 patroni_tag_clonefrom: false
 patroni_tag_nosync: false
+
+# ============================================================================
+# Hermod (notifications hub) integration — Phase 5h.2.j
+# ============================================================================
+# Patroni `postgresql.callbacks.on_role_change` hook. Fires on every role
+# transition (leader↔replica, replica↔standby_leader, fresh-bootstrap-to-role)
+# and POSTs to Hermod with tag=alert. Covers planned + unplanned failover;
+# loss-of-quorum is handled separately by Zabbix's Patroni template (server-
+# side metrics scrape).
+#
+# Set patroni_hermod_enabled: false to skip rendering both the callback
+# script and the patroni.yml callbacks: stanza (useful for staging clusters
+# without Hermod).
+patroni_hermod_enabled: true
+
+# Script that Patroni invokes. Rendered from templates/hermod-callback.sh.j2
+# with the Hermod URL (incl. soft-auth config-key) inlined at template time.
+# Owned by the patroni run-user (postgres) so Patroni can exec it; mode 0500
+# (read+exec, no write) so only Ansible can update it.
+patroni_hermod_callback_path: "{{ patroni_config_dir }}/hermod-callback.sh"
+
+# Hermod endpoint — kept consistent with the zabbix-server role's defaults.
+patroni_hermod_host: hermod.niflheim.xiiisins.com
+patroni_hermod_scheme: http
+patroni_hermod_config_key_vault_path: ansible/hermod/config-key
+patroni_hermod_config_key_vault_field: value
+
+# curl timeout for the POST — Patroni callbacks block the supervisor loop,
+# so keep this tight. Hermod is on the same LAN; sub-second is normal.
+patroni_hermod_curl_timeout: 5
+
+# Local log file for callback invocations. tail -f for live debugging;
+# vlagent picks up /var/log/patroni-hermod.log via group_vars if shipping
+# is desired (default: not configured).
+patroni_hermod_callback_log: /var/log/patroni-hermod.log
