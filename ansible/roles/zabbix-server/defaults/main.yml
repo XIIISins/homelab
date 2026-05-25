@@ -107,3 +107,40 @@ zabbix_admin_password_vault_field: value # TF-minted secrets store under `value`
 # false on a re-run if you're certain schema is loaded and want
 # to skip the slow grep-check.
 zabbix_bootstrap_schema: true
+
+# ============================================================================
+# Hermod (notifications hub) integration — Phase 5h.2.i
+# ============================================================================
+# Declarative Zabbix → Hermod webhook. Maps Zabbix trigger severity to
+# Apprise tag (Hermod's routing key) and event_value to Apprise type
+# (Discord embed colour). Severity → tag mapping is in the JS template
+# (templates/hermod-webhook.js) — must stay in sync with the table in
+# docs/services/notifications.md "Source-side severity mapping".
+#
+# Set hermod_enabled: false to skip the media-type + user-media wiring
+# (useful for staging environments without Hermod, or if migrating
+# notification providers).
+zabbix_hermod_enabled: true
+
+# Hermod endpoint. URL path includes the soft-auth config-key resolved
+# from Vault at task time — see hermod-mediatype.yml. Hostname is the
+# AGH rewrite for the Hermod LXC.
+zabbix_hermod_host: hermod.niflheim.xiiisins.com
+zabbix_hermod_scheme: http
+zabbix_hermod_config_key_vault_path: "ansible/hermod/config-key"
+zabbix_hermod_config_key_vault_field: value
+
+# Webhook timeout — Zabbix media-type default is 30s. Hermod's
+# Discord delivery is sub-second steady-state; bump only if Discord
+# rate-limits cluster of bursts.
+zabbix_hermod_webhook_timeout: "10s"
+
+# Media type name + user attachment. Attached to the Admin user (in
+# Zabbix administrators group), which the default trigger action
+# already targets — so the wiring is end-to-end without touching the
+# Action config itself.
+zabbix_hermod_mediatype_name: Hermod
+zabbix_hermod_attach_to_user: Admin
+# Vestigial — for webhook media types, sendto is free-text since the
+# real URL lives in webhook_params. Keep it semantic.
+zabbix_hermod_user_media_sendto: hermod

@@ -1,0 +1,171 @@
+# ansible/roles/zabbix-server/tasks/hermod-mediatype.yml
+---
+# Phase 5h.2.i — declarative Zabbix → Hermod webhook media type +
+# Admin-user media attachment.
+#
+# Wires Hermod (the notifications hub) as a Zabbix delivery destination.
+# After this lands, Zabbix's default "Report problems to Zabbix
+# administrators" trigger action automatically sends every fired trigger
+# (and recovery) to the Admin user, whose Hermod media routes to Discord
+# via Apprise tag.
+#
+# Connection model identical to roles/zabbix-agent/tasks/register-host.yml
+# — httpapi connection plugin delegated to the inventory host
+# representing the Zabbix server (hugin). See CLAUDE.md
+# "Zabbix agent + API automation" section for the full pattern + the
+# gotchas it encodes.
+#
+# Vault lookups inline in the vars/params blocks (NOT pre-task set_fact)
+# because lookups run on the controller regardless of delegation — no
+# per-host scoping concerns + no fact-pre-population pass needed.
+
+- name: Create or update Hermod webhook media type
+  community.zabbix.zabbix_mediatype:
+    name: "{{ zabbix_hermod_mediatype_name }}"
+    type: webhook
+    status: enabled
+    description: >
+      Hermod notifications hub (AppriseAPI on LXC 1103). Maps Zabbix trigger
+      severity → Apprise tag → per-tag Discord channel. Severity table in
+      docs/services/notifications.md "Source-side severity mapping". Script
+      source: roles/zabbix-server/templates/hermod-webhook.js.
+    webhook_script: "{{ lookup('file', role_path + '/templates/hermod-webhook.js') }}"
+    webhook_timeout: "{{ zabbix_hermod_webhook_timeout }}"
+    process_tags: false
+    webhook_params:
+      - name: hermod_url
+        value: >-
+          {{ zabbix_hermod_scheme }}://{{ zabbix_hermod_host }}/notify/{{
+            lookup('community.hashi_vault.vault_kv2_get',
+                   zabbix_hermod_config_key_vault_path).secret[zabbix_hermod_config_key_vault_field]
+          }}
+      - name: subject
+        value: "{ALERT.SUBJECT}"
+      - name: message
+        value: "{ALERT.MESSAGE}"
+      - name: severity
+        value: "{TRIGGER.SEVERITY}"
+      - name: event_value
+        value: "{EVENT.VALUE}"
+      - name: event_name
+        value: "{EVENT.NAME}"
+      - name: host_name
+        value: "{HOST.NAME}"
+    message_templates:
+      # Problem (trigger fires) — markdown body with key context.
+      - eventsource: triggers
+        recovery: operations
+        subject: "[Zabbix] {EVENT.SEVERITY}: {EVENT.NAME}"
+        body: |
+          **Status:** PROBLEM
+          **Trigger:** {EVENT.NAME}
+          **Severity:** {EVENT.SEVERITY}
+          **Host:** {HOST.NAME}
+          **Started at:** {EVENT.DATE} {EVENT.TIME}
+          **Event ID:** {EVENT.ID}
+
+          {EVENT.OPDATA}
+
+      # Recovery (trigger resolves) — same body shape, status differs.
+      - eventsource: triggers
+        recovery: recovery_operations
+        subject: "[Zabbix] RESOLVED: {EVENT.NAME}"
+        body: |
+          **Status:** OK
+          **Trigger:** {EVENT.NAME}
+          **Severity:** {EVENT.SEVERITY}
+          **Host:** {HOST.NAME}
+          **Started at:** {EVENT.DATE} {EVENT.TIME}
+          **Recovered at:** {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}
+          **Recovery event ID:** {EVENT.RECOVERY.ID}
+
+          {EVENT.RECOVERY.VALUE}
+    state: "{{ 'present' if zabbix_hermod_enabled else 'absent' }}"
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: true  # webhook params include the Hermod config-key
+  tags: [zabbix, zabbix:hermod, zabbix:hermod-mediatype]
+
+# Attach the media to the Admin user. The default trigger action
+# "Report problems to Zabbix administrators" already targets the
+# Zabbix administrators group, which Admin is a member of — so adding
+# Hermod to Admin's media list is sufficient to route every trigger
+# through the webhook.
+#
+# Important: community.zabbix.zabbix_user replaces the user's media
+# list with what we provide. To avoid clobbering any operator-added
+# media entries, we'd need to GET-merge-PUT. For this homelab there
+# are no other media on Admin (no email/SMS configured), so the
+# replacement is benign. If that changes, refactor to use the lower-
+# level zabbix_api_create or similar to preserve existing entries.
+- name: Attach Hermod media to Admin user
+  community.zabbix.zabbix_user:
+    username: "{{ zabbix_hermod_attach_to_user }}"
+    # The module is "create-or-update": both usrgrps and passwd are
+    # required on `state: present` even when only updating an existing
+    # user (the module checks them as creation args, not differentially).
+    #
+    # - usrgrps: re-state Admin's "Zabbix administrators" membership
+    #   to preserve it across reconciles.
+    # - passwd: inline Vault lookup. The role's contract is that
+    #   `secret/ansible/zabbix/admin-password` holds the canonical
+    #   post-rotation Admin password — operator rotates manually via
+    #   Zabbix UI once after first deploy (7c.2 retro). Passing the
+    #   Vault value here is a no-op if it matches reality, and a
+    #   sync-from-Vault if it doesn't (effectively automating the
+    #   manual-rotation step). If the Vault path is empty/placeholder,
+    #   the module would clobber Admin's password — make sure the
+    #   operator has populated it before running this task.
+    usrgrps:
+      - "Zabbix administrators"
+    passwd: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_admin_password_vault_path).secret[zabbix_admin_password_vault_field] }}
+    override_passwd: false  # only set on create, don't reset on every reconcile
+    user_medias:
+      - mediatype: "{{ zabbix_hermod_mediatype_name }}"
+        sendto: "{{ zabbix_hermod_user_media_sendto }}"
+        # active is a bool in the Ansible module's schema (Zabbix's API
+        # uses 0=enabled/1=disabled internally — module translates).
+        active: true
+        severity:
+          # Bitmask: which severities trigger this media. Match the JS
+          # script's suppression — only Average + High + Disaster fire.
+          # Lower severities still land in VL via vlagent. The module
+          # defaults `not_classified` to true if omitted (bit 0), so
+          # set it explicitly to false here for a clean bitmask of
+          # 56 (= 32 disaster + 16 high + 8 average).
+          not_classified: false
+          information: false
+          warning: false
+          average: true
+          high: true
+          disaster: true
+        period: "1-7,00:00-24:00"  # 24/7 — homelab, single operator, no shifts
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: true  # token in vars
+  when: zabbix_hermod_enabled
+  tags: [zabbix, zabbix:hermod, zabbix:hermod-user-media]

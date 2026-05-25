@@ -24,3 +24,8 @@
 - name: Enable + start systemd units
   ansible.builtin.import_tasks: services.yml
   tags: [zabbix, zabbix:services]
+
+- name: Wire Hermod webhook media type + Admin user-media (5h.2.i)
+  ansible.builtin.import_tasks: hermod-mediatype.yml
+  tags: [zabbix, zabbix:hermod]
+  when: zabbix_hermod_enabled
