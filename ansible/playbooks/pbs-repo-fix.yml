@@ -1,0 +1,49 @@
+# ansible/playbooks/pbs-repo-fix.yml
+---
+# Swap PBS's apt repo from the subscription-gated `pbs-enterprise`
+# (https://enterprise.proxmox.com/...) to the `pbs-no-subscription`
+# stream (http://download.proxmox.com/...). The enterprise repo 401s
+# without a subscription, breaking every `apt update`. We're not
+# paying for PBS support; no-subscription is the right stream.
+#
+# Idempotent on re-run. Safe to bundle in baseline-style runs.
+#
+# Run-once (or any time PBS gets reinstalled):
+#   ansible-playbook ansible/playbooks/pbs-repo-fix.yml
+#
+# See also: CLAUDE.md "Networking / multi-homed workers" → vlagent
+# gotcha "Apt-cache update is allowed to fail (e.g. PBS hosts the
+# Proxmox Enterprise repo without a subscription → 401 on update)"
+# which is the *symptom-mitigation* for the same root cause. This
+# playbook fixes the cause.
+
+- name: Switch PBS apt sources from enterprise to no-subscription
+  hosts: backup_hosts
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Disable pbs-enterprise.list
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/pbs-enterprise.list
+        state: absent
+      notify: apt update
+
+    - name: Write pbs-no-subscription.list
+      ansible.builtin.copy:
+        # Codename pulled from facts so this survives Debian upgrades
+        # (trixie → forky → ...) without an edit.
+        content: |
+          # Managed by ansible/playbooks/pbs-repo-fix.yml — do not edit.
+          # Proxmox Backup Server no-subscription stream.
+          deb http://download.proxmox.com/debian/pbs {{ ansible_distribution_release }} pbs-no-subscription
+        dest: /etc/apt/sources.list.d/pbs-no-subscription.list
+        owner: root
+        group: root
+        mode: "0644"
+      notify: apt update
+
+  handlers:
+    - name: apt update
+      ansible.builtin.apt:
+        update_cache: true
