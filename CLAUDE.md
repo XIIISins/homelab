@@ -328,7 +328,9 @@ CP cpu/memory parameterized per-node in `locals.control_planes` map in `terrafor
 **Pending:**
 - ✅ Phase 5g.2 — PG HA with Patroni + HAProxy/keepalived VIP (2026-05-24). Patroni cluster `niflheim-pg` 3/3 streaming, HAProxy VIP `10.0.10.210` routes writes to current leader via Patroni REST API `/master` health-check, keepalived floats VIP across Hlin/Eir/Snotra (eth1 VLAN 10, priorities 100/90/80, all-BACKUP election, `chk_haproxy` track-script demotes VIP-holder if HAProxy dies). Authentik cut over to VIP (literal-fulla-IP stopgap retired). Failover validated: kill-leader → election → VIP follows + Authentik survives without operator intervention. Generic data-driven `haproxy` + `keepalived` roles built — reusable for any backend/VIP by supplying group_vars. Four pending PG params landed via orchestrated `patronictl restart` (replicas first: `max_connections=300`, `wal_log_hints=on`, `cluster_name`, `listen_addresses`).
 - ✅ Phase 5g — Teamspeak (asgard K3s, 2026-05-25). Pivoted from planned LXC 1121 → K3s app (`k8s/asgard/apps/teamspeak/`): TS3 3.13.7 single-replica StatefulSet, PG via Patroni HAProxy VIP `10.0.10.210` (first-party `ts3db_postgresql` plugin, `sslmode=require`), MetalLB VIP `10.0.20.12` shared between UDP voice + TCP filetransfer (`metallb.universe.tf/allow-shared-ip: teamspeak`), ETP=Local for source-IP preservation. SRV ring `_ts3._udp.ts3.xiiisins.com` (existing, outside TF) → `hel-ts3` (homelab) + `do-ts3` (DigitalOcean fallback). PG provisioned via postgres-common-databases (`teamspeak3@teamspeak3`, password TF-minted dual-pathed). Four gotchas surfaced — chown init CAP_CHOWN/CAP_FOWNER (extends existing chown-init rule), StatefulSet RollingUpdate won't replace CrashLoopBackOff pod, Ansible dynamic-include doesn't propagate `--tags` + strict-mode boolean conditional rules, MetalLB IPAddressPool static/dynamic collision.
-- 🔲 Remaining asgard LXCs (Zabbix, Jellyfin)
+- ✅ Phase 7c.1 + 7c.2 — Zabbix server LXC (Hugin, 2026-05-25). LXC 1102 on **Urd** (relocated from original Skuld plan — Skuld 16GB outlier already carries six LXCs, Urd has headroom and is the Jellyfin-future home). Sizing 2 vCPU / 4GB / 8GB disk; identity **Hugin** (raven of Thought, pairs with Munin/Memory NAS). Zabbix 7.0 LTS, PHP 8.4 pinned, PG backend via Patroni HAProxy VIP `10.0.10.210` with `sslmode=require`. Role finalized: centralized Vault lookup (`tasks/vault-lookup.yml`), schema bootstrap with `pipefail` + `ON_ERROR_STOP=1`, parameterized `$ZBX_SERVER_NAME`, multi-Host nginx `server_name` list (`zabbix-direct.niflheim.*` + `zabbix.midgard.*` + `zabbix.xiiisins.com`), Debian's nginx default-site removed. Vault secrets minted in 7c.1 (4 paths under `secret/ansible/{postgres,zabbix}/*`). Default admin = `Admin`/`zabbix` (factory; the role does NOT auto-rotate — 7c.7 plan). 7c.3–7c.8 (SAML, Traefik fronting, cluster-wide agent rollout) pending. Retro: [`docs/incidents/2026-05-25-zabbix-server-deploy.md`](docs/incidents/2026-05-25-zabbix-server-deploy.md).
+- 🔲 Phase 7c.3–7c.8 — Zabbix SSO + ingress + agent rollout (next: 7c.8 agent rollout to all hosts → 5h.2 Hermod for alert routing → 7c.3–6 SAML cutover).
+- 🔲 Remaining asgard LXCs (Jellyfin)
 - 🔲 Phase 5h.2 — Notifications (Hermod LXC 1103). AppriseAPI on Verd, tag-driven Discord routing (`critical`/`alert`/`media`); routine notifications stay in VL via existing vlagent pipeline. Sequenced after Zabbix LXC (5h) because Zabbix is the first concrete alert producer. Design + JSON schema + source→tag mapping in [`docs/services/notifications.md`](docs/services/notifications.md).
 - 🔲 Phase 5h.3 — Ansible orchestration (Semaphore + drift-check). Push-mode scheduler in asgard K3s + per-host-group playbook rename (`asgard-<service>.yml` + `site.yml` orchestrator + multi-play files where `serial:` differs) + NetBox dynamic inventory (`group_by: tag`, jsonfile cache 4h, static `hosts.yml` retained as DR fallback) + drift-check loop (`--check --diff site.yml` every 6h, results → Hermod `alert` on diff/failure, no scheduled auto-apply). Sequenced after 5h.2 because drift-check is the first concrete `alert`-tag producer. Design + decisions in [`docs/architecture/ansible-orchestration.md`](docs/architecture/ansible-orchestration.md).
 - 🔲 Jotunheim K3s
@@ -572,6 +574,28 @@ CP cpu/memory parameterized per-node in `locals.control_planes` map in `terrafor
 - **Factorio reconcile.timer must NOT auto-start in role.** Background timer races ahead of `initial-install.yml` → `factorio --create` hits `.lock` from already-running service. Pattern: timer `enabled` only in `reconcile.yml`; start explicitly at end of `initial-install.yml`.
 - **Factorio install dir needs `chown -R factorio:factorio` after extract.** Factorio writes `.lock` at startup; tarball ownership doesn't match. The reconcile script does this — manual installs need it too.
 
+### Zabbix
+
+- **Zabbix apt-repo deb URL has NO `/release/` segment.** Path is `https://repo.zabbix.com/zabbix/<major>/debian/pool/main/z/zabbix-release/zabbix-release_latest_<major>+debian<N>_all.deb` — the `/release/debian/...` variant 404s (verified against the directory listing 2026-05-25). Same pattern for RHEL/AlmaLinux subtrees: `/zabbix/<major>/<distro>/...`, no `/release/` middleware. Common source of the mistake: confusion with the upstream docs "Stable releases" section header — that's a doc heading, not a URL segment.
+- **`no_log: true` on shell tasks blanks BOTH stdout AND stderr from playbook output even on failure.** Correct for tasks that interpolate secrets (PGPASSWORD env, `--password` flags), but turns failures into "task failed with no information." Don't drop `no_log` to debug — **stream the failing operation from the operator workstation instead**, bypassing ansible entirely. Pattern for DB schema loads / migrations against a Patroni-VIP-fronted backend:
+  ```fish
+  set -lx PGPASSWORD (vault kv get -field=value secret/ansible/<path>)
+  ssh ansible@<target-host> "cat /path/to/file.sql.gz" | gunzip | \
+    psql -v ON_ERROR_STOP=1 \
+         "host=<vip> port=5432 dbname=<db> user=<user> sslmode=require" \
+         2>&1 | tail -50
+  ```
+  Streams the input file from the target host through `gunzip` to the local psql client (which talks to the same VIP the role does). Stderr lands in the operator's terminal where it can be read. Pattern is reusable for ANY `no_log` task involving a file-input → command pipeline against a network-reachable service. Surfaced 2026-05-25 7c.2 deploy.
+- **Zabbix factory default admin is `Admin` / `zabbix` — NOT auto-rotated from Vault.** The `server.sql.gz` schema seeds the `users` table with `Admin` + bcrypt(`zabbix`). The `zabbix-server` role's `zabbix_admin_password_vault_path` is the POST-rotation value the operator MUST set via the UI after first login — it's not pushed to the DB by any task today (7c.7 plan: Ansible+API rotation post-deploy). Workflow: log in once as `Admin`/`zabbix`, change password via UI to the Vault-stored value, IaC truth converges. Don't try to log in with the Vault value before the manual rotation — Zabbix will reject + lock the account after 5 attempts.
+- **Zabbix 5-attempt lockout → SQL unlock.** Zabbix locks any user after 5 consecutive failed login attempts. Stored in the `users` table; clear via psql against the Patroni VIP:
+  ```sql
+  UPDATE users SET attempt_failed=0, attempt_clock=0, attempt_ip=''
+  WHERE username='Admin';
+  ```
+  Generic across users + Zabbix 6.0/7.0 LTS as of writing. Pair with the `secret/ansible/postgres/zabbix-password` Vault value for psql auth.
+- **Default "Zabbix server" host needs renaming to match the agent's `Hostname=`.** `server.sql.gz` ships a default monitored host literally named `Zabbix server` with `Agent interface: 127.0.0.1:10050`. The `zabbix-agent` role configures local agent2 with `Hostname={{ inventory_hostname }}` (e.g. `hugin`). Hostname mismatch → agent's data is dropped → UI shows "no data" / red. **Fix:** Data collection → Hosts → click `Zabbix server` → set *Host name* to match the agent → Update. The 7c.7 auto-registration action will supersede this for OTHER hosts; the local agent on the Zabbix server itself still needs the manual rename on first deploy unless the role also creates an auto-registration action.
+- **Debian's nginx default-site shadows app server blocks for unmatched Host headers.** `nginx` package on Debian ships `/etc/nginx/sites-enabled/default` listening on `*:80 default_server`. Any app's server block that doesn't have `default_server` set will lose Host-header-mismatch traffic to the welcome page. App packages (zabbix-nginx-conf included) install their server blocks via `/etc/nginx/conf.d/` but don't touch `sites-enabled/default` — that's an operator step. **Fix:** remove `/etc/nginx/sites-enabled/default` via Ansible `file: state=absent` + notify `restart nginx`. `sites-available/` left intact so re-enabling is a one-symlink revert. Now applied in `roles/zabbix-server/tasks/web-config.yml` — same fix applies to any nginx-fronted app role.
+
 ---
 
 ## Conventions
@@ -635,7 +659,7 @@ KPN Experia Box (192.168.2.0/24, DMZ) → UCG-Ultra WAN
 
 - `10.0.254.1` UCG-Ultra / `10.0.254.11/12/13` Urd/Verd/Skuld / `10.0.254.20` Munin
 - `10.0.10.200` AdGuard VIP / `10.0.10.210` PG HAProxy VIP
-- `10.0.11.20` PBS / `10.0.11.201/202/203` AGH (Saga/Mimir/Kvasir)
+- `10.0.11.20` PBS / `10.0.11.21` Hugin (Zabbix) / `10.0.11.201/202/203` AGH (Saga/Mimir/Kvasir)
 - `10.0.11.213/214/215` Tailscale LXCs (Bifrost/Heimdall/Gjallarbru) / `10.0.11.220` Factorio (1120)
 - `10.0.11.230/231/232` PG (Fulla/Vör/Idunn) / `10.0.11.233/234/235` HAProxy+etcd (Hlin/Eir/Snotra)
 - `10.0.21.11/12/13` Asgard CP (Göndul/Hlökk/Sigrún) / `10.0.21.21/22/23` workers eth0 (Einherjar-urd/verd/skuld)
@@ -670,6 +694,7 @@ Norse mythology throughout. **Meta-principle:** primary defines the theme; repli
 | Asgard PG | Fulla / Vör / Idunn (Frigg's handmaidens) |
 | Asgard PG HAProxy/etcd trio | Hlin / Eir / Snotra (Frigg's handmaidens by function) |
 | Tailscale LXCs | Bifrost / Heimdall / Gjallarbru |
+| Zabbix LXC | Hugin (raven of Thought — pairs with Munin/Memory NAS) |
 | DNS zones | `xiiisins.com` (apex, external) / `midgard.xiiisins.com` (internal alias) / `niflheim.xiiisins.com` (internal-only) |
 
 ### Repo map
