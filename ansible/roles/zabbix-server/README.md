@@ -8,12 +8,13 @@ Part of Phase 5h. Pairs with [`zabbix-agent`](../zabbix-agent/) for cluster-wide
 
 ## What this role does
 
-1. Installs Zabbix's apt repo (`zabbix-release_latest_<major>+debian<X>_all.deb`).
-2. Installs server + frontend + agent2 + sql-scripts + postgresql-client + php-pgsql.
-3. Bootstraps the schema from `/usr/share/zabbix-sql-scripts/postgresql/server.sql.gz` against the existing `zabbix` DB (idempotent — skips if the `users` table already exists).
-4. Renders `/etc/zabbix/zabbix_server.conf` (Patroni VIP target, sized caches).
-5. Renders the nginx + PHP frontend config.
-6. Starts `zabbix-server`, `nginx`, `php8.2-fpm`, `zabbix-agent2`.
+1. Resolves Vault-backed secrets once (centralized in `tasks/vault-lookup.yml`) — downstream tasks reuse the facts.
+2. Installs Zabbix's apt repo (`zabbix-release_latest_<major>+debian<X>_all.deb`).
+3. Installs server + frontend + agent2 + sql-scripts + postgresql-client + php-pgsql + the pinned `php-fpm` runtime (Zabbix's frontend-php doesn't declare an FPM dep — see `zabbix_php_version` in `defaults/main.yml`).
+4. Bootstraps the schema from `/usr/share/zabbix-sql-scripts/postgresql/server.sql.gz` against the existing `zabbix` DB (idempotent — skips if the `users` table already exists; uses `pipefail` + `ON_ERROR_STOP=1` so partial loads can't silently succeed).
+5. Renders `/etc/zabbix/zabbix_server.conf` (Patroni VIP target, sized caches).
+6. Renders the nginx + PHP frontend config — nginx accepts every FQDN in `zabbix_web_server_names` (direct + midgard + apex).
+7. Starts `zabbix-server`, `nginx`, the pinned `php-fpm`, `zabbix-agent2`.
 
 ## Prerequisites
 
@@ -33,8 +34,10 @@ Then run `ansible-playbook ansible/playbooks/postgres-host.yml` (the postgres-co
 
 | Vault path | Field | Used by |
 |------------|-------|---------|
-| `secret/ansible/postgres/zabbix-password` | `password` | postgres-common role for DB user creation; this role for connection |
-| `secret/ansible/zabbix/admin-password` | `password` | NOT auto-applied — initial Zabbix admin password is `zabbix`, operator rotates via UI on first login + then stashes in this Vault path for IaC tracking. Deferred to API-driven rotation in a future iteration. |
+| `secret/ansible/postgres/zabbix-password` | `value` | postgres-common role for DB user creation; this role for connection |
+| `secret/ansible/zabbix/admin-password` | `value` | NOT auto-applied — initial Zabbix admin password is `zabbix`, operator rotates via UI on first login + then stashes in this Vault path for IaC tracking. Deferred to API-driven rotation in a future iteration. |
+
+Field defaults to `value` (TF-minted convention; see `zabbix_db_password_vault_field` / `zabbix_admin_password_vault_field`). Override per-deployment if a path stores the secret under a different key.
 
 ## Operational notes
 

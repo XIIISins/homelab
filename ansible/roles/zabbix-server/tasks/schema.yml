@@ -9,13 +9,9 @@
 # Idempotency: check for the existence of the `users` table (one of
 # the first tables created by the schema). If present, schema is
 # loaded — skip the slow load.
-
-- name: Look up Zabbix DB password from Vault
-  ansible.builtin.set_fact:
-    zabbix_db_password: >-
-      {{ lookup('community.hashi_vault.vault_kv2_get',
-                zabbix_db_password_vault_path).secret[zabbix_db_password_vault_field] }}
-  no_log: true
+#
+# zabbix_db_password is resolved by vault-lookup.yml (imported first
+# in main.yml).
 
 - name: Check whether zabbix schema is already loaded
   ansible.builtin.command:
@@ -35,12 +31,18 @@
     zabbix_schema_loaded: "{{ zabbix_schema_check.stdout | trim == 'users' }}"
 
 - name: Load zabbix schema (first deploy)
+  # pipefail required — zcat | psql without it swallows psql errors
+  # (shell's default behavior is to return the LAST command's rc, so
+  # a malformed SQL file silently "succeeds" if zcat itself worked).
   ansible.builtin.shell:
     cmd: >-
+      set -o pipefail &&
       zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz |
-      psql "host={{ zabbix_db_host }} port={{ zabbix_db_port }}
+      psql -v ON_ERROR_STOP=1
+           "host={{ zabbix_db_host }} port={{ zabbix_db_port }}
            dbname={{ zabbix_db_name }} user={{ zabbix_db_user }}
            sslmode={{ zabbix_db_sslmode }}"
+    executable: /bin/bash
   environment:
     PGPASSWORD: "{{ zabbix_db_password }}"
   when: not zabbix_schema_loaded

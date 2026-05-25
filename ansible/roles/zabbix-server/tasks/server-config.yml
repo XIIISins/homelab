@@ -1,11 +1,7 @@
 # ansible/roles/zabbix-server/tasks/server-config.yml
 ---
-- name: Look up Zabbix DB password from Vault (server config)
-  ansible.builtin.set_fact:
-    zabbix_db_password: >-
-      {{ lookup('community.hashi_vault.vault_kv2_get',
-                zabbix_db_password_vault_path).secret[zabbix_db_password_vault_field] }}
-  no_log: true
+# zabbix_db_password is resolved by vault-lookup.yml (imported first
+# in main.yml).
 
 - name: Render /etc/zabbix/zabbix_server.conf
   ansible.builtin.template:

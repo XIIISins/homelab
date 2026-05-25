@@ -77,6 +77,11 @@ zabbix_web_server_names:
 zabbix_web_listen_port: 80
 zabbix_php_timezone: "Europe/Amsterdam" # local timezone
 
+# Frontend display name — shown in the top-left of the Zabbix web UI
+# + in the browser tab title. Cosmetic; pick whatever identifies the
+# instance. Matches the Proxmox cluster name (niflheim) by default.
+zabbix_frontend_server_name: "niflheim"
+
 # Admin user — Zabbix creates a default `Admin` user during schema
 # load (with password `zabbix`). The role rotates this immediately
 # to the Vault-stored value. Manual one-time step on first deploy

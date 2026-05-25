@@ -1,5 +1,9 @@
 # ansible/roles/zabbix-server/tasks/main.yml
 ---
+- name: Resolve Vault-backed secrets
+  ansible.builtin.import_tasks: vault-lookup.yml
+  tags: [zabbix, always] # always — every downstream task references the facts
+
 - name: Install Zabbix apt repo + packages
   ansible.builtin.import_tasks: packages.yml
   tags: [zabbix, zabbix:packages]

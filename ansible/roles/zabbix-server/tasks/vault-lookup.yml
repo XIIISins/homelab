@@ -1,0 +1,14 @@
+# ansible/roles/zabbix-server/tasks/vault-lookup.yml
+---
+# Centralized Vault lookups for the zabbix-server role. Done once at
+# play start so downstream tasks (schema bootstrap, server.conf render,
+# zabbix.conf.php render) can reference the resolved facts directly
+# instead of repeating the lookup. Keeps no_log boundaries tight to
+# this single file.
+
+- name: Look up Zabbix DB password from Vault
+  ansible.builtin.set_fact:
+    zabbix_db_password: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_db_password_vault_path).secret[zabbix_db_password_vault_field] }}
+  no_log: true
