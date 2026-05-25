@@ -330,6 +330,26 @@ resource "vault_kv_secret_v2" "zabbix_postgres_ansible" {
   })
 }
 
+# Zabbix PG monitoring user — created on the Patroni leader by
+# postgres-common with `pg_monitor` predefined-role membership.
+# Read by the zabbix-agent role at register time and passed to each
+# PG host's Zabbix host record as the {$PG.PASSWORD} macro (type=
+# secret). The agent2 PG plugin uses this credential to query
+# monitoring views via SCRAM over loopback. Phase 7c.8b — PG
+# monitoring depth.
+resource "random_password" "zabbix_monitor_postgres" {
+  length  = 32
+  special = false # PG password — same quoting concern as the other PG creds
+}
+
+resource "vault_kv_secret_v2" "zabbix_monitor_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/zabbix-monitor-password"
+  data_json = jsonencode({
+    value = random_password.zabbix_monitor_postgres.result
+  })
+}
+
 resource "random_password" "zabbix_admin" {
   length  = 24
   special = true # operator-typed via 1P break-glass; symbol set OK for web login
