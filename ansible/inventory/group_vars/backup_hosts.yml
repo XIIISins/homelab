@@ -1,0 +1,7 @@
+# ansible/inventory/group_vars/backup_hosts.yml
+---
+# PBS (Proxmox Backup Server, LXC 1101) was installed via the
+# upstream PBS installer (not Terraform/Ansible), root-only SSH;
+# no `ansible` user with sudo exists. Override the global default
+# so any playbook targeting backup_hosts works transparently.
+ansible_user: root

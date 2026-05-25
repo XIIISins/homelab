@@ -1,0 +1,9 @@
+# ansible/inventory/group_vars/proxmox_hosts.yml
+---
+# Proxmox PVE hosts (urd/verd/skuld) are operator-managed at the OS
+# level — no Terraform manages the Proxmox install, no baseline role
+# applied (those run on the LXC/VM workloads, not the hypervisor).
+# Result: there's no `ansible` user with sudo; the operator's SSH key
+# is on root only. Override the global ansible_user default here so
+# any playbook targeting proxmox_hosts works transparently.
+ansible_user: root
