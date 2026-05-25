@@ -1,5 +1,20 @@
 # ansible/roles/vlagent/tasks/main.yml
 ---
+# apt-cache update is allowed to fail (e.g. PBS hosts the Proxmox
+# Enterprise repo without a subscription → 401 on update). The
+# packages we install are all base Debian (ca-certs, curl, tar,
+# rsyslog) and almost certainly already present + recent. If the
+# package install genuinely needs a fresh cache it'll fail at that
+# step with a clear "Unable to locate package" error.
+- name: Refresh apt cache (best-effort)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == 'Debian'
+  failed_when: false
+  register: vlagent_apt_cache
+  tags: [vlagent, vlagent:packages]
+
 - name: Install required apt packages (Debian/Proxmox)
   ansible.builtin.apt:
     name:
@@ -8,8 +23,7 @@
       - tar # extract
       - rsyslog # journald → /var/log/syslog forwarder (Debian 13 ships journald-only by default)
     state: present
-    update_cache: true
-    cache_valid_time: 3600
+    update_cache: false
   when: ansible_os_family == 'Debian'
   tags: [vlagent, vlagent:packages]
 
