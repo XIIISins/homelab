@@ -1,0 +1,14 @@
+# ansible/roles/hermod-api/handlers/main.yml
+---
+- name: apt update
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart apprise
+  ansible.builtin.systemd:
+    name: apprise.service
+    state: restarted

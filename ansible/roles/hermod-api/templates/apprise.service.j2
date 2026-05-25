@@ -1,0 +1,18 @@
+{# ansible/roles/hermod-api/templates/apprise.service.j2 #}
+[Unit]
+Description=Apprise notification fan-out (Hermod) — docker compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory={{ hermod_api_compose_dir }}
+ExecStartPre=/usr/bin/docker compose pull --quiet
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target

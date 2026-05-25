@@ -1,0 +1,21 @@
+# ansible/roles/hermod-api/meta/main.yml
+---
+galaxy_info:
+  role_name: hermod_api
+  author: ghost
+  description: |
+    Install + configure AppriseAPI as the homelab's notification
+    fan-out hub (Hermod LXC 1103). Sources POST to one HTTP endpoint;
+    Hermod routes to Discord (and future delivery channels) by tag.
+    Full design in docs/services/notifications.md.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions:
+        - trixie
+
+dependencies: []
+collections:
+  - community.hashi_vault # Vault lookups for Discord webhook id/token
+  - community.docker # docker-compose stack management

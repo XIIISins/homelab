@@ -1,0 +1,18 @@
+# ansible/playbooks/asgard-hermod.yml
+---
+- name: Configure Hermod notification host
+  hosts: hermod_hosts
+  become: true
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    - role: hermod-api
+      tags: [hermod-api]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]
