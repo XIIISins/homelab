@@ -32,6 +32,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`architecture/network.md`](architecture/network.md) — VLAN table, IP assignments (per-LXC + per-VM), cluster CIDRs, resource ID scheme, LXC ID grouping, three-zone DNS scheme + TLS strategy, internet exposure (KPN DMZ → UCG-Ultra) + firewall posture.
 - [`architecture/identity-secrets.md`](architecture/identity-secrets.md) — identity model (Authentik + LDAP + SSSD + break-glass), full secrets architecture (1Password / HashiCorp Vault / Ansible Vault), AppRole bootstrap runbook, control-node fish tooling, OpenBao migration plan.
 - [`architecture/iac.md`](architecture/iac.md) — tool layering: Terraform (API'd resources) / Ansible (OS-level) / Flux (in-cluster) / docs (no-API infra).
+- [`architecture/ansible-orchestration.md`](architecture/ansible-orchestration.md) — Ansible playbook structure (per-host-group, multi-play files, `site.yml` orchestrator), Semaphore scheduler in asgard K3s, NetBox dynamic inventory + static `hosts.yml` fallback, drift-check loop wiring into Hermod. Phase 5h.3, planned.
 
 ### Services — what runs where
 - [`services/synology.md`](services/synology.md) — Munin NAS volumes, NFS shares, iSCSI target convention, OOB via Tailscale.
@@ -40,6 +41,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`services/asgard-lxcs.md`](services/asgard-lxcs.md) — full asgard LXC table (PBS, Zabbix, AdGuard, Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Jellyfin) + build-order revision.
 - [`services/factorio.md`](services/factorio.md) — Factorio LXC architecture (operator self-service via SFTPGo + reconcile loop). Template pattern for operator-managed services.
 - [`services/postgres.md`](services/postgres.md) — PostgreSQL LXC architecture (Fulla deployed 2026-05-17): PG 17 + TLS + scram-sha-256, management-role split, per-service DB provisioning, cluster build sequence.
+- [`services/notifications.md`](services/notifications.md) — Hermod LXC (Phase 5h.2, planned): AppriseAPI aggregator, JSON schema, severity taxonomy, tag-driven Discord routing, source→tag mapping table.
 
 ### Operations — what's been done, what's decided, what's open
 - [`operations/build-sequence.md`](operations/build-sequence.md) — phase status table (Phases 1-8). Concise one-line rows with ✅/🟡/🔲 tick.

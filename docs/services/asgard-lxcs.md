@@ -6,6 +6,7 @@
 |-----|----|------|----|------|--------|
 | PBS | 1101 | Skuld | `10.0.11.20` | Proxmox Backup Server | ✅ |
 | Zabbix | 1102 | Skuld | `10.0.11.21` | Infrastructure monitoring | 🔲 |
+| Hermod (Notifications) | 1103 | Verd | `10.0.11.22` | AppriseAPI aggregator → Discord (Phase 5h.2, planned). Tag-driven routing (`critical`/`alert`/`media`); routine notifications stay in VL via vlagent. See [`notifications.md`](notifications.md). | 🔲 |
 | Saga (AdGuard 1) | 1110 | Urd | `10.0.11.201` | DNS primary | ✅ |
 | Mimir (AdGuard 2) | 1111 | Verd | `10.0.11.202` | DNS replica | ✅ |
 | Kvasir (AdGuard 3) | 1112 | Skuld | `10.0.11.203` | DNS replica | ✅ |
@@ -23,5 +24,7 @@
 | Jellyfin | TBD | Urd | TBD | Media + QuickSync LXC | 🔲 |
 
 **AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
+
+**Terraform module split.** Most LXCs live in `terraform/proxmox/asgard-lxcs/` (single API-token provider). The Tailscale trio (1113/1114/1115) lives in `terraform/proxmox/asgard-lxcs-root/` (single root@pam provider, needs `PROXMOX_VE_PASSWORD` env) because `device_passthrough` for `/dev/net/tun` is one of the Proxmox API endpoints that only accepts ticket auth — see CLAUDE.md "bpg/proxmox API token can change nesting, NOT other LXC features". The split keeps the main module API-token-only so most applies don't need an `op read` on every run; root-needing LXCs (today Tailscale, future `fuse`/`keyctl`/additional passthroughs) join the `-root` module.
 
 > **LXC build order — revised (2026-05-15):** The original sequence said "asgard K3s before all LXCs" because of Tailscale's dependency on Authentik. That conflates services that *don't* share that dependency. Revised sequence: Factorio (no deps, ship it standalone), then PostgreSQL + Teamspeak (no Authentik dependency), then Authentik + Redis in K3s, then Tailscale LXCs (needs Authentik for SSO).
