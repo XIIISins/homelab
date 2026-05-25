@@ -16,4 +16,4 @@
 
 # Self-monitoring metadata — distinguishes the Zabbix server from
 # the other agents in any HostMetadata-driven auto-registration.
-zabbix_agent_host_metadata: "role=zabbix-server location=skuld"
+zabbix_agent_host_metadata: "role=zabbix-server location=urd"
