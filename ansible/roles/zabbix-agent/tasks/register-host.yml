@@ -40,6 +40,13 @@
         port: "{{ zabbix_agent_listen_port }}"
     state: present
   delegate_to: "{{ zabbix_agent_api_delegate }}"
+  # throttle: 1 — Zabbix's host.create API doesn't handle the default
+  # 5 parallel ansible forks cleanly. Symptom: ~1/5 hosts succeed,
+  # the rest fail with a censored module error (the underlying error
+  # was masked by no_log: true). Single-thread the API call to avoid
+  # the race. The set_fact + API-call total per-host is ~1s, so
+  # 23-host fleets serialize in under a minute — not a real cost.
+  throttle: 1
   become: false
   vars:
     ansible_connection: httpapi
