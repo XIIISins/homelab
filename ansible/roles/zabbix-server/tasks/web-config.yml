@@ -1,5 +1,21 @@
 # ansible/roles/zabbix-server/tasks/web-config.yml
 ---
+# Debian's nginx ships /etc/nginx/sites-enabled/default — a server
+# block marked `default_server` on port 80 serving the welcome page.
+# zabbix-nginx-conf wires our server block via /etc/nginx/conf.d/
+# but does NOT touch sites-enabled/, so for any Host header that
+# doesn't match our server_name (zabbix-direct.* / zabbix.midgard.* /
+# zabbix.*), nginx falls through to the default_server and serves
+# the welcome page. Surfaced in 7c.2 deploy — see incidents/
+# 2026-05-25-zabbix-server-deploy.md. Remove unconditionally:
+# state=absent is idempotent and sites-available/ is left intact,
+# so re-enabling is a one-symlink revert.
+- name: Disable Debian's nginx default site (welcome page)
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
 - name: Render /etc/zabbix/nginx.conf
   ansible.builtin.template:
     src: nginx.conf.j2

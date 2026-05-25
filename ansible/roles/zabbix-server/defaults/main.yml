@@ -86,10 +86,18 @@ zabbix_php_timezone: "Europe/Amsterdam" # local timezone
 zabbix_frontend_server_name: "hugin"
 
 # Admin user — Zabbix creates a default `Admin` user during schema
-# load (with password `zabbix`). The role rotates this immediately
-# to the Vault-stored value. Manual one-time step on first deploy
-# OR the role can call the API to update it (deferred — initial
-# `zabbix` → operator-set password via UI on first login is fine).
+# load (with password `zabbix`). This role does NOT auto-rotate to
+# the Vault-stored value — the operator logs in once with the factory
+# default and changes via UI to the value at this Vault path, which
+# keeps the IaC-tracked value and reality in sync. API-driven auto-
+# rotation is the 7c.7 plan; until then the path serves as the
+# canonical post-rotation value.
+#
+# If Admin gets locked out (5 failed attempts), unlock via:
+#   UPDATE users SET attempt_failed=0, attempt_clock=0, attempt_ip=''
+#   WHERE username='Admin';
+# from a workstation psql session against the Patroni VIP. See the
+# Phase 7c.2 incident retro.
 zabbix_admin_user: Admin
 zabbix_admin_password_vault_path: "ansible/zabbix/admin-password"
 zabbix_admin_password_vault_field: value # TF-minted secrets store under `value` field
