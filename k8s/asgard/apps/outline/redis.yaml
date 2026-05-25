@@ -14,11 +14,18 @@
 # Image redis:7-alpine pinned per CLAUDE.md "Concrete-pin all IaC
 # versions, no floats" — bump deliberately + verify release notes.
 #
-# Storage: 1Gi iSCSI; allowVolumeExpansion: true on the StorageClass
-# (synology-csi-iscsi-retain) so growth is `kubectl edit pvc` away.
-# AOF on; Outline only uses Redis for ephemeral state (sessions, job
-# queues, pubsub) so loss of recent writes on crash is acceptable —
-# AOF is the conservative default.
+# Storage: emptyDir.
+#
+# Why emptyDir and not iSCSI PVC: the Synology DS223J's iSCSI LUN cap
+# is currently saturated (10/10 PVCs across asgard) — provisioning an
+# 11th LUN fails with "Number of LUN reach limit". Outline only uses
+# Redis for ephemeral state (websocket presence, BullMQ job queues,
+# realtime collab Yjs documents in transit). All of it is recoverable:
+# session loss on pod restart re-prompts the OIDC flow, pending jobs
+# retry from the DB, active collab clients reconnect + resync via
+# Yjs's last-writer-wins. Authoritative state lives in Postgres.
+# Revisit to iSCSI if Synology LUN count is unblocked (see open
+# question — Synology J-series per-volume LUN cap investigation).
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -39,20 +46,6 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
-      initContainers:
-        - name: redis-data-chown
-          image: busybox:stable
-          command:
-            - sh
-            - -c
-            - chown -R 999:999 /data && chmod 750 /data
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: data
-              mountPath: /data
       containers:
         - name: redis
           image: redis:7-alpine
@@ -60,8 +53,10 @@ spec:
           args:
             - --requirepass
             - $(REDIS_PASSWORD)
+            - --save
+            - ""
             - --appendonly
-            - "yes"
+            - "no"
             - --dir
             - /data
           env:
@@ -98,15 +93,10 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: synology-csi-iscsi-retain
-        resources:
-          requests:
-            storage: 1Gi
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
 ---
 apiVersion: v1
 kind: Service
