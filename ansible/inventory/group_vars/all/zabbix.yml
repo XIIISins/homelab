@@ -1,0 +1,33 @@
+# ansible/inventory/group_vars/all/zabbix.yml
+---
+# Zabbix API connection config — used by both the host-groups bootstrap
+# play (zabbix-host-groups.yml) and the zabbix-agent role's
+# register-host task. These vars live at group_vars/all/ scope because
+# the bootstrap play runs BEFORE the role is loaded, so role-default
+# values aren't yet in hostvars at that point. group_vars/all is
+# evaluated at play parsing time + available everywhere.
+#
+# The role still declares the same defaults in roles/zabbix-agent/
+# defaults/main.yml — those serve as documentation + fallback for
+# running the role standalone outside this inventory. group_vars/all
+# wins per Ansible's variable precedence.
+
+# Which inventory host represents the Zabbix server for API calls.
+# httpapi connection plugin uses this host's ansible_host as the
+# endpoint. Switch to a Traefik-VIP-fronted inventory entry when
+# Phase 7c.5 lands.
+zabbix_agent_api_delegate: hugin
+zabbix_agent_api_port: 80
+zabbix_agent_api_use_ssl: false
+
+# Zabbix user the API token belongs to. Must have Super admin role
+# for global host visibility (Zabbix "Admin role" alone doesn't
+# grant global access — see role README for the gotcha).
+zabbix_agent_api_user: ansible
+
+# Where the API token lives in Vault. terraform/vault/main.tf
+# minted the path as a placeholder; the operator puts the real
+# token there once with `vault kv put`. lifecycle.ignore_changes
+# on data_json protects the put from TF clobber.
+zabbix_agent_api_token_vault_path: "ansible/zabbix/api-token"
+zabbix_agent_api_token_vault_field: value
