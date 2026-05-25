@@ -80,9 +80,24 @@ resource "cloudflare_zone_setting" "browser_check" {
 # fields are Enterprise-tier and stay disabled (their current state).
 # Explicit "disabled" values match the API's existing response so TF
 # doesn't try to flip them.
+#
+# fight_mode kept OFF: Free-tier BFM does not reliably honor the
+# `http_request_sbfm` phase skip in `cloudflare_ruleset.zone_custom_skip`
+# for non-browser HTTP clients from suspect-reputation IPs (mobile
+# carriers, VPN exits). Symptom: mobile Tailscale OIDC sign-in returned
+# 403 managed-challenge on `/application/o/tailscale/.well-known/
+# openid-configuration` despite the skip rule matching the path and the
+# same probe returning 200 from clean residential IPs. OIDC clients are
+# HTTP libraries — they cannot solve interactive challenges — so any
+# challenge that fires on the protocol-public paths breaks sign-in by
+# design. Re-enabling requires either Pro plan (SBFM has reliable
+# per-path skip via the same phase) or a different protection model.
+# Remaining zone protections: browser_check (skipped per-path via `bic`
+# product), WAF managed rules, security level, rate limiting. Authentik
+# handles brute-force + MFA itself.
 resource "cloudflare_bot_management" "xiiisins" {
   zone_id                 = data.cloudflare_zone.xiiisins.id
-  fight_mode              = true
+  fight_mode              = false
   ai_bots_protection      = "disabled"
   content_bots_protection = "disabled"
   crawler_protection      = "disabled"
