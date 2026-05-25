@@ -1,0 +1,17 @@
+# ansible/roles/hermod-api/meta/main.yml
+---
+galaxy_info:
+  role_name: hermod_api
+  author: XIIISins
+  description: >
+    Installs AppriseAPI (caronc/apprise-api) natively on a Debian LXC —
+    pip + venv + gunicorn + systemd. Renders per-tag Discord webhook
+    routing config from Vault. Bound to 127.0.0.1; reverse-proxied by
+    caddy-reverse-proxy on the same host.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

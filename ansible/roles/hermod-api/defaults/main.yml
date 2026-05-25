@@ -1,0 +1,71 @@
+# ansible/roles/hermod-api/defaults/main.yml
+---
+# ============================================================================
+# hermod-api role defaults
+# ============================================================================
+# Installs AppriseAPI (caronc/apprise-api) natively on the LXC:
+#   - git clone the upstream repo at a pinned tag to /opt/apprise-api/src
+#   - python venv at /opt/apprise-api/venv with pip-installed requirements
+#     + gunicorn (WSGI server)
+#   - apprise system user (no shell) owns runtime dirs
+#   - /etc/apprise/config/<config-key>.yml — rendered from Vault, contains
+#     four Discord webhooks (critical/alert/media/untagged) routed by tag
+#   - systemd unit binding gunicorn to 127.0.0.1:8000 (Caddy reverse-proxies)
+#
+# Caddy reverse-proxy with IP allowlisting is in the separate
+# caddy-reverse-proxy role; this role only owns the AppriseAPI process.
+# ============================================================================
+
+# ---- Upstream version pin ----
+# Latest stable release tag at role-write time (2026-05-25): v1.4.1.
+# Bump explicitly; check https://github.com/caronc/apprise-api/releases.
+hermod_api_version: "v1.4.1"
+hermod_api_repo_url: "https://github.com/caronc/apprise-api.git"
+
+# ---- Filesystem layout ----
+hermod_api_install_dir: /opt/apprise-api
+hermod_api_src_dir: "{{ hermod_api_install_dir }}/src"
+hermod_api_venv_dir: "{{ hermod_api_install_dir }}/venv"
+hermod_api_config_dir: /etc/apprise/config
+hermod_api_runtime_dir: /run/apprise-api  # systemd RuntimeDirectory
+
+# ---- System user ----
+hermod_api_user: apprise
+hermod_api_group: apprise
+
+# ---- Network binding ----
+# Bound to localhost only. Caddy on the same LXC reverse-proxies to this
+# upstream — the public listener is Caddy at :80 on eth0.
+hermod_api_bind_host: "127.0.0.1"
+hermod_api_bind_port: 8000
+
+# ---- Gunicorn ----
+# Single worker — AppriseAPI handles fanout asynchronously per-request,
+# and this LXC processes single-digit notifications per minute steady-state.
+# Bump if storm bursts (multi-trigger Zabbix events) cause queueing.
+hermod_api_gunicorn_workers: 1
+hermod_api_gunicorn_worker_class: gevent
+
+# ---- Vault paths ----
+# Soft-auth config key gating /notify/<key>. TF-minted in
+# terraform/vault/main.tf — see secret/ansible/hermod/config-key.
+hermod_api_config_key_vault_path: "ansible/hermod/config-key"
+
+# Per-tag Discord webhook URLs. Operator-minted in Discord UI, operator-
+# written to Vault out-of-band. See docs/services/notifications.md §
+# "Vault layout" for the operator workflow.
+hermod_api_discord_vault_paths:
+  critical: "ansible/hermod/discord/critical"
+  alert:    "ansible/hermod/discord/alert"
+  media:    "ansible/hermod/discord/media"
+  untagged: "ansible/hermod/discord/untagged"
+
+# ---- Apprise config username overrides ----
+# Per-tag webhook poster display name. Set via Apprise's `?username=` URL
+# param so the rendered Discord username is consistent with our Norse
+# naming regardless of how the operator named the webhook in Discord UI.
+hermod_api_usernames:
+  critical: "Hrist"      # Valkyrie — "the shaker"; wake-everyone alert
+  alert:    "Mist"       # Valkyrie — "cloud"; watchful
+  media:    "Olrun"      # Valkyrie — "ale-rune"; feast/social
+  untagged: "Hel"        # Underworld of lost messages — quarantine

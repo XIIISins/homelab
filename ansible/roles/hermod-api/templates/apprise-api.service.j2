@@ -1,0 +1,57 @@
+{# ansible/roles/hermod-api/templates/apprise-api.service.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/hermod-api/templates/apprise-api.service.j2
+
+[Unit]
+Description=AppriseAPI — notifications fanout service (Hermod)
+Documentation=https://github.com/caronc/apprise-api
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ hermod_api_user }}
+Group={{ hermod_api_group }}
+
+# Runtime state (PID file) lives under /run/apprise-api, owned by the
+# apprise user. RuntimeDirectory= creates this on each start; wiped on stop.
+RuntimeDirectory=apprise-api
+RuntimeDirectoryMode=0755
+
+# Working directory + config-dir env so AppriseAPI auto-loads the rendered
+# yaml on startup.
+WorkingDirectory={{ hermod_api_install_dir }}
+Environment="APPRISE_CONFIG_DIR={{ hermod_api_config_dir }}"
+Environment="APPRISE_STATEFUL_MODE=simple"
+
+# Notify-style gunicorn invocation. core.wsgi:application is the Django
+# WSGI entrypoint exposed by the cloned repo.
+ExecStart={{ hermod_api_venv_dir }}/bin/gunicorn \
+    --config {{ hermod_api_install_dir }}/gunicorn.conf.py \
+    core.wsgi:application
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart on failure with bounded backoff
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ hermod_api_config_dir }}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false  # Python JIT-y deps need this
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

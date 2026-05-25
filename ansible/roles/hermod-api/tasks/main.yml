@@ -1,0 +1,158 @@
+# ansible/roles/hermod-api/tasks/main.yml
+---
+- name: Install build dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - python3
+      - python3-venv
+      - python3-pip
+      - python3-dev
+      - build-essential
+      - libffi-dev
+      - libssl-dev
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [hermod-api, hermod-api:deps]
+
+- name: Create apprise system group
+  ansible.builtin.group:
+    name: "{{ hermod_api_group }}"
+    system: true
+    state: present
+  tags: [hermod-api, hermod-api:user]
+
+- name: Create apprise system user
+  ansible.builtin.user:
+    name: "{{ hermod_api_user }}"
+    group: "{{ hermod_api_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ hermod_api_install_dir }}"
+    create_home: false
+    password: "*"  # valid form, no usable password; pubkey + systemd only
+    state: present
+  tags: [hermod-api, hermod-api:user]
+
+- name: Create AppriseAPI install dir
+  ansible.builtin.file:
+    path: "{{ hermod_api_install_dir }}"
+    state: directory
+    owner: "{{ hermod_api_user }}"
+    group: "{{ hermod_api_group }}"
+    mode: "0755"
+  tags: [hermod-api, hermod-api:fs]
+
+- name: Clone AppriseAPI repo at pinned tag
+  ansible.builtin.git:
+    repo: "{{ hermod_api_repo_url }}"
+    dest: "{{ hermod_api_src_dir }}"
+    version: "{{ hermod_api_version }}"
+    depth: 1
+    update: true
+    force: false
+  become_user: "{{ hermod_api_user }}"
+  notify: restart apprise-api
+  tags: [hermod-api, hermod-api:src]
+
+- name: Create Python venv
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ hermod_api_venv_dir }}"
+    creates: "{{ hermod_api_venv_dir }}/bin/python"
+  become_user: "{{ hermod_api_user }}"
+  tags: [hermod-api, hermod-api:venv]
+
+- name: Upgrade pip + wheel in venv
+  ansible.builtin.pip:
+    name:
+      - pip
+      - wheel
+    state: latest  # noqa: package-latest — bootstrap tooling, not runtime
+    virtualenv: "{{ hermod_api_venv_dir }}"
+  become_user: "{{ hermod_api_user }}"
+  tags: [hermod-api, hermod-api:venv]
+
+- name: Install AppriseAPI requirements into venv
+  ansible.builtin.pip:
+    requirements: "{{ hermod_api_src_dir }}/requirements.txt"
+    virtualenv: "{{ hermod_api_venv_dir }}"
+    state: present
+  become_user: "{{ hermod_api_user }}"
+  notify: restart apprise-api
+  tags: [hermod-api, hermod-api:venv]
+
+- name: Ensure gunicorn is installed in venv
+  ansible.builtin.pip:
+    name: gunicorn
+    virtualenv: "{{ hermod_api_venv_dir }}"
+    state: present
+  become_user: "{{ hermod_api_user }}"
+  notify: restart apprise-api
+  tags: [hermod-api, hermod-api:venv]
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: "{{ hermod_api_config_dir }}"
+    state: directory
+    owner: "{{ hermod_api_user }}"
+    group: "{{ hermod_api_group }}"
+    mode: "0750"
+  tags: [hermod-api, hermod-api:config]
+
+# Resolve secrets up-front so the template task body doesn't leak via no_log
+# Ansible bug surface — Vault lookups inside Jinja templates can show up in
+# debug-mode error traces.
+- name: Resolve config-key from Vault
+  ansible.builtin.set_fact:
+    hermod_api_config_key: "{{ lookup('community.hashi_vault.vault_kv2_get', hermod_api_config_key_vault_path).secret.value }}"
+  no_log: true
+  tags: [hermod-api, hermod-api:config]
+
+- name: Resolve Discord webhook URLs from Vault
+  ansible.builtin.set_fact:
+    hermod_api_discord_urls: "{{ hermod_api_discord_urls | default({}) | combine({item.key: lookup('community.hashi_vault.vault_kv2_get', item.value).secret.url}) }}"
+  loop: "{{ hermod_api_discord_vault_paths | dict2items }}"
+  no_log: true
+  tags: [hermod-api, hermod-api:config]
+
+- name: Render Apprise config yaml
+  ansible.builtin.template:
+    src: apprise.yml.j2
+    dest: "{{ hermod_api_config_dir }}/{{ hermod_api_config_key }}.yml"
+    owner: "{{ hermod_api_user }}"
+    group: "{{ hermod_api_group }}"
+    mode: "0640"
+  no_log: true  # template contains Discord webhook URLs
+  notify: restart apprise-api
+  tags: [hermod-api, hermod-api:config]
+
+- name: Render gunicorn config
+  ansible.builtin.template:
+    src: gunicorn.conf.py.j2
+    dest: "{{ hermod_api_install_dir }}/gunicorn.conf.py"
+    owner: "{{ hermod_api_user }}"
+    group: "{{ hermod_api_group }}"
+    mode: "0644"
+  notify: restart apprise-api
+  tags: [hermod-api, hermod-api:config]
+
+- name: Render systemd unit
+  ansible.builtin.template:
+    src: apprise-api.service.j2
+    dest: /etc/systemd/system/apprise-api.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart apprise-api
+  tags: [hermod-api, hermod-api:service]
+
+- name: Enable + start apprise-api service
+  ansible.builtin.systemd:
+    name: apprise-api
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [hermod-api, hermod-api:service]

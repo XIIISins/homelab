@@ -1,0 +1,59 @@
+# ansible/inventory/group_vars/hermod_hosts.yml
+---
+# Hermod — notifications hub group vars. Composes with role defaults from
+# baseline, caddy-reverse-proxy, hermod-api, vlagent, zabbix-agent, hardening.
+#
+# Single LXC (1103 on Verd, 10.0.11.22). Sits behind a Caddy reverse proxy
+# that gates inbound POSTs by source IP. Discord webhook delivery via
+# AppriseAPI to four per-tag channels (critical/alert/media/untagged).
+#
+# Architecture full reference: docs/services/notifications.md
+
+# -----------------------------------------------------------------------------
+# caddy-reverse-proxy role config
+# -----------------------------------------------------------------------------
+# Single site block: :80 → 127.0.0.1:8000 (AppriseAPI). `allowed_cidrs` is
+# the producer allowlist — keep tight, audit-as-git. Every CIDR is a host
+# or subnet that legitimately needs to POST notifications.
+#
+# Additions become a group_vars edit + re-run (no role-internal change).
+# When trimming, remember that K3s pods reach Hermod via their node's
+# eth0 IP (VLAN 21) when ETP=Cluster, so 10.0.21.0/24 covers any
+# K8s-side producer.
+
+caddy_sites:
+  - name: hermod
+    listen: ":80"
+    upstream: "127.0.0.1:8000"
+    allowed_cidrs:
+      # Zabbix server (primary producer — webhook media-type → Hermod)
+      - "10.0.11.21/32"
+      # PG trio (Patroni callbacks — leader-change → `alert`, lost-replicas → `critical`)
+      - "10.0.11.230/32"
+      - "10.0.11.231/32"
+      - "10.0.11.232/32"
+      # HAProxy/etcd trio (future failover hooks)
+      - "10.0.11.233/32"
+      - "10.0.11.234/32"
+      - "10.0.11.235/32"
+      # Asgard K3s nodes — VMAlert (future Phase 7b), Semaphore (5h.3), any K8s-side producer
+      - "10.0.21.0/24"
+      # MetalLB pool — catches LoadBalancer-mode producers if any land
+      - "10.0.20.0/24"
+      # Proxmox hosts (optional — PBS backup hook, hypervisor-level events)
+      - "10.0.254.11/32"
+      - "10.0.254.12/32"
+      - "10.0.254.13/32"
+
+# -----------------------------------------------------------------------------
+# vlagent role overrides — pick up Caddy access log
+# -----------------------------------------------------------------------------
+# Hermod's vlagent ships journald (Apprise gunicorn stderr/stdout → journal)
+# AND the Caddy JSON access log. Caddy log is the authoritative
+# "who-tried-to-alert-us" trail — JSON-structured so VL queries by
+# remote_ip / status_code / request_uri Just Work.
+vlagent_log_inputs:
+  - path: /var/log/syslog
+    service: syslog
+  - path: /var/log/caddy/hermod.log
+    service: caddy-hermod

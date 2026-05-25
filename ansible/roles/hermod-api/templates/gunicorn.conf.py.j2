@@ -1,0 +1,37 @@
+{# ansible/roles/hermod-api/templates/gunicorn.conf.py.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/hermod-api/templates/gunicorn.conf.py.j2
+
+import os
+import time
+
+# Apply timezone before workers fork
+if hasattr(time, "tzset"):
+    time.tzset()
+
+raw_env = [
+    "LANG={}".format(os.environ.get("LANG", "en_US.UTF-8")),
+    "DJANGO_SETTINGS_MODULE=core.settings",
+    "TZ={}".format(os.environ.get("TZ", "Etc/UTC")),
+]
+
+# pythonpath points at the cloned repo's apprise_api subdir (the Django
+# project root with manage.py, core/, plugins/, etc.).
+pythonpath = "{{ hermod_api_src_dir }}/apprise_api"
+
+# TCP bind — localhost only. Caddy reverse-proxies from :80 on eth0.
+bind = ["{{ hermod_api_bind_host }}:{{ hermod_api_bind_port }}"]
+
+# Workers — one is enough for homelab notification volume. AppriseAPI
+# handles fanout asynchronously within a single request.
+workers = {{ hermod_api_gunicorn_workers }}
+worker_class = "{{ hermod_api_gunicorn_worker_class }}"
+
+# Match the runtime dir created by systemd's RuntimeDirectory
+pidfile = "{{ hermod_api_runtime_dir }}/gunicorn.pid"
+
+# Logging — to stdout/stderr; systemd captures into journald, vlagent
+# ships to VL via the existing journald → syslog bridge.
+accesslog = "-"
+errorlog = "-"
+loglevel = "info"

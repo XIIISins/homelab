@@ -1,0 +1,45 @@
+{# ansible/roles/hermod-api/templates/apprise.yml.j2 #}
+{#-
+  Managed by Ansible — do not edit by hand.
+  Source: roles/hermod-api/templates/apprise.yml.j2
+
+  Stored at /etc/apprise/config/<config-key>.yml — AppriseAPI auto-loads
+  every *.yml in APPRISE_CONFIG_DIR on startup, keying by filename
+  (without extension). Producers POST to /notify/<config-key>.
+
+  Apprise YAML schema (per caronc/apprise wiki/config_yaml):
+    urls:
+      - <discord://...?...>:
+          - tag: <tagname>
+
+  The URL is the dict KEY; the value is a list of dicts containing
+  options like tag. URL-as-bare-string (no nested dict) works for
+  no-tag entries — used here for the untagged-quarantine fallback.
+
+  Discord URL conversion: Vault stores the full webhook URL
+  (https://discord.com/api/webhooks/<id>/<token>) as a single `url`
+  field per tag; the discord_apprise macro strips the prefix +
+  prepends Apprise's `discord://` scheme.
+-#}
+{%- macro discord_apprise(url) -%}
+discord://{{ url | regex_replace('^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/', '') }}
+{%- endmacro -%}
+# Hermod — notification hub configuration
+# Tag-driven routing. Sources tag; Hermod dispatches.
+urls:
+  # ── critical: wake-everyone alerts (Hrist — "the shaker") ─────────
+  - {{ discord_apprise(hermod_api_discord_urls.critical) }}/?format=markdown&username={{ hermod_api_usernames.critical }}:
+      - tag: critical
+
+  # ── alert: business-day investigation (Mist — "cloud") ────────────
+  - {{ discord_apprise(hermod_api_discord_urls.alert) }}/?format=markdown&username={{ hermod_api_usernames.alert }}:
+      - tag: alert
+
+  # ── media: entertainment notifications (Olrun — "ale-rune") ───────
+  - {{ discord_apprise(hermod_api_discord_urls.media) }}/?format=markdown&username={{ hermod_api_usernames.media }}:
+      - tag: media
+
+  # ── untagged quarantine (Hel — underworld of lost messages) ───────
+  # Bare URL (no nested tag dict) — matches notifications with no tag.
+  # POSTs tagged critical/alert/media DO NOT also land here.
+  - {{ discord_apprise(hermod_api_discord_urls.untagged) }}/?format=markdown&username={{ hermod_api_usernames.untagged }}
