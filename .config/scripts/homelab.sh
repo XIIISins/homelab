@@ -13,11 +13,12 @@
 # process don't reach the parent shell.
 #
 # Public functions:
-#   homelab-env          — load homelab env vars (cached 24h, --refresh|--clear)
-#   set-vault-token      — set VAULT_TOKEN from a named source (root|approle)
-#   vault-root-token     — echo the Vault root token from 1P (value-producer)
-#   set-aws-creds        — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
-#   rotate-approle       — rotate a Vault AppRole SecretID (--help, --fix)
+#   homelab-env           — load homelab env vars (cached 24h, --refresh|--clear)
+#   set-vault-token       — set VAULT_TOKEN from a named source (root|approle)
+#   vault-root-token      — echo the Vault root token from 1P (value-producer)
+#   set-aws-creds         — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
+#   set-proxmox-password  — set PROXMOX_VE_PASSWORD from 1P (manual; for asgard-lxcs-root)
+#   rotate-approle        — rotate a Vault AppRole SecretID (--help, --fix)
 #
 # Extending:
 #   - New env var loaded by homelab-env: append to __homelab_env_map.
@@ -32,9 +33,9 @@
 #   $__homelab_cache_path_fish — fish-format (set -gx KEY 'value')
 #   $__homelab_cache_path_sh   — POSIX-format (export KEY='value')
 #
-# set-vault-token + set-aws-creds also rewrite the cache on success, so
-# subshells (bash/zsh/fish) sourcing the cache inherit the latest tokens
-# without having to re-run homelab-env.
+# set-vault-token + set-aws-creds + set-proxmox-password also rewrite the
+# cache on success, so subshells (bash/zsh/fish) sourcing the cache inherit
+# the latest tokens without having to re-run homelab-env.
 #
 # This file sources env.sh on a cache hit. The fish sibling sources env.fish.
 # Permissions: 0600 file under 0700 parent dir. Freshness: file mtime + TTL.
@@ -151,6 +152,10 @@ __homelab_cache_write() {
     # is currently in env so a new shell inherits it on cache-hit.
     [ -n "${AWS_ACCESS_KEY_ID:-}" ]     && vars+=("AWS_ACCESS_KEY_ID")
     [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] && vars+=("AWS_SECRET_ACCESS_KEY")
+    # PROXMOX_VE_PASSWORD comes from set-proxmox-password (manually called —
+    # only needed for terraform/proxmox/asgard-lxcs-root/ applies). Cache it
+    # if set so subshells inherit; absent otherwise.
+    [ -n "${PROXMOX_VE_PASSWORD:-}" ]   && vars+=("PROXMOX_VE_PASSWORD")
 
     ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     header_fish="# homelab env cache (fish) — written $ts, TTL ${__homelab_cache_ttl_seconds}s
@@ -517,6 +522,39 @@ set-aws-creds() {
     export AWS_ACCESS_KEY_ID="$access_key"
     export AWS_SECRET_ACCESS_KEY="$secret_key"
     echo "AWS creds set ($source, from 1P)"
+}
+
+# === Public: Proxmox root@pam password ===
+#
+# Only needed for terraform/proxmox/asgard-lxcs-root/ (and any other op
+# that talks to Proxmox API endpoints requiring ticket auth — see
+# CLAUDE.md "bpg/proxmox API token can change nesting, NOT other LXC
+# features"). NOT autocalled by homelab-env — the password's only
+# consumer is a single TF module + occasional ad-hoc work, so loading
+# it on every shell would be wasted 1P churn.
+#
+# Usage:
+#   set-proxmox-password          — load PROXMOX_VE_PASSWORD from 1P, cache it
+#   terraform -chdir=terraform/proxmox/asgard-lxcs-root plan|apply
+#
+# Cache lifetime mirrors the rest of homelab-env (24h TTL). After 24h
+# the cached copy is stale; either re-run set-proxmox-password or let
+# homelab-env --refresh rewrite the cache (it preserves whatever's in
+# env, so call set-proxmox-password first, then --refresh).
+
+set-proxmox-password() {
+    local value
+    if ! value=$(__homelab_op_field 'Proxmox - Root' password); then
+        echo "set-proxmox-password: failed to read password from 1P item \"Proxmox - Root\"" >&2
+        return 1
+    fi
+    export PROXMOX_VE_PASSWORD="$value"
+    echo "PROXMOX_VE_PASSWORD set (from 1P)"
+
+    # Persist to the shared cache so subshells sourcing
+    # ~/.cache/homelab/env.{sh,fish} inherit the password. Without this,
+    # set-proxmox-password would only affect the current shell.
+    __homelab_cache_write
 }
 
 # === Public: AppRole rotation ===

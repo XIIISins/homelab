@@ -1,0 +1,5 @@
+# terraform/proxmox/asgard-lxcs-root/terraform.tfvars.example
+#
+# This module uses root@pam ticket auth (PROXMOX_VE_PASSWORD env var).
+# No API token here — only the SSH public key wired into LXCs at create.
+ssh_public_key = "ssh-ed25519 <your-public-key>"

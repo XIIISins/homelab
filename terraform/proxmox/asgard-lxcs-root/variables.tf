@@ -1,7 +1,8 @@
-variable "proxmox_api_token" {
-  description = "Proxmox API token in format user@realm!tokenid=secret"
+# terraform/proxmox/asgard-lxcs-root/variables.tf
+variable "proxmox_endpoint" {
+  description = "Proxmox API endpoint URL"
   type        = string
-  sensitive   = true
+  default     = "https://10.0.254.11:8006/api2/json"
 }
 
 variable "ssh_public_key" {

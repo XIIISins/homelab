@@ -12,11 +12,12 @@
 # Both files MUST stay in sync — same public surface, same 1P items.
 #
 # Public functions:
-#   homelab-env          — load homelab env vars (cached 24h, --refresh|--clear)
-#   set-vault-token      — set VAULT_TOKEN from a named source (root|approle)
-#   vault-root-token     — echo the Vault root token from 1P (value-producer)
-#   set-aws-creds        — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
-#   rotate-approle       — rotate a Vault AppRole SecretID (--help, --fix)
+#   homelab-env           — load homelab env vars (cached 24h, --refresh|--clear)
+#   set-vault-token       — set VAULT_TOKEN from a named source (root|approle)
+#   vault-root-token      — echo the Vault root token from 1P (value-producer)
+#   set-aws-creds         — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
+#   set-proxmox-password  — set PROXMOX_VE_PASSWORD from 1P (manual; for asgard-lxcs-root)
+#   rotate-approle        — rotate a Vault AppRole SecretID (--help, --fix)
 #
 # Extending:
 #   - New env var loaded by homelab-env: append to $__homelab_env_map.
@@ -35,9 +36,9 @@
 # sibling (.config/scripts/homelab.sh) reads the .sh file; this fish file
 # reads the .fish file. Permissions: 0600 under 0700 parent dir.
 #
-# set-vault-token + set-aws-creds also rewrite the cache on success, so
-# subshells sourcing the cache inherit the latest tokens without having
-# to re-run homelab-env.
+# set-vault-token + set-aws-creds + set-proxmox-password also rewrite the
+# cache on success, so subshells sourcing the cache inherit the latest
+# tokens without having to re-run homelab-env.
 #
 # Cache is considered fresh while file mtime is within
 # $__homelab_cache_ttl_seconds; on hit, homelab-env sources the file and
@@ -152,6 +153,12 @@ function __homelab_cache_write \
     end
     if set -q AWS_SECRET_ACCESS_KEY
         set -a vars AWS_SECRET_ACCESS_KEY
+    end
+    # PROXMOX_VE_PASSWORD comes from set-proxmox-password (manually called —
+    # only needed for terraform/proxmox/asgard-lxcs-root/ applies). Cache it
+    # if set so subshells inherit; absent otherwise.
+    if set -q PROXMOX_VE_PASSWORD
+        set -a vars PROXMOX_VE_PASSWORD
     end
 
     set -l ts (date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -508,6 +515,39 @@ function set-aws-creds --description "Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_
     set -gx AWS_ACCESS_KEY_ID $access_key
     set -gx AWS_SECRET_ACCESS_KEY $secret_key
     echo "AWS creds set ($argv[1], from 1P)"
+end
+
+# === Public: Proxmox root@pam password ===
+#
+# Only needed for terraform/proxmox/asgard-lxcs-root/ (and any other op
+# that talks to Proxmox API endpoints requiring ticket auth — see
+# CLAUDE.md "bpg/proxmox API token can change nesting, NOT other LXC
+# features"). NOT autocalled by homelab-env — the password's only
+# consumer is a single TF module + occasional ad-hoc work, so loading
+# it on every shell would be wasted 1P churn.
+#
+# Usage:
+#   set-proxmox-password          — load PROXMOX_VE_PASSWORD from 1P, cache it
+#   terraform -chdir=terraform/proxmox/asgard-lxcs-root plan|apply
+#
+# Cache lifetime mirrors the rest of homelab-env (24h TTL). After 24h
+# the cached copy is stale; either re-run set-proxmox-password or let
+# homelab-env --refresh rewrite the cache (it preserves whatever's in
+# env, so call set-proxmox-password first, then --refresh).
+
+function set-proxmox-password --description "Set PROXMOX_VE_PASSWORD from 1P (Proxmox - Root)"
+    set -l value (__homelab_op_field 'Proxmox - Root' password)
+    if test $status -ne 0
+        echo "set-proxmox-password: failed to read password from 1P item \"Proxmox - Root\"" >&2
+        return 1
+    end
+    set -gx PROXMOX_VE_PASSWORD $value
+    echo "PROXMOX_VE_PASSWORD set (from 1P)"
+
+    # Persist to the shared cache so subshells sourcing
+    # ~/.cache/homelab/env.{sh,fish} inherit the password. Without this,
+    # set-proxmox-password would only affect the current shell.
+    __homelab_cache_write
 end
 
 # === Public: AppRole rotation ===
