@@ -63,7 +63,7 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: outline-app
+                  name: outline-redis-secret
                   key: redis_password
           ports:
             - name: redis

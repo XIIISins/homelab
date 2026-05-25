@@ -33,9 +33,15 @@ metadata:
   name: garage-layout-init
   namespace: garage
 spec:
-  # Job retries the pod on failure (e.g. Garage not yet Ready); cap at
-  # 10 attempts so a genuinely broken layout doesn't loop forever.
-  backoffLimit: 10
+  # On first deploy, the Garage pod's data PVC takes a long time to
+  # format (Synology TRIM on a 200Gi LUN over 1GbE iSCSI ≈ 15-20 min),
+  # during which time garage-0's admin endpoint is unreachable and DNS
+  # for garage-0.garage-headless doesn't resolve (StatefulSet pod-DNS
+  # is only published once the pod is Ready). Each Job retry waits 5
+  # min, so 30 attempts ≈ 2.5h of wall clock — plenty for any first
+  # deploy. A genuinely-broken layout still bails out via the curl
+  # error from a reachable-but-misbehaving admin API.
+  backoffLimit: 30
   template:
     metadata:
       labels:
@@ -64,7 +70,10 @@ spec:
               # :3903 only after the local node has joined the gossip
               # ring — first start takes a few seconds.
               echo "Waiting for $ADMIN ..."
-              for i in $(seq 1 60); do
+              # 5-min wait per attempt — first-deploy mkfs on the data
+              # PVC can take 15-20 min; Job's backoffLimit covers the
+              # rest of the budget.
+              for i in $(seq 1 150); do
                 if curl -fsS -H "$AUTH" "$ADMIN/v2/GetClusterStatus" >/dev/null 2>&1; then
                   echo "Admin API reachable"
                   break
