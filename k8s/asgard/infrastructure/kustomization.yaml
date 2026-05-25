@@ -26,3 +26,8 @@ resources:
   - victoria-logs-collector
   - kube-state-metrics
   - vmagent
+  # Garage — self-hosted S3-compatible object store. Single-node
+  # (RF=1, consistency_mode=dangerous), backs Outline now + future
+  # Immich / backup targets. Bucket+key provisioning lives in
+  # terraform/garage/ (operator port-forwards admin API).
+  - garage

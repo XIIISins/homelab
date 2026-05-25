@@ -17,3 +17,6 @@ resources:
   # can rely on the namespace existing — apps reconcile AFTER infra).
   - victoriametrics
   - victorialogs
+  # Outline wiki — Authentik OIDC, PG via Patroni HAProxy VIP, S3 via
+  # Garage in infrastructure/, OIDC OAuth2 provider in terraform/authentik/.
+  - outline
