@@ -1,0 +1,13 @@
+# k8s/asgard/apps/outline/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  selector:
+    app.kubernetes.io/name: outline
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

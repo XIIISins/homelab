@@ -1,0 +1,59 @@
+# k8s/asgard/infrastructure/garage/services.yaml
+#
+# Three Services for three Garage ports:
+#   - garage-headless (RPC, 3901) — headless, gives the StatefulSet
+#     stable pod DNS names (garage-0.garage-headless.garage.svc). Used
+#     by rpc_public_addr in garage.toml.
+#   - garage-s3 (S3 API, 3900) — ClusterIP. Consumed by Outline / future
+#     Immich / future Velero via the in-cluster endpoint
+#     http://garage-s3.garage.svc.cluster.local:3900.
+#   - garage-admin (admin API, 3903) — ClusterIP. Consumed by the
+#     jkossis/garage Terraform provider via a kubectl port-forward
+#     (TF runs from the operator's MacBook, not in-cluster).
+#
+# No external LoadBalancer here — Garage is platform infrastructure,
+# not externally exposed. If we ever want external S3 access (e.g. for
+# off-cluster Velero or external backup consumers) we'll add an
+# HTTPRoute on the niflheim Gateway pointing at garage-s3.
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-headless
+  namespace: garage
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - name: rpc
+      port: 3901
+      targetPort: rpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-s3
+  namespace: garage
+spec:
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+    - name: web
+      port: 3902
+      targetPort: web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-admin
+  namespace: garage
+spec:
+  selector:
+    app.kubernetes.io/name: garage
+  ports:
+    - name: admin
+      port: 3903
+      targetPort: admin

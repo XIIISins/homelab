@@ -57,6 +57,15 @@ postgres_databases:
   - name: teamspeak3
     owner: teamspeak3
     password_vault_path: ansible/postgres/teamspeak3-password
+  # Outline wiki, asgard K3s (k8s/asgard/apps/outline/). Standard
+  # CREATE DATABASE outline OWNER outline — Outline runs its own
+  # migrations on container startup (no separate yarn db:migrate Job
+  # needed). Password minted by terraform/vault/ as random_password.outline_postgres,
+  # dual-pathed to ansible/postgres/outline-password (this role) and
+  # k8s/outline/postgres-password (ESO in the outline namespace).
+  - name: outline
+    owner: outline
+    password_vault_path: ansible/postgres/outline-password
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

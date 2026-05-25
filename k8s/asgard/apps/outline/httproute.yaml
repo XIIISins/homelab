@@ -1,0 +1,64 @@
+# k8s/asgard/apps/outline/httproute.yaml
+#
+# Two HTTPRoutes — one for the internal-only niflheim zone, one for
+# the externally-reachable midgard + apex listeners. Same backend
+# Service; the split exists because the two Gateway listeners enforce
+# different attachment policies (internal-only Gateway doesn't accept
+# the external apex hostname, midgard Gateway doesn't accept the
+# niflheim FQDN).
+#
+# Same backend Service, two routes — Outline doesn't care which
+# hostname requested it; URL env var (https://wiki.xiiisins.com) is
+# the canonical name for OIDC redirects + cookie domain. The two
+# internal hostnames work for navigation but OIDC redirects always
+# bounce through the apex.
+
+# Internal-only listener (niflheim Gateway).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: outline-niflheim
+  namespace: outline
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - wiki.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: outline
+          port: 80
+---
+# External-reachable listeners (midgard Gateway). Two attachments
+# (midgard internal alias + apex wildcard) — Authentik's HTTPRoute is
+# the template for this pattern (k8s/asgard/infrastructure/authentik/httproute.yaml).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: outline-midgard
+  namespace: outline
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-midgard
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - wiki.midgard.xiiisins.com
+    - wiki.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: outline
+          port: 80

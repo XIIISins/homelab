@@ -442,3 +442,104 @@ resource "vault_kv_secret_v2" "zabbix_api_token" {
     ignore_changes = [data_json]
   }
 }
+# Garage server secrets — RPC secret + admin token
+# -----------------------------------------------------------------------------
+# rpc_secret authenticates internal Garage RPC between pods. Required
+# even single-node (Garage refuses to start without it). Must be a
+# 64-char lowercase hex string (32 bytes encoded) — `random_id` is the
+# right primitive (random_password's lowercase alphanumeric is too
+# permissive a charset).
+#
+# admin_token authenticates the admin API at :3903. Opaque bearer; any
+# non-empty string works. Consumed by:
+#   - the Garage pod itself (set via GARAGE_ADMIN_TOKEN env from the
+#     garage-server ExternalSecret)
+#   - the jkossis/garage Terraform provider in terraform/garage/, which
+#     calls the admin API to mint buckets + access keys per consumer
+#
+# One Vault KV entry, two fields — see
+# k8s/asgard/infrastructure/garage/externalsecret.yaml for the consumer
+# shape (property: rpc_secret / property: admin_token).
+resource "random_id" "garage_rpc_secret" {
+  byte_length = 32 # → 64-char hex string; matches Garage's docs
+}
+
+resource "random_password" "garage_admin_token" {
+  length  = 40
+  special = false
+}
+
+resource "vault_kv_secret_v2" "garage_server" {
+  mount = vault_mount.kv.path
+  name  = "k8s/garage/server"
+  data_json = jsonencode({
+    rpc_secret  = random_id.garage_rpc_secret.hex
+    admin_token = random_password.garage_admin_token.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# Outline — PG password (dual-path) + app secrets (k8s-only)
+# -----------------------------------------------------------------------------
+# PG password follows the dual-path pattern (ansible/postgres/* for the
+# postgres-common role, k8s/outline/postgres-password for ESO).
+#
+# Outline app secrets live in a single k8s/outline/app KV with three
+# fields (consolidated so the Outline ExternalSecret has fewer data
+# blocks to enumerate):
+#   - secret_key   — Outline's primary signing key (cookies, OIDC state).
+#                    Rotating invalidates all sessions; treat immutable.
+#   - utils_secret — used for short-lived token signing (email confirm,
+#                    share links). Rotation invalidates outstanding tokens.
+#   - redis_password — auth for the in-namespace Redis StatefulSet.
+#
+# OIDC client_id+secret are NOT minted here — those come from
+# terraform/authentik/outline.tf (which owns the Authentik provider
+# resource that generates them).
+#
+# S3 access_key+secret are NOT minted here — those come from
+# terraform/garage/outline.tf (Garage admin API mints them at TF apply
+# time and writes to secret/k8s/outline/s3).
+resource "random_password" "outline_postgres" {
+  length  = 32
+  special = false
+}
+
+resource "vault_kv_secret_v2" "outline_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/outline-password"
+  data_json = jsonencode({
+    value = random_password.outline_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "outline_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/outline/postgres-password"
+  data_json = jsonencode({
+    value = random_password.outline_postgres.result
+  })
+}
+
+resource "random_id" "outline_secret_key" {
+  byte_length = 32 # → 64-char hex; Outline docs recommend `openssl rand -hex 32`
+}
+
+resource "random_id" "outline_utils_secret" {
+  byte_length = 32
+}
+
+resource "random_password" "outline_redis_password" {
+  length  = 32
+  special = false
+}
+
+resource "vault_kv_secret_v2" "outline_app" {
+  mount = vault_mount.kv.path
+  name  = "k8s/outline/app"
+  data_json = jsonencode({
+    secret_key     = random_id.outline_secret_key.hex
+    utils_secret   = random_id.outline_utils_secret.hex
+    redis_password = random_password.outline_redis_password.result
+  })
+}

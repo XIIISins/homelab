@@ -58,6 +58,18 @@ resource "cloudflare_dns_record" "apex" {
   ttl     = 1
 }
 
+# Outline wiki — public apex hostname tunnelled through cloudflared.
+# Cloudflared ingress rule lives in k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+# Internal LAN bypass via AGH rewrite (terraform/adguard/) to Traefik VIP.
+resource "cloudflare_dns_record" "outline" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "wiki.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #

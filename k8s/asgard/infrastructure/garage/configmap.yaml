@@ -1,0 +1,67 @@
+# k8s/asgard/infrastructure/garage/configmap.yaml
+#
+# Garage static config (garage.toml). Secrets (rpc_secret, admin_token,
+# metrics_token) are NOT embedded here — Garage honors the GARAGE_*
+# environment variables as overrides, so they come from the ExternalSecret
+# via env. Keeps the ConfigMap free of secret material.
+#
+# Single-node deploy semantics:
+#   - replication_factor = 1 (no replication; Synology RAID1 + iSCSI is
+#     the only durability layer)
+#   - consistency_mode = "dangerous" — required to start Garage with RF=1
+#     in v1.x+. The name is deliberate upstream warning; for a single-node
+#     deploy there's nothing else it could be.
+#   - rpc_public_addr uses the StatefulSet's stable pod FQDN so that, if a
+#     second replica is ever added, peers can re-resolve through DNS
+#     rather than chasing pod IPs.
+#
+# Storage layout (split, per Garage cookbook):
+#   - /var/lib/garage/meta — LMDB metadata (small, sync-heavy)
+#   - /var/lib/garage/data — content blocks (large, sequential)
+#   Two PVCs in the StatefulSet (`meta` + `data`). LMDB on iSCSI hits the
+#   same fsGroup-not-honored class as Vault / Authentik Redis — chown init
+#   container handles it (see CLAUDE.md "Synology CSI iSCSI volumes need
+#   a chown initContainer").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-config
+  namespace: garage
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir     = "/var/lib/garage/data"
+    db_engine    = "lmdb"
+
+    replication_factor = 1
+    consistency_mode   = "dangerous"
+
+    # RPC. Single-node, but Garage still requires the bind + a stable
+    # public addr (peer-discovery would use it if peers ever joined).
+    # rpc_secret comes from GARAGE_RPC_SECRET env (ExternalSecret).
+    rpc_bind_addr   = "[::]:3901"
+    rpc_public_addr = "garage-0.garage-headless.garage.svc.cluster.local:3901"
+
+    [s3_api]
+    # S3 root_domain enables virtual-host-style bucket access
+    # (bucket.s3.niflheim.xiiisins.com). Outline + Immich + Velero all
+    # work with path-style (AWS_S3_FORCE_PATH_STYLE=true), so the
+    # root_domain is mostly cosmetic, but Garage requires it as a marker
+    # for virtual-host handling. The leading dot is mandatory.
+    api_bind_addr = "[::]:3900"
+    s3_region     = "garage"
+    root_domain   = ".s3.niflheim.xiiisins.com"
+
+    [s3_web]
+    # Static-website hosting endpoint. Not used yet — could host
+    # public-bucket sites later. Bind kept enabled for parity with
+    # future use; ClusterIP-only so it's not externally reachable
+    # until someone wires a HTTPRoute.
+    bind_addr   = "[::]:3902"
+    root_domain = ".web.s3.niflheim.xiiisins.com"
+    index       = "index.html"
+
+    [admin]
+    # admin_token comes from GARAGE_ADMIN_TOKEN env (ExternalSecret).
+    # Used by the jkossis/garage Terraform provider in terraform/garage/.
+    api_bind_addr = "[::]:3903"

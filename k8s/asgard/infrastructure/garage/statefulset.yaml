@@ -1,0 +1,140 @@
+# k8s/asgard/infrastructure/garage/statefulset.yaml
+#
+# Single-replica StatefulSet — single-node Garage cluster. Two PVCs per
+# pod (meta on fast/small, data on bulk). StatefulSet (not Deployment)
+# even at one replica because:
+#   - stable pod FQDN (garage-0.garage-headless.garage.svc) feeds
+#     rpc_public_addr deterministically across pod restarts
+#   - volumeClaimTemplates give us per-pod PVCs that survive pod churn
+#     and tie 1:1 to the pod identity
+#   - growth path to N replicas later is just `replicas: N` + a layout
+#     reassign (the layout-init Job re-runs cleanly)
+#
+# Image: dxflrs/garage:v2.3.0 — latest as of 2026-05-25, v2.x protocol
+# (incompatible with v1.x clusters; greenfield-only, see decisions.md).
+#
+# Storage: meta is LMDB (sync-heavy, small) on a 10Gi PVC; data is
+# content blocks (sequential, large) on 200Gi. Both `synology-csi-iscsi-retain`
+# (default class, allowVolumeExpansion: true — grow via
+# `kubectl edit pvc <meta|data>-garage-0 -n garage` when needed).
+#
+# UID/GID: Garage upstream image runs as user `garage` (UID 1000 / GID 1000).
+# Synology CSI iSCSI doesn't honor fsGroup reliably → chown init container
+# same as Vault / Authentik Redis / Teamspeak. Drop ALL is omitted on the
+# init container so CAP_CHOWN + CAP_FOWNER survive (see CLAUDE.md
+# "Synology CSI iSCSI volumes need a chown initContainer").
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: garage
+  namespace: garage
+spec:
+  serviceName: garage-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: garage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garage
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: data-chown
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 1000:1000 /var/lib/garage/meta /var/lib/garage/data \
+                && chmod 750 /var/lib/garage/meta /var/lib/garage/data
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: true
+          volumeMounts:
+            - name: meta
+              mountPath: /var/lib/garage/meta
+            - name: data
+              mountPath: /var/lib/garage/data
+      containers:
+        - name: garage
+          image: dxflrs/garage:v2.3.0
+          imagePullPolicy: IfNotPresent
+          command: ["/garage"]
+          args: ["server"]
+          ports:
+            - name: rpc
+              containerPort: 3901
+            - name: s3
+              containerPort: 3900
+            - name: web
+              containerPort: 3902
+            - name: admin
+              containerPort: 3903
+          envFrom:
+            - secretRef:
+                name: garage-server
+          # Liveness + readiness against the admin endpoint's /health.
+          # Garage v2 exposes /health on the admin port unauthenticated
+          # (intentional — for K8s probes / load balancers).
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: meta
+              mountPath: /var/lib/garage/meta
+            - name: data
+              mountPath: /var/lib/garage/data
+      volumes:
+        - name: config
+          configMap:
+            name: garage-config
+  volumeClaimTemplates:
+    - metadata:
+        name: meta
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: synology-csi-iscsi-retain
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: synology-csi-iscsi-retain
+        resources:
+          requests:
+            storage: 200Gi

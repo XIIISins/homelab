@@ -53,3 +53,13 @@ monitoring-admins:
   # permission model; access = full read+write to the UI/API. Treat
   # this group as operator-only. is_superuser=false (no Authentik-
   # side privileges); gating is the per-app policy binding.
+
+outline-users:
+  is_superuser: false
+  # Members can authenticate to the Outline wiki
+  # (wiki.xiiisins.com / wiki.midgard / wiki.niflheim) via the OIDC
+  # Application (see outline.tf for the policy binding). Outline-side
+  # roles (admin/member/viewer) are assigned in the Outline UI by
+  # workspace admins after first OIDC login. is_superuser=false
+  # (group grants no Authentik-side privileges); gating is the per-app
+  # policy binding only.

@@ -108,8 +108,13 @@ locals {
     # K8s side: k8s/asgard/apps/apex-static/{configmap.yaml,smoketest-httproute.yaml}.
     "smoketest.niflheim.xiiisins.com" = "10.0.20.10"
 
+    # Outline wiki — K8s-fronted, behind Traefik. Pod→Traefik bypass
+    # via CoreDNS rewrite (k8s/asgard/infrastructure/coredns-custom/).
+    "wiki.niflheim.xiiisins.com" = "10.0.20.10"
+
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
+    "wiki.midgard.xiiisins.com"      = "10.0.20.10"
 
     # ── xiiisins.com — apex LAN bypass ─────────────────────────────
     # factorio is bare-LXC (no Traefik), so the LAN bypass points

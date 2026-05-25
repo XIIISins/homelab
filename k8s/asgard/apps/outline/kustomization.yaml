@@ -1,0 +1,10 @@
+# k8s/asgard/apps/outline/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - redis.yaml
+  - externalsecret.yaml
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml

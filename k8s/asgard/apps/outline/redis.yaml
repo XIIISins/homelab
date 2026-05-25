@@ -1,0 +1,122 @@
+# k8s/asgard/apps/outline/redis.yaml
+#
+# Hand-rolled single-replica Redis StatefulSet, mirrors the Authentik
+# Redis pattern (k8s/asgard/infrastructure/authentik/redis.yaml). One
+# Redis per consumer is the homelab convention — keeps blast radius
+# tight (Outline can't see Authentik's session keys, vice versa) and
+# avoids cross-app cache eviction surprises.
+#
+# Password comes from ESO (k8s/outline/app → redis_password field),
+# which the Outline ExternalSecret materializes into a K8s Secret
+# named `outline-app`. This StatefulSet reads the same Secret via
+# secretKeyRef so there's no separate Redis-only secret to manage.
+#
+# Image redis:7-alpine pinned per CLAUDE.md "Concrete-pin all IaC
+# versions, no floats" — bump deliberately + verify release notes.
+#
+# Storage: 1Gi iSCSI; allowVolumeExpansion: true on the StorageClass
+# (synology-csi-iscsi-retain) so growth is `kubectl edit pvc` away.
+# AOF on; Outline only uses Redis for ephemeral state (sessions, job
+# queues, pubsub) so loss of recent writes on crash is acceptable —
+# AOF is the conservative default.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  serviceName: outline-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: outline-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: outline-redis
+    spec:
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      initContainers:
+        - name: redis-data-chown
+          image: busybox:stable
+          command:
+            - sh
+            - -c
+            - chown -R 999:999 /data && chmod 750 /data
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: [redis-server]
+          args:
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: outline-app
+                  key: redis_password
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: synology-csi-iscsi-retain
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  selector:
+    app.kubernetes.io/name: outline-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

@@ -50,6 +50,15 @@ data:
           httpHostHeader: xiiisins.com
           noTLSVerify: true
 
+      # Outline (wiki) — apex hostname routed through the same Traefik
+      # backchannel as Authentik. Cloudflare DNS record (apex CNAME)
+      # is in terraform/cloudflare/main.tf as cloudflare_dns_record.outline.
+      - hostname: wiki.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: wiki.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

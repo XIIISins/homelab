@@ -1,0 +1,81 @@
+# k8s/asgard/apps/outline/deployment.yaml
+#
+# Single-replica Deployment. Outline is stateless app (all state lives
+# in PG / Redis / Garage), so HA is theoretically possible — but:
+#   - Migrations auto-run on entrypoint. Two replicas starting in
+#     parallel race on `yarn db:migrate`; one wins, the other crashes
+#     and the StrategyType=RollingUpdate eventually re-rolls cleanly,
+#     but each restart spams logs + paged-ops attention.
+#   - WebSocket sticky-session for the realtime collab feature is
+#     trivially solved at one replica; multi-replica needs session
+#     affinity on the Service which we currently don't wire.
+# Single replica is the right homelab tradeoff. Revisit if Outline
+# becomes a critical-path workload.
+#
+# Image: ghcr.io/outline/outline pinned (CLAUDE.md). Verify exact
+# stable tag at ghcr.io/outline/outline tags before bumping; v0.87.x
+# series is the current stable line.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  replicas: 1
+  strategy:
+    # Recreate (not RollingUpdate) — see migrations note above.
+    # New pod won't start until old one is fully gone, so migrations
+    # run serially.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: outline
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: outline
+    spec:
+      containers:
+        - name: outline
+          image: ghcr.io/outline/outline:0.87.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: outline-app
+          ports:
+            - name: http
+              containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /_health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # Generous failureThreshold — Outline's startup can take
+            # 30-60s on first deploy while migrations run; Recreate
+            # strategy gives further leeway by sequencing pod replacement.
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /_health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            # Outline image runs as a non-root `nodejs` user by default
+            # (UID 1001 in recent tags). No filesystem writes outside
+            # /tmp + the upload path (which goes to S3, not local).
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
