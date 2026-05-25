@@ -5,6 +5,10 @@ global_defs {
 {% for k, v in keepalived_global_defs.items() %}
     {{ k }} {{ v }}
 {% endfor %}
+{% if keepalived_enable_script_security %}
+    enable_script_security
+    script_user {{ keepalived_script_user }} {{ keepalived_script_group }}
+{% endif %}
 }
 
 {% for script in keepalived_vrrp_scripts %}

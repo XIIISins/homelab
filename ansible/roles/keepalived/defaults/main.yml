@@ -9,6 +9,18 @@ keepalived_package: keepalived
 keepalived_service: keepalived
 keepalived_config_path: /etc/keepalived/keepalived.conf
 
+# Script security. When enabled, keepalived emits `enable_script_security`
+# + `script_user <user> <group>` in global_defs, and the role provisions
+# the system user/group so the daemon drops privileges before exec'ing
+# vrrp_script entries. Default ON — without it, scripts run as root and
+# keepalived logs `SECURITY VIOLATION - scripts are being executed but
+# script_security not enabled` at startup. Disable only if a track-script
+# genuinely needs root (none of the current consumers do — `systemctl
+# is-active` works for any user via D-Bus).
+keepalived_enable_script_security: true
+keepalived_script_user: keepalived_script
+keepalived_script_group: keepalived_script
+
 # global_defs block. Keys are emitted as `<key> <value>` inside
 # `global_defs { ... }`. router_id defaults to inventory_hostname.
 keepalived_global_defs:

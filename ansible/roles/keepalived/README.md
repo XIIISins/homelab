@@ -30,10 +30,30 @@ See `defaults/main.yml` for the full annotated schema. Summary:
 | Variable | Type | Purpose |
 |----------|------|---------|
 | `keepalived_global_defs` | dict | Key-value pairs emitted in `global_defs { ... }` |
+| `keepalived_enable_script_security` | bool | Emit `enable_script_security` + `script_user` and provision the runner account (default `true`) |
+| `keepalived_script_user` / `_group` | string | System account vrrp_scripts drop to (default `keepalived_script`) |
 | `keepalived_vrrp_scripts` | list[dict] | `vrrp_script` blocks (track-script definitions) |
 | `keepalived_vrrp_instances` | list[dict] | `vrrp_instance` blocks (the actual VRRP) |
 | `keepalived_priorities` | dict | Per-host priorities map (caller dereferences) |
 | `keepalived_source_policy_routing` | list[dict] | Optional policy-routing entries |
+
+### Script security
+
+`keepalived_enable_script_security: true` (default) makes the role:
+
+1. Create a system account (`keepalived_script:keepalived_script` by
+   default) before rendering the config.
+2. Emit `enable_script_security` and `script_user <user> <group>` inside
+   `global_defs`, so the daemon drops privileges before exec'ing every
+   `vrrp_script`.
+
+Without this, keepalived runs track-scripts as root and logs
+`SECURITY VIOLATION - scripts are being executed but script_security not
+enabled` at startup. The current consumers (`chk_adguard`, `chk_haproxy`)
+only call `systemctl is-active`, which reads unit state via D-Bus and
+works for any user — no script needs root. Override per-script with
+`script_user` inside a `vrrp_script` entry if a future check genuinely
+does (rare).
 
 ### Election model
 
