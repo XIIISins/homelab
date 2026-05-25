@@ -105,3 +105,18 @@ zabbix_agent_host_groups:
   - "Linux servers"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+
+# Host-level Zabbix macros passed to the host record at register time
+# (community.zabbix.zabbix_host's `macros:` parameter). Empty by
+# default; per-inventory-group overrides in group_vars set service-
+# specific values (e.g. {$PG.*} for PG hosts).
+#
+# Shape — list of dicts. `type` defaults to text; set to "secret" for
+# password values so the UI hides them + the API doesn't return them
+# in GET responses. Vault lookups inline for sensitive values.
+#
+#   zabbix_agent_host_macros:
+#     - { macro: "{$PG.URI}",      value: "tcp://localhost:5432" }
+#     - { macro: "{$PG.USER}",     value: "zbx_monitor" }
+#     - { macro: "{$PG.PASSWORD}", value: "{{ lookup('...').secret.value }}", type: secret }
+zabbix_agent_host_macros: []

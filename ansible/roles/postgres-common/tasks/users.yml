@@ -22,3 +22,21 @@
   loop_control:
     label: "{{ item.name }}"
   no_log: true
+
+# Predefined-role grants (e.g. pg_monitor → zbx_monitor). Separate
+# module — community.postgresql.postgresql_user doesn't have a
+# `groups` arg; postgresql_membership is the canonical way to grant
+# PG role membership. Subelements iterates (user, group) pairs, with
+# skip_missing letting users that don't declare `groups` pass through
+# unchanged.
+- name: Grant predefined-role memberships
+  community.postgresql.postgresql_membership:
+    source_role: "{{ item.1 }}"
+    target_roles: "{{ item.0.name }}"
+    state: present
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_management_users | subelements('groups', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }} → {{ item.1 }}"

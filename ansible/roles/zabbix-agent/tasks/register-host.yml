@@ -31,6 +31,7 @@
     host_name: "{{ zabbix_agent_hostname }}"
     host_groups: "{{ zabbix_agent_host_groups }}"
     link_templates: "{{ zabbix_agent_link_templates }}"
+    macros: "{{ zabbix_agent_host_macros | default([]) }}"
     interfaces:
       - type: agent
         main: 1

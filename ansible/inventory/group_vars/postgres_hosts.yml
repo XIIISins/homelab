@@ -59,15 +59,38 @@ postgres_databases:
     password_vault_path: ansible/postgres/teamspeak3-password
 
 # -----------------------------------------------------------------------------
-# Zabbix host record taxonomy
+# Zabbix host record taxonomy (Round 2 — PG monitoring depth)
 # -----------------------------------------------------------------------------
-# Linux baseline only for now. `PostgreSQL by Zabbix agent 2` exists
-# but requires {$PG.CONNSTRING}/{$PG.USER}/{$PG.PASSWORD} macros + a
-# zbx_monitor PG role with pg_monitor privilege — deferred to a
-# Round 2 phase that mints the monitoring user + sets the macros
-# per host alongside the template attach.
+# Linux baseline + `PostgreSQL by Zabbix agent 2`. The PG template uses
+# {$PG.URI}/{$PG.USER}/{$PG.PASSWORD}/{$PG.DATABASE} macros — agent2's
+# PG plugin parses URI, connects, runs SELECTs against pg_stat_* views
+# (read-only, via the `pg_monitor` predefined role).
+#
+# Monitoring user `zbx_monitor` provisioned by postgres-common on the
+# Patroni leader (see postgres-common/defaults/main.yml). Password
+# minted in Vault at ansible/postgres/zabbix-monitor-password (TF).
+# Same password across all three PG nodes (single Patroni cluster,
+# shared user table via streaming replication).
+# PG monitoring needs the agent2 PostgreSQL plugin, which Zabbix ships
+# as a separate Debian package (NOT bundled with base zabbix-agent2).
+# Without it, items return `Unknown metric pgsql.<...>` in unsupported
+# state. Override the role default to include it on PG hosts only.
+zabbix_agent_packages:
+  - zabbix-agent2
+  - zabbix-agent2-plugin-postgresql
+
 zabbix_agent_host_groups:
   - "Linux servers"
   - "Asgard/LXCs/Postgres"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  - "PostgreSQL by Zabbix agent 2"
+zabbix_agent_host_macros:
+  # Only PASSWORD needs an override — the template's own defaults for
+  # {$PG.CONNSTRING.AGENT2} (tcp://localhost:5432), {$PG.USER}
+  # (zbx_monitor), and {$PG.DATABASE} (postgres) all match the
+  # provisioning shape we want. Adding redundant macros here would
+  # just be noise.
+  - macro: "{$PG.PASSWORD}"
+    value: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/postgres/zabbix-monitor-password').secret.value }}"
+    type: secret

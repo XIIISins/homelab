@@ -30,6 +30,11 @@ postgres_management_users:
     vault_path: ansible/postgres/replicator-password
     role_attr_flags: REPLICATION,LOGIN
     description: "Patroni-internal streaming replication + pg_basebackup user"
+  - name: zbx_monitor
+    vault_path: ansible/postgres/zabbix-monitor-password
+    role_attr_flags: LOGIN
+    groups: [pg_monitor] # PG predefined role — SELECT on pg_stat_*, pg_ls_*, pg_show_replication_origin_status etc.
+    description: "Zabbix PG monitoring user (read-only; pg_monitor membership)"
 
 # ---- Per-service DBs ----
 # Set in inventory/group_vars/postgres_hosts.yml. Each entry:

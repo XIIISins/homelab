@@ -12,13 +12,19 @@
 #                 the adoption-time pre-Patroni primary)
 #   - databases — per-service DBs only (rare standalone use)
 
-- name: Create management PG roles (admin, ansible, replicator)
-  ansible.builtin.include_tasks: users.yml
+- name: Create management PG roles (admin, ansible, replicator, zbx_monitor)
+  ansible.builtin.include_tasks:
+    file: users.yml
+    apply:
+      tags: [postgres-common-users] # apply: required — include_tasks doesn't propagate --tags to inner tasks
   when: (not postgres_patroni_managed) or (patroni_is_leader | default(false))
   tags: [postgres-common-users]
 
 - name: Create per-service databases and owning roles
-  ansible.builtin.include_tasks: databases.yml
+  ansible.builtin.include_tasks:
+    file: databases.yml
+    apply:
+      tags: [postgres-common-databases]
   when:
     - postgres_databases | length > 0
     - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
