@@ -506,8 +506,14 @@ resource "proxmox_virtual_environment_container" "adguard" {
 }
 
 # ----------------------------------------------------------------------------
-# LXC 1102 — Zabbix server (Skuld)
+# LXC 1102 — Hugin (Zabbix server, Urd)
 # ----------------------------------------------------------------------------
+# Norse identity: Hugin, one of Odin's two ravens — "Thought" — flies
+# out across the world each day and returns to report what he's seen.
+# Pairs with Munin (the NAS — "Memory"): one observes, one remembers.
+# Tag is the service function (`zabbix`), matching the rest of the
+# fleet (AGH trio tagged `adguard`, PG tagged `postgres`, etc.).
+#
 # Monitoring server for the homelab. Stays outside K3s (per the
 # architectural invariant) for monitoring independence — when K3s
 # is the thing on fire, we don't want our visibility into the fire
@@ -548,13 +554,13 @@ resource "proxmox_virtual_environment_container" "adguard" {
 #   - ansible/roles/zabbix-agent/README.md (TBD — 7c.8)
 # ----------------------------------------------------------------------------
 
-resource "random_password" "zabbix_root" {
+resource "random_password" "hugin_root" {
   length  = 32
   special = true
 }
 
-resource "proxmox_virtual_environment_container" "zabbix" {
-  description = "Zabbix server + frontend + agent"
+resource "proxmox_virtual_environment_container" "hugin" {
+  description = "Hugin — Zabbix server + frontend + agent"
 
   node_name = "urd"
   vm_id     = 1102
@@ -587,7 +593,7 @@ resource "proxmox_virtual_environment_container" "zabbix" {
   }
 
   initialization {
-    hostname = "zabbix"
+    hostname = "hugin"
 
     ip_config {
       ipv4 {
@@ -598,7 +604,7 @@ resource "proxmox_virtual_environment_container" "zabbix" {
 
     user_account {
       keys     = [trimspace(var.ssh_public_key)]
-      password = random_password.zabbix_root.result
+      password = random_password.hugin_root.result
     }
   }
 
