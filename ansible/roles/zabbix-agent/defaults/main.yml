@@ -57,19 +57,33 @@ zabbix_agent_log_file: /var/log/zabbix/zabbix_agent2.log
 # After install + configure, the role calls Zabbix's API to ensure a
 # host record exists with this agent's Hostname + Agent interface +
 # the host groups / templates declared below. Idempotent on re-run
-# (community.zabbix.zabbix_host handles update vs create). Runs
-# delegate_to: localhost so the API HTTP call happens from the
-# control node, not the target host — keeps the agent host network-
-# clean and the Vault lookup natural.
+# (community.zabbix.zabbix_host handles update vs create).
 #
-# Bootstrap step (one-time, before the first --tags zabbix-agent:register
-# run): log into Zabbix UI as Admin → top-right user icon → API tokens
-# → Add → no expiry → generate → copy the token (shown ONCE) → stash:
-#   vault kv put secret/ansible/zabbix/api-token value=<the-token>
-# The terraform/vault/main.tf resource has lifecycle.ignore_changes
-# on data_json so this manual put won't be clobbered.
+# community.zabbix 4.x uses the httpapi connection plugin (NOT env
+# vars — those were 1.x/2.x). The role delegates the module call to
+# the `zabbix_agent_api_delegate` inventory host (default: hugin),
+# overrides the connection to httpapi at task scope, and points
+# the module at the Zabbix API on the delegated host's `ansible_host`
+# IP + port `zabbix_agent_api_port` (default 80, internal HTTP). When
+# Phase 7c.5 puts Zabbix behind Traefik with TLS, flip ssl=true +
+# port=443 + use a delegate that resolves to the Traefik VIP.
+#
+# Bootstrap step (one-time): mint a Zabbix API token under a user
+# with Super admin role:
+#   1. Zabbix UI → Users → Users → click ansible (or Admin) →
+#      Permissions → Role: "Super admin role" (NOT just "Admin role"
+#      — Admin has no host visibility without group grants).
+#   2. Top-right user icon → API tokens → Add → no expiry → Generate
+#      → copy the token (shown ONCE).
+#   3. From workstation:
+#        vault kv put secret/ansible/zabbix/api-token value=<token>
+#   terraform/vault/main.tf has lifecycle.ignore_changes on data_json
+#   so this manual put won't be clobbered by future TF applies.
 zabbix_agent_register_host: true
-zabbix_agent_api_url: "http://hugin-direct.niflheim.xiiisins.com"
+zabbix_agent_api_delegate: hugin
+zabbix_agent_api_port: 80
+zabbix_agent_api_use_ssl: false
+zabbix_agent_api_user: ansible
 zabbix_agent_api_token_vault_path: "ansible/zabbix/api-token"
 zabbix_agent_api_token_vault_field: value
 

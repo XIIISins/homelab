@@ -3,19 +3,23 @@
 # Declarative host registration: ensure the Zabbix server has a host
 # record for this agent, with the right agent interface + host groups
 # + linked templates. Idempotent — community.zabbix.zabbix_host
-# handles create-vs-update. Runs delegate_to: localhost so the API
-# call goes from the control node (where Vault lookups + kubeconfig
-# + 1P env live), not the target host.
+# handles create-vs-update.
+#
+# community.zabbix 4.x REQUIRES the httpapi connection plugin — env
+# vars (ZABBIX_API_URL / ZABBIX_API_TOKEN) are 1.x/2.x legacy that
+# 4.x rejects with `socket_path must be a value`. The pattern is:
+# delegate_to a host that represents the Zabbix server (we use the
+# existing `hugin` inventory entry), then override `ansible_connection`
+# to httpapi at task scope with the auth + endpoint vars. The module
+# then makes API calls to the delegated host's `ansible_host` IP.
 #
 # become: false on the delegated tasks is required — without it, the
-# play-level `become: true` (set in zabbix-agents.yml for the target
-# hosts' package + service tasks) is inherited even on the localhost
-# delegation, which then triggers sudo on the operator workstation.
-# Operator's user doesn't have passwordless sudo; the task hangs with
-# "sudo: a password is required" (no_log: true on the task hides this
-# from the playbook output, so the symptom is "every host fails with
-# zero diagnostic info"). The control-node-side API call has no need
-# for root anyway.
+# play-level `become: true` (from zabbix-agents.yml) is inherited
+# even on the localhost set_fact delegation, triggering a sudo prompt
+# on the operator workstation. no_log: true on these tasks hides any
+# error from the playbook output, so a stuck sudo prompt presents
+# as "every host fails with zero diagnostic info" — drop no_log
+# temporarily + run a standalone playbook to see the real error.
 
 - name: Look up Zabbix API token from Vault
   ansible.builtin.set_fact:
@@ -40,10 +44,15 @@
         dns: "{{ zabbix_agent_hostname }}"
         port: "{{ zabbix_agent_listen_port }}"
     state: present
-  delegate_to: localhost
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
   become: false
-  environment:
-    ZABBIX_API_URL: "{{ zabbix_agent_api_url }}"
-    ZABBIX_API_TOKEN: "{{ zabbix_agent_api_token }}"
-    ZABBIX_VALIDATE_CERTS: "false" # internal HTTP, no TLS yet (7c.5)
-  no_log: true # token in env
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: "{{ zabbix_agent_api_token }}"
+    ansible_zabbix_url_path: ""
+  no_log: true # token in vars
