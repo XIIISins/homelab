@@ -522,6 +522,31 @@ resource "random_password" "adguard_root" {
 resource "proxmox_virtual_environment_container" "adguard" {
   for_each = local.adguard_nodes
 
+  # Post-import drift suppression. The bpg/proxmox provider doesn't return
+  # `operating_system.template_file_id` or `initialization.user_account` from
+  # the Proxmox API on read (Proxmox doesn't store the source template after
+  # creation, and user_account is a create-only "seed"), so on every plan
+  # after `terraform import` these read back as null and TF wants to set
+  # them — both flagged "forces replacement", which would destroy + recreate
+  # the running LXC. Ignoring them is correct: post-creation, both are
+  # Ansible-managed (baseline + hardening own SSH state; the template is
+  # only relevant at first-create). Applies to fresh creates too — the
+  # values are still written at creation, ignore_changes only suppresses
+  # subsequent diffs. Added when importing the manual AGH trio (Phase 5b.2).
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+      # community-scripts installer set keyctl=true. The bpg API token
+      # can't change feature flags other than nesting (see CLAUDE.md
+      # "bpg/proxmox API token can change nesting, NOT other LXC features").
+      # Switching to the root-aliased provider just to flip this is
+      # heavier than the value — ignore it. AGH doesn't depend on keyctl
+      # either way.
+      features[0].keyctl,
+    ]
+  }
+
   description = "AdGuard Home node (${each.key})"
 
   node_name = each.value.node

@@ -131,6 +131,23 @@ resource "vault_kv_secret_v2" "keepalived_pg_vrrp" {
   })
 }
 
+# Same pattern for the AdGuard trio (Saga/Mimir/Kvasir). Different VRID
+# (51 vs PG's 61) + different L2 segment behavior, but the auth_pass is
+# the same shape — 8-byte printable ASCII shared secret consumed by the
+# keepalived role on each AGH node.
+resource "random_password" "keepalived_adguard_vrrp" {
+  length  = 8
+  special = false
+}
+
+resource "vault_kv_secret_v2" "keepalived_adguard_vrrp" {
+  mount = vault_mount.kv.path
+  name  = "ansible/keepalived/adguard_vrrp"
+  data_json = jsonencode({
+    auth_pass = random_password.keepalived_adguard_vrrp.result
+  })
+}
+
 # -----------------------------------------------------------------------------
 # Per-service PG passwords — single mint, dual path
 # -----------------------------------------------------------------------------
@@ -228,5 +245,39 @@ resource "vault_kv_secret_v2" "netbox_superuser" {
   data_json = jsonencode({
     password  = random_password.netbox_superuser_password.result
     api_token = random_password.netbox_superuser_api_token.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# Teamspeak PG password — dual-path mint (same pattern as netbox_postgres)
+# -----------------------------------------------------------------------------
+# TS3 3.13+ supports PostgreSQL natively via the first-party ts3db_postgresql
+# plugin. The K8s workload (k8s/asgard/apps/teamspeak/) consumes the password
+# via ESO from k8s/teamspeak/postgres-password; the Ansible postgres-common
+# role provisions the matching PG role + database on the Patroni leader using
+# ansible/postgres/teamspeak3-password (configured in
+# inventory/group_vars/postgres_hosts.yml).
+#
+# Role/DB name `teamspeak3` (not `teamspeak`) intentionally — matches the
+# default DB name the TS3 server's create_postgresql plugin assumes when
+# auto-bootstrapping schema. If renamed, set TS3SERVER_DB_NAME accordingly.
+resource "random_password" "teamspeak_postgres" {
+  length  = 32
+  special = false # plain alphanumeric — no env-var / connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "teamspeak_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/teamspeak3-password"
+  data_json = jsonencode({
+    value = random_password.teamspeak_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "teamspeak_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/teamspeak/postgres-password"
+  data_json = jsonencode({
+    value = random_password.teamspeak_postgres.result
   })
 }

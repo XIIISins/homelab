@@ -31,18 +31,74 @@
     group: "{{ adguard_group }}"
     mode: "0755"
 
-# Extract preserves the tarball's `AdGuardHome/` top-level dir →
-# strip-components=1 lands files directly under adguard_install_dir.
-- name: Extract AdGuardHome tarball
-  ansible.builtin.unarchive:
-    src: "/tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz"
-    dest: "{{ adguard_install_dir }}"
-    remote_src: true
-    extra_opts: ["--strip-components=1"]
-    owner: "{{ adguard_user }}"
-    group: "{{ adguard_group }}"
+# Extract pattern is "temp dir + move" rather than direct extract with
+# --strip-components. Rationale: the AdGuardHome tarball ships paths
+# prefixed `./AdGuardHome/...`. GNU tar's --strip-components=1 strips
+# `./` (one slash-separated component) and leaves `AdGuardHome/...`,
+# so files end up at `<dest>/AdGuardHome/AdGuardHome` rather than
+# `<dest>/AdGuardHome`. --strip-components=2 would work for the current
+# upstream layout but breaks if the tarball ever drops the `./` prefix.
+# Ansible's builtin unarchive ALSO trips up: its post-extraction
+# validation tries to stat the originally-listed paths (with strip-
+# components prefix intact), and when --strip-components renames a
+# directory entry to a regular-file path that already exists at the
+# destination, it errors with `[Errno 20] Not a directory`.
+#
+# The temp-dir-then-move pattern avoids both: extract verbatim into
+# a clean tmpfs path, then rsync into place. Robust to tarball-layout
+# shifts and to the existing-running-binary case (rsync's atomic
+# replace pattern handles overwrite-while-running cleanly).
+#
+# Surfaced 2026-05-25 on Mimir during the manual→IaC migration; the
+# `--strip-components=1` attempt left `/opt/AdGuardHome/AdGuardHome` as
+# a *directory* containing the new binary, with AGH unable to start.
+- name: Create temp extraction dir for AdGuardHome tarball
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: agh-extract
+  register: adguard_extract_dir
+  when: adguard_installed_version != adguard_version
+
+- name: Extract AdGuardHome tarball to temp dir
+  ansible.builtin.command:
+    cmd: tar -xzf /tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz -C {{ adguard_extract_dir.path }}
+  changed_when: true
+  when: adguard_installed_version != adguard_version
+
+# Recovery: a previous broken extract (2026-05-25 release of this role)
+# could leave `<adguard_binary>` as a DIRECTORY. Remove it first so the
+# new binary can land cleanly. file:state=absent works for either file
+# or directory.
+- name: Remove any pre-existing AdGuardHome binary path (file or dir)
+  ansible.builtin.file:
+    path: "{{ adguard_binary }}"
+    state: absent
+  when: adguard_installed_version != adguard_version
+
+- name: Locate AdGuardHome binary inside extracted tree
+  ansible.builtin.find:
+    paths: "{{ adguard_extract_dir.path }}"
+    patterns: AdGuardHome
+    recurse: true
+    file_type: file
+  register: adguard_binary_search
+  when: adguard_installed_version != adguard_version
+
+- name: Move extracted AdGuardHome assets into install dir
+  ansible.builtin.shell: |
+    set -e
+    src_dir=$(dirname '{{ adguard_binary_search.files[0].path }}')
+    cp -a "$src_dir"/. '{{ adguard_install_dir }}/'
+    chown -R '{{ adguard_user }}:{{ adguard_group }}' '{{ adguard_install_dir }}/AdGuardHome' '{{ adguard_install_dir }}/AdGuardHome.sig' '{{ adguard_install_dir }}/CHANGELOG.md' '{{ adguard_install_dir }}/LICENSE.txt' '{{ adguard_install_dir }}/README.md' 2>/dev/null || true
+  changed_when: true
   when: adguard_installed_version != adguard_version
   notify: restart AdGuardHome
+
+- name: Clean up extract dir
+  ansible.builtin.file:
+    path: "{{ adguard_extract_dir.path }}"
+    state: absent
+  when: adguard_installed_version != adguard_version
 
 - name: Clean up tarball
   ansible.builtin.file:

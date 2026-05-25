@@ -36,6 +36,17 @@ adguard_rewrites: []
 # -----------------------------------------------------------------------------
 # Defaults in the role already point at the right Saga/Mimir/Kvasir
 # IPs. No overrides needed unless topology changes.
+#
+# Username override: the homelab operator's AGH admin user is `ghost`,
+# not the role-default `admin`. Both roles consume the same username —
+# adguard role's config template renders `users[0].name`, sync role
+# authenticates with it. Sync's password comes from
+# secret/ansible/adguardhome-sync/admin-password (Vault), which carries
+# whatever plaintext matches the bcrypt hash in Saga's config (extracted
+# during 5b.2.a). 1P "Adguard - admin" has username=ghost and password
+# matching the live hash.
+adguard_admin_user: ghost
+adguardhome_sync_admin_user: ghost
 
 # -----------------------------------------------------------------------------
 # keepalived — VIP 10.0.10.200 on VLAN 10 (HL-ASG-VIP)
