@@ -11,8 +11,8 @@
         {
           "title": "VL disk usage",
           "width": 6,
-          "unit": "bytes",
-          "expr": ["vl_data_size_bytes"]
+          "unit": "GiB",
+          "expr": ["vl_data_size_bytes / 1024 / 1024 / 1024"]
         }
       ]
     },
@@ -54,8 +54,8 @@
         {
           "title": "vmagent remote_write queue (pending)",
           "width": 6,
-          "unit": "bytes",
-          "expr": ["sum by(url) (vmagent_remotewrite_pending_data_bytes)"]
+          "unit": "MiB",
+          "expr": ["sum by(url) (vmagent_remotewrite_pending_data_bytes) / 1024 / 1024"]
         }
       ]
     }

@@ -501,6 +501,11 @@ CP cpu/memory parameterized per-node in `locals.control_planes` map in `terrafor
 - **fish command-substitution collapses newlines when echoed via variable.** `set -l var (cmd)` captures list-of-lines; `echo $var | grep` joins with spaces. Preserve structure: pipe directly (`cmd | grep`), or iterate the list (`for line in $var`).
 - **`kubectl exec` warning lines pollute scripted parsing.** Multi-container pods print `Defaulted container "X" out of: ...` to stdout. Always pin with `-c <container>` for scripts.
 
+### vmui / VictoriaMetrics dashboards
+
+- **vmui's predefined-dashboard `unit` field is a label suffix, NOT a formatter.** `app/vmui/.../utils/uplot/helpers.ts::formatTicks` appends `unit` verbatim after `toLocaleString("en-US")`. Values like `"bytes"` / `"binbytes"` / `"decbytes"` do nothing — vmui has no auto-scaling B→KiB→MiB→GiB logic and no Grafana-style unit registry. **Convert in PromQL** (`metric / 1024 / 1024 / 1024`) and set `"unit": "GiB"` as a label. For mixed-magnitude series there's no in-vmui fix — pick a fixed unit per panel (node/namespace memory → GiB, pod-level RSS → MiB) and live with the loss of precision on outliers. Surfaced 2026-05-25 dashboard polish.
+- **vmui `customDashboardsPath` is read at startup only.** Updating the mounted ConfigMap doesn't hot-reload — vmsingle pod restart (`kubectl rollout restart sts ...`) needed after dashboard JSON changes. (Same class as the subPath ConfigMap rule in Flux/Helm/Kustomize gotchas, but `customDashboardsPath` mounts the whole dir not a subPath; the issue is the application-side load-once behavior, not kubelet snapshotting.)
+
 ### SFTPGo / Factorio
 
 - **SFTPGo sqlite `data_provider_name` must be absolute** (`/var/lib/sftpgo/sftpgo.db`). Unit's `WorkingDirectory=/etc/sftpgo` makes relative paths FHS-wrong. Create the var-lib dir with sftpgo ownership.

@@ -9,10 +9,10 @@
           "expr": ["sum by(node) (rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]))"]
         },
         {
-          "title": "Cluster memory usage (by node)",
+          "title": "Cluster memory usage by node",
           "width": 6,
-          "unit": "bytes",
-          "expr": ["sum by(node) (container_memory_working_set_bytes{image!=\"\"})"]
+          "unit": "GiB",
+          "expr": ["sum by(node) (container_memory_working_set_bytes{image!=\"\"}) / 1024 / 1024 / 1024"]
         }
       ]
     },
@@ -26,8 +26,8 @@
         {
           "title": "Memory usage by namespace",
           "width": 6,
-          "unit": "bytes",
-          "expr": ["sum by(namespace) (container_memory_working_set_bytes{image!=\"\",namespace!=\"\"})"]
+          "unit": "GiB",
+          "expr": ["sum by(namespace) (container_memory_working_set_bytes{image!=\"\",namespace!=\"\"}) / 1024 / 1024 / 1024"]
         }
       ]
     },
@@ -41,8 +41,8 @@
         {
           "title": "Top 10 pods — RSS",
           "width": 6,
-          "unit": "bytes",
-          "expr": ["topk(10, sum by(namespace,pod) (container_memory_working_set_bytes{image!=\"\"}))"]
+          "unit": "MiB",
+          "expr": ["topk(10, sum by(namespace,pod) (container_memory_working_set_bytes{image!=\"\"})) / 1024 / 1024"]
         }
       ]
     },
