@@ -1,5 +1,13 @@
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.10.0"
+
+  backend "s3" {
+    bucket       = "xiiisins-homelab-tfstate"
+    key          = "proxmox/asgard-lxcs/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 
   required_providers {
     proxmox = {

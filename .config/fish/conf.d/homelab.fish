@@ -61,7 +61,8 @@ set -g __homelab_env_map \
     "AUTHENTIK_TOKEN|Asgard - Authentik - akadmin API token|credential" \
     "AUTHENTIK_URL|Asgard - Authentik - akadmin API token|url" \
     "ADGUARD_USERNAME|Adguard - admin|username" \
-    "ADGUARD_PASSWORD|Adguard - admin|password"
+    "ADGUARD_PASSWORD|Adguard - admin|password" \
+    "NETBOX_API_TOKEN|Asgard - NetBox - Admin API token|credential"
 
 # Each entry: "ENV_VAR|literal value"
 # Static (non-1P) env vars — written into the cache alongside 1P vars on
@@ -71,7 +72,8 @@ set -g __homelab_static_env_map \
     "KUBECONFIG|$HOME/.kube/niflheim-asgard.yaml" \
     "ADGUARD_HOST|10.0.11.201" \
     "ADGUARD_SCHEME|http" \
-    "AWS_DEFAULT_REGION|eu-west-1"
+    "AWS_DEFAULT_REGION|eu-west-1" \
+    "NETBOX_SERVER_URL|https://netbox.niflheim.xiiisins.com"
 
 # Dual-format cache (see header). Both files have the same TTL — freshness
 # is checked against the fish file's mtime (both are written together).

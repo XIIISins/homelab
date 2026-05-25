@@ -1,0 +1,5 @@
+# terraform/aws/terraform.tfvars.example
+# Copy to terraform.tfvars and adjust. terraform.tfvars is gitignored.
+
+aws_region        = "eu-west-1"
+state_bucket_name = "xiiisins-homelab-tfstate"
