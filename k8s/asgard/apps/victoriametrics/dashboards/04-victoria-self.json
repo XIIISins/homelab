@@ -9,8 +9,9 @@
           "expr": ["sum by(type) (rate(vl_rows_ingested_total[5m]))"]
         },
         {
-          "title": "VL disk usage (bytes)",
+          "title": "VL disk usage",
           "width": 6,
+          "unit": "bytes",
           "expr": ["vl_data_size_bytes"]
         }
       ]
@@ -51,8 +52,9 @@
           "expr": ["sum by(job) (rate(vm_promscrape_scrapes_total{status_code=\"200\"}[5m])) / sum by(job) (rate(vm_promscrape_scrapes_total[5m]))"]
         },
         {
-          "title": "vmagent remote_write queue (pending bytes)",
+          "title": "vmagent remote_write queue (pending)",
           "width": 6,
+          "unit": "bytes",
           "expr": ["sum by(url) (vmagent_remotewrite_pending_data_bytes)"]
         }
       ]
