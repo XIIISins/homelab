@@ -15,6 +15,7 @@
 #   homelab-env          — load homelab env vars (cached 24h, --refresh|--clear)
 #   set-vault-token      — set VAULT_TOKEN from a named source (root|approle)
 #   vault-root-token     — echo the Vault root token from 1P (value-producer)
+#   set-aws-creds        — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
 #   rotate-approle       — rotate a Vault AppRole SecretID (--help, --fix)
 #
 # Extending:
@@ -34,11 +35,15 @@
 # sibling (.config/scripts/homelab.sh) reads the .sh file; this fish file
 # reads the .fish file. Permissions: 0600 under 0700 parent dir.
 #
+# set-vault-token + set-aws-creds also rewrite the cache on success, so
+# subshells sourcing the cache inherit the latest tokens without having
+# to re-run homelab-env.
+#
 # Cache is considered fresh while file mtime is within
 # $__homelab_cache_ttl_seconds; on hit, homelab-env sources the file and
 # skips 1P entirely.
 #
-# All credentials come from the 1Password "Homelab" vault.
+# All credentials come from the 1Password "Homelab 2.0" vault.
 
 # === Config ===
 
@@ -64,7 +69,8 @@ set -g __homelab_env_map \
 set -g __homelab_static_env_map \
     "KUBECONFIG|$HOME/.kube/niflheim-asgard.yaml" \
     "ADGUARD_HOST|10.0.11.201" \
-    "ADGUARD_SCHEME|http"
+    "ADGUARD_SCHEME|http" \
+    "AWS_DEFAULT_REGION|eu-west-1"
 
 # Dual-format cache (see header). Both files have the same TTL — freshness
 # is checked against the fish file's mtime (both are written together).
@@ -138,6 +144,14 @@ function __homelab_cache_write \
     end
     if set -q VAULT_TOKEN
         set -a vars VAULT_TOKEN
+    end
+    # AWS creds come from set-aws-creds, not env_map. Cache whichever identity
+    # is currently in env so a new shell inherits it on cache-hit.
+    if set -q AWS_ACCESS_KEY_ID
+        set -a vars AWS_ACCESS_KEY_ID
+    end
+    if set -q AWS_SECRET_ACCESS_KEY
+        set -a vars AWS_SECRET_ACCESS_KEY
     end
 
     set -l ts (date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -365,6 +379,12 @@ function homelab-env --description "Load homelab env vars (cached 24h, --refresh
     end
     echo "Loaded $loaded homelab env vars from 1P"
 
+    # AWS creds via canonical loader. State is the default; swap to admin via
+    # `set-aws-creds bootstrap` when re-applying terraform/aws/.
+    if not set-aws-creds state
+        return 1
+    end
+
     echo ""
     read -P "Set VAULT_TOKEN? [root/approle/skip]: " choice
     set -l choice_status 0
@@ -403,6 +423,13 @@ function set-vault-token --description "Set VAULT_TOKEN from a named source"
         echo "  Sources: root, approle" >&2
         return 1
     end
+    # VAULT_TOKEN is useless without VAULT_ADDR; the check also guarantees
+    # homelab-env has run so __homelab_cache_write below captures the full env
+    # rather than truncating the cache to just VAULT_TOKEN.
+    if not set -q VAULT_ADDR
+        echo "set-vault-token: VAULT_ADDR not set. Run homelab-env first." >&2
+        return 1
+    end
     switch $argv[1]
         case root
             set -l value (vault-root-token)
@@ -413,10 +440,6 @@ function set-vault-token --description "Set VAULT_TOKEN from a named source"
             set -gx VAULT_TOKEN $value
             echo "VAULT_TOKEN set (root, from 1P)"
         case approle
-            if not set -q VAULT_ADDR
-                echo "set-vault-token: VAULT_ADDR not set. Run homelab-env first." >&2
-                return 1
-            end
             if not set -q ANSIBLE_HASHI_VAULT_ROLE_ID
                 or not set -q ANSIBLE_HASHI_VAULT_SECRET_ID
                 echo "set-vault-token: AppRole creds not in env. Run homelab-env first." >&2
@@ -436,6 +459,55 @@ function set-vault-token --description "Set VAULT_TOKEN from a named source"
             echo "  Sources: root, approle" >&2
             return 1
     end
+
+    # Persist to the shared cache so bash/zsh/fish subshells sourcing
+    # ~/.cache/homelab/env.{sh,fish} inherit the token. Without this,
+    # set-vault-token would only affect the current shell.
+    __homelab_cache_write
+end
+
+# === Public: AWS creds ===
+#
+# Two AWS identities live in 1P:
+#   - "AWS - Terraform - Bootstrap" — admin, for re-applying terraform/aws/
+#   - "AWS - Terraform - State"     — narrow S3-only, for downstream terraform
+#
+# set-aws-creds is the canonical AWS-creds loader. homelab-env autocalls
+# `set-aws-creds state` after the env_map loop; `set-aws-creds bootstrap` is
+# the escape hatch for admin operations. After bootstrap work, swap back via:
+#   set-aws-creds state    — direct swap back
+#   homelab-env --refresh  — also re-pulls everything else from 1P
+
+function set-aws-creds --description "Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY from a named source"
+    if test (count $argv) -lt 1
+        echo "Usage: set-aws-creds <source>" >&2
+        echo "  Sources: bootstrap, state" >&2
+        return 1
+    end
+    set -l item
+    switch $argv[1]
+        case bootstrap b
+            set item 'AWS - Terraform - Bootstrap'
+        case state s
+            set item 'AWS - Terraform - State'
+        case '*'
+            echo "set-aws-creds: unknown source '$argv[1]'" >&2
+            echo "  Sources: bootstrap, state" >&2
+            return 1
+    end
+    set -l access_key (__homelab_op_field $item username)
+    if test $status -ne 0
+        echo "set-aws-creds: failed to read username from 1P item \"$item\"" >&2
+        return 1
+    end
+    set -l secret_key (__homelab_op_field $item credential)
+    if test $status -ne 0
+        echo "set-aws-creds: failed to read credential from 1P item \"$item\"" >&2
+        return 1
+    end
+    set -gx AWS_ACCESS_KEY_ID $access_key
+    set -gx AWS_SECRET_ACCESS_KEY $secret_key
+    echo "AWS creds set ($argv[1], from 1P)"
 end
 
 # === Public: AppRole rotation ===
@@ -526,5 +598,5 @@ function rotate-approle --description "Rotate a Vault AppRole SecretID"
     echo "✓ Old SecretID revoked."
     echo ""
     echo "Next: homelab-env  (re-pull new SecretID into env)"
-    echo "Then: set -e VAULT_TOKEN  (don't leave root token in env)"
+    echo "Then: set -e VAULT_TOKEN; homelab-env --refresh  (clears the cached copy too)"
 end
