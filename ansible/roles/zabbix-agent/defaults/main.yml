@@ -6,7 +6,11 @@
 # required to match — but match for tidiness.
 zabbix_major: "7.0"
 
-zabbix_agent_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
+# Path is /zabbix/<major>/debian/pool/... — NO `release/` segment
+# (the .../release/debian/... variant 404s, verified 2026-05-25).
+# Same correction as roles/zabbix-server's defaults; the two should
+# bump in lockstep when zabbix_major moves.
+zabbix_agent_repo_deb_url: "https://repo.zabbix.com/zabbix/{{ zabbix_major }}/debian/pool/main/z/zabbix-release/zabbix-release_latest_{{ zabbix_major }}+debian{{ ansible_distribution_major_version }}_all.deb"
 
 # zabbix-agent2 — the Go-based replacement for the C agent. Lower
 # RSS, native concurrency, better defaults. Same protocol; works
