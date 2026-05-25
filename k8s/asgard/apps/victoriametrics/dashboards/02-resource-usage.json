@@ -6,13 +6,13 @@
         {
           "title": "Cluster CPU usage (cores, by node)",
           "width": 6,
-          "expr": ["sum by(node) (rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]))"]
+          "expr": ["sum by(instance) (rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]))"]
         },
         {
           "title": "Cluster memory usage by node",
           "width": 6,
           "unit": "GiB",
-          "expr": ["sum by(node) (container_memory_working_set_bytes{image!=\"\"}) / 1024 / 1024 / 1024"]
+          "expr": ["sum by(instance) (container_memory_working_set_bytes{image!=\"\"}) / 1024 / 1024 / 1024"]
         }
       ]
     },
