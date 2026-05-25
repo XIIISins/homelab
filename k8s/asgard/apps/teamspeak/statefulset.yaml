@@ -40,13 +40,16 @@ spec:
             - sh
             - -c
             - chown -R 9987:9987 /var/ts3server && chmod 750 /var/ts3server
+          # Mirrors the Vault chown init pattern — minimal security context,
+          # default capabilities retained. Dropping ALL strips CAP_CHOWN +
+          # CAP_FOWNER even when running as UID 0, which breaks recursive
+          # chown/chmod of files originally owned by root (PVC's fresh ext4
+          # has the lost+found dir owned root). 60s lifetime; this isn't
+          # a hardening surface worth optimizing.
           securityContext:
             runAsUser: 0
-            runAsGroup: 0
             runAsNonRoot: false
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            allowPrivilegeEscalation: true
           volumeMounts:
             - name: data
               mountPath: /var/ts3server
