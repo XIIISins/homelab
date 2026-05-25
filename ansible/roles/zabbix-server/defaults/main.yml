@@ -71,16 +71,16 @@ zabbix_server_log_file: /var/log/zabbix/zabbix_server.log
 # accepted FQDNs keeps that rule strict while not relying on Host-
 # rewrite middleware. Rendered space-separated by the template.
 zabbix_web_server_names:
-  - zabbix-direct.niflheim.xiiisins.com
-  - zabbix.midgard.xiiisins.com
-  - zabbix.xiiisins.com
+  - hugin-direct.niflheim.xiiisins.com
+  - hugin.midgard.xiiisins.com
+  - hugin.xiiisins.com
 zabbix_web_listen_port: 80
 zabbix_php_timezone: "Europe/Amsterdam" # local timezone
 
 # Frontend display name — shown in the top-left of the Zabbix web UI
 # + in the browser tab title. Cosmetic; pick whatever identifies the
 # instance. Matches the Proxmox cluster name (niflheim) by default.
-zabbix_frontend_server_name: "niflheim"
+zabbix_frontend_server_name: "hugin"
 
 # Admin user — Zabbix creates a default `Admin` user during schema
 # load (with password `zabbix`). The role rotates this immediately
