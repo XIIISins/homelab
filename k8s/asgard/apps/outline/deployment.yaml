@@ -12,9 +12,10 @@
 # Single replica is the right homelab tradeoff. Revisit if Outline
 # becomes a critical-path workload.
 #
-# Image: ghcr.io/outline/outline pinned (CLAUDE.md). Verify exact
-# stable tag at ghcr.io/outline/outline tags before bumping; v0.87.x
-# series is the current stable line.
+# Image: outlinewiki/outline (Docker Hub — NOT ghcr.io/outline/outline,
+# that path returns 403 forbidden). 1.8.0-N tags are rebuild revisions
+# of the same source version; `-1` is the latest patch. Verify newest
+# at https://hub.docker.com/r/outlinewiki/outline/tags before bumping.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -37,7 +38,7 @@ spec:
     spec:
       containers:
         - name: outline
-          image: ghcr.io/outline/outline:0.87.4
+          image: outlinewiki/outline:1.8.0-1
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef:

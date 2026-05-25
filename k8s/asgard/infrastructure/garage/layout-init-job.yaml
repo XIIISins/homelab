@@ -1,9 +1,11 @@
 # k8s/asgard/infrastructure/garage/layout-init-job.yaml
 #
-# One-shot layout assign — Garage requires `garage layout assign` +
-# `garage layout apply` after first start before any S3 traffic is
-# served. The CLI is idempotent: if the layout is already current at
-# the requested version, the second `apply` is a no-op.
+# One-shot layout assign — Garage refuses S3 traffic until at least one
+# node has a role (zone + capacity) assigned in the cluster layout.
+# This Job stages the assignment then commits it via the admin API,
+# matching the manual "garage layout assign + garage layout apply" CLI
+# flow but driven over HTTP so it survives the fact that dxflrs/garage
+# is a `FROM scratch` image with no shell.
 #
 # Why a Job (not a postStart hook):
 #   - postStart blocks pod Ready until it returns; layout init failures
@@ -14,10 +16,17 @@
 #     are a `kubectl delete job garage-layout-init && flux reconcile`
 #     away if we ever need to re-assign (e.g. cluster grows to N nodes)
 #
-# Resource lifecycle: the Job runs once at first deploy. The garage
-# binary inside the Job's container reuses the same image as the
-# StatefulSet pod; talks to it over the cluster's RPC by reading
-# /etc/garage.toml (same ConfigMap) + GARAGE_RPC_SECRET (same Secret).
+# Idempotency: the script bails out early if the live layout's version
+# is already >= 1 (i.e. an assignment has been committed). Safe to
+# re-run after `kubectl delete job` for layout changes — bump the body
+# to update roles + apply at the next version.
+#
+# Admin API reference: https://garagehq.deuxfleurs.fr/api/garage-admin-v2.html
+#   GET  /v2/GetClusterStatus  → { layoutVersion, nodes: [{id, isUp, ...}] }
+#   GET  /v2/GetClusterLayout  → { version, roles, stagedRoleChanges, ... }
+#   POST /v2/UpdateClusterLayout body: { roles: [{id, zone, capacity, tags}], parameters: null }
+#   POST /v2/ApplyClusterLayout  body: { version: <current+1> }
+# All authenticated via `Authorization: Bearer ${GARAGE_ADMIN_TOKEN}`.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,56 +44,71 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: layout
-          image: dxflrs/garage:v2.3.0
+          # alpine has sh + wget + can `apk add` curl/jq. dxflrs/garage
+          # is scratch-based (no shell), so we drive the admin API from
+          # outside the Garage container instead of shelling into the
+          # garage CLI.
+          image: alpine:3.20
           command:
             - sh
             - -c
             - |
-              set -euo pipefail
+              set -eu
 
-              # Wait for the StatefulSet pod's admin endpoint to be
-              # reachable. The Job pod and garage-0 share the namespace
-              # so the headless DNS resolves.
-              echo "Waiting for garage-0 admin endpoint..."
+              apk add --no-cache curl jq >/dev/null
+
+              ADMIN="http://garage-0.garage-headless.garage.svc.cluster.local:3903"
+              AUTH="Authorization: Bearer ${GARAGE_ADMIN_TOKEN}"
+
+              # Wait for the admin endpoint to answer. Garage opens
+              # :3903 only after the local node has joined the gossip
+              # ring — first start takes a few seconds.
+              echo "Waiting for $ADMIN ..."
               for i in $(seq 1 60); do
-                if /garage status >/dev/null 2>&1; then
-                  echo "garage-0 reachable"
+                if curl -fsS -H "$AUTH" "$ADMIN/v2/GetClusterStatus" >/dev/null 2>&1; then
+                  echo "Admin API reachable"
                   break
                 fi
                 sleep 2
               done
-              /garage status || { echo "garage-0 never came up"; exit 1; }
+              curl -fsS -H "$AUTH" "$ADMIN/v2/GetClusterStatus" >/dev/null
 
-              # If layout is already applied at version >= 1, nothing
-              # to do. `layout show` exits 0 with "No staged changes"
-              # when current; check by inspecting current_version.
-              CURRENT_VERSION=$(/garage layout show 2>&1 | awk '/Current version:/ {print $3}')
-              if [ "${CURRENT_VERSION:-0}" -ge 1 ]; then
-                echo "Layout already at version $CURRENT_VERSION — nothing to do"
+              # Already-applied check: GetClusterLayout returns
+              # version >= 1 once a role has been assigned + committed.
+              LAYOUT_VERSION=$(curl -fsS -H "$AUTH" "$ADMIN/v2/GetClusterLayout" | jq -r '.version')
+              if [ "${LAYOUT_VERSION:-0}" -ge 1 ]; then
+                echo "Layout already at version $LAYOUT_VERSION — nothing to do"
                 exit 0
               fi
 
-              # Discover the node ID. `node id` returns
-              # <id>@<public-addr> on a single line.
-              NODE_ID=$(/garage node id -q | cut -d'@' -f1)
-              echo "Assigning layout to node $NODE_ID..."
-              /garage layout assign -z dc1 -c 200G "$NODE_ID"
-              /garage layout apply --version 1
-              echo "Layout applied at version 1"
-          env:
-            # Identical env shape as the StatefulSet pod so the CLI
-            # talks to the same cluster.
-            - name: GARAGE_RPC_HOST
-              value: "garage-0.garage-headless.garage.svc.cluster.local:3901"
+              # Pick the local node id. With replication_factor=1 this
+              # is guaranteed to be the only node in the cluster.
+              NODE_ID=$(curl -fsS -H "$AUTH" "$ADMIN/v2/GetClusterStatus" | jq -r '.nodes[0].id')
+              echo "Assigning role to node $NODE_ID"
+
+              # Stage: assign zone "dc1" + 200GiB capacity. The data
+              # PVC is 200Gi; capacity is the soft cap garage uses to
+              # balance partitions across nodes.
+              CAPACITY=$((200 * 1024 * 1024 * 1024))
+              curl -fsS -H "$AUTH" -H 'Content-Type: application/json' \
+                -X POST "$ADMIN/v2/UpdateClusterLayout" \
+                -d "$(jq -nc --arg id "$NODE_ID" --argjson cap $CAPACITY \
+                  '{roles: [{id: $id, zone: "dc1", capacity: $cap, tags: []}], parameters: null}')" \
+                >/dev/null
+              echo "Layout staged"
+
+              # Commit: ApplyClusterLayout's safety check requires us
+              # to name the new version explicitly. From version 0
+              # (fresh) → version 1.
+              NEW_VERSION=$((LAYOUT_VERSION + 1))
+              curl -fsS -H "$AUTH" -H 'Content-Type: application/json' \
+                -X POST "$ADMIN/v2/ApplyClusterLayout" \
+                -d "{\"version\": $NEW_VERSION}" \
+                >/dev/null
+              echo "Layout applied at version $NEW_VERSION"
           envFrom:
+            # GARAGE_ADMIN_TOKEN is rendered into the garage-server
+            # secret by the ExternalSecret. Same secret the StatefulSet
+            # uses for its own [admin].admin_token via env override.
             - secretRef:
                 name: garage-server
-          volumeMounts:
-            - name: config
-              mountPath: /etc/garage.toml
-              subPath: garage.toml
-              readOnly: true
-      volumes:
-        - name: config
-          configMap:
-            name: garage-config
