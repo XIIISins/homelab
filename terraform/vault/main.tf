@@ -281,3 +281,111 @@ resource "vault_kv_secret_v2" "teamspeak_postgres_k8s" {
     value = random_password.teamspeak_postgres.result
   })
 }
+
+# -----------------------------------------------------------------------------
+# Zabbix LXC secrets (Phase 7c.1) — four paths, all consumed by Ansible roles
+# on the Zabbix LXC (10.0.11.21). No K8s consumers in 7c.1 — the K8s SAML IdP
+# secret at secret/k8s/zabbix/saml-idp lands separately in 7c.3 from the
+# terraform/authentik/ module.
+#
+#   - secret/ansible/postgres/zabbix-password — PG role pw for the postgres-
+#     common-databases provisioning loop on the Patroni leader (same shape
+#     as netbox_postgres, teamspeak_postgres). Ansible-only consumer; no
+#     dual k8s path needed.
+#
+#   - secret/ansible/zabbix/admin-password — break-glass local Admin pw for
+#     Zabbix's internal auth. Used at first deploy (rotated from default
+#     "zabbix" via Ansible) and as the fallback login when Authentik SAML
+#     is unavailable. Operator-readable copy ALSO stashed in 1Password
+#     (Homelab vault, item "Zabbix - Admin (break-glass)") per the local-
+#     admin = 1P break-glass convention; that copy is operator-minted
+#     out-of-band after first vault apply (read from Vault inline, never
+#     echoed in transcripts).
+#
+#   - secret/ansible/zabbix/saml-sp-keypair — RSA 2048 self-signed cert
+#     that Zabbix's SAML SP uses to sign AuthnRequests + decrypt assertions.
+#     10-year validity: SP cert rotation is a disruptive event for SAML
+#     federation (Authentik needs the new cert + the IdP-side trust update),
+#     so we rotate on a deliberate schedule rather than risk surprise
+#     renewal. Stored as JSON with `key` (PEM private key) + `cert` (PEM
+#     certificate) fields, dropped to disk by roles/zabbix-server/tasks/saml.yml
+#     during Phase 7c.4.
+#
+#   - secret/ansible/zabbix/api-token — placeholder. The 7c.7 bootstrap
+#     playbook mints a real Zabbix API token via the Zabbix API and writes
+#     it back to this path. lifecycle.ignore_changes on data_json prevents
+#     future TF applies from clobbering the playbook-written value.
+# -----------------------------------------------------------------------------
+
+resource "random_password" "zabbix_postgres" {
+  length  = 32
+  special = false # PG password — avoid env-var / connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "zabbix_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/zabbix-password"
+  data_json = jsonencode({
+    value = random_password.zabbix_postgres.result
+  })
+}
+
+resource "random_password" "zabbix_admin" {
+  length  = 24
+  special = true # operator-typed via 1P break-glass; symbol set OK for web login
+}
+
+resource "vault_kv_secret_v2" "zabbix_admin_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/zabbix/admin-password"
+  data_json = jsonencode({
+    value = random_password.zabbix_admin.result
+  })
+}
+
+resource "tls_private_key" "zabbix_saml_sp" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "tls_self_signed_cert" "zabbix_saml_sp" {
+  private_key_pem = tls_private_key.zabbix_saml_sp.private_key_pem
+
+  subject {
+    common_name  = "zabbix.midgard.xiiisins.com"
+    organization = "Asgard Homelab"
+  }
+
+  validity_period_hours = 87600 # 10 years
+  early_renewal_hours   = 720   # 30 days
+
+  allowed_uses = [
+    "digital_signature",
+    "key_encipherment",
+    "data_encipherment",
+  ]
+}
+
+resource "vault_kv_secret_v2" "zabbix_saml_sp_keypair" {
+  mount = vault_mount.kv.path
+  name  = "ansible/zabbix/saml-sp-keypair"
+  data_json = jsonencode({
+    key  = tls_private_key.zabbix_saml_sp.private_key_pem
+    cert = tls_self_signed_cert.zabbix_saml_sp.cert_pem
+  })
+}
+
+resource "vault_kv_secret_v2" "zabbix_api_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/zabbix/api-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-7c.7-bootstrap"
+  })
+
+  # 7c.7 bootstrap playbook overwrites this path with a real API token via
+  # the Zabbix API. Without ignore_changes, subsequent TF applies would
+  # clobber the playbook-written value back to the placeholder.
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
