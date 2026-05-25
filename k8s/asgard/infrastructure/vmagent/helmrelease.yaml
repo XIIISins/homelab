@@ -1,0 +1,190 @@
+# k8s/asgard/infrastructure/vmagent/helmrelease.yaml
+#
+# vmagent — scrapes Prometheus-style /metrics endpoints + remote-
+# writes to VictoriaMetrics. The "VL-equivalent for metrics."
+#
+# Scope: K8s-layer ONLY. Zabbix LXC (Phase 5h) covers host-level
+# + LXC + Proxmox metrics via zabbix-agent2; no node-exporter
+# DaemonSet here. Clean split:
+#   - vmagent  → K8s pods + control-plane + KSM (this file)
+#   - Zabbix   → host/LXC OS metrics (planned)
+#
+# Reuses the `victoriametrics` HelmRepository declared next door
+# at apps/victoriametrics/helmrepository.yaml — same OCI repo at
+# oci://ghcr.io/victoriametrics/helm-charts.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vmagent
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: victoria-metrics-agent
+      version: "0.39.0"
+      sourceRef:
+        kind: HelmRepository
+        name: victoriametrics
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # Remote-write to vmsingle via in-cluster Service DNS. vmsingle's
+    # /api/v1/write accepts Prometheus remote_write protobuf.
+    remoteWrite:
+      - url: http://victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8428/api/v1/write
+
+    # Light resources. vmagent is mostly I/O-bound on scrape (HTTP
+    # fan-out) + protobuf serialize on remote-write. ~50-100 Mi RSS
+    # steady-state for a homelab-sized scrape set.
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+    # ServiceAccount with cluster-read for the kubernetes_sd_configs
+    # below. Chart creates the RBAC automatically when this is true.
+    serviceAccount:
+      create: true
+    rbac:
+      create: true
+
+    # Scrape config inline. Covers:
+    #   - vmagent self-metrics (sanity check)
+    #   - K3s kubelet (/metrics) — per-node K8s API + runtime stats
+    #   - K3s kubelet (/metrics/cadvisor) — per-container resources
+    #   - kube-state-metrics — K8s object state
+    #   - Endpoints with the standard prometheus.io/scrape annotation
+    #     — picks up any Service that opts in via annotations
+    #   - VictoriaLogs + VictoriaMetrics + vmagent themselves
+    config:
+      global:
+        scrape_interval: 30s
+        scrape_timeout: 10s
+        external_labels:
+          cluster: asgard
+
+      scrape_configs:
+        # vmagent self-scrape
+        - job_name: vmagent
+          static_configs:
+            - targets: ["localhost:8429"]
+
+        # K3s kubelet — per-node CPU/memory/network + cAdvisor (per-
+        # container). Same kubelet, two paths.
+        - job_name: kubernetes-nodes
+          scheme: https
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/${1}/proxy/metrics
+
+        - job_name: kubernetes-nodes-cadvisor
+          scheme: https
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+        # kube-state-metrics — picks up the Service we deploy next
+        # door at infrastructure/kube-state-metrics/.
+        - job_name: kube-state-metrics
+          static_configs:
+            - targets: ["kube-state-metrics.monitoring.svc.cluster.local:8080"]
+
+        # Annotation-based opt-in for Services. Any Service with
+        # prometheus.io/scrape: "true" gets scraped on the port
+        # named "http-metrics" (or whatever prometheus.io/port says).
+        # This is the standard pattern — most VL/VM/cert-manager/etc.
+        # charts already set these annotations.
+        - job_name: kubernetes-service-endpoints
+          kubernetes_sd_configs:
+            - role: endpoints
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+              action: replace
+              target_label: __address__
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+            - action: labelmap
+              regex: __meta_kubernetes_service_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: kubernetes_namespace
+            - source_labels: [__meta_kubernetes_service_name]
+              action: replace
+              target_label: kubernetes_name
+
+        # Annotation-based opt-in for Pods (Pod-level /metrics, no
+        # Service required). Used by charts that don't ship a
+        # Service for /metrics.
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              target_label: __address__
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: kubernetes_namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              action: replace
+              target_label: kubernetes_pod_name
+
+        # VictoriaLogs self-metrics (it exposes /metrics on its own
+        # port). Useful for "is VL ingesting?" + ingestion-rate charts.
+        - job_name: victorialogs
+          static_configs:
+            - targets: ["victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428"]
+
+        # VictoriaMetrics self-metrics — same idea.
+        - job_name: victoriametrics
+          static_configs:
+            - targets: ["victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8428"]

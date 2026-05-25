@@ -1,0 +1,54 @@
+# k8s/asgard/infrastructure/kube-state-metrics/helmrelease.yaml
+#
+# kube-state-metrics — exposes K8s API object state as Prometheus
+# metrics (pod phases, deployment readiness, statefulset replicas,
+# PVC bound state, etc.). Complements cAdvisor (per-container
+# resource usage) and kubelet (per-node) which vmagent scrapes
+# directly.
+#
+# Why this is in monitoring/ namespace (not kube-system) — the
+# Phase-7 stack is namespaced + the chart's RBAC ClusterRole is
+# cluster-scoped regardless of namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+spec:
+  interval: 10m
+  timeout: 10m
+  chart:
+    spec:
+      chart: kube-state-metrics
+      version: "7.4.0" # app v2.19.0
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: monitoring
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # Single replica is plenty for homelab scale. The chart's
+    # default RBAC is fine — read-only cluster-scoped access to
+    # most kinds.
+    replicas: 1
+
+    # Light resource limits — KSM is mostly idle, spikes briefly
+    # on each scrape.
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { cpu: 100m, memory: 256Mi }
+
+    # Disable the ServiceMonitor — requires Prometheus-Operator
+    # CRDs which we don't have. vmagent's static scrape config
+    # targets the Service directly via cluster DNS.
+    prometheus:
+      monitor:
+        enabled: false
+
+    # Default Service type=ClusterIP — what we want for vmagent.

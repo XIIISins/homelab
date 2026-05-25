@@ -17,7 +17,12 @@ resources:
   # Phase 7 — observability infra. Order:
   #   monitoring-namespace creates the `monitoring` ns + the shared
   #   Traefik ForwardAuth Middleware (referenced by VL+VM HTTPRoutes
-  #   over in apps/). vlagent DaemonSet ships pod logs to VL (lives
-  #   over in apps/victorialogs/) via in-cluster Service DNS.
+  #   over in apps/). vlagent DaemonSet ships pod logs to VL (in
+  #   apps/victorialogs/) via in-cluster Service DNS. vmagent scrapes
+  #   K8s-layer metrics (kubelet/cAdvisor/KSM/pod-annotations) and
+  #   remote-writes to VM (in apps/victoriametrics/). Zabbix LXC
+  #   handles host/LXC-level metrics — clean split, no duplication.
   - monitoring-namespace
   - victoria-logs-collector
+  - kube-state-metrics
+  - vmagent
