@@ -45,6 +45,13 @@ locals {
     "hugin.niflheim.xiiisins.com"        = "10.0.11.21"
     "hugin-direct.niflheim.xiiisins.com" = "10.0.11.21"
 
+    # ── niflheim.xiiisins.com — Hermod (notifications hub) ─────────
+    # AppriseAPI fronted by Caddy on this LXC; producers POST to
+    # http://hermod.niflheim.xiiisins.com/notify/<config-key>.
+    # Caddy's `remote_ip` matcher is the primary access gate
+    # (Phase 5h.2). Internal-only — no midgard or apex bypass.
+    "hermod.niflheim.xiiisins.com" = "10.0.11.22"
+
     # ── niflheim.xiiisins.com — AGH trio (DNS LXCs) ────────────────
     # adguard.* is a generic alias on the primary (Saga). adguard-vip.*
     # is the keepalived VIP — used by tooling that should follow the

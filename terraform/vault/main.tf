@@ -149,6 +149,39 @@ resource "vault_kv_secret_v2" "keepalived_adguard_vrrp" {
 }
 
 # -----------------------------------------------------------------------------
+# Hermod (notifications hub) — soft-auth config-key
+# -----------------------------------------------------------------------------
+# AppriseAPI exposes endpoints under `/notify/<config-key>` where the
+# config-key acts as a soft secret in the URL path. Primary access gate is
+# the Caddy `remote_ip` allowlist (see roles/caddy-reverse-proxy + Hermod
+# group_vars); this config-key is belt-and-braces depth.
+#
+# 32 chars, alphanumeric only (special=false) — URL-path-safe, no escaping
+# in any consumer's HTTP client.
+#
+# Discord webhook paths (secret/ansible/hermod/discord/{critical,alert,media,
+# untagged}) are deliberately NOT TF-managed — they're operator-minted
+# (Discord UI), operator-rotated, operator-written. TF managing them would
+# create-time-overwrite the operator's real values, and the rotation cadence
+# differs (Discord webhook tokens reset via the UI, not via TF).
+#
+# Bound to the ansible policy at `secret/data/ansible/*` — the hermod-api
+# role looks up both the config-key and the four Discord URL fields at
+# config-render time via community.hashi_vault.vault_kv2_get.
+resource "random_password" "hermod_config_key" {
+  length  = 32
+  special = false # URL-path-safe; no special chars to escape in producer HTTP clients
+}
+
+resource "vault_kv_secret_v2" "hermod_config_key" {
+  mount = vault_mount.kv.path
+  name  = "ansible/hermod/config-key"
+  data_json = jsonencode({
+    value = random_password.hermod_config_key.result
+  })
+}
+
+# -----------------------------------------------------------------------------
 # Per-service PG passwords — single mint, dual path
 # -----------------------------------------------------------------------------
 # For every per-service PG consumer, one random_password is generated and

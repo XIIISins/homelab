@@ -634,3 +634,123 @@ resource "proxmox_virtual_environment_container" "hugin" {
     ]
   }
 }
+
+# ----------------------------------------------------------------------------
+# LXC 1103 — Hermod (notifications hub, Verd)
+# ----------------------------------------------------------------------------
+# Norse identity: Hermod, Odin's messenger — rode Sleipnir to Hel to plead
+# for Baldr's release. Single notification aggregation point for the homelab:
+# alert producers (Zabbix, future VMAlert, Patroni callbacks, Ansible failure
+# handlers, future Sonarr/Radarr) POST to one HTTP endpoint; Hermod fans out
+# to per-tag Discord webhooks (Hrist / Mist / Olrun / Hel for critical /
+# alert / media / untagged respectively).
+#
+# Stack (all native, no Docker — see decision in docs/services/notifications.md):
+#   - AppriseAPI (pip+venv+uvicorn, listening 127.0.0.1:8000)
+#   - Caddy reverse proxy on :80 with `remote_ip` allowlist matcher,
+#     reverse_proxy to 127.0.0.1:8000, JSON access logs to
+#     /var/log/caddy/access.log (vlagent ships to VL)
+#   - vlagent (host syslog → VL via the existing role)
+#
+# Placement: Verd. Spreads notification infra across hosts (Hugin/Zabbix on
+# Urd produces alerts; Hermod on Verd delivers them — independent failure
+# domain from the primary producer). Verd is the cubi pair to Urd with
+# 32GB RAM and currently the lightest LXC tenant (Mimir + Eir +
+# Heimdall + Idunn + Einherjar-verd + Hlokk CP — ~6GB committed). Hermod
+# is single-digit MB RSS, no meaningful pressure added.
+#
+# Sizing: 1 vCPU / 512MB / 4GB disk. AppriseAPI is stateless Python +
+# uvicorn (~30MB RSS), Caddy is a Go binary (~15MB RSS), Apprise's
+# notification fan-out is sub-millisecond. Single-digit MB headroom is
+# comfortable.
+#
+# This is the second Hermod attempt — first iteration (5aff1dd, reverted in
+# a493781 on 2026-05-25) chose Docker-in-LXC and was rolled back ~11 minutes
+# later for breaking the all-native-systemd LXC pattern. Current shape
+# explicitly avoids that footgun.
+#
+# See:
+#   - docs/services/notifications.md (full design, JSON schema, source→tag
+#     mapping, smoketest matrix)
+#   - docs/architecture/network.md → IP 10.0.11.22, VMID 1103 (verd)
+#   - ansible/roles/hermod-api/README.md (TBD — 5h.2.e)
+#   - ansible/roles/caddy-reverse-proxy/README.md (TBD — 5h.2.d)
+# ----------------------------------------------------------------------------
+
+resource "random_password" "hermod_root" {
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "hermod" {
+  description = "Hermod — notifications hub (AppriseAPI + Caddy)"
+
+  node_name = "verd"
+  vm_id     = 1103
+  tags      = ["asgard", "lxc", "hermod", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  cpu {
+    cores = 1
+  }
+
+  memory {
+    dedicated = 512 # MB — AppriseAPI + Caddy + vlagent
+    swap      = 512
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 4 # GB — apt packages + venv + Caddy logs
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = "hermod"
+
+    ip_config {
+      ipv4 {
+        address = "10.0.11.22/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.hermod_root.result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 — see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+
+  # bpg/proxmox doesn't return template_file_id or user_account from the API
+  # on read — see Hugin's identical block above for the gotcha details.
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+    ]
+  }
+}
