@@ -13,23 +13,18 @@
 # to httpapi at task scope with the auth + endpoint vars. The module
 # then makes API calls to the delegated host's `ansible_host` IP.
 #
-# become: false on the delegated tasks is required — without it, the
+# Vault lookup is inline in the vars block (NOT a pre-task set_fact)
+# because lookups always run on the controller regardless of where
+# the task is delegated — no per-host fact-scoping concerns + no
+# need to pre-populate a fact across the inventory. The lookup runs
+# once per host but Vault is local + cached; cost is negligible.
+#
+# become: false on the delegated task is required — without it, the
 # play-level `become: true` (from zabbix-agents.yml) is inherited
-# even on the localhost set_fact delegation, triggering a sudo prompt
-# on the operator workstation. no_log: true on these tasks hides any
-# error from the playbook output, so a stuck sudo prompt presents
-# as "every host fails with zero diagnostic info" — drop no_log
-# temporarily + run a standalone playbook to see the real error.
-
-- name: Look up Zabbix API token from Vault
-  ansible.builtin.set_fact:
-    zabbix_agent_api_token: >-
-      {{ lookup('community.hashi_vault.vault_kv2_get',
-                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
-  no_log: true
-  run_once: true
-  delegate_to: localhost
-  become: false
+# even on the delegation, triggering a sudo prompt on the delegated
+# host. no_log: true here hides errors from the playbook output, so
+# debug by setting ANSIBLE_NO_LOG=False in the environment + running
+# the playbook with --limit <one-host>.
 
 - name: Register host in Zabbix (create or update)
   community.zabbix.zabbix_host:
@@ -53,6 +48,8 @@
     ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
     ansible_httpapi_validate_certs: false
     ansible_user: "{{ zabbix_agent_api_user }}"
-    ansible_zabbix_auth_key: "{{ zabbix_agent_api_token }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
     ansible_zabbix_url_path: ""
   no_log: true # token in vars
