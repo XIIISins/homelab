@@ -64,6 +64,19 @@ spec:
           # collections in ansible/requirements.yml.
           image: semaphoreui/semaphore:v2.18.5-ansible2.16.5
           imagePullPolicy: IfNotPresent
+          # Wrap the image's stock entrypoint with a pip install of the
+          # Python deps Ansible needs at task runtime:
+          #   - hvac          → community.hashi_vault.vault_kv2_get (38 refs across roles/playbooks)
+          #   - psycopg2-binary → community.postgresql.* (8 refs in postgres-common)
+          # jmespath, passlib, requests, cryptography already in the image.
+          # Adds ~10s to pod start; runs on every restart.
+          # Graduate to a custom image (see docs/services/semaphore.md
+          # "When to graduate from in-pod pip install") when the dep
+          # list reaches ~5 entries or pod-restart latency matters.
+          command:
+            - /bin/sh
+            - -c
+            - pip3 install --quiet hvac psycopg2-binary && exec /sbin/tini -- /usr/local/bin/server-wrapper
           # Config lives ENTIRELY in the mounted /etc/semaphore/config.json
           # (rendered by ESO from Vault — see externalsecret.yaml). No
           # envFrom: Semaphore's setup command silently drops fields
