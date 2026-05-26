@@ -430,13 +430,19 @@ resource "tls_private_key" "zabbix_saml_sp" {
 resource "tls_self_signed_cert" "zabbix_saml_sp" {
   private_key_pem = tls_private_key.zabbix_saml_sp.private_key_pem
 
+  # CN matches the SAML SP's entity ID (zabbix_saml_sp_entity_id =
+  # https://hugin.xiiisins.com in ansible/roles/zabbix-server/defaults/
+  # main.yml). SAML doesn't validate CN against hostname — the cert is
+  # identity-binding, not transport-binding — but matching the entity
+  # ID's host is hygienic + saves explaining "why does the cert say X
+  # when the SP is Y?" later.
   subject {
-    common_name  = "zabbix.midgard.xiiisins.com"
+    common_name  = "hugin.xiiisins.com"
     organization = "Asgard Homelab"
   }
 
   validity_period_hours = 87600 # 10 years
-  early_renewal_hours   = 720   # 30 days
+  early_renewal_hours   = 720   # 30 days — TF auto-rotates 30 days before expiry on next apply
 
   allowed_uses = [
     "digital_signature",
