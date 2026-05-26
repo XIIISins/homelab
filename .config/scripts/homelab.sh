@@ -57,6 +57,7 @@ __homelab_env_map=(
     "ADGUARD_USERNAME|Adguard - admin|username"
     "ADGUARD_PASSWORD|Adguard - admin|password"
     "NETBOX_API_TOKEN|Asgard - NetBox - Admin API token|credential"
+    "SEMAPHOREUI_API_TOKEN|Asgard - Semaphore - admin API token|credential"
 )
 
 # Each entry: "ENV_VAR|literal value"
@@ -68,6 +69,7 @@ __homelab_static_env_map=(
     "ADGUARD_SCHEME|http"
     "AWS_DEFAULT_REGION|eu-west-1"
     "NETBOX_SERVER_URL|https://netbox.niflheim.xiiisins.com"
+    "SEMAPHOREUI_API_BASE_URL|https://semaphore.niflheim.xiiisins.com/api"
 )
 
 # Dual-format cache (see header). Both files have the same TTL — freshness

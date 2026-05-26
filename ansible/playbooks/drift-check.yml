@@ -1,0 +1,12 @@
+# ansible/playbooks/drift-check.yml
+#
+# Semaphore wrapper for the `asgard-drift-check` template (Phase 5h.3.e).
+# Runs site.yml as-is — Semaphore passes --check --diff via the
+# template's `arguments`, so this wrapper just sets up the file
+# basename for the hermod_summary callback to infer mode=drift.
+#
+# Don't run this playbook locally without Semaphore's env — the
+# callback POSTs to Hermod, and ad-hoc local runs would falsely
+# attribute drift to a manual operator check.
+---
+- import_playbook: site.yml

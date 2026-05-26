@@ -1,0 +1,10 @@
+# ansible/playbooks/apply.yml
+#
+# Semaphore wrapper for the `asgard-apply` template (Phase 5h.3.e).
+# Full converge — site.yml without --check. Used when an operator
+# triggers an explicit apply after investigating a drift alert; the
+# wrapper exists so hermod_summary callback infers mode=apply and
+# posts a `critical` notification ONLY on failure (success is
+# silent — operator already knows they hit Run).
+---
+- import_playbook: site.yml
