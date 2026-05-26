@@ -34,6 +34,11 @@
     mode: "0640"
   no_log: true # DB password inside
   notify: restart nginx
+  # Tagged with zabbix:saml so the file-level $SSO[...] paths re-render
+  # when the SAML pass toggles zabbix_saml_enabled — the certs task in
+  # saml.yml depends on this file being current. Also tagged
+  # zabbix:web-config for explicit invocations.
+  tags: [zabbix, zabbix:web-config, zabbix:saml, zabbix:saml-conf]
 
 - name: Set PHP timezone for the Zabbix frontend
   ansible.builtin.lineinfile:
