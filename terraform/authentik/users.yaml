@@ -36,3 +36,4 @@ ghost:
     - ssh-users
     - netbox-admins
     - monitoring-admins
+    - outline-users
