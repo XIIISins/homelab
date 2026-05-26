@@ -7,7 +7,10 @@
 # Patroni on_role_change callback. Invoked synchronously by the Patroni
 # supervisor loop on role transitions:
 #   $1 = action  (always 'on_role_change' from on_role_change hook)
-#   $2 = role    ('master', 'replica', or 'standby_leader')
+#   $2 = role    ('primary' / 'master' [legacy], 'replica', or 'standby_leader')
+#                 Patroni 3.x renamed master → primary; both still appear in
+#                 the wild (cold-start sometimes emits 'master', steady-state
+#                 promotion emits 'primary' on 4.x). Both map to promotion here.
 #   $3 = scope   (Patroni cluster name — niflheim-pg)
 #
 # Maps the (action, role) tuple to an Apprise tag + type and POSTs JSON
@@ -36,7 +39,7 @@ HERMOD_URL='{{ patroni_hermod_scheme }}://{{ patroni_hermod_host }}/notify/{{ lo
 # node settling into its role) — acceptable as a per-lifetime one-off.
 # `failure` (red) reserved for future unexpected role-drop semantics.
 case "${ROLE}" in
-    master)
+    primary|master)
         TAG="alert"
         TYPE="warning"
         TITLE="Patroni: ${HOST} promoted to LEADER (${SCOPE})"
