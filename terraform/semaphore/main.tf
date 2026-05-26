@@ -115,7 +115,12 @@ resource "semaphoreui_project_environment" "default" {
     # all resolve relative to this file's location.
     ANSIBLE_CONFIG                  = "ansible/ansible.cfg"
     ANSIBLE_HASHI_VAULT_AUTH_METHOD = "approle"
-    ANSIBLE_HASHI_VAULT_URL         = "http://vault.vault.svc.cluster.local:8200"
+    # Env var is `_ADDR`, NOT `_URL` — `_URL` is silently ignored by
+    # community.hashi_vault (no warning, just "Required option url was
+    # not set"). The operator's MacBook works because VAULT_ADDR is also
+    # set via homelab-env (the plugin falls back to that); the pod has
+    # no VAULT_ADDR, so the plugin-specific var is the only path.
+    ANSIBLE_HASHI_VAULT_ADDR        = "http://vault.vault.svc.cluster.local:8200"
     ANSIBLE_CALLBACKS_ENABLED       = "hermod_summary"
   }
 
