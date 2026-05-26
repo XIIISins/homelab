@@ -92,6 +92,14 @@ spec:
           env:
             - name: ANSIBLE_INVENTORY_CACHE_CONNECTION
               value: /var/lib/semaphore/inventory-cache
+            # Path of the mounted SSH private key (rendered by the
+            # semaphore-ansible-ssh-key ExternalSecret). Ansible reads
+            # this for every host connection — Semaphore's
+            # project_inventory.ssh_key_id doesn't actually surface
+            # the key to the task runtime, so we bring it in directly
+            # via a Secret volume mount + this env var.
+            - name: ANSIBLE_PRIVATE_KEY_FILE
+              value: /etc/ssh-keys/ansible_niflheim
           ports:
             - name: http
               containerPort: 3000
@@ -107,6 +115,12 @@ spec:
             - name: config
               mountPath: /etc/semaphore/config.json
               subPath: config.json
+              readOnly: true
+            # Ansible SSH key — projected by the semaphore-ansible-ssh-key
+            # ExternalSecret. defaultMode 0600 on the volume so OpenSSH
+            # accepts it (refuses world/group-readable private keys).
+            - name: ansible-ssh-key
+              mountPath: /etc/ssh-keys
               readOnly: true
           livenessProbe:
             httpGet:
@@ -164,3 +178,11 @@ spec:
             items:
               - key: config.json
                 path: config.json
+        - name: ansible-ssh-key
+          # ESO-rendered SSH private key for ansible-user access to
+          # every managed host. defaultMode 0400 is mandatory: OpenSSH
+          # refuses keys with group/world bits set (UNPROTECTED PRIVATE
+          # KEY FILE message + immediate connection failure).
+          secret:
+            secretName: semaphore-ansible-ssh-key
+            defaultMode: 0400
