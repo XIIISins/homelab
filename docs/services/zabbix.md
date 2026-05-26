@@ -1,17 +1,17 @@
 <!-- docs/services/zabbix.md -->
 
-# Zabbix (host/LXC monitoring — Phase 7c, pre-implementation)
+# Zabbix (host/LXC monitoring — Phase 8c, pre-implementation)
 
-Zabbix 7.0 LTS on LXC 1102 (Skuld, `10.0.11.21`). The host/LXC-layer half of the observability stack — counterweight to Phase 7a's in-cluster VL/VM placement. Stays on its own LXC outside K3s by design: when K3s itself is the thing on fire, Zabbix is what tells us about it.
+Zabbix 7.0 LTS on LXC 1102 (Skuld, `10.0.11.21`). The host/LXC-layer half of the observability stack — counterweight to Phase 8a's in-cluster VL/VM placement. Stays on its own LXC outside K3s by design: when K3s itself is the thing on fire, Zabbix is what tells us about it.
 
-**Status: pre-implementation.** Server-side scaffolding (TF LXC block, both Ansible roles, both playbooks) was written during Phase 5h sketch-work and pre-existed this phase's docs. Phase 7c finalises auth wiring (Authentik native SAML), ingress (Traefik fronts the LXC for `hugin.midgard.xiiisins.com` LAN + `hugin.xiiisins.com` WAN), Vault secret minting, and the post-server agent-rollout pattern.
+**Status: pre-implementation.** Server-side scaffolding (TF LXC block, both Ansible roles, both playbooks) was written during Phase 5h sketch-work and pre-existed this phase's docs. Phase 8c finalises auth wiring (Authentik native SAML), ingress (Traefik fronts the LXC for `hugin.midgard.xiiisins.com` LAN + `hugin.xiiisins.com` WAN), Vault secret minting, and the post-server agent-rollout pattern.
 
-## Why Phase 7c, not 5h
+## Why Phase 8c, not 5h
 
-Promoted out of 5h ("remaining LXCs") during 7c pre-implementation planning. Three reasons:
+Promoted out of 5h ("remaining LXCs") during 8c pre-implementation planning. Three reasons:
 
-1. **Failure-domain role.** Phase 7a's "VM/VL placement — asgard, not jotunheim" decision is explicitly justified by Zabbix being elsewhere (LXC, outside K3s). Treating it as miscellaneous-LXC backlog buried that load-bearing role.
-2. **Stack symmetry.** Phase 7a is K8s-layer metrics + logs. Phase 7c is host/LXC-layer metrics + alerts. Putting both under Phase 7 makes the "clean split — vmagent for K8s, Zabbix for everything below" decision row legible in the build sequence.
+1. **Failure-domain role.** Phase 8a's "VM/VL placement — asgard, not jotunheim" decision is explicitly justified by Zabbix being elsewhere (LXC, outside K3s). Treating it as miscellaneous-LXC backlog buried that load-bearing role.
+2. **Stack symmetry.** Phase 8a is K8s-layer metrics + logs. Phase 8c is host/LXC-layer metrics + alerts. Putting both under Phase 8 makes the "clean split — vmagent for K8s, Zabbix for everything below" decision row legible in the build sequence.
 3. **Sequencing dependencies.** Phase 5h.2 (Hermod notifications) is sequenced "after Zabbix because Zabbix is the first concrete alert producer." Phase 5h.3 (Semaphore drift-check) is sequenced "after Hermod because drift-check is the first `alert`-tag producer into Hermod." The whole chain reads cleaner if Zabbix is a named phase rather than a 5h sub-bullet.
 
 Three corresponding decision rows in [`../operations/decisions.md`](../operations/decisions.md) (phase promotion, native-SAML auth, Traefik-fronts-LXC).
@@ -43,7 +43,7 @@ Four Vault paths feed Zabbix:
 | `ansible/postgres/zabbix-password` | `postgres-common` role + `zabbix-server` role | `password` | Dual-purpose — postgres-common creates the user, zabbix-server reads the same password to wire `zabbix.conf.php`. Same shape as NetBox / Authentik / Teamspeak. |
 | `ansible/zabbix/admin-password` | `zabbix-server` role + operator (1P copy) | `password` | Break-glass local-Admin user. Rotated from chart default `zabbix` on first deploy. 1P recovery copy for backdoor login. |
 | `ansible/zabbix/saml-sp-keypair` | `zabbix-server` role | `key`, `cert` | RSA 2048 self-signed, used by Zabbix to sign SAML AuthnRequests. Generated once: `openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj '/CN=hugin.midgard.xiiisins.com'`. Long lifetime — Zabbix-side cert rotation is operationally rare. |
-| `ansible/zabbix/api-token` | `zabbix-agent` role + `community.zabbix.*` modules | `token` | Populated post-deploy in 7c.7 via `zabbix-server-bootstrap.yml`. Empty placeholder pre-7c.7. |
+| `ansible/zabbix/api-token` | `zabbix-agent` role + `community.zabbix.*` modules | `token` | Populated post-deploy in 8c.7 via `zabbix-server-bootstrap.yml`. Empty placeholder pre-8c.7. |
 | `k8s/zabbix/saml-idp` | `zabbix-server` role | `idp_metadata_url`, `idp_signing_cert` | Written by `terraform/authentik/zabbix.tf` outputs (TF→Vault hand-off pattern). Zabbix role reads at deploy time to wire IdP side of SAML. |
 
 Per the Vault path convention (machine-consumer-domain prefix), Ansible-consumed secrets live under `ansible/`. The single K8s-consumed entry is the TF→Vault hand-off from `terraform/authentik/`.
@@ -59,7 +59,7 @@ Per the Vault path convention (machine-consumer-domain prefix), Ansible-consumed
 
 **Backdoor path** (Traefik / Authentik / K3s down): browse `http://hugin-direct.niflheim.xiiisins.com` from internal LAN. AGH rewrite resolves directly to `10.0.11.21`. Zabbix nginx serves `:80` plain HTTP. Operator logs in with local `Admin` + Vault-stored password. SAML not invoked.
 
-**Why native SAML over Traefik ForwardAuth.** Decision row "Zabbix UI auth — native SAML, not Traefik ForwardAuth" — vmui/VL (Phase 7a) only use ForwardAuth because they have no native SSO. Zabbix 7.0 has built-in SAML 2.0; using its strongest available auth path is the right default. ForwardAuth would also add a K3s dependency for what's supposed to be a K3s-independent service's auth path. Native OIDC isn't viable in Zabbix 7.0 (OIDC is MFA-only there).
+**Why native SAML over Traefik ForwardAuth.** Decision row "Zabbix UI auth — native SAML, not Traefik ForwardAuth" — vmui/VL (Phase 8a) only use ForwardAuth because they have no native SSO. Zabbix 7.0 has built-in SAML 2.0; using its strongest available auth path is the right default. ForwardAuth would also add a K3s dependency for what's supposed to be a K3s-independent service's auth path. Native OIDC isn't viable in Zabbix 7.0 (OIDC is MFA-only there).
 
 ## Recovery model
 
@@ -75,9 +75,9 @@ The recovery model is "Zabbix keeps observing + alerting; operator UI access fal
 
 `zabbix-agent2` on every host in inventory except the Zabbix server itself (which runs the agent locally as a sanity check via `zabbix-host.yml`). Cluster-wide rollout via `ansible/playbooks/zabbix-agents.yml` (existing — targets `all:!zabbix_hosts`).
 
-**Auto-registration pattern.** Agents ship `HostMetadata` from `ansible/roles/zabbix-agent/defaults/main.yml`. Server-side `auto-registration action` (created in 7c.7 via `community.zabbix.zabbix_action`) regex-matches the metadata and assigns the host to the right host group + links a template. Adding a new host: ansible-play it with the agent role + the right metadata; it self-registers within ~5 min.
+**Auto-registration pattern.** Agents ship `HostMetadata` from `ansible/roles/zabbix-agent/defaults/main.yml`. Server-side `auto-registration action` (created in 8c.7 via `community.zabbix.zabbix_action`) regex-matches the metadata and assigns the host to the right host group + links a template. Adding a new host: ansible-play it with the agent role + the right metadata; it self-registers within ~5 min.
 
-**HostMetadata format.** Default in the role is `{{ inventory_hostname }}`. Phase 7c.8 changes this to a group-tagged form (e.g. `k3s-worker|asgard`) so the auto-registration regex can dispatch. Per-host overrides stay available via host_vars.
+**HostMetadata format.** Default in the role is `{{ inventory_hostname }}`. Phase 8c.8 changes this to a group-tagged form (e.g. `k3s-worker|asgard`) so the auto-registration regex can dispatch. Per-host overrides stay available via host_vars.
 
 **TLS off.** Agent ↔ server traffic is unencrypted — internal VLAN 11 + 21 only, no tailnet exposure. Bump to PSK or cert-based later if needed (`zabbix_agent_tls_connect` / `zabbix_agent_tls_accept` defaults).
 
@@ -94,20 +94,20 @@ The seam: NetBox tells us what hosts exist; Zabbix tells us their health. Aligni
 
 ## Pre-implementation sub-phase plan
 
-Full step-by-step plan tracked in [`../operations/open-questions.md`](../operations/open-questions.md) under "Phase 7c — Zabbix LXC". Eight sub-phases:
+Full step-by-step plan tracked in [`../operations/open-questions.md`](../operations/open-questions.md) under "Phase 8c — Zabbix LXC". Eight sub-phases:
 
 | # | Scope | Files touched |
 |---|-------|---------------|
-| 7c.1 | Vault secrets minting (4 paths above) | (Vault data only, no repo changes) |
-| 7c.2 | LXC provision + day-1 bootstrap | `terraform/proxmox/asgard-lxcs/lxcs.tf` (1 hunk: `lifecycle.ignore_changes`), `ansible/inventory/hosts.yml` (new `zabbix_hosts` group) |
-| 7c.3 | Authentik SAML provider via TF | new `terraform/authentik/zabbix.tf` |
-| 7c.4 | Server role SAML wire-up + deploy | new `roles/zabbix-server/tasks/saml.yml`, edits to `zabbix.conf.php.j2`, `meta/main.yml`, possibly `tasks/main.yml` import |
-| 7c.5 | Ingress (AGH + Traefik + Cloudflared) | new `k8s/asgard/apps/zabbix-ingress/` directory (`kustomization.yaml`, `service.yaml`, `endpointslice.yaml`, `httproute.yaml`), `apps/kustomization.yaml` patch, `terraform/adguard/rewrites.tf`, `terraform/cloudflare/main.tf` |
-| 7c.6 | SAML cutover + 3-path validation | (operational; no repo changes unless validation surfaces config tweaks) |
-| 7c.7 | Server-side host-mgmt bootstrap | new `ansible/playbooks/zabbix-server-bootstrap.yml` |
-| 7c.8 | Cluster-wide agent rollout | `ansible/roles/zabbix-agent/defaults/main.yml` (HostMetadata format) |
+| 8c.1 | Vault secrets minting (4 paths above) | (Vault data only, no repo changes) |
+| 8c.2 | LXC provision + day-1 bootstrap | `terraform/proxmox/asgard-lxcs/lxcs.tf` (1 hunk: `lifecycle.ignore_changes`), `ansible/inventory/hosts.yml` (new `zabbix_hosts` group) |
+| 8c.3 | Authentik SAML provider via TF | new `terraform/authentik/zabbix.tf` |
+| 8c.4 | Server role SAML wire-up + deploy | new `roles/zabbix-server/tasks/saml.yml`, edits to `zabbix.conf.php.j2`, `meta/main.yml`, possibly `tasks/main.yml` import |
+| 8c.5 | Ingress (AGH + Traefik + Cloudflared) | new `k8s/asgard/apps/zabbix-ingress/` directory (`kustomization.yaml`, `service.yaml`, `endpointslice.yaml`, `httproute.yaml`), `apps/kustomization.yaml` patch, `terraform/adguard/rewrites.tf`, `terraform/cloudflare/main.tf` |
+| 8c.6 | SAML cutover + 3-path validation | (operational; no repo changes unless validation surfaces config tweaks) |
+| 8c.7 | Server-side host-mgmt bootstrap | new `ansible/playbooks/zabbix-server-bootstrap.yml` |
+| 8c.8 | Cluster-wide agent rollout | `ansible/roles/zabbix-agent/defaults/main.yml` (HostMetadata format) |
 
-## Pending follow-ups (post-Phase-7c)
+## Pending follow-ups (post-Phase-8c)
 
 - **Templates-as-code.** Zabbix supports exporting templates to YAML/XML. Bringing the per-service template configuration into Git (instead of UI-managed) is a polish item — defer until template churn becomes a real cost. Mostly relevant when custom templates start landing for app-specific metrics.
 - **Agent TLS.** Currently unencrypted on VLANs 11/21. Bump to PSK or cert-based when the first cross-VLAN or tailnet-exposed agent lands. Defaults are in `zabbix_agent_tls_connect` / `zabbix_agent_tls_accept`.
@@ -117,8 +117,8 @@ Full step-by-step plan tracked in [`../operations/open-questions.md`](../operati
 
 ## See also
 
-- [`../operations/build-sequence.md`](../operations/build-sequence.md) — Phase 7c row, sequencing in Phase 7
+- [`../operations/build-sequence.md`](../operations/build-sequence.md) — Phase 8c row, sequencing in Phase 8
 - [`../operations/decisions.md`](../operations/decisions.md) — three Zabbix decision rows (phase promotion, native-SAML auth, Traefik-fronts-LXC)
-- [`../operations/open-questions.md`](../operations/open-questions.md) — Phase 7c sub-phases 7c.1–7c.8 checklist
-- [`observability.md`](observability.md) — Phase 7a (K8s metrics+logs, complementary to this)
+- [`../operations/open-questions.md`](../operations/open-questions.md) — Phase 8c sub-phases 8c.1–8c.8 checklist
+- [`observability.md`](observability.md) — Phase 8a (K8s metrics+logs, complementary to this)
 - CLAUDE.md "Services / placement" architectural invariant — Zabbix-as-failure-domain rationale
