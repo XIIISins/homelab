@@ -40,40 +40,36 @@ query_filters:
   - has_primary_ip: "True"
 
 # Compose runs BEFORE groups + keyed_groups. Two jobs here:
-#   1. ansible_host  ← primary IPv4 with CIDR stripped. NetBox stores
-#      IPs as <ip>/<prefix>; ansible_host wants a bare IP.
-#   2. Rename the netbox-injected `tags` hostvar to `netbox_tags`,
-#      then overwrite `tags` to an empty list. The plugin hardcodes
-#      a `tags` hostvar containing the list of NetBox tag slugs;
-#      that collides with Ansible's own `tags` keyword that roles +
-#      templates reference. Any role doing `{{ tags }}` would pick
-#      up the NetBox list silently. Alias-then-nuke means groups +
-#      keyed_groups below reference `netbox_tags` explicitly + the
-#      collision-prone `tags` var is empty for downstream code.
+#   1. ansible_host  ← primary IPv4 with CIDR stripped.
+#   2. Alias the plugin-hardcoded `tags` hostvar to `netbox_tags`.
+#      `tags` collides with Ansible's own concept — any role doing
+#      `{{ tags }}` silently picks up the NetBox tag-slug list.
+#      Roles SHOULD prefer `netbox_tags` going forward; audit pending.
+#      Initial attempt also nuked `tags = "[]"` after the alias but
+#      that broke keyed_groups projection (only factorio matched —
+#      compose semantics aren't what we expected); reverted, the
+#      collision is documented instead of structurally eliminated.
 compose:
   ansible_host: primary_ip4.address | default(primary_ip.address) | regex_replace('/.*$', '')
   netbox_tags: tags
-  tags: "[]"
 
 # Synthetic parent group `k3s` = union of `k3s_cp` + `k3s_worker`.
-# Lets playbooks target `hosts: k3s` to mean "all K3s nodes". Uses
-# `netbox_tags` (the compose alias) since `tags` has been nuked above.
+# Lets playbooks target `hosts: k3s` to mean "all K3s nodes".
 groups:
-  k3s: "'ansiblek3s-cp' in netbox_tags or 'ansiblek3s-worker' in netbox_tags"
+  k3s: "'ansiblek3s-cp' in tags or 'ansiblek3s-worker' in tags"
 
 # Project the ansible:<group> tag namespace into Ansible groups.
 # Hosts WITHOUT any ansible:* tag won't land in any dynamic group
 # but still appear in `all`.
 #
-# `netbox_tags` (alias of the plugin's original `tags`) is a list of
-# NetBox tag SLUGS. NetBox slug auto-strips colons
-# (`ansible:postgres` → `ansiblepostgres`), so the regex strips
-# `^ansible` to get the bare group name. The `reject('equalto', '')`
-# guard catches the edge case of a bare slug `ansible` (was a typo
-# bug in terraform/netbox/tags.tf, fixed 2026-05-26 — defensive
-# even after the fix).
+# `tags` is a list of NetBox tag SLUGS. NetBox slug auto-strips
+# colons (`ansible:postgres` → `ansiblepostgres`), so the regex
+# strips `^ansible` to get the bare group name. The
+# `reject('equalto', '')` guard catches the edge case of a bare
+# slug `ansible` (was a typo bug in terraform/netbox/tags.tf,
+# fixed 2026-05-26 — defensive even after the fix).
 keyed_groups:
-  - key: netbox_tags | select('match', '^ansible[a-z0-9_-]+$') | map('regex_replace', '^ansible', '') | reject('equalto', '') | list
+  - key: tags | select('match', '^ansible[a-z0-9_-]+$') | map('regex_replace', '^ansible', '') | reject('equalto', '') | list
     prefix: ""
     separator: ""
 
