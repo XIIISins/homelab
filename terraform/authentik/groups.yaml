@@ -46,7 +46,7 @@ netbox-viewers:
 
 monitoring-admins:
   is_superuser: false
-  # Members can authenticate to the Phase-7 observability stack —
+  # Members can authenticate to the Phase-8 observability stack —
   # VictoriaMetrics (metric.niflheim.xiiisins.com) + VictoriaLogs
   # (logs.niflheim.xiiisins.com) — gated by Authentik ForwardAuth
   # through Traefik. The apps themselves don't have an internal

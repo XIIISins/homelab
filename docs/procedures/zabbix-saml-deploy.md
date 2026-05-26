@@ -1,6 +1,6 @@
 <!-- docs/procedures/zabbix-saml-deploy.md -->
 
-# Zabbix SAML SSO deploy (Phase 7c.3–7c.6)
+# Zabbix SAML SSO deploy (Phase 8c.3–8c.6)
 
 One-time procedure to apply the SAML SSO draft (worktree branch `worktree-draft-zabbix-saml`) end-to-end. Pre-conditions: network access for `terraform apply` (S3 state lock) and `git push` (Flux reconciliation).
 
@@ -139,7 +139,7 @@ ssh ansible@10.0.11.21 'ls -la /usr/share/zabbix/conf/certs/ && sudo cat /etc/za
 
 ---
 
-## 5. First-login validation (Phase 7c.6)
+## 5. First-login validation (Phase 8c.6)
 
 Three paths to validate; mark each off:
 
@@ -177,10 +177,10 @@ Once SAML round-trip works for `ghost`:
 
 ## 7. Post-flight docs (after successful deploy)
 
-- Tick `7c.3` / `7c.4` / `7c.5` / `7c.6` in `docs/operations/open-questions.md` to `[x]` with closure date + commit refs.
-- Tick the parent `Phase 7c` line if all four sub-phases land cleanly.
-- Update `CLAUDE.md` "Current build status" — Phase 7c flips from 🟡 → ✅.
-- Update `docs/operations/build-sequence.md` row for Phase 7c with closure narrative.
+- Tick `8c.3` / `8c.4` / `8c.5` / `8c.6` in `docs/operations/open-questions.md` to `[x]` with closure date + commit refs.
+- Tick the parent `Phase 8c` line if all four sub-phases land cleanly.
+- Update `CLAUDE.md` "Current build status" — Phase 8c flips from 🟡 → ✅.
+- Update `docs/operations/build-sequence.md` row for Phase 8c with closure narrative.
 - New incident retro `docs/incidents/YYYY-MM-DD-zabbix-saml-cutover.md` if any findings surface during deploy (especially expected: SAML attribute name guesses might need adjustment based on actual Authentik metadata).
 
 ---

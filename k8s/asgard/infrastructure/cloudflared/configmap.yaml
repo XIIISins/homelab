@@ -59,7 +59,7 @@ data:
           httpHostHeader: wiki.xiiisins.com
           noTLSVerify: true
 
-      # Zabbix (Hugin) — apex hostname for WAN access. Phase 7c.5.
+      # Zabbix (Hugin) — apex hostname for WAN access. Phase 8c.5.
       # Same Traefik backchannel pattern as Authentik + Outline above;
       # midgard Gateway's zabbix-ingress HTTPRoute (k8s/asgard/apps/
       # zabbix-ingress/httproute.yaml) routes by hostname to the

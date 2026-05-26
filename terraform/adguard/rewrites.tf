@@ -95,7 +95,7 @@ locals {
     # "In-cluster K8s-fronted FQDNs" gotcha.
     "factorio.niflheim.xiiisins.com" = "10.0.11.220"
     "netbox.niflheim.xiiisins.com"   = "10.0.20.10"
-    # Phase 7 observability stack — both internal-only, behind
+    # Phase 8 observability stack — both internal-only, behind
     # Authentik ForwardAuth via Traefik middleware. vmui at metric.,
     # native VL UI at logs.
     "metric.niflheim.xiiisins.com" = "10.0.20.10"

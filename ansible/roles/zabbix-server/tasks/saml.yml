@@ -1,6 +1,6 @@
 # ansible/roles/zabbix-server/tasks/saml.yml
 ---
-# Phase 7c.4 — Zabbix SAML auth wire-up.
+# Phase 8c.4 — Zabbix SAML auth wire-up.
 #
 # Two-layer config (Zabbix 7.0 split):
 #   * File-level ($SSO[...] in zabbix.conf.php) → SP_KEY/SP_CERT/IDP_CERT
@@ -28,7 +28,7 @@
 # (forks throttling, become:false on delegated tasks, no_log masking,
 # etc.).
 #
-# Pre-7c.3 prereq: operator generates the SP keypair ONCE and stashes
+# Pre-8c.3 prereq: operator generates the SP keypair ONCE and stashes
 # it in Vault at secret/ansible/zabbix/saml-sp-keypair with fields
 # `key` (PEM private) + `cert` (PEM public). One-time openssl:
 #   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \

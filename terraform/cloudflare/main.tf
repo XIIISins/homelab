@@ -71,7 +71,7 @@ resource "cloudflare_dns_record" "outline" {
 }
 
 # Zabbix (Hugin) — public apex hostname tunnelled through cloudflared.
-# Phase 7c.5 (WAN ingress). Cloudflared ingress rule lives in
+# Phase 8c.5 (WAN ingress). Cloudflared ingress rule lives in
 # k8s/asgard/infrastructure/cloudflared/configmap.yaml — pattern mirrors
 # Outline + Authentik (target https://traefik.traefik.svc.cluster.local
 # with httpHostHeader: hugin.xiiisins.com + noTLSVerify: true). Internal

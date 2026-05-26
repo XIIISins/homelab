@@ -25,7 +25,7 @@
   ansible.builtin.import_tasks: services.yml
   tags: [zabbix, zabbix:services]
 
-- name: Wire SAML auth — cert files + userdirectory + auth toggle (7c.4)
+- name: Wire SAML auth — cert files + userdirectory + auth toggle (8c.4)
   ansible.builtin.import_tasks: saml.yml
   tags: [zabbix, zabbix:saml]
   when: zabbix_saml_enabled

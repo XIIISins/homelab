@@ -69,7 +69,7 @@ zabbix_server_log_file: /var/log/zabbix/zabbix_server.log
 # Traefik may forward upstream. All FQDNs are identity-themed
 # (hugin = the LXC's Norse identity), not service-themed:
 #   - hugin-direct.niflheim.xiiisins.com  → direct LXC backdoor (AGH rewrite, bypasses Traefik)
-#   - hugin.midgard.xiiisins.com          → LAN, via Traefik (Phase 7c.5)
+#   - hugin.midgard.xiiisins.com          → LAN, via Traefik (Phase 8c.5)
 #   - hugin.xiiisins.com                  → WAN, via Cloudflared+Traefik
 # Rendered space-separated by the template into a single
 # `server_name` directive; first match wins.
@@ -90,14 +90,14 @@ zabbix_frontend_server_name: "hugin"
 # the Vault-stored value — the operator logs in once with the factory
 # default and changes via UI to the value at this Vault path, which
 # keeps the IaC-tracked value and reality in sync. API-driven auto-
-# rotation is the 7c.7 plan; until then the path serves as the
+# rotation is the 8c.7 plan; until then the path serves as the
 # canonical post-rotation value.
 #
 # If Admin gets locked out (5 failed attempts), unlock via:
 #   UPDATE users SET attempt_failed=0, attempt_clock=0, attempt_ip=''
 #   WHERE username='Admin';
 # from a workstation psql session against the Patroni VIP. See the
-# Phase 7c.2 incident retro.
+# Phase 8c.2 incident retro.
 zabbix_admin_user: Admin
 zabbix_admin_password_vault_path: "ansible/zabbix/admin-password"
 zabbix_admin_password_vault_field: value # TF-minted secrets store under `value` field
@@ -146,7 +146,7 @@ zabbix_hermod_attach_to_user: Admin
 zabbix_hermod_user_media_sendto: hermod
 
 # ============================================================================
-# SAML authentication — Phase 7c.3-7c.6 (Authentik native SAML 2.0)
+# SAML authentication — Phase 8c.3-8c.6 (Authentik native SAML 2.0)
 # ============================================================================
 # Native SAML, NOT Traefik ForwardAuth — Zabbix 7.0 has built-in SAML
 # and the K3s-down emergency observability rationale rules out making

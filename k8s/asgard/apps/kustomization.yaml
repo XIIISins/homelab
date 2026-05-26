@@ -6,7 +6,7 @@ resources:
   - apex-static
   - netbox
   - teamspeak
-  # Phase 7 — observability stack (relocated from jotunheim 2026-05-24
+  # Phase 8 — observability stack (relocated from jotunheim 2026-05-24
   # for operational reasons: jotunheim's deploy timeline is uncertain;
   # asgard already has the infrastructure VM/VL need, AND keeping VL
   # in the same cluster as the workloads producing logs simplifies
