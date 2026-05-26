@@ -1,0 +1,221 @@
+# ansible/roles/zabbix-server/tasks/saml.yml
+---
+# Phase 7c.4 — Zabbix SAML auth wire-up.
+#
+# Two-layer config (Zabbix 7.0 split):
+#   * File-level ($SSO[...] in zabbix.conf.php) → SP_KEY/SP_CERT/IDP_CERT
+#     PATHS only. Tells Zabbix where on disk to find the cert files.
+#   * DB-level (userdirectory_saml row, managed via API) → everything
+#     else: IdP entity ID, SSO/SLO URLs, attribute mappings, JIT
+#     provisioning, group → usergroup dispatch.
+#
+# The role owns:
+#   1. Dropping the three cert PEMs into /usr/share/zabbix/conf/certs/
+#      (operator-minted SP keypair from Vault + TF-minted IdP cert).
+#   2. Reconciling the userdirectory_saml + global authentication
+#      settings via the Zabbix API.
+#
+# zabbix.conf.php is rendered by web-config.yml (using a template
+# extended below to interpolate the SP_KEY/SP_CERT/IDP_CERT paths
+# when zabbix_saml_enabled). web-config notifies its own handler to
+# reload php-fpm + nginx, so the file-level cert paths take effect
+# without an explicit dependency here.
+#
+# Connection model for API calls: httpapi to the Zabbix server,
+# delegated to the inventory host running it (hugin). Same pattern as
+# hermod-mediatype.yml + the cluster-wide zabbix_host registration.
+# See CLAUDE.md "Zabbix agent + API automation" for the gotchas
+# (forks throttling, become:false on delegated tasks, no_log masking,
+# etc.).
+#
+# Pre-7c.3 prereq: operator generates the SP keypair ONCE and stashes
+# it in Vault at secret/ansible/zabbix/saml-sp-keypair with fields
+# `key` (PEM private) + `cert` (PEM public). One-time openssl:
+#   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+#     -subj '/CN=hugin.midgard.xiiisins.com' -keyout sp.key -out sp.crt
+# Then `vault kv put secret/ansible/zabbix/saml-sp-keypair \
+#   key=@sp.key cert=@sp.crt`. The keypair is NOT TF-managed — TF
+# reads only the public cert for IdP-side AuthnRequest verification.
+
+# ============================================================================
+# Layer 1 — cert files on disk
+# ============================================================================
+
+- name: Ensure SAML cert directory exists
+  ansible.builtin.file:
+    path: "{{ zabbix_saml_cert_dir }}"
+    state: directory
+    owner: root
+    group: www-data
+    mode: "0750"
+  tags: [zabbix, zabbix:saml, zabbix:saml-certs]
+
+# SP private key — never readable by anyone except root + the PHP-FPM
+# worker (group www-data). Mode 0640 with www-data group is the
+# minimum surface that lets the frontend sign AuthnRequests.
+- name: Write SAML SP private key
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_sp_keypair_vault_path).secret['key'] }}
+    dest: "{{ zabbix_saml_sp_key_path }}"
+    owner: root
+    group: www-data
+    mode: "0640"
+  no_log: true  # private key
+  notify: restart php-fpm
+  tags: [zabbix, zabbix:saml, zabbix:saml-certs]
+
+# SP public cert — same file-permission posture as the key (no reason
+# to widen even though the cert is public; consistent ownership keeps
+# the dir auditing simple).
+- name: Write SAML SP public cert
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_sp_keypair_vault_path).secret['cert'] }}
+    dest: "{{ zabbix_saml_sp_cert_path }}"
+    owner: root
+    group: www-data
+    mode: "0640"
+  notify: restart php-fpm
+  tags: [zabbix, zabbix:saml, zabbix:saml-certs]
+
+# IdP signing cert — written by TF to Vault at apply time
+# (terraform/authentik/zabbix.tf → ansible/zabbix/saml-idp). Zabbix
+# validates every SAML Response signature against this PEM.
+- name: Write SAML IdP signing cert
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_idp_vault_path).secret['signing_cert'] }}
+    dest: "{{ zabbix_saml_idp_cert_path }}"
+    owner: root
+    group: www-data
+    mode: "0640"
+  notify: restart php-fpm
+  tags: [zabbix, zabbix:saml, zabbix:saml-certs]
+
+# ============================================================================
+# Layer 2 — userdirectory_saml + global auth settings (Zabbix API)
+# ============================================================================
+
+# Create or update the SAML user directory. This is the row in
+# Zabbix's `userdirectory` + `userdirectory_saml` tables that tells
+# Zabbix HOW to talk to the IdP — entity IDs, URLs, claim names, JIT
+# provisioning mapping.
+#
+# Provision_status=1 enables JIT user creation; provision_groups
+# expresses the Authentik-group → Zabbix-usergroup mapping. On first
+# successful SAML login, if the user doesn't exist in Zabbix's `users`
+# table, a row is created with the SAML NameID as username + the
+# group_name attribute's value(s) cross-checked against the mapping's
+# `name` field(s) → user gets membership in the listed usergroups
+# with the listed role.
+#
+# The module is "create-or-update by name" — re-running with the same
+# `name` reconciles existing fields, not duplicates.
+- name: Create or update Authentik SAML user directory
+  community.zabbix.zabbix_user_directory:
+    name: "{{ zabbix_saml_userdirectory_name }}"
+    idp_type: saml
+    # Identifiers + endpoints — from the Vault payload TF wrote.
+    saml:
+      idp_entityid: >-
+        {{ lookup('community.hashi_vault.vault_kv2_get',
+                  zabbix_saml_idp_vault_path).secret['entity_id'] }}
+      sso_url: >-
+        {{ lookup('community.hashi_vault.vault_kv2_get',
+                  zabbix_saml_idp_vault_path).secret['sso_url'] }}
+      slo_url: >-
+        {{ lookup('community.hashi_vault.vault_kv2_get',
+                  zabbix_saml_idp_vault_path).secret['slo_url'] }}
+      sp_entityid: "{{ zabbix_saml_sp_entity_id }}"
+      # Username source — which SAML attribute Zabbix uses as
+      # the canonical username. NameID is the simplest: we configured
+      # name_id_mapping = email on the IdP side, so NameID carries the
+      # user's email + that becomes the Zabbix username.
+      username_attribute: "{{ zabbix_saml_username_attribute }}"
+      # NameID format — emailAddress matches our IdP-side
+      # name_id_mapping. Zabbix validates incoming NameIDs against this
+      # format declaration.
+      nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+      # Signature policy. Authentik signs Responses + Assertions by
+      # default; we sign AuthnRequests (so the IdP can verify them via
+      # the verification_kp we registered). Logout flows aren't a
+      # day-1 surface but we leave their signing on for consistency.
+      sign_messages: true
+      sign_assertions: true
+      sign_authn_requests: true
+      sign_logout_requests: true
+      sign_logout_responses: true
+      # NameID + assertion encryption — Authentik supports both but
+      # they add cipher complexity without solving a real threat in our
+      # tunnel/TLS-terminated topology. Defer to plain signed-only.
+      encrypt_nameid: false
+      encrypt_assertions: false
+      # Group → usergroup JIT dispatch. The `group_name` SAML attr
+      # carries Authentik's group list; each entry is matched against
+      # the `name` field below + dispatched into `user_groups`.
+      group_name: "{{ zabbix_saml_groups_attribute }}"
+      # User provisioning enabled — auto-creates Zabbix users on first
+      # successful SAML login. Without this, only pre-created users
+      # (matched by username on the IdP side) can authenticate.
+      provision_status: 1
+      # SCIM disabled — provisioning via the SAML attributes themselves
+      # is enough; we don't need a separate SCIM endpoint for sync.
+      scim_status: 0
+    # Group → usergroup mapping table. Each entry: an Authentik group
+    # name (`name`) + the Zabbix usergroup(s) and role to grant. Roles
+    # are referenced by display name; "Super admin role" is built-in.
+    provision_groups: "{{ zabbix_saml_provision_groups }}"
+    state: present
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: true  # IdP URLs + Vault token in vars
+  tags: [zabbix, zabbix:saml, zabbix:saml-userdirectory]
+
+# Enable SAML auth globally + point at the userdirectory we created.
+# `authentication_type` stays 'internal' (so local Admin login keeps
+# working as the backdoor); `saml_auth_enabled=true` adds SAML as an
+# alternative path. The deprovision_groupid + JIT settings live on the
+# userdirectory itself, not here.
+- name: Enable SAML authentication globally
+  community.zabbix.zabbix_authentication:
+    authentication_type: internal
+    saml_auth_enabled: true
+    # Case-sensitive matching — Authentik usernames are lowercase
+    # canonical, so this is consistent. Flip to insensitive if a
+    # downstream case-folding issue ever surfaces.
+    saml_case_sensitive: true
+    # JIT provisioning interval. 1 hour is fine — re-checks group
+    # membership against the IdP claims on every login that's farther
+    # than this from the last refresh.
+    saml_jit_status: true
+    jit_provision_interval: "1h"
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: true  # token in vars
+  tags: [zabbix, zabbix:saml, zabbix:saml-auth-toggle]

@@ -144,3 +144,87 @@ zabbix_hermod_attach_to_user: Admin
 # Vestigial — for webhook media types, sendto is free-text since the
 # real URL lives in webhook_params. Keep it semantic.
 zabbix_hermod_user_media_sendto: hermod
+
+# ============================================================================
+# SAML authentication — Phase 7c.3-7c.6 (Authentik native SAML 2.0)
+# ============================================================================
+# Native SAML, NOT Traefik ForwardAuth — Zabbix 7.0 has built-in SAML
+# and the K3s-down emergency observability rationale rules out making
+# the auth path K3s-dependent (Authentik IS in K3s, but the local-
+# Admin backdoor at hugin-direct.niflheim.xiiisins.com survives K3s
+# outages independently). Full design + decision rows: docs/services/
+# zabbix.md "Why native SAML over Traefik ForwardAuth".
+#
+# Two-source Vault config:
+#   * ansible/zabbix/saml-sp-keypair  — operator-minted ONCE via
+#     openssl, fields `key` + `cert`. Zabbix signs AuthnRequests with
+#     the private key; Authentik verifies via the public cert that TF
+#     registers on the IdP side (terraform/authentik/zabbix.tf reads
+#     the cert from this same Vault path). Long-lived (10y self-
+#     signed); rotation is operator-driven.
+#   * ansible/zabbix/saml-idp         — TF-minted by
+#     terraform/authentik/zabbix.tf outputs, fields `entity_id`,
+#     `sso_url`, `slo_url`, `signing_cert`. Re-rendered on every TF
+#     apply that changes the SAML provider config.
+#
+# Flip to false to skip the entire SAML pass (useful for staging
+# environments, or to validate the backdoor still works after major
+# changes). The file-level $SSO[...] block in zabbix.conf.php.j2 keys
+# off this same flag.
+zabbix_saml_enabled: true
+
+# Vault paths (consumer-domain prefix `ansible/` since the Ansible
+# role is the consumer; the IdP-info path is the TF→Vault hand-off
+# pattern used by Tailscale / Hermod / etc.).
+zabbix_saml_sp_keypair_vault_path: "ansible/zabbix/saml-sp-keypair"
+zabbix_saml_idp_vault_path: "ansible/zabbix/saml-idp"
+
+# Cert storage on the LXC. Zabbix's $SSO settings expect PEMs at a
+# known path; the frontend's PHP-FPM worker (group www-data) reads
+# them on every SAML handshake.
+zabbix_saml_cert_dir: /usr/share/zabbix/conf/certs
+zabbix_saml_sp_key_path: "{{ zabbix_saml_cert_dir }}/sp.key"
+zabbix_saml_sp_cert_path: "{{ zabbix_saml_cert_dir }}/sp.crt"
+zabbix_saml_idp_cert_path: "{{ zabbix_saml_cert_dir }}/idp.crt"
+
+# SP entityID — the audience claim the IdP asserts in the SAML
+# Response. Must match the `audience` field on the
+# authentik_provider_saml resource exactly (string-equal). Using the
+# apex hostname keeps a single canonical SP identity across the multi-
+# FQDN setup; the actual hostname the user typed (midgard vs apex) is
+# carried separately via the ACS URL match.
+zabbix_saml_sp_entity_id: "https://hugin.xiiisins.com"
+
+# User directory display name. Surfaced in the Zabbix UI under
+# Users → Authentication → User directories. Cosmetic; pick whatever
+# distinguishes the entry if more directories land later (LDAP, etc.).
+zabbix_saml_userdirectory_name: "Authentik SAML"
+
+# Group → usergroup JIT provisioning mapping. Each entry binds an
+# Authentik group name (as it appears in the SAML `groups` attribute)
+# to a Zabbix role + usergroup(s). Day-1 mapping is single-entry:
+# zabbix-admins (Authentik) → Zabbix administrators (built-in
+# usergroup) with Super admin role. Add zabbix-viewers + a Viewer
+# role mapping when read-only access becomes a real need.
+zabbix_saml_provision_groups:
+  - name: "zabbix-admins"
+    role_name: "Super admin role"
+    user_groups:
+      - "Zabbix administrators"
+
+# SAML attribute names — must match what Authentik puts in the
+# assertion (driven by the property mappings on the SAML provider).
+# Authentik's default property mappings use Authentik-scoped URN
+# attribute names; the exact strings can be verified by downloading
+# the provider metadata XML after TF apply:
+#   curl https://authentik.midgard.xiiisins.com/api/v3/providers/saml/<pk>/metadata/?download
+# and grep'ing for <saml:Attribute Name="..."> entries.
+#
+# The defaults below match Authentik 2026.2.x baseline. If first-
+# deploy SAML login JIT-provisions users with empty usernames or no
+# group membership, suspect these strings + cross-check against the
+# metadata XML. The NameID itself (separate from these attribute
+# claims) carries the user's email per the IdP-side name_id_mapping
+# = email config in terraform/authentik/zabbix.tf.
+zabbix_saml_username_attribute: "http://schemas.goauthentik.io/2021/02/saml/uid"
+zabbix_saml_groups_attribute: "http://schemas.xmlsoap.org/claims/Group"

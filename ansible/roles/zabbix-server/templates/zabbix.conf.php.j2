@@ -50,8 +50,22 @@ $HISTORY['url']         = [];
 $HISTORY['types']       = [];
 
 // Used for SAML authentication.
-// Uncomment to override the default paths to SP private key, SP and IdP X.509 certificates, and to set extra settings.
+{% if zabbix_saml_enabled %}
+// Phase 7c.3-7c.6 — Authentik native SAML 2.0. The file-level $SSO
+// settings here only declare cert file PATHS; the rest of SAML config
+// (entity IDs, SSO/SLO URLs, JIT mapping) lives in the DB
+// (userdirectory_saml) and is managed via the Zabbix API by
+// roles/zabbix-server/tasks/saml.yml. SP keypair + IdP cert files
+// are written to disk by the same task from Vault.
+$SSO['SP_KEY']                       = '{{ zabbix_saml_sp_key_path }}';
+$SSO['SP_CERT']                      = '{{ zabbix_saml_sp_cert_path }}';
+$SSO['IDP_CERT']                     = '{{ zabbix_saml_idp_cert_path }}';
+$SSO['SETTINGS']                     = [];
+{% else %}
+// SAML disabled (zabbix_saml_enabled: false). Falls back to internal-
+// only auth — local Admin login via the backdoor URL only.
 //$SSO['SP_KEY']                       = 'conf/certs/sp.key';
 //$SSO['SP_CERT']                      = 'conf/certs/sp.crt';
 //$SSO['IDP_CERT']                     = 'conf/certs/idp.crt';
 //$SSO['SETTINGS']                     = [];
+{% endif %}

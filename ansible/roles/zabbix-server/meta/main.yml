@@ -12,3 +12,6 @@ galaxy_info:
         - bookworm
         - trixie
 dependencies: []
+collections:
+  - community.hashi_vault # Vault lookups (admin password, SAML SP keypair, IdP info, API token)
+  - community.zabbix # zabbix_mediatype + zabbix_user (hermod), zabbix_user_directory + zabbix_authentication (saml)

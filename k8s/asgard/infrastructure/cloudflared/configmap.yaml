@@ -59,6 +59,27 @@ data:
           httpHostHeader: wiki.xiiisins.com
           noTLSVerify: true
 
+      # Zabbix (Hugin) — apex hostname for WAN access. Phase 7c.5.
+      # Same Traefik backchannel pattern as Authentik + Outline above;
+      # midgard Gateway's zabbix-ingress HTTPRoute (k8s/asgard/apps/
+      # zabbix-ingress/httproute.yaml) routes by hostname to the
+      # zabbix-ingress/hugin Service, which has a manual EndpointSlice
+      # pointing at LXC 10.0.11.21:80.
+      #
+      # SAML round-trip: user lands on the apex via tunnel → Zabbix
+      # frontend → SP-signed AuthnRequest with ACS URL=
+      # https://hugin.xiiisins.com/index_sso.php?acs → Authentik
+      # returns the response to that exact host → user lands back on
+      # Zabbix authenticated. The apex hostname is the CANONICAL SAML
+      # entry point — authentik_provider_saml only supports a single
+      # acs_url, so SAML logins MUST start from hugin.xiiisins.com.
+      # The midgard alias (hugin.midgard) is fine for non-SAML browsing.
+      - hostname: hugin.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: hugin.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

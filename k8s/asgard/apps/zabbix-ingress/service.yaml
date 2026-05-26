@@ -1,0 +1,22 @@
+# k8s/asgard/apps/zabbix-ingress/service.yaml
+#
+# Service without pod selector. The accompanying EndpointSlice
+# (endpointslice.yaml) manually points at the Zabbix LXC's address
+# (10.0.11.21:80). This is the standard K8s pattern for fronting a
+# non-K8s backend with cluster-internal routing — Traefik's HTTPRoute
+# resolves backendRefs to this Service's ClusterIP, kube-proxy DNATs to
+# the EndpointSlice's external address, traffic exits the cluster onto
+# VLAN 11 to the LXC.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hugin
+  namespace: zabbix-ingress
+spec:
+  # No `selector:` — kubelet won't try to auto-populate endpoints; the
+  # manually-curated EndpointSlice is the single source of truth.
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

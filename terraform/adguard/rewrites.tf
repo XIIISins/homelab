@@ -39,9 +39,9 @@ locals {
     # hugin.* is the host identity (SSH, direct LAN access). hugin-
     # direct.* is the explicit-backdoor FQDN nginx accepts on the LXC
     # for cases where Traefik is itself the thing being debugged
-    # (Zabbix HTTP frontend; bypasses Traefik). zabbix.midgard.* +
-    # zabbix.xiiisins.com bypasses land in 7c.5 when Traefik gets a
-    # custom backend route to 10.0.11.21:80.
+    # (plain HTTP frontend; bypasses Traefik + Authentik SAML round-
+    # trip — local-Admin login only). See docs/services/zabbix.md
+    # "Recovery model" for when to use which path.
     "hugin.niflheim.xiiisins.com"        = "10.0.11.21"
     "hugin-direct.niflheim.xiiisins.com" = "10.0.11.21"
 
@@ -115,6 +115,14 @@ locals {
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
     "wiki.midgard.xiiisins.com"      = "10.0.20.10"
+    # Hugin (Zabbix) — LAN clients hitting hugin.midgard.* land on
+    # Traefik VIP → midgard Gateway → zabbix-ingress Service →
+    # EndpointSlice → LXC 10.0.11.21:80. Same shape as wiki.midgard.
+    # No bypass to the bare LXC: Traefik fronting is required for
+    # Authentik SAML to work (the IdP redirects back to a Traefik-
+    # fronted hostname). LAN-direct-to-LXC backdoor remains
+    # hugin-direct.niflheim.xiiisins.com (above).
+    "hugin.midgard.xiiisins.com" = "10.0.20.10"
 
     # ── xiiisins.com — apex LAN bypass ─────────────────────────────
     # factorio is bare-LXC (no Traefik), so the LAN bypass points

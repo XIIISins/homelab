@@ -25,6 +25,11 @@
   ansible.builtin.import_tasks: services.yml
   tags: [zabbix, zabbix:services]
 
+- name: Wire SAML auth — cert files + userdirectory + auth toggle (7c.4)
+  ansible.builtin.import_tasks: saml.yml
+  tags: [zabbix, zabbix:saml]
+  when: zabbix_saml_enabled
+
 - name: Wire Hermod webhook media type + Admin user-media (5h.2.i)
   ansible.builtin.import_tasks: hermod-mediatype.yml
   tags: [zabbix, zabbix:hermod]

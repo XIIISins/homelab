@@ -63,3 +63,17 @@ outline-users:
   # workspace admins after first OIDC login. is_superuser=false
   # (group grants no Authentik-side privileges); gating is the per-app
   # policy binding only.
+
+zabbix-admins:
+  is_superuser: false
+  # Members can authenticate to Zabbix (hugin.xiiisins.com /
+  # hugin.midgard.xiiisins.com) via the native SAML Application (see
+  # zabbix.tf for the policy binding). Zabbix-side JIT provisioning
+  # reads the SAML Groups attribute and dispatches into the built-in
+  # `Zabbix administrators` usergroup on first login — no manual
+  # post-login permission assignment needed (different from netbox-
+  # admins, which requires manual NetBox-side elevation).
+  # is_superuser=false (no Authentik-side privileges); gating is the
+  # per-app policy binding only. Day-1 mapping is single-group only;
+  # extend with zabbix-viewers when read-only dashboard access for
+  # non-operator users becomes a real need.

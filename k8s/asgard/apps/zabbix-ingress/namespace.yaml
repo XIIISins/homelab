@@ -1,0 +1,14 @@
+# k8s/asgard/apps/zabbix-ingress/namespace.yaml
+#
+# Dedicated namespace for the Zabbix ingress shim. Zabbix itself runs
+# on LXC 1102 (hugin, outside K3s) — this namespace only holds the
+# K8s-side Service + EndpointSlice + HTTPRoute that lets Traefik front
+# the LXC under the `hugin.midgard.xiiisins.com` (LAN) +
+# `hugin.xiiisins.com` (WAN, via cloudflared) hostnames. Keeping it in
+# its own namespace makes the "this is just routing, no workloads" intent
+# obvious + future-proofs against name collisions if any zabbix-related
+# K8s workloads ever land.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zabbix-ingress

@@ -1,0 +1,39 @@
+# k8s/asgard/apps/zabbix-ingress/endpointslice.yaml
+#
+# Manually-curated EndpointSlice binding the `hugin` Service to the
+# Zabbix LXC's IP. The `kubernetes.io/service-name` label is what
+# associates this slice with the parent Service — kube-proxy walks
+# every EndpointSlice with that label key + matching value to build
+# the DNAT rules.
+#
+# Single endpoint here = no kube-proxy load-balancing across replicas
+# (Zabbix is a single LXC; no HA on the server). If the LXC moves to
+# a different IP, this file is the single thing to update; the
+# Service ClusterIP stays the same so Traefik's HTTPRoute doesn't need
+# touching.
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: hugin-lxc
+  namespace: zabbix-ingress
+  labels:
+    # Required label — binds this slice to Service `hugin` in the same
+    # namespace. Mismatch → Service has no endpoints, every request
+    # 503s with no diagnostic in the Service object itself.
+    kubernetes.io/service-name: hugin
+addressType: IPv4
+endpoints:
+  - addresses:
+      - 10.0.11.21
+    conditions:
+      ready: true
+      serving: true
+      terminating: false
+ports:
+  # Port name MUST match the parent Service's port name — that's how
+  # the binding propagates port-spec to kube-proxy. The `port` field
+  # here is the BACKEND port (where the LXC nginx is listening),
+  # `port` on the Service is the cluster-facing port.
+  - name: http
+    port: 80
+    protocol: TCP

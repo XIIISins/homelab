@@ -20,3 +20,10 @@ resources:
   # Outline wiki — Authentik OIDC, PG via Patroni HAProxy VIP, S3 via
   # Garage in infrastructure/, OIDC OAuth2 provider in terraform/authentik/.
   - outline
+  # Zabbix ingress shim — Zabbix server itself runs on LXC 1102 (hugin,
+  # outside K3s), this directory only contains the K8s-side routing
+  # (Service + EndpointSlice + HTTPRoute) that lets Traefik front the
+  # LXC for LAN (hugin.midgard) + WAN (hugin.xiiisins.com via
+  # cloudflared) under Authentik native SAML. See
+  # terraform/authentik/zabbix.tf for the IdP-side declaration.
+  - zabbix-ingress

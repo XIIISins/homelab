@@ -1,0 +1,44 @@
+# k8s/asgard/apps/zabbix-ingress/httproute.yaml
+#
+# Single HTTPRoute — both hostnames (LAN midgard + WAN apex) attach
+# to the same midgard Gateway in the traefik namespace. NO niflheim
+# attachment by design: hugin-direct.niflheim.xiiisins.com is the
+# AGH-rewrite backdoor that bypasses Traefik entirely (operator's K3s-
+# down emergency path), so the niflheim zone for Zabbix is intentionally
+# never K8s-fronted. See docs/services/zabbix.md "Recovery model".
+#
+# The midgard Gateway listener split (websecure-midgard for the
+# midgard alias + websecure-apex-wildcard for *.xiiisins.com) is the
+# same pattern Outline + Authentik use. Both listeners point at the
+# same MetalLB VIP `10.0.20.10`; the listenerName routing is what
+# enforces hostname-match scope.
+#
+# Authentik IS attached to a Traefik ForwardAuth Middleware on other
+# routes (vmui/VL/etc.) but NOT here — Zabbix has built-in native
+# SAML and authenticates internally, so the route is a plain pass-
+# through. ForwardAuth would be double-auth + would also re-introduce
+# the K3s dependency the SAML decision was supposed to remove.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hugin-midgard
+  namespace: zabbix-ingress
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-midgard
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - hugin.midgard.xiiisins.com
+    - hugin.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: hugin
+          port: 80

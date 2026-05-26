@@ -37,3 +37,4 @@ ghost:
     - netbox-admins
     - monitoring-admins
     - outline-users
+    - zabbix-admins

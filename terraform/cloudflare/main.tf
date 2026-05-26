@@ -70,6 +70,26 @@ resource "cloudflare_dns_record" "outline" {
   ttl     = 1
 }
 
+# Zabbix (Hugin) — public apex hostname tunnelled through cloudflared.
+# Phase 7c.5 (WAN ingress). Cloudflared ingress rule lives in
+# k8s/asgard/infrastructure/cloudflared/configmap.yaml — pattern mirrors
+# Outline + Authentik (target https://traefik.traefik.svc.cluster.local
+# with httpHostHeader: hugin.xiiisins.com + noTLSVerify: true). Internal
+# LAN clients use hugin.midgard.xiiisins.com via AGH rewrite (skipping
+# the Cloudflare hop). Authentik SAML round-trip terminates back at the
+# user's original host (apex OR midgard alias), per the ACS URL match
+# on the authentik_provider_saml resource — meaning external WAN logins
+# and internal midgard logins both work end-to-end through the same
+# Zabbix frontend.
+resource "cloudflare_dns_record" "hugin" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "hugin.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #
