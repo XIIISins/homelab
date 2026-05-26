@@ -57,7 +57,7 @@
     enabled: true
     daemon_reload: true
   when:
-    - inventory_hostname in groups['asgard_k3s_cp']
+    - inventory_hostname in groups['k3s_cp']
     - inventory_hostname != k3s_init_node
 
 - name: Wait for all control plane nodes to join
@@ -77,7 +77,7 @@
     state: started
     enabled: true
     daemon_reload: true
-  when: inventory_hostname in groups['asgard_k3s_workers']
+  when: inventory_hostname in groups['k3s_worker']
 
 - name: Wait for all worker nodes to join
   ansible.builtin.command:

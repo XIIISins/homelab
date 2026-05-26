@@ -77,6 +77,6 @@ See `defaults/main.yml` for the annotated schema:
 | `postgres_management_users` | admin + ansible + replicator | Cluster-wide management roles |
 | `postgres_databases` | `[]` | Per-service DBs + their owning LOGIN roles |
 
-Group_vars for `postgres_hosts` (`ansible/inventory/group_vars/postgres_hosts.yml`)
+Group_vars for `postgres` (`ansible/inventory/group_vars/postgres.yml`)
 overrides `postgres_databases` to declare the per-service DBs that exist
 on this cluster.

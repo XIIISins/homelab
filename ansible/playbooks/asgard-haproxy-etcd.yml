@@ -1,7 +1,7 @@
 # ansible/playbooks/asgard-haproxy-etcd.yml
 ---
 - name: Configure HAProxy/etcd host
-  hosts: haproxy_etcd_hosts
+  hosts: haproxy_etcd
   become: true
 
   roles:

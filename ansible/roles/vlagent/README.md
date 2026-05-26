@@ -34,7 +34,7 @@ See [`defaults/main.yml`](defaults/main.yml). The most-tuned per-host:
 - `vlagent_log_inputs` — list of `{path, service[, format]}` entries. The defaults cover universal Debian/RHEL syslog. Extend per-host or per-group for service-specific logs:
 
   ```yaml
-  # group_vars/postgres_hosts.yml
+  # group_vars/postgres.yml
   vlagent_log_inputs:
     - path: /var/log/syslog
       service: syslog

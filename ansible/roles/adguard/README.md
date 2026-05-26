@@ -26,7 +26,7 @@ Part of Phase 5b.2 — replaces the manually-installed AGH from the early homela
 
 ## Variables
 
-See [`defaults/main.yml`](defaults/main.yml) for the full list. Most-tuned in `group_vars/adguard_hosts.yml`:
+See [`defaults/main.yml`](defaults/main.yml) for the full list. Most-tuned in `group_vars/adguard.yml`:
 
 - `adguard_upstream_dns` — recursive resolvers (defaults: Cloudflare + Quad9).
 - `adguard_rewrites` — DNS-level overrides applied via the template (optional; bulk lives in the operator-managed web UI state).

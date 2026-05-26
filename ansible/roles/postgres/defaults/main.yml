@@ -79,6 +79,6 @@ postgres_timezone: "{{ baseline_timezone }}"
 # leader-gated provisioning. See postgres-common/README.md.
 
 # ---- Replicas / CIDRs ----
-# Set in inventory/group_vars/postgres_hosts.yml.
+# Set in inventory/group_vars/postgres.yml.
 postgres_replicas: []
 postgres_allowed_cidrs: []

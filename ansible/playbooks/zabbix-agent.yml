@@ -18,7 +18,7 @@
 - import_playbook: zabbix-host-groups.yml
 
 - name: Roll out zabbix-agent2 cluster-wide
-  hosts: all:!zabbix_hosts
+  hosts: all:!zabbix
   become: true
   gather_facts: true
 

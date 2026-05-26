@@ -18,7 +18,7 @@
 # config-only re-render.
 
 - name: Postgres stack — ordered (Patroni-safe)
-  hosts: postgres_hosts
+  hosts: postgres
   become: true
   serial: "{{ patroni_serial | default(1) }}"
 
@@ -54,13 +54,13 @@
       tags: [hardening]
 
 - name: Postgres agents — parallel
-  hosts: postgres_hosts
+  hosts: postgres
   become: true
 
   roles:
     # Ship journald + PG logs to VictoriaLogs. Parallel-safe: each node's
     # vlagent is independent. The standalone vlagent.yml playbook also
-    # targets postgres_hosts as part of its fleet-wide rollout — both
+    # targets postgres as part of its fleet-wide rollout — both
     # paths are idempotent, this play is the "owned by the per-group
     # playbook" path so the group's converge run hits agents without a
     # separate --limit invocation.

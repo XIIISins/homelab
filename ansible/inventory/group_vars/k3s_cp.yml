@@ -1,7 +1,7 @@
-# ansible/inventory/group_vars/asgard_k3s_cp.yml
+# ansible/inventory/group_vars/k3s_cp.yml
 ---
 # Asgard K3s control planes (gondul/hlokk/sigrun). Composes on top
-# of asgard_k3s.yml (parent group covers both CPs + workers).
+# of k3s.yml (parent group covers both CPs + workers).
 
 # Zabbix host record taxonomy — hierarchical group naming so the
 # Zabbix UI tree groups Asgard/K3s/* together. Linux baseline

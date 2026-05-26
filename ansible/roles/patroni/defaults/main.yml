@@ -53,12 +53,12 @@ patroni_restapi_password_vault_path: ansible/patroni/restapi-password
 # ---- DCS (etcd) ----
 # The HAProxy/etcd trio (Hlin/Eir/Snotra) — etcd is co-located there
 # per the 2026-05-24 decision row.
-patroni_etcd_inventory_group: haproxy_etcd_hosts
+patroni_etcd_inventory_group: haproxy_etcd
 patroni_etcd_client_port: 2379
 
 # ---- Inventory groups for HBA generation ----
 # All Patroni PG nodes (used to render replication HBA rules per peer).
-patroni_pg_inventory_group: postgres_hosts
+patroni_pg_inventory_group: postgres
 
 # ---- DCS dynamic config defaults ----
 # Cluster-wide consensus thresholds. Written to DCS on first Patroni start

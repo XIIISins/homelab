@@ -120,7 +120,7 @@ keepalived_source_policy_routing:
 
 ## Example: PostgreSQL HAProxy VIP with chk_haproxy track-script
 
-Shipped in `inventory/group_vars/haproxy_etcd_hosts.yml`:
+Shipped in `inventory/group_vars/haproxy_etcd.yml`:
 
 ```yaml
 keepalived_vrrp_scripts:

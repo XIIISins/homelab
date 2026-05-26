@@ -37,6 +37,6 @@ postgres_management_users:
     description: "Zabbix PG monitoring user (read-only; pg_monitor membership)"
 
 # ---- Per-service DBs ----
-# Set in inventory/group_vars/postgres_hosts.yml. Each entry:
+# Set in inventory/group_vars/postgres.yml. Each entry:
 #   { name, owner, password_vault_path }
 postgres_databases: []

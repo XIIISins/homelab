@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/tailscale_hosts.yml
+# ansible/inventory/group_vars/tailscale.yml
 ---
 # Tailscale LXCs — subnet routers Bifrost/Heimdall + exit-node Gjallarbru.
 

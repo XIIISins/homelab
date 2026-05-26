@@ -40,7 +40,7 @@
     owner: root
     group: root
   when:
-    - inventory_hostname in groups['asgard_k3s_cp']
+    - inventory_hostname in groups['k3s_cp']
     - inventory_hostname != k3s_init_node
   notify: restart k3s
 
@@ -51,7 +51,7 @@
     mode: "0644"
     owner: root
     group: root
-  when: inventory_hostname in groups['asgard_k3s_workers']
+  when: inventory_hostname in groups['k3s_worker']
   notify: restart k3s
 
 - name: Template K3s systemd service file

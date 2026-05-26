@@ -10,7 +10,7 @@ the `postgres` user against an existing PG 17 install (managed by the
    (`patroni_version` + `patroni_sha256`) into a venv at `/opt/patroni`,
    with stable symlinks at `/usr/local/bin/{patroni,patronictl}`.
 2. Renders `/etc/patroni/patroni.yml` with:
-   - etcd3 endpoints discovered from `haproxy_etcd_hosts` group
+   - etcd3 endpoints discovered from `haproxy_etcd` group
    - DCS-level cluster-wide config (bootstrap.dcs.*)
    - pg_hba.conf rules (incl. per-replica replication rules)
    - PG paths matching Debian's layout (`/var/lib/postgresql/17/main`,

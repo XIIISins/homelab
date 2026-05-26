@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/asgard_k3s.yml
+# ansible/inventory/group_vars/k3s.yml
 ---
 # K3s VMs (CPs + workers) — composes with role defaults from
 # vlagent + whatever else lands here later.

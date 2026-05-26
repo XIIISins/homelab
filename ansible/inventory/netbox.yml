@@ -12,19 +12,17 @@
 # Group membership flows through NetBox TAGS. Convention:
 # `ansible:<group>` tags applied to every device + VM via
 # terraform/netbox/ (devices.tf + vms.tf, Phase 5h.3.b). The
-# keyed_groups block below projects ONLY tags starting with
-# `ansible:` into Ansible groups — strips the prefix, so
-# `ansible:postgres` becomes the inventory group `postgres` matching
-# the static hosts.yml shape 1:1. Non-`ansible:` tags (iac:*, lxc,
-# vm, role-name tags like `ansible:patroni` for what's INSTALLED on
-# a host vs which group converges it) stay as NetBox-side
-# documentation and don't pollute the inventory graph.
+# keyed_groups expression below projects EVERY `ansible:*` tag into
+# an Ansible group named for the suffix — `ansible:postgres` slug is
+# `ansiblepostgres` → regex_replace strips `^ansible` → group
+# `postgres` (hyphenated slugs like `ansiblek3s-cp` become
+# `k3s_cp` via Ansible's hyphen→underscore sanitisation at
+# group-name projection).
 #
-# group_by: (commented-out) was the simpler first-cut config but it
-# projects EVERY tag as a group including iac:terraform, lxc, etc.,
-# producing noisy ungrouped buckets like `tag_iacterraform`.
-# keyed_groups with a regex separator + prefix='' is the targeted
-# alternative.
+# Non-`ansible:*` tags (iac:*, lxc, vm) are filtered out and don't
+# pollute the inventory graph. Role tags like `ansible:patroni` /
+# `ansible:baseline` DO project into same-named groups; those are
+# harmless empty/sparse buckets that no playbook targets.
 
 plugin: netbox.netbox.nb_inventory
 api_endpoint: https://netbox.niflheim.xiiisins.com
@@ -43,17 +41,25 @@ query_filters:
 
 # Project the ansible:<group> tag namespace into Ansible groups.
 # Hosts WITHOUT any ansible:* tag won't land in any dynamic group
-# but still appear in `all`; static hosts.yml's group definitions
-# remain authoritative for those (e.g. asgard_k3s_cp, postgres_hosts
-# parent group names that don't have a 1:1 tag).
+# but still appear in `all`.
+#
+# `tags` comes through as a list of NetBox tag SLUGS. NetBox slug
+# auto-strips colons (`ansible:postgres` → `ansiblepostgres`), so
+# the regex strips `^ansible` to get the bare group name. The
+# `reject('equalto', '')` guard catches the edge case of a bare
+# slug `ansible` (was a typo bug in terraform/netbox/tags.tf, fixed
+# 2026-05-26 — defensive even after the fix).
 keyed_groups:
-  - key: tags
+  - key: tags | select('match', '^ansible[a-z0-9_-]+$') | map('regex_replace', '^ansible', '') | reject('equalto', '') | list
     prefix: ""
     separator: ""
-    parent_group: ""
-    # Trim each tag entry to the group portion if it starts with
-    # ansible:; non-matching tags don't contribute groups.
-    trailing_separator: false
+
+# Synthetic parent group `k3s` = union of `k3s_cp` + `k3s_worker`.
+# Lets playbooks target `hosts: k3s` to mean "all K3s nodes". The
+# expression checks the raw slug list since `groups:` evaluates per
+# host before the keyed_groups projection.
+groups:
+  k3s: "'ansiblek3s-cp' in tags or 'ansiblek3s-worker' in tags"
 
 # ansible_host = primary IPv4 (strip the CIDR suffix). NetBox stores
 # IPs as <ip>/<prefix>; ansible_host wants a bare IP.

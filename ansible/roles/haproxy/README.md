@@ -55,7 +55,7 @@ Each `haproxy_listens` entry:
 
 ## Example: PostgreSQL frontend with Patroni REST-API health-check
 
-Shipped in `inventory/group_vars/haproxy_etcd_hosts.yml`:
+Shipped in `inventory/group_vars/haproxy_etcd.yml`:
 
 ```yaml
 haproxy_listens:

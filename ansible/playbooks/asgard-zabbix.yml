@@ -7,7 +7,7 @@
 - import_playbook: zabbix-host-groups.yml
 
 - name: Configure Zabbix server host
-  hosts: zabbix_hosts
+  hosts: zabbix
   become: true
 
   roles:

@@ -22,7 +22,7 @@ locals {
     # NOT all applied yet; per-resource rollout is incremental.
     "ansible:baseline"        = { slug = "ansiblebaseline", color_hex = "4caf50" }
     "ansible:etcd"            = { slug = "ansibleetcd", color_hex = "ff9800" }
-    "ansible:factorio"        = { slug = "ansible", color_hex = "795548" }
+    "ansible:factorio"        = { slug = "ansiblefactorio", color_hex = "795548" }
     "ansible:haproxy"         = { slug = "ansiblehaproxy", color_hex = "cddc39" }
     "ansible:hardening"       = { slug = "ansiblehardening", color_hex = "4caf50" }
     "ansible:k3s"             = { slug = "ansiblek3s", color_hex = "e91e63" }

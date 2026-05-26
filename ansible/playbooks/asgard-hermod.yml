@@ -1,7 +1,7 @@
 # ansible/playbooks/asgard-hermod.yml
 ---
 - name: Configure Hermod (notifications hub)
-  hosts: hermod_hosts
+  hosts: hermod
   become: true
 
   # Single host today (LXC 1103 on Verd). No serialization concern — kept
@@ -14,7 +14,7 @@
       tags: [baseline]
 
     # Generic Caddy reverse-proxy. Renders a single site block (per
-    # group_vars/hermod_hosts.yml caddy_sites) gating :80 → 127.0.0.1:8000
+    # group_vars/hermod.yml caddy_sites) gating :80 → 127.0.0.1:8000
     # by the producer allowlist. Has to land before hermod-api so the
     # public listener is gated from the moment AppriseAPI is started.
     - role: caddy-reverse-proxy

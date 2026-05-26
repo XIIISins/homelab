@@ -96,7 +96,7 @@ zabbix_agent_register_ip: "{{ ansible_default_ipv4.address }}"
 
 # Host groups + templates the host should belong to. Defaults are the
 # stock Zabbix-shipped values. Override per inventory group via
-# group_vars/<group>.yml (e.g. group_vars/asgard_k3s_workers.yml
+# group_vars/<group>.yml (e.g. group_vars/k3s_worker.yml
 # could set zabbix_agent_host_groups: ["K3s workers", "Linux servers"]
 # once those groups exist on the server side). The API call fails if
 # any named group/template doesn't already exist — the role does NOT

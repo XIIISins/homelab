@@ -1,6 +1,6 @@
 ---
 - name: Configure asgard K3s nodes
-  hosts: asgard_k3s
+  hosts: k3s
   become: true
 
   roles:

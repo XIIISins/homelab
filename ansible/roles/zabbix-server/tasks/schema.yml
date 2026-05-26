@@ -4,7 +4,7 @@
 # scripts/postgresql/server.sql.gz against the (already-existing)
 # `zabbix` DB. The DB + user are created by the postgres-common role
 # on the Patroni leader (see postgres_databases entry in
-# group_vars/postgres_hosts.yml).
+# group_vars/postgres.yml).
 #
 # Idempotency: check for the existence of the `users` table (one of
 # the first tables created by the schema). If present, schema is

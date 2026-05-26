@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/haproxy_etcd_hosts.yml
+# ansible/inventory/group_vars/haproxy_etcd.yml
 ---
 # HAProxy/etcd trio group vars. Composes with role defaults from
 # baseline, etcd, haproxy, keepalived, hardening.

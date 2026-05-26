@@ -60,7 +60,7 @@
     owner: root
     group: root
     mode: "0644"
-  when: "'asgard_k3s_workers' in group_names"
+  when: "'k3s_worker' in group_names"
 
 - name: Install VLAN 20 policy-routing systemd unit
   ansible.builtin.copy:
@@ -84,7 +84,7 @@
 
       [Install]
       WantedBy=multi-user.target
-  when: "'asgard_k3s_workers' in group_names"
+  when: "'k3s_worker' in group_names"
   notify: reload vlan20 policy routing
 
 - name: Enable and start VLAN 20 policy-routing service
@@ -93,4 +93,4 @@
     enabled: true
     state: started
     daemon_reload: true
-  when: "'asgard_k3s_workers' in group_names"
+  when: "'k3s_worker' in group_names"

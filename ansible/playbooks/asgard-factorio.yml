@@ -1,7 +1,7 @@
 ---
 # ansible/playbooks/asgard-factorio.yml
 #
-# Provisions the Factorio LXC (host `factorio` in group `factorio_host`,
+# Provisions the Factorio LXC (host `factorio` in group `factorio`,
 # 10.0.11.220 on VLAN 11).
 #
 # End state:
@@ -38,7 +38,7 @@
 #     factorio.xiiisins.com            → WAN IP        (external, public)
 
 - name: Configure Factorio LXC
-  hosts: factorio_host
+  hosts: factorio
   gather_facts: true
   become: true
 

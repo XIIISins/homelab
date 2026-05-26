@@ -8,7 +8,7 @@
 #   - Idunn (10.0.11.232, Verd)  — replica
 #
 # DCS: etcd on the HAProxy/etcd trio (Hlin/Eir/Snotra), auto-discovered
-# from the `haproxy_etcd_hosts` inventory group by the patroni role.
+# from the `haproxy_etcd` inventory group by the patroni role.
 #
 # Three management PG roles, passwords sourced from HashiCorp Vault:
 #   - admin      — hand-on-keyboard ops (SUPERUSER)

@@ -35,7 +35,7 @@
 #     secret/ansible/tailscale/authkeys/<hostname>  (minted by terraform/tailscale/)
 
 - name: Configure Tailscale LXCs
-  hosts: tailscale_hosts
+  hosts: tailscale
   gather_facts: true
   become: true
 

@@ -18,7 +18,7 @@ Part of Phase 5h. Pairs with [`zabbix-agent`](../zabbix-agent/) for cluster-wide
 
 ## Prerequisites
 
-**The `zabbix` DB + user must exist on the Patroni leader BEFORE running this role.** Add to `ansible/inventory/group_vars/postgres_hosts.yml`:
+**The `zabbix` DB + user must exist on the Patroni leader BEFORE running this role.** Add to `ansible/inventory/group_vars/postgres.yml`:
 
 ```yaml
 postgres_databases:

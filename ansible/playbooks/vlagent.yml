@@ -12,11 +12,11 @@
 #   - Proxmox PVE hosts (Urd/Verd/Skuld)
 #
 # Excludes the asgard K3s GROUPS from the host pattern because:
-#   - asgard_k3s_cp + asgard_k3s_workers run /var/log/syslog with
+#   - k3s_cp + k3s_worker run /var/log/syslog with
 #     mostly K3s-server-or-agent + kernel logs. The K8s container
 #     logs go via the DaemonSet. The host's own journald is a
 #     separate concern — covered HERE (intentionally), since `all`
-#     includes asgard_k3s_*. Read carefully: this playbook INCLUDES
+#     includes k3s_*. Read carefully: this playbook INCLUDES
 #     K3s VMs; it just doesn't double-handle the pod logs.
 #
 # Rollout strategy:

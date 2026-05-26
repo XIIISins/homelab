@@ -6,18 +6,18 @@
     name: k3s
     state: restarted
     daemon_reload: true
-  when: inventory_hostname in groups['asgard_k3s_cp']
+  when: inventory_hostname in groups['k3s_cp']
 
 - name: restart k3s-agent
   ansible.builtin.systemd:
     name: k3s
     state: restarted
     daemon_reload: true
-  when: inventory_hostname in groups['asgard_k3s_workers']
+  when: inventory_hostname in groups['k3s_worker']
 
 - name: reload vlan20 policy routing
   ansible.builtin.systemd:
     name: vlan20-policy-routing.service
     state: restarted
     daemon_reload: true
-  when: "'asgard_k3s_workers' in group_names"
+  when: "'k3s_worker' in group_names"

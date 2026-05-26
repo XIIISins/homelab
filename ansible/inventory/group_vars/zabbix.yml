@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/zabbix_hosts.yml
+# ansible/inventory/group_vars/zabbix.yml
 ---
 # Zabbix server host group vars. Composes with role defaults from
 # baseline, zabbix-server, zabbix-agent, hardening.
@@ -8,7 +8,7 @@
 #   - DB: zabbix on niflheim Patroni cluster (via HAProxy VIP 10.0.10.210)
 #
 # Pre-flight: ensure `secret/ansible/postgres/zabbix-password` is in
-# Vault and `postgres_databases` in group_vars/postgres_hosts.yml
+# Vault and `postgres_databases` in group_vars/postgres.yml
 # includes the `zabbix` DB. See ansible/roles/zabbix-server/README.md.
 
 # Most defaults from the role are fine. Override here if you want

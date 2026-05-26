@@ -1,7 +1,7 @@
 # ansible/playbooks/asgard-adguard.yml
 ---
 - name: Configure AdGuard Home host (DNS trio with keepalived VIP)
-  hosts: adguard_hosts
+  hosts: adguard
   become: true
 
   # serial: 1 so each node finishes (AdGuard up + serving DNS) before

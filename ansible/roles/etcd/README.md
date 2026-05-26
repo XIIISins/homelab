@@ -3,7 +3,7 @@
 # etcd
 
 Installs and runs a static-cluster etcd 3-node deployment on the hosts in
-`{{ etcd_inventory_group }}` (default: `haproxy_etcd_hosts`).
+`{{ etcd_inventory_group }}` (default: `haproxy_etcd`).
 
 ## Usage
 

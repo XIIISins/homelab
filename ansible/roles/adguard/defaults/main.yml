@@ -67,7 +67,7 @@ adguard_admin_password_hash_vault_path: "ansible/adguard/admin-password-hash"
 adguard_admin_password_hash_vault_field: hash
 
 # Rewrites — DNS-level overrides. Empty by default; the per-host
-# group_vars (adguard_hosts.yml) supplies the actual list. Each entry
+# group_vars (adguard.yml) supplies the actual list. Each entry
 # is `{ domain: "...", answer: "..." }`. adguardhome-sync mirrors
 # these from Saga to Mimir + Kvasir on a cron.
 adguard_rewrites: []

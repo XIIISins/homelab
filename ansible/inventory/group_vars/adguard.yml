@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/adguard_hosts.yml
+# ansible/inventory/group_vars/adguard.yml
 ---
 # AdGuard Home trio group vars. Composes with role defaults from
 # baseline, adguard, adguardhome-sync, keepalived, hardening.

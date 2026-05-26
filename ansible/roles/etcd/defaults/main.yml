@@ -20,4 +20,4 @@ etcd_cluster_token: niflheim-etcd
 
 # Inventory group whose members form the cluster. Override if
 # deploying a second etcd cluster against a different group.
-etcd_inventory_group: haproxy_etcd_hosts
+etcd_inventory_group: haproxy_etcd
