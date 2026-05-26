@@ -66,9 +66,22 @@ Design choice baked into `hermod-callback.sh.j2`: `exit 0` at the end of every c
 
 Failures are still observable — logged to `/var/log/patroni-hermod.log` with HTTP status (or `curl-failed` if the request didn't complete). Operators monitoring Hermod uptime via Zabbix would catch a sustained outage there. Rule: **callbacks that touch external systems must never propagate failure to Patroni**. CLAUDE.md "HAProxy / keepalived" section gets a new bullet under the Patroni subsection covering this — generalises to any future Patroni callback we add.
 
+## Validation outcome (2026-05-26)
+
+Live `patronictl switchover --force --leader vor --candidate fulla` against `niflheim-pg`, followed by switchback `fulla → vor`. Cluster moved cleanly across timelines (TL=6 → 7 → 8), no client-visible disruption. Each switchover fired two `on_role_change` callbacks (one promotion + one demotion; the third node stayed replica). 5h.2 closes with one finding from the validation itself:
+
+### 6. Patroni 4.x renamed `master` → `primary` in `on_role_change`
+
+The callback case statement was written against the docstring's stated role vocabulary (`master` / `replica` / `standby_leader` — also what Patroni 2.x and early 3.x emit). Patroni renamed the leader role to `primary` somewhere in the 3.x line to align with PostgreSQL 14+'s native terminology, but both names still appear in the wild: cold-start sometimes emits `master`, steady-state promotion on 4.x emits `primary`. Our production cluster runs Patroni 4.1.3.
+
+First switchover (vor → fulla) surfaced the bug: fulla's promotion fired the callback with `role=primary`, fell into the unknown-role catch-all, logged `unknown role 'primary', skipping`, no Discord notification for the promotion half. Vor's demotion delivered normally (role=replica unchanged across versions). Historical log on fulla shows four prior `unknown role 'primary'` skips from cold-start events — the bug had been latent since deploy, masked because no one had exercised the Patroni-4.x-style promotion path against the callback. The original 5h.2.j smoketest was script-level (manually invoked with `master`), so the runtime drift wasn't surfaced.
+
+Fix: fold `primary` into the existing `master` case branch via alternation `primary|master)`. One-line change in `roles/patroni/templates/hermod-callback.sh.j2`. Re-deployed via `ansible-playbook playbooks/postgres-host.yml --tags patroni-hermod-callback` (handler `notify: reload patroni` — non-disruptive, no role transitions). Second switchover (fulla → vor) validated: vor's promotion at `2026-05-26T06:36:03Z` fired `action=on_role_change role=primary scope=niflheim-pg → HTTP 200 (tag=alert, type=warning)`, Discord delivery confirmed via Mist channel. Both halves of failover now deliver.
+
+CLAUDE.md "HAProxy / keepalived" Patroni subsection gets a new gotcha covering the rename — generalises to any future role-name shift across Patroni majors.
+
 ## Still pending
 
-- **Live failover validation** (see Finding 4) — single operator-triggered switchover at any quiet hour closes the loop.
 - **5h.2.j extension**: PBS `notification-target` hook for backup failures → `tag: critical`. Optional; PBS hasn't backed up enough yet for this to matter.
 - **5h.3 — Ansible orchestration (Semaphore + drift-check)**: drift-check loop will be the first systematic `tag: alert` producer once Phase 5h.3 lands. Folds the "Ansible failure handlers" item from the original 5h.2.f bullet.
 
