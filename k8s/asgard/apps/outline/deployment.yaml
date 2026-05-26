@@ -72,9 +72,12 @@ spec:
             limits:
               memory: 1Gi
           securityContext:
-            # Outline image runs as a non-root `nodejs` user by default
-            # (UID 1001 in recent tags). No filesystem writes outside
-            # /tmp + the upload path (which goes to S3, not local).
+            # Outline image runs as the `nodejs` user (UID 1001) by
+            # default. Kubernetes' runAsNonRoot enforcement requires a
+            # numeric UID — image USER directives with a name (not UID)
+            # fail the admission check ("non-numeric user ... cannot
+            # verify user is non-root"). Set runAsUser explicitly.
+            runAsUser: 1001
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

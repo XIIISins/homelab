@@ -15,7 +15,8 @@
 resource "garage_bucket" "outline" {
   # Global alias = bucket name visible to S3 clients
   # (AWS_S3_UPLOAD_BUCKET_NAME=outline in the Outline ExternalSecret).
-  global_aliases = ["outline"]
+  # jkossis/garage v1.0.4 takes a single string here, NOT a list.
+  global_alias = "outline"
 }
 
 resource "garage_key" "outline" {
@@ -24,7 +25,7 @@ resource "garage_key" "outline" {
 
 resource "garage_bucket_permission" "outline" {
   bucket_id     = garage_bucket.outline.id
-  access_key_id = garage_key.outline.access_key_id
+  access_key_id = garage_key.outline.id
   read          = true
   write         = true
 }
@@ -36,7 +37,10 @@ resource "vault_kv_secret_v2" "outline_s3" {
   mount = "secret"
   name  = "k8s/outline/s3"
   data_json = jsonencode({
-    access_key_id     = garage_key.outline.access_key_id
+    # `id` IS the access_key_id in this provider (jkossis/garage v1.0.4) —
+    # the Garage admin API mints both ID + secret on key creation and
+    # the provider exposes the ID via the resource's `id` attribute.
+    access_key_id     = garage_key.outline.id
     secret_access_key = garage_key.outline.secret_access_key
     bucket            = garage_bucket.outline.id
     endpoint          = local.s3_endpoint_in_cluster

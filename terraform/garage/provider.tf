@@ -13,10 +13,8 @@
 # Vault provider auth: VAULT_ADDR + VAULT_TOKEN from the operator's
 # environment (set by `homelab-env`, same as every other TF module here).
 provider "garage" {
-  host   = "localhost"
-  port   = 3903
-  scheme = "http"
-  token  = data.vault_kv_secret_v2.garage_server.data["admin_token"]
+  endpoint = "http://localhost:3903"
+  token    = data.vault_kv_secret_v2.garage_server.data["admin_token"]
 }
 
 provider "vault" {}
