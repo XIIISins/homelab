@@ -70,19 +70,19 @@ Push-mode scheduler driving drift-check + apply loops. Chosen over AWX based on 
 
 ### Where it runs
 
-In asgard K3s, namespace `semaphore`. Single-replica StatefulSet (sqlite backend on RWO PVC). Standard homelab K3s service shape:
+In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres backend on Patroni HAProxy VIP** (same pattern as Authentik / NetBox / Outline / Zabbix / Teamspeak — every other homelab K3s consumer is PG-backed). Drafts initially considered sqlite-on-PVC; pivoted to PG at deploy time for consistency + survives pod-restart-into-broken-PVC.
 
 | Piece | Setup |
 |-------|-------|
 | Workload | StatefulSet `semaphore/semaphore`, 1 replica |
-| Image | Pinned upstream (`semaphoreui/semaphore:<concrete>`) |
-| Data | PVC `data-semaphore-0`, `synology-csi-iscsi-retain`, ~5 Gi |
-| Inventory cache | PVC `inventory-cache-semaphore-0`, `synology-csi-iscsi-retain`, ~1 Gi (or emptyDir if cache loss on pod restart is acceptable — TBD at deploy time) |
-| Internal DNS | `semaphore.niflheim.xiiisins.com` via Traefik HTTPRoute on niflheim Gateway |
-| Auth | Authentik OIDC (Semaphore's OIDC provider) |
-| Vault integration | Semaphore "Vault" credential type for runtime AppRole lookups |
-| Ansible Vault password | Vault file credential, mounted/projected as `--vault-password-file` |
-| Secrets | ESO from `secret/k8s/semaphore/*` |
+| Image | `semaphoreui/semaphore:v2.18.5-ansible2.16.5` (ansible-bundled variant) |
+| Application state | PG on Patroni VIP `10.0.10.210:5432/semaphore` (per-service DB declared in `postgres_databases`, postgres-common provisions on leader) |
+| Inventory cache | PVC `inventory-cache-semaphore-0`, `synology-csi-iscsi-retain`, 1 Gi. Cache survives pod restart — saves a ~30s NetBox round-trip every restart |
+| Internal DNS | `semaphore.niflheim.xiiisins.com` via Traefik HTTPRoute on niflheim Gateway (internal-only — no midgard / apex alias, no CF tunnel) |
+| Auth | Authentik OIDC (`semaphore-admins` group) + local break-glass admin |
+| Vault integration | Semaphore "Vault" credential type for runtime AppRole lookups (configured post-deploy in UI / via TF if provider mature) |
+| Ansible Vault password | Vault file credential, mounted/projected as `--vault-password-file` (configured post-deploy) |
+| Secrets | ESO from `secret/k8s/semaphore/{postgres-password,app,oidc}` — split across `terraform/vault/main.tf` + `terraform/authentik/semaphore.tf` |
 
 ### Repo wiring
 
