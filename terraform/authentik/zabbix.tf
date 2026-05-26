@@ -146,7 +146,14 @@ resource "authentik_provider_saml" "zabbix" {
   # Signing — Authentik signs the SAML Response with the default
   # self-signed cert (same one we use for OIDC token signing). Zabbix
   # validates against the cert PEM we hand it via Vault.
-  signing_kp = data.authentik_certificate_key_pair.default.id
+  #
+  # sign_response defaults to false on authentik_provider_saml: Authentik
+  # signs only the inner Assertion. Zabbix's userdirectory_saml has
+  # sign_messages=true which requires the outer Response to also be
+  # signed — without this, login errors with "Response is not signed
+  # and SP requires signed response."
+  signing_kp    = data.authentik_certificate_key_pair.default.id
+  sign_response = true
 
   # Verification — Authentik verifies AuthnRequest signatures from
   # Zabbix using the SP cert we registered above.
