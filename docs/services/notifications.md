@@ -4,11 +4,11 @@
 
 Single notification aggregation point for the homelab. Sources POST to one HTTP endpoint; Hermod fans out to Discord webhooks (and any future delivery channel) based on tag-driven routing. Designed to scale by addition — wiring a new alert source needs zero hub-side config.
 
-Slotted as **Phase 5h.2**, immediately after Phase 7c (Zabbix LXC). Sequence rationale: until Zabbix is live, the primary infra-alert producer doesn't exist; building the delivery layer first would be untested speculation.
+Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rationale: until Zabbix is live, the primary infra-alert producer doesn't exist; building the delivery layer first would be untested speculation.
 
 ## What it is
 
-- **One LXC**, `hermod` (1103, 10.0.11.22), on Verd. Norse god of messengers — Odin's emissary who rode to Hel to retrieve Baldr. (1101 = PBS, 1102 = Hugin/Zabbix per Phase 7c.)
+- **One LXC**, `hermod` (1103, 10.0.11.22), on Verd. Norse god of messengers — Odin's emissary who rode to Hel to retrieve Baldr. (1101 = PBS, 1102 = Hugin/Zabbix per Phase 8c.)
 - **AppriseAPI** — open-source notification gateway with 80+ delivery backends. **Installed natively via pip into a venv + uvicorn + systemd unit**, matching the homelab's "all LXC services are native + systemd" pattern (Postgres, Factorio, SFTPGo, Zabbix, AdGuard). Docker deliberately not used — adds an alien moving part to one LXC and Apprise's non-Docker path is well-trodden.
 - **Caddy reverse proxy on the same LXC**, AppriseAPI bound to `127.0.0.1:8000`. Caddy listens on `:80` and gates inbound POSTs via a `remote_ip` allowlist matcher — non-matches → 403. JSON access logs to `/var/log/caddy/access.log` ship to VictoriaLogs via the existing vlagent role. TLS-ready path preserved for future internal-CA wiring.
 - **Stateless** — config on the LXC root disk (PBS-backed), no DB, no PVC.
@@ -139,8 +139,8 @@ The policy artifact. Every alert producer in the homelab maps its native severit
 | **Zabbix** | Disaster, High | `critical` |
 | **Zabbix** | Average | `alert` |
 | **Zabbix** | Information, Warning | _(none — only logs)_ |
-| **VMAlert** (future Phase 7b) | severity: critical | `critical` |
-| **VMAlert** (future Phase 7b) | severity: warning | `alert` |
+| **VMAlert** (future Phase 8b) | severity: critical | `critical` |
+| **VMAlert** (future Phase 8b) | severity: warning | `alert` |
 | **Semaphore** (or AWX) | Task failure: apply | `critical` |
 | **Semaphore** (or AWX) | Task failure: drift-check | `alert` |
 | **Semaphore** (or AWX) | Task success | _(none — only logs)_ |
@@ -227,7 +227,7 @@ Sized small — AppriseAPI is stateless Python/uvicorn, single-digit RSS. Bumps 
 
 ## Implementation outline (Phase 5h.2)
 
-Slotted **after** Phase 7c (Zabbix LXC). Until Zabbix exists, this phase has nothing to alert about.
+Slotted **after** Phase 8c (Zabbix LXC). Until Zabbix exists, this phase has nothing to alert about.
 
 1. **5h.2.a** — `terraform/proxmox/asgard-lxcs/lxcs.tf` Hermod resource (Debian 13, 1 vCPU / 512 MB / 4 GB, VLAN 11 / 10.0.11.22, unprivileged + nesting). Standard LXC pattern — no `device_passthrough` / `keyctl` / `fuse`, so the main API-token module not the root-pam variant. `lifecycle.ignore_changes` for `operating_system[0].template_file_id` + `initialization[0].user_account` per the import-drift gotcha (defensive even on fresh creates). Apply from main per the `terraform apply` rule.
 2. **5h.2.b** — `terraform/netbox/vms.tf` Hermod records: `netbox_virtual_machine` (vmid=1103, role=`notifications` [new role in `roles.tf` — semantically distinct from `monitoring`/Zabbix], cluster=niflheim, device=verd) + `netbox_interface` (eth0) + `netbox_ip_address` (10.0.11.22/24) + primary_ip binding. Per the TF→NetBox standing-pattern rule. Apply from main.
@@ -247,7 +247,7 @@ Slotted **after** Phase 7c (Zabbix LXC). Until Zabbix exists, this phase has not
 9. **5h.2.i** — Zabbix media-type integration. Done 2026-05-26 (commit 9c9eef7, [retro](../incidents/2026-05-26-hermod-producer-wiring.md)):
    - `community.zabbix.zabbix_mediatype` declaratively registers a Webhook media-type with a JS script (`roles/zabbix-server/templates/hermod-webhook.js`) that maps Zabbix trigger severity → Apprise tag (`Disaster`/`High` → `critical`, `Average` → `alert`, lower severities → suppressed) and POSTs JSON to `<scheme>://<hermod-host>/notify/<config-key>` (URL built from `webhook_params`, config-key resolved from Vault at Ansible-template time).
    - `community.zabbix.zabbix_user` attaches the media-type to Admin (member of "Zabbix administrators", already the recipient of the default trigger action — so no separate action wiring needed). Severity bitmask 56 (Average+High+Disaster); lower severities suppressed at user-media layer + again in the JS, defence-in-depth.
-   - Reuses the httpapi connection pattern from 7c.8 host registration. The Action layer was not modified — Zabbix's stock "Report problems to Zabbix administrators" action carries everything through end-to-end.
+   - Reuses the httpapi connection pattern from 8c.8 host registration. The Action layer was not modified — Zabbix's stock "Report problems to Zabbix administrators" action carries everything through end-to-end.
 10. **5h.2.j** — Source-side wiring for non-Zabbix producers:
     - **Patroni `on_role_change` callback** — done 2026-05-26 (commit c344697, [retro](../incidents/2026-05-26-hermod-producer-wiring.md)). Bash script at `/etc/patroni/hermod-callback.sh` (rendered by `roles/patroni/tasks/hermod-callback.yml` with Vault-resolved Hermod URL embedded at template time, mode 0500 postgres:postgres). Patroni `postgresql.callbacks.on_role_change` block in `patroni.yml.j2` (gated by `patroni_hermod_enabled`). Maps role transitions uniformly to `alert/warning` (yellow embed) for `master` / `replica` / `standby_leader`; unknown role → silent skip. Initial design split colours (yellow promotion + blue demotion + blue standby_leader) but a demotion is the OTHER half of every failover — operator feedback 2026-05-26 confirmed both halves need to land at the same attention level, otherwise the demotion half is easy to miss in busy channels. Cold cluster start now produces 3 yellow messages (one per node settling); failover produces 2 (demote + promote of the affected pair) — both are genuine "cluster geometry changed" events worth surfacing identically. Script always exits 0 — Hermod outages must never deadlock the Patroni supervisor loop. Failures log to `/var/log/patroni-hermod.log`.
     - PBS notification hook → `critical` on backup failure (optional, Proxmox host integration). Deferred — PBS hasn't backed up enough yet for this to matter.
@@ -262,7 +262,7 @@ Slotted **after** Phase 7c (Zabbix LXC). Until Zabbix exists, this phase has not
 
 - **ntfy phone push** for `critical` only — add one yaml line.
 - **Email digest** of `alert`-tagged notifications via Mailgun/SMTP — useful if Discord-only proves insufficient.
-- **VMAlert integration** (Phase 7b) — wire VMAlert's `notifier.config` at an Apprise destination URL.
+- **VMAlert integration** (Phase 8b) — wire VMAlert's `notifier.config` at an Apprise destination URL.
 - **AWX/Semaphore notification template** — single template referenced by every job, body templated from Ansible facts.
 
 ## What stays out of scope
@@ -278,7 +278,7 @@ Slotted **after** Phase 7c (Zabbix LXC). Until Zabbix exists, this phase has not
 | AppriseAPI install path | **pip into venv + uvicorn + systemd** (Option A) | Matches every other LXC role's "native + systemd" pattern. Docker rejected — alien moving part for one LXC, and Apprise's non-Docker path is well-trodden. Detailed install steps in 5h.2.e above. |
 | Access control | **Caddy reverse proxy on same LXC with `remote_ip` allowlist matcher** (Option A) | Producers are a small concrete set (Zabbix, PG, K3s, etc.) — explicit allowlist audits well in git. Caddy gives JSON-structured access logs to VL for free + preserves a trivial TLS path for later. Generic `caddy-reverse-proxy` role is reusable. |
 | Untagged-notification policy | **Quarantine channel `#hermod-untagged`** via Apprise yaml URL with `tag:` omitted | Producer bugs surface in a dedicated Discord channel rather than silent fanout or `@everyone` pings. Natural backlog of producers to fix. Four Discord webhooks total (critical/alert/media/untagged). |
-| Zabbix media-type management | **`community.zabbix.zabbix_mediatype` + `zabbix_action` declarative** | Reuses the httpapi-connection pattern from 7c.8 host registration. No click-ops in Zabbix UI. Lives in `roles/zabbix-server/`. |
+| Zabbix media-type management | **`community.zabbix.zabbix_mediatype` + `zabbix_action` declarative** | Reuses the httpapi-connection pattern from 8c.8 host registration. No click-ops in Zabbix UI. Lives in `roles/zabbix-server/`. |
 | Config-key as soft-auth | **TF-minted via `random_password` length 32**, stored at `secret/ansible/hermod/config-key` | Belt-and-braces behind the Caddy IP allowlist. Producers receive the full `/notify/<key>` URL via Vault lookups, not literal HCL. |
 
 ## Items still deferred to role-write time

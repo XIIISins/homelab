@@ -1,20 +1,20 @@
 <!-- docs/services/observability.md -->
 
-# Observability stack (Phase 7a — deployed 2026-05-24/25)
+# Observability stack (Phase 8a — deployed 2026-05-24/25)
 
-VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. Zabbix LXC ([Phase 7c](../operations/build-sequence.md), pending) handles infra-level alerting independently from any K3s state; the Phase-7 stack is for K8s-native metrics + logs queries via the native vmui + VictoriaLogs UI.
+VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. Zabbix LXC ([Phase 8c](../operations/build-sequence.md), pending) handles infra-level alerting independently from any K3s state; the Phase-8 stack is for K8s-native metrics + logs queries via the native vmui + VictoriaLogs UI.
 
 **No Grafana.** Dropped from scope after the initial sketch — VM ships vmui (interactive PromQL + chart playground) and VictoriaLogs ships its own LogsQL UI; the dashboard layer Grafana adds isn't load-bearing for our homelab workflow. Four custom dashboards shipped via `customDashboardsPath` ConfigMap. Revisit if/when we need cross-source dashboards, annotation timelines, or a UI-driven dashboards-as-code pipeline.
 
 **Asgard, not jotunheim.** Earlier draft placed VM/VL in jotunheim per the "monitoring outside production" instinct; reversed before any deploy. Three reasons: jotunheim's deploy timeline is uncertain; the bulk of log/metric producers live in asgard so in-cluster ingest is shorter; failure-domain separation is already preserved by **Zabbix LXC** (fully outside K3s). Full rationale: [`docs/operations/decisions.md`](../operations/decisions.md) row "VM/VL placement — asgard".
 
-**Status:** ✅ Phase 7a live. 23 off-cluster hosts shipping logs via vlagent systemd binary, K3s pod logs via DaemonSet, vmagent + KSM scraping K8s-layer metrics, vmui+VL UI behind Authentik ForwardAuth. Phase 7b (vm-operator migration) deferred.
+**Status:** ✅ Phase 8a live. 23 off-cluster hosts shipping logs via vlagent systemd binary, K3s pod logs via DaemonSet, vmagent + KSM scraping K8s-layer metrics, vmui+VL UI behind Authentik ForwardAuth. Phase 8b (vm-operator migration) deferred.
 
 ## Architecture
 
 | Layer | Stack | Notes |
 |-------|-------|-------|
-| Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by Zabbix LXC (Phase 7c, fully outside K3s). |
+| Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by Zabbix LXC (Phase 8c, fully outside K3s). |
 | Namespace | `monitoring` | Shared by both apps + vmagent + KSM + log-collector DaemonSet |
 | Metrics store + UI | `victoria-metrics-single` chart `0.38.0` → app v1.143.0 | vmsingle (not vmcluster — homelab scale doesn't need sharding). 100 Gi iSCSI PV, 6mo retention. vmui (built into vmsingle) is the dashboard layer. |
 | Log store + UI | `victoria-logs-single` chart `0.12.5` → app v1.50.0 | vlsingle, 50 Gi iSCSI PV, **30d retention initially** (measure + resize before extending to the eventual 6mo target). |
@@ -32,7 +32,7 @@ VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per
 - **Built-in UIs** — vmsingle ships `vmui` (interactive PromQL + chart playground) and vlsingle ships its own LogsQL UI. No separate dashboard layer (Grafana) needed for homelab-scale ad-hoc queries.
 - **PromQL + LogsQL via the same vendor** — VL's LogsQL syntax is PromQL-flavored, so the operator's PromQL muscle memory carries over.
 - **Resource footprint**: VictoriaMetrics is ~10× more efficient than Prometheus for the same ingest rate at homelab scale.
-- **Tradeoff**: smaller community + ecosystem than Prometheus. Most Helm charts that ship Prometheus ServiceMonitors require the Prometheus-Operator CRDs to be installed. VM's vmoperator provides equivalent CRDs (`VMServiceScrape`) but with a name change — adapter manifests sometimes needed. Phase 7b lifts this constraint.
+- **Tradeoff**: smaller community + ecosystem than Prometheus. Most Helm charts that ship Prometheus ServiceMonitors require the Prometheus-Operator CRDs to be installed. VM's vmoperator provides equivalent CRDs (`VMServiceScrape`) but with a name change — adapter manifests sometimes needed. Phase 8b lifts this constraint.
 
 ## Ingest paths — actual deployed state
 
@@ -60,7 +60,7 @@ Three classes of producers feed VL + VM:
 - **vmagent's default ClusterRole is missing `nodes/proxy`** — added via `rbac.extraRules` in the HelmRelease. Without it, every cAdvisor scrape gets 403 and `container_*` metrics never reach VM.
 - **cAdvisor metrics group by `instance`, not `node`.** The chart's apiserver-proxy relabel sets the node identifier in `instance` (and `kubernetes_io_hostname`). KSM metrics DO have `node` set; cAdvisor is the asymmetric one.
 
-**Zabbix LXC** (Phase 7c, pending — see [`docs/services/zabbix.md`](zabbix.md)) covers host/LXC-level metrics — CPU/memory/disk/network at the OS layer + service-level Zabbix templates. Clean split: vmagent for the K8s layer, Zabbix for everything below the K8s layer. No duplication.
+**Zabbix LXC** (Phase 8c, pending — see [`docs/services/zabbix.md`](zabbix.md)) covers host/LXC-level metrics — CPU/memory/disk/network at the OS layer + service-level Zabbix templates. Clean split: vmagent for the K8s layer, Zabbix for everything below the K8s layer. No duplication.
 
 ## vmui dashboards
 
@@ -93,20 +93,20 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 
 - **VictoriaMetrics retention** is set to `6` months. Bump if disk allows.
 - **VictoriaLogs retention** is 30d initially. Measure week-of-data baseline, then resize the LUN + bump to 6mo target.
-- **vm-operator** is NOT installed. Phase 7b refactors the Helm charts to CRD-based deploys (`VLSingle`, `VMSingle`, `VMAgent` CRDs + `VMServiceScrape` for ServiceMonitor-emitting charts). Deferred until ServiceMonitor-emitting charts land or alerting becomes a need.
+- **vm-operator** is NOT installed. Phase 8b refactors the Helm charts to CRD-based deploys (`VLSingle`, `VMSingle`, `VMAgent` CRDs + `VMServiceScrape` for ServiceMonitor-emitting charts). Deferred until ServiceMonitor-emitting charts land or alerting becomes a need.
 - **Alerts** — vmalert NOT enabled. Zabbix watches infra (host up/down, disk full, etc.); vmalert would watch application metrics. Enable when a specific alert use case lands.
 - **vmagent + kube-state-metrics** scrape every 30s. Tune via the HelmRelease `staticScrapeConfig` if cardinality grows past comfort.
 
 ## Pending follow-ups
 
-- **Phase 7b — vm-operator migration**. Switches VL/VM/vmagent lifecycle from raw Helm to `VLSingle`/`VMSingle`/`VMAgent` CRDs. Also brings `ServiceMonitor` → `VMServiceScrape` conversion for cert-manager / ESO / other ServiceMonitor-emitting charts that we currently don't scrape.
+- **Phase 8b — vm-operator migration**. Switches VL/VM/vmagent lifecycle from raw Helm to `VLSingle`/`VMSingle`/`VMAgent` CRDs. Also brings `ServiceMonitor` → `VMServiceScrape` conversion for cert-manager / ESO / other ServiceMonitor-emitting charts that we currently don't scrape.
 - **VL retention bump** — 30d → 6mo once disk-use baseline is known.
 - **VMAlert + alert routing** — when a paged-alert use case beyond Zabbix's coverage lands.
 - **Cross-source dashboards** — Grafana revisit trigger: needing canned dashboards with annotations spanning metrics + logs, OR needing to share read-only dashboards with non-operator users.
 
 ## See also
 
-- [`docs/incidents/2026-05-24-phase-7-observability.md`](../incidents/2026-05-24-phase-7-observability.md) — Phase 7a deploy retrospective (12 findings)
+- [`docs/incidents/2026-05-24-phase-8-observability.md`](../incidents/2026-05-24-phase-8-observability.md) — Phase 8a deploy retrospective (12 findings)
 - CLAUDE.md "Architectural invariants → Services / placement" + "vmui / VictoriaMetrics dashboards" gotcha section
 - [`docs/services/asgard-k3s.md`](asgard-k3s.md) — pattern reference for K8s deployments
-- Phase 7c Zabbix LXC ([`docs/services/zabbix.md`](zabbix.md), [`docs/operations/build-sequence.md`](../operations/build-sequence.md)) — infra-level monitoring, complementary to this stack
+- Phase 8c Zabbix LXC ([`docs/services/zabbix.md`](zabbix.md), [`docs/operations/build-sequence.md`](../operations/build-sequence.md)) — infra-level monitoring, complementary to this stack

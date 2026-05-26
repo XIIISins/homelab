@@ -186,7 +186,7 @@ Semaphore's notification webhook config posts to Hermod at `http://hermod.niflhe
 
 - **Self-healing auto-apply.** Out by design — drift-check produces an alert and a human decides whether to converge. Removing the human is a separate decision with separate failure-mode implications.
 - **PR-flow Ansible** (Atlantis-style). Already settled: not enabled. Solo dev, push-to-main matches existing Flux model. Decision row exists in `decisions.md`.
-- **Jotunheim Ansible.** Out until jotunheim K3s exists (Phase 6). The same Semaphore project can pick up `jotunheim-*.yml` playbooks once written.
+- **Jotunheim Ansible.** Out until jotunheim K3s exists (Phase 7). The same Semaphore project can pick up `jotunheim-*.yml` playbooks once written.
 - **Per-service Vault-AppRole isolation.** Today everything uses the shared `ansible-awx` AppRole (or `ansible-local` for MacBook runs). Per-service AppRole isolation is a follow-up if/when the blast radius becomes a real concern.
 
 ## Implementation outline (Phase 5h.3 sub-phases)
