@@ -1,8 +1,8 @@
-# ansible/playbooks/zabbix-agents.yml
+# ansible/playbooks/zabbix-agent.yml
 ---
 # Cluster-wide zabbix-agent2 rollout. Targets every host in the inventory
 # EXCEPT the Zabbix LXC itself (which already gets the agent via
-# zabbix-host.yml). Pattern B from the zabbix-agent role README — keeps
+# asgard-zabbix.yml). Pattern B from the zabbix-agent role README — keeps
 # the per-service playbooks tight, agent rollout is a separate one-shot
 # operation.
 #

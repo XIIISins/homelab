@@ -29,11 +29,11 @@ Authkey is minted by `terraform/tailscale/` (see `authkeys.tf`).
 
 First run (LXC has only root SSH, no `ansible` user yet):
 
-    ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/tailscale-host.yml
+    ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/asgard-tailscale.yml
 
 Subsequent runs (full play as `ansible`):
 
-    ansible-playbook playbooks/tailscale-host.yml
+    ansible-playbook playbooks/asgard-tailscale.yml
 
 ## Tailscale auth-key expiry note
 

@@ -1,6 +1,6 @@
-# ansible/playbooks/vlagent-agents.yml
+# ansible/playbooks/vlagent.yml
 ---
-# Cluster-wide vlagent rollout. Same Pattern-B as the zabbix-agents
+# Cluster-wide vlagent rollout. Same Pattern-B as the zabbix-agent
 # playbook: one playbook for the shipper across all the hosts that
 # need it, run separately from per-service playbooks.
 #

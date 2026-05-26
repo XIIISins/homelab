@@ -50,7 +50,7 @@ infrastructure, not on upstream CDNs.
 
 ## Bootstrap order
 
-Run via `playbooks/postgres-host.yml` with `serial: 1`:
+Run via `playbooks/asgard-postgres.yml` with `serial: 1`:
 
 1. Fulla (adoption-time primary). Patroni starts → sees populated
    data dir → claims DCS leader → no initdb. The Debian PG service

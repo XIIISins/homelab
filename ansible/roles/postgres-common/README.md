@@ -18,7 +18,7 @@ chains in the wrong file.
 
 ### Patroni-managed (asgard PG today)
 
-In `playbooks/postgres-host.yml`, after the `patroni` role has set
+In `playbooks/asgard-postgres.yml`, after the `patroni` role has set
 `patroni_is_leader`:
 
 ```yaml

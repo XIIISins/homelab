@@ -1,5 +1,5 @@
 ---
-# ansible/playbooks/tailscale-host.yml
+# ansible/playbooks/asgard-tailscale.yml
 #
 # Provisions the Tailscale LXCs (Bifrost 1113, Heimdall 1114, Gjallarbru 1115).
 #
@@ -14,10 +14,10 @@
 #     PermitRootLogin prohibit-password (root SSH blocked by AllowUsers)
 #
 # Bootstrap (first run — LXC has only root SSH, no ansible user yet):
-#     ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/tailscale-host.yml
+#     ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/asgard-tailscale.yml
 #
 # Subsequent runs (use ansible_user: ansible from group_vars/all/vars.yml):
-#     ansible-playbook playbooks/tailscale-host.yml
+#     ansible-playbook playbooks/asgard-tailscale.yml
 #
 # Tags (run any subset during development):
 #     --tags baseline,tailscale,hardening

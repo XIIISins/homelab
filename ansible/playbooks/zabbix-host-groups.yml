@@ -6,8 +6,8 @@
 # in Zabbix via community.zabbix.zabbix_hostgroup (state=present,
 # idempotent).
 #
-# This play is imported as a prerequisite by zabbix-host.yml (server
-# deploy, including hugin's own host record) and zabbix-agents.yml
+# This play is imported as a prerequisite by asgard-zabbix.yml (server
+# deploy, including hugin's own host record) and zabbix-agent.yml
 # (cluster-wide agent rollout). Either playbook can run first; the
 # bootstrap ensures groups exist before any host record is created.
 #

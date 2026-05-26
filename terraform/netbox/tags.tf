@@ -18,6 +18,8 @@
 
 locals {
   tags = {
+    # Per-role tags (existing — define what's INSTALLED on a host).
+    # NOT all applied yet; per-resource rollout is incremental.
     "ansible:baseline"        = { slug = "ansiblebaseline", color_hex = "4caf50" }
     "ansible:etcd"            = { slug = "ansibleetcd", color_hex = "ff9800" }
     "ansible:factorio"        = { slug = "ansible", color_hex = "795548" }
@@ -28,10 +30,31 @@ locals {
     "ansible:patroni"         = { slug = "ansiblepatroni", color_hex = "ff5722" }
     "ansible:postgres"        = { slug = "ansiblepostgres", color_hex = "03a9f4" }
     "ansible:tailscale"       = { slug = "ansibletailscale", color_hex = "3f51b5" }
-    "iac:manual"              = { slug = "iacmanual", color_hex = "f44336" }
-    "iac:terraform"           = { slug = "iacterraform", color_hex = "9c27b0" }
-    "lxc"                     = { slug = "lxc", color_hex = "ff66ff" }
-    "vm"                      = { slug = "vm", color_hex = "00ffff" }
+
+    # Per-group tags (Phase 5h.3 — drive Ansible inventory group
+    # membership via `group_by: tag` in the netbox.netbox.nb_inventory
+    # plugin). Convention: `ansible:<group>` where <group> matches the
+    # static `ansible/inventory/hosts.yml` group name 1:1. The dynamic
+    # inventory's `keyed_groups` filter projects ONLY these (filtering
+    # `tag.startswith("ansible:")` and stripping the prefix) into
+    # Ansible groups; the role tags above stay as NetBox-side
+    # documentation without polluting the inventory graph.
+    "ansible:adguard"      = { slug = "ansibleadguard", color_hex = "00bcd4" }
+    "ansible:haproxy-etcd" = { slug = "ansiblehaproxy-etcd", color_hex = "8bc34a" }
+    "ansible:hermod"       = { slug = "ansiblehermod", color_hex = "ff9800" }
+    "ansible:k3s-cp"       = { slug = "ansiblek3s-cp", color_hex = "e91e63" }
+    "ansible:k3s-worker"   = { slug = "ansiblek3s-worker", color_hex = "f06292" }
+    "ansible:pbs"          = { slug = "ansiblepbs", color_hex = "607d8b" }
+    "ansible:proxmox"      = { slug = "ansibleproxmox", color_hex = "e64a19" }
+    "ansible:semaphore"    = { slug = "ansiblesemaphore", color_hex = "9c27b0" }
+    "ansible:synology"     = { slug = "ansiblesynology", color_hex = "009688" }
+    "ansible:zabbix"       = { slug = "ansiblezabbix", color_hex = "d32f2f" }
+
+    # Provenance + container-vs-VM
+    "iac:manual"    = { slug = "iacmanual", color_hex = "f44336" }
+    "iac:terraform" = { slug = "iacterraform", color_hex = "9c27b0" }
+    "lxc"           = { slug = "lxc", color_hex = "ff66ff" }
+    "vm"            = { slug = "vm", color_hex = "00ffff" }
   }
 
   tag_import_ids = {

@@ -77,3 +77,13 @@ zabbix-admins:
   # per-app policy binding only. Day-1 mapping is single-group only;
   # extend with zabbix-viewers when read-only dashboard access for
   # non-operator users becomes a real need.
+
+semaphore-admins:
+  is_superuser: false
+  # Members can authenticate to Semaphore — the Ansible orchestrator
+  # (semaphore.niflheim.xiiisins.com, Phase 5h.3). Semaphore has its
+  # own RBAC model (Admin / User / per-project roles); group claim
+  # from Authentik OIDC is mapped via Semaphore's `role_claim` config
+  # to the admin role on first login. Operator-only today; expand if
+  # a second human operator joins. is_superuser=false (no Authentik-
+  # side privileges); gating is the per-app policy binding only.

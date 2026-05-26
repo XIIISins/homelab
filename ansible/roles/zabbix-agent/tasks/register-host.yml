@@ -20,7 +20,7 @@
 # once per host but Vault is local + cached; cost is negligible.
 #
 # become: false on the delegated task is required — without it, the
-# play-level `become: true` (from zabbix-agents.yml) is inherited
+# play-level `become: true` (from zabbix-agent.yml) is inherited
 # even on the delegation, triggering a sudo prompt on the delegated
 # host. no_log: true here hides errors from the playbook output, so
 # debug by setting ANSIBLE_NO_LOG=False in the environment + running

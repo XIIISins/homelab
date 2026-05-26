@@ -28,7 +28,7 @@ postgres_databases:
     password_vault_path: ansible/postgres/zabbix-password
 ```
 
-Then run `ansible-playbook ansible/playbooks/postgres-host.yml` (the postgres-common role creates the user + DB idempotently). The Vault path `ansible/postgres/zabbix-password` must be populated first.
+Then run `ansible-playbook ansible/playbooks/asgard-postgres.yml` (the postgres-common role creates the user + DB idempotently). The Vault path `ansible/postgres/zabbix-password` must be populated first.
 
 ## Secrets
 

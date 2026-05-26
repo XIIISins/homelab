@@ -45,3 +45,4 @@ data:
     rewrite name exact authentik.midgard.xiiisins.com traefik.traefik.svc.cluster.local
     rewrite name exact wiki.midgard.xiiisins.com traefik.traefik.svc.cluster.local
     rewrite name exact wiki.xiiisins.com traefik.traefik.svc.cluster.local
+    rewrite name exact netbox.niflheim.xiiisins.com traefik.traefik.svc.cluster.local

@@ -1,0 +1,40 @@
+# ansible/playbooks/site.yml
+---
+# Top-level orchestrator — single entry point for "converge everything".
+# Imports every per-host-group playbook + the cluster-wide agent
+# rollouts. Used by:
+#
+#   - `ansible-playbook site.yml` (manual converge from MacBook)
+#   - Semaphore's `asgard-apply` task template (Phase 5h.3)
+#   - Semaphore's `asgard-drift-check` task template
+#     (`--check --diff site.yml`, 6h cadence — Phase 5h.3)
+#
+# Order matches a fresh-bring-up dependency chain where possible:
+#   1. K3s + Proxmox-adjacent infra (asgard-k3s) — host the cluster
+#      everything else lives in / talks to.
+#   2. DNS + identity (asgard-adguard, asgard-tailscale) — name
+#      resolution + tailnet membership are dependencies for several
+#      downstream playbooks.
+#   3. Database tier (asgard-postgres, asgard-haproxy-etcd) — back-end
+#      for Authentik / NetBox / Outline / Hermod consumers.
+#   4. Application LXCs (asgard-factorio, asgard-hermod, asgard-zabbix)
+#      — services that depend on the layers above.
+#   5. Cluster-wide agent rollouts (vlagent, zabbix-agent) — re-applied
+#      across the fleet. Each per-group playbook above already covers
+#      its own group's agents, so this is the gap-filler for hosts
+#      that don't have a per-group playbook (PVE hosts, PBS) plus a
+#      cheap re-converge for the rest. Idempotent.
+#
+# Day-1 bring-up uses targeted plays (`--limit`), not site.yml. site.yml
+# is the steady-state converge tool.
+
+- import_playbook: asgard-k3s.yml
+- import_playbook: asgard-adguard.yml
+- import_playbook: asgard-tailscale.yml
+- import_playbook: asgard-postgres.yml
+- import_playbook: asgard-haproxy-etcd.yml
+- import_playbook: asgard-factorio.yml
+- import_playbook: asgard-hermod.yml
+- import_playbook: asgard-zabbix.yml
+- import_playbook: vlagent.yml
+- import_playbook: zabbix-agent.yml

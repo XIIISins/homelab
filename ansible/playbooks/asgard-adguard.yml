@@ -1,4 +1,4 @@
-# ansible/playbooks/adguard-host.yml
+# ansible/playbooks/asgard-adguard.yml
 ---
 - name: Configure AdGuard Home host (DNS trio with keepalived VIP)
   hosts: adguard_hosts

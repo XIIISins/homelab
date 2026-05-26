@@ -1,4 +1,4 @@
-# ansible/playbooks/zabbix-host.yml
+# ansible/playbooks/asgard-zabbix.yml
 ---
 # Bootstrap host groups first (imported) so the agent role's
 # register-host task can attach hugin's host record to "Asgard/LXCs/

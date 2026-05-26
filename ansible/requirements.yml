@@ -12,3 +12,13 @@ collections:
     version: ">=2.0.0"
   - name: community.postgresql
     version: ">=3.0.0"
+  # NetBox dynamic inventory + the wider netbox.netbox module set used
+  # by community.zabbix's host registration and (Phase 5h.3.b) the
+  # `nb_inventory` plugin in ansible/inventory/netbox.yml.
+  - name: netbox.netbox
+    version: ">=3.0.0"
+  # community.zabbix is referenced by Phase 8c roles + the existing
+  # Hermod media-type producer wiring — pin to the major that ships
+  # the httpapi connection plugin (4.x dropped env-var auth).
+  - name: community.zabbix
+    version: ">=4.0.0"

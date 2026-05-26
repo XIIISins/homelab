@@ -38,3 +38,4 @@ ghost:
     - monitoring-admins
     - outline-users
     - zabbix-admins
+    - semaphore-admins

@@ -66,6 +66,16 @@ postgres_databases:
   - name: outline
     owner: outline
     password_vault_path: ansible/postgres/outline-password
+  # Semaphore (Ansible orchestrator), asgard K3s
+  # (k8s/asgard/apps/semaphore/, Phase 5h.3). Standard
+  # CREATE DATABASE semaphore OWNER semaphore — Semaphore creates its
+  # own tables on first startup (Go AutoMigrate). Password minted by
+  # terraform/vault/ as random_password.semaphore_postgres, dual-pathed
+  # to ansible/postgres/semaphore-password (this role) and
+  # k8s/semaphore/postgres-password (ESO in the semaphore namespace).
+  - name: semaphore
+    owner: semaphore
+    password_vault_path: ansible/postgres/semaphore-password
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

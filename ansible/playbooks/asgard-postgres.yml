@@ -1,0 +1,74 @@
+# ansible/playbooks/asgard-postgres.yml
+---
+# Postgres stack — ordered roll, then parallel agents.
+#
+# Two-play structure per the 5h.3 design (docs/architecture/ansible-
+# orchestration.md "Multi-play files when serial: differs"). Play 1
+# walks the Patroni-managed PG cluster ONE NODE AT A TIME so each
+# node finishes (Patroni up + role correct) before the next starts —
+# critical for the adoption + replica-join ordering since Fulla had
+# to claim DCS leadership before Vor/Idunn could basebackup, and the
+# same constraint applies to any future re-bootstrap. Play 2 runs the
+# parallel agents play (vlagent + zabbix-agent) without paying the
+# serial=1 tax — they're independent of cluster state, parallel
+# rollout is safe.
+#
+# Override Play 1's serial with `-e 'patroni_serial=0'` (full parallel)
+# only when the cluster is already in steady state and the run is a
+# config-only re-render.
+
+- name: Postgres stack — ordered (Patroni-safe)
+  hosts: postgres_hosts
+  become: true
+  serial: "{{ patroni_serial | default(1) }}"
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # Phase 1: PG packages + TLS cert + (adoption-primary-only) pre-Patroni
+    # management user creation. In Patroni-managed mode this skips
+    # cluster.yml / config.yml / hba.yml — Patroni owns those.
+    - role: postgres
+      tags: [postgres, postgres-prepare]
+
+    # Phase 2: Install Patroni, render config, stop+disable Debian PG service
+    # on the adoption primary, start Patroni, wait for cluster-readiness.
+    # Sets the `patroni_is_leader` fact consumed by the postgres-common pass.
+    - role: patroni
+      tags: [patroni]
+
+    # Phase 3: Idempotent re-creation of management users + per-service DBs
+    # against the Patroni leader (skipped on replicas — read-only). On the
+    # current leader this is a no-op for existing entries; new per-service
+    # DBs land here when `postgres_databases` is extended in group_vars.
+    #
+    # The split-out postgres-common role (2026-05-24) replaces the previous
+    # `postgres tasks_from: bootstrap` pattern — `tasks_from:` is silently
+    # ignored in the play-level `roles:` block, only honored by
+    # include_role / import_role. Separate role = no foot-gun.
+    - role: postgres-common
+      tags: [postgres-common, postgres-bootstrap]
+
+    - role: hardening
+      tags: [hardening]
+
+- name: Postgres agents — parallel
+  hosts: postgres_hosts
+  become: true
+
+  roles:
+    # Ship journald + PG logs to VictoriaLogs. Parallel-safe: each node's
+    # vlagent is independent. The standalone vlagent.yml playbook also
+    # targets postgres_hosts as part of its fleet-wide rollout — both
+    # paths are idempotent, this play is the "owned by the per-group
+    # playbook" path so the group's converge run hits agents without a
+    # separate --limit invocation.
+    - role: vlagent
+      tags: [vlagent]
+
+    # Zabbix agent2 + PG monitoring plugin + per-host record registration.
+    # zbx_monitor PG role already provisioned by postgres-common (Phase 3
+    # above). Parallel-safe across the group.
+    - role: zabbix-agent
+      tags: [zabbix-agent]

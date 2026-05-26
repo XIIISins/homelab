@@ -94,16 +94,6 @@ resource "vault_approle_auth_backend_role" "ansible_awx" {
   token_max_ttl  = 3600
   secret_id_ttl  = 7776000
 }
-# Test entry used by ansible/playbooks/test-vault-lookup.yml
-# Recreated declaratively so rebuilds do not need a manual `vault kv put` step
-resource "vault_kv_secret_v2" "ansible_test" {
-  mount = vault_mount.kv.path
-  name  = "ansible/test/hello"
-  data_json = jsonencode({
-    value = "world"
-  })
-}
-
 # -----------------------------------------------------------------------------
 # keepalived VRRP shared secret
 # -----------------------------------------------------------------------------
@@ -279,6 +269,42 @@ resource "vault_kv_secret_v2" "netbox_superuser" {
     password  = random_password.netbox_superuser_password.result
     api_token = random_password.netbox_superuser_api_token.result
   })
+}
+
+# -----------------------------------------------------------------------------
+# NetBox inventory token (Phase 5h.3) — read-only API token used by
+# Ansible's `netbox.netbox.nb_inventory` plugin to query NetBox for
+# dynamic inventory.
+#
+# Placeholder shape only — the actual token CANNOT be minted via TF
+# (e-breuninger/netbox provider v5.3.0's `netbox_token` resource is
+# broken against NetBox 4.4+ per CLAUDE.md "Terraform — netbox provider"
+# gotchas: POST+PUT update flow rejected, v2 token plaintext only
+# available in the create response). Operator post-flight steps:
+#   1. NetBox UI → Admin → API Tokens → Add Token
+#   2. User: a dedicated read-only user (preferred) OR the existing
+#      admin user (overpermissive but works for solo-dev).
+#   3. Permissions: enabled, scope read-only on dcim/ipam/virtualization.
+#   4. Stash the plaintext token (shown ONCE) in 1P "Asgard - NetBox -
+#      Ansible inventory token".
+#   5. Write to Vault:
+#        vault kv put secret/ansible/netbox/inventory-token \
+#          value=$(op read "op://Homelab/Asgard - NetBox - Ansible inventory token/credential")
+#
+# The placeholder below ensures the Vault path exists at apply time so
+# ESO / Ansible can resolve it; lifecycle.ignore_changes on data_json
+# prevents TF from clobbering the operator-written real value on
+# subsequent applies (same pattern as zabbix_api_token).
+resource "vault_kv_secret_v2" "netbox_inventory_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/netbox/inventory-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-operator-mint"
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -541,5 +567,86 @@ resource "vault_kv_secret_v2" "outline_app" {
     secret_key     = random_id.outline_secret_key.hex
     utils_secret   = random_id.outline_utils_secret.hex
     redis_password = random_password.outline_redis_password.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# Semaphore (Phase 5h.3 — Ansible orchestrator, asgard K3s)
+# -----------------------------------------------------------------------------
+# Three secret paths:
+#   - secret/ansible/postgres/semaphore-password — PG role pw for the
+#     postgres-common-databases provisioning loop on the Patroni leader
+#     (same dual-path shape as netbox / outline / teamspeak).
+#   - secret/k8s/semaphore/postgres-password — same value, projected
+#     under the k8s/ tree for ESO in the semaphore namespace.
+#   - secret/k8s/semaphore/app — access_key_encryption + cookie_hash,
+#     the two cryptographic secrets Semaphore needs to keep stable
+#     across restarts:
+#       * access_key_encryption: AES key used to encrypt the access
+#         keys (SSH keys, Vault AppRole creds, etc.) in the database.
+#         Loss = every stored access key undecryptable; recoverable
+#         by recreating each access key in the UI.
+#       * cookie_hash: HMAC key for session cookies. Loss = all live
+#         sessions invalidated (forces re-login). Lower impact.
+#     Both Vault-minted; consumed via env vars
+#     SEMAPHORE_ACCESS_KEY_ENCRYPTION + SEMAPHORE_COOKIE_HASH from the
+#     k8s/semaphore/app ExternalSecret.
+#
+# OIDC credentials live separately at secret/k8s/semaphore/oidc, minted
+# in terraform/authentik/semaphore.tf — same module-ownership rule as
+# the rest of the OIDC providers.
+
+resource "random_password" "semaphore_postgres" {
+  length  = 32
+  special = false # PG password — avoid env-var / connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "semaphore_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/semaphore-password"
+  data_json = jsonencode({
+    value = random_password.semaphore_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "semaphore_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/semaphore/postgres-password"
+  data_json = jsonencode({
+    value = random_password.semaphore_postgres.result
+  })
+}
+
+resource "random_password" "semaphore_access_key_encryption" {
+  # Base64-encoded 32-byte AES key per Semaphore docs. random_password
+  # with length=32 + no special chars produces a 32-char alphanumeric
+  # string — Semaphore accepts the raw string and derives the AES key
+  # from it (HKDF). Plain base64 also works; the alphanumeric form is
+  # safer to round-trip through env vars + shell tooling.
+  length  = 32
+  special = false
+}
+
+resource "random_password" "semaphore_cookie_hash" {
+  length  = 64
+  special = false
+}
+
+# Local admin password — break-glass account for when OIDC is unavailable
+# (Authentik down, identity provider rotation, etc.). Routine login is
+# always OIDC. Rotation: `terraform apply -replace=random_password.semaphore_admin_password`
+# then `kubectl rollout restart sts -n semaphore semaphore` to re-render.
+resource "random_password" "semaphore_admin_password" {
+  length  = 32
+  special = false
+}
+
+resource "vault_kv_secret_v2" "semaphore_app" {
+  mount = vault_mount.kv.path
+  name  = "k8s/semaphore/app"
+  data_json = jsonencode({
+    access_key_encryption = random_password.semaphore_access_key_encryption.result
+    cookie_hash           = random_password.semaphore_cookie_hash.result
+    admin_password        = random_password.semaphore_admin_password.result
   })
 }

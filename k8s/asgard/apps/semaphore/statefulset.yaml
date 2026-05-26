@@ -1,0 +1,134 @@
+# k8s/asgard/apps/semaphore/statefulset.yaml
+#
+# Single-replica StatefulSet. State strategy:
+#   - Application state (projects, templates, history, access keys) → PG
+#     via Patroni VIP. Survives pod restart by virtue of being external.
+#   - Inventory cache (jsonfile, 4h TTL) → PVC. Could be emptyDir but
+#     a fresh-cache miss + NetBox API round-trip on every pod restart
+#     wastes ~30s of bootstrap latency; PVC keeps cache warm across
+#     restarts. 1Gi is far more than the cache will ever grow to.
+#   - Ansible Galaxy collections → fetched at template-run time into
+#     /tmp; no persistence needed.
+#
+# StatefulSet (not Deployment) because the inventory cache path is
+# pod-identity-bound (matters if we ever scale > 1 replica, harmless
+# at 1). Same pattern as the Authentik Redis + Outline Redis hand-rolled
+# StatefulSets in this repo.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: semaphore
+  namespace: semaphore
+spec:
+  serviceName: semaphore
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: semaphore
+  # Single replica + PG-backed state — RollingUpdate is safe (no
+  # cross-replica race). StatefulSet RollingUpdate stalls on a
+  # CrashLoopBackOff pod (see CLAUDE.md K8s scheduling gotcha) so any
+  # first-deploy iteration needs manual `kubectl delete pod` to break
+  # the deadlock. Standard tradeoff.
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: semaphore
+    spec:
+      # Synology CSI iSCSI doesn't honor fsGroup reliably — the
+      # established pattern (Vault, Authentik Redis, VictoriaLogs,
+      # NetBox Valkey, Teamspeak, Outline Redis) is an init container
+      # running as UID 0 to chown the PVC mountpoint. Defaults
+      # capabilities preserved (CAP_CHOWN + CAP_FOWNER); `drop: ALL`
+      # would strip those and break the chown — see CLAUDE.md
+      # "Synology CSI iSCSI volumes need a chown initContainer" + the
+      # Teamspeak sub-gotcha.
+      initContainers:
+        - name: inventory-cache-chown
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - chown -R 1001:1001 /var/lib/semaphore/inventory-cache && chmod 750 /var/lib/semaphore/inventory-cache
+          volumeMounts:
+            - name: inventory-cache
+              mountPath: /var/lib/semaphore/inventory-cache
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+      containers:
+        - name: semaphore
+          # The `-ansibleN.N.N` variant bakes ansible-core into the
+          # image (vs the plain tag which would need a sidecar). Pin
+          # the ansible version explicitly — Semaphore's "latest"
+          # ansible tag would float. Bump in lockstep with the Ansible
+          # collections in ansible/requirements.yml.
+          image: semaphoreui/semaphore:v2.18.5-ansible2.16.5
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: semaphore-app
+          # Cache path lives at /var/lib/semaphore/inventory-cache to
+          # match the netbox.yml inventory plugin's cache_connection
+          # default. ANSIBLE_INVENTORY_CACHE_CONNECTION overrides it
+          # per-environment (MacBook uses ~/.cache/ansible/...);
+          # in-pod the default path is correct.
+          env:
+            - name: ANSIBLE_INVENTORY_CACHE_CONNECTION
+              value: /var/lib/semaphore/inventory-cache
+          ports:
+            - name: http
+              containerPort: 3000
+          volumeMounts:
+            - name: inventory-cache
+              mountPath: /var/lib/semaphore/inventory-cache
+          livenessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # Ansible runs spawn ansible-playbook subprocesses inside
+              # the same container; memory ceiling tuned for a fleet
+              # the size of niflheim (~25 hosts) running site.yml
+              # under --check. Bump if a per-template run OOMs.
+              memory: 1Gi
+          securityContext:
+            # semaphoreui/semaphore upstream Dockerfile USERs the
+            # `semaphore` account at UID 1001. K8s runAsNonRoot needs
+            # a numeric value (CLAUDE.md "K8s scheduling" gotcha).
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+  volumeClaimTemplates:
+    - metadata:
+        name: inventory-cache
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: synology-csi-iscsi-retain
+        resources:
+          requests:
+            storage: 1Gi

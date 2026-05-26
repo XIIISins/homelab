@@ -20,6 +20,26 @@
 # memory is 8192 (post 2026-05-24 incident — see commit d690381).
 
 locals {
+  # role → ansible-inventory-group mapping. Drives the `ansible:<group>`
+  # tag that lands on each VM (Phase 5h.3). NetBox `role` and Ansible
+  # inventory group are conceptually different — role says "what kind
+  # of thing is this", group says "which playbook converges it" — but
+  # they map 1:1 in this homelab. If they diverge later (e.g. two PG
+  # roles, one consumer group), promote `ansible_group` to a per-VM
+  # field instead of computing from role.
+  ansible_group_for_role = {
+    "k3s-control-plane" = "k3s-cp"
+    "k3s-worker"        = "k3s-worker"
+    "backup-server"     = "pbs"
+    "monitoring"        = "zabbix"
+    "notifications"     = "hermod"
+    "dns"               = "adguard"
+    "tailscale-gateway" = "tailscale"
+    "game-server"       = "factorio"
+    "db"                = "postgres"
+    "service-frontend"  = "haproxy-etcd"
+  }
+
   vms = {
     # ── Asgard K3s control planes (RHEL 9, 2vCPU/4GB/10GB) ─────────
     gondul = { vmid = "2001", role = "k3s-control-plane", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
@@ -215,7 +235,14 @@ resource "netbox_virtual_machine" "this" {
     VMID = each.value.vmid
   }
 
-  depends_on = [netbox_custom_field.vmid]
+  # Phase 5h.3 — Ansible inventory group via tag. The dynamic
+  # inventory plugin reads tags via `group_by: tag` (or its richer
+  # `keyed_groups` variant) and projects every `ansible:<group>` tag
+  # as an Ansible group named `<group>`. Computed from `role` via the
+  # local map above so the tag stays consistent with the NetBox role.
+  tags = ["ansible:${local.ansible_group_for_role[each.value.role]}"]
+
+  depends_on = [netbox_custom_field.vmid, netbox_tag.this]
 }
 
 import {

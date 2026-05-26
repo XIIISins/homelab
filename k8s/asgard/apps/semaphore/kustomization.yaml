@@ -1,0 +1,9 @@
+# k8s/asgard/apps/semaphore/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - externalsecret.yaml
+  - statefulset.yaml
+  - service.yaml
+  - httproute.yaml

@@ -11,7 +11,8 @@ tailscale_sources_path: /etc/apt/sources.list.d/tailscale.list
 # Auth is handled by community.hashi_vault's native env-var fallback —
 # source ~/.config/ansible/vault-approle.env (via ansible-vault-env)
 # before running so VAULT_ADDR + AppRole creds are in the environment.
-# See playbooks/test-vault-lookup.yml for the proven pattern.
+# The proven pattern is exercised by the tailscale role itself —
+# see tasks/main.yml's `community.hashi_vault.vault_kv2_get` lookup.
 tailscale_authkey_vault_path: "ansible/tailscale/authkeys/{{ inventory_hostname }}"
 
 # Per-host vars — required (override in inventory):

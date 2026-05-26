@@ -112,6 +112,11 @@ locals {
     # via CoreDNS rewrite (k8s/asgard/infrastructure/coredns-custom/).
     "wiki.niflheim.xiiisins.com" = "10.0.20.10"
 
+    # Semaphore (Ansible orchestrator) — K8s-fronted, internal-only.
+    # Phase 5h.3. Authentik OIDC, drift-check loop → Hermod alert tag.
+    # No midgard / apex alias — operator UI, not user-facing.
+    "semaphore.niflheim.xiiisins.com" = "10.0.20.10"
+
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
     "wiki.midgard.xiiisins.com"      = "10.0.20.10"

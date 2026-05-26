@@ -30,7 +30,7 @@ Used by the 5g.2 PG HA cluster (Fulla/Vor/Idunn). This role contributes
   `patroni_is_leader` fact set by the patroni role
 
 Playbook orchestrates as `postgres(prepare) → patroni → postgres(bootstrap)`
-via `tasks_from`. See `ansible/playbooks/postgres-host.yml`.
+via `tasks_from`. See `ansible/playbooks/asgard-postgres.yml`.
 
 ## Vault dependencies
 
@@ -50,7 +50,7 @@ Day N (after hardening locks root SSH):
 
 ```fish
 ansible-vault-env
-ansible-playbook -i inventory/hosts.yml playbooks/postgres-host.yml \
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-postgres.yml \
   --limit fulla,vor,idunn
 ```
 

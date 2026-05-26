@@ -25,9 +25,9 @@ See [`defaults/main.yml`](defaults/main.yml). Most-tuned per-host (in host_vars 
 
 Add `zabbix-agent` to playbooks that touch hosts you want monitored. Two common patterns:
 
-**Pattern A: monitor everything** — add `- role: zabbix-agent` to every playbook (postgres-host, factorio-host, adguard-host, asgard-k3s, etc.).
+**Pattern A: monitor everything** — add `- role: zabbix-agent` to every playbook (asgard-postgres, asgard-factorio, asgard-adguard, asgard-k3s, etc.).
 
-**Pattern B: dedicated monitoring-agents playbook** — `ansible/playbooks/zabbix-agents.yml` with `hosts: all` + `roles: [zabbix-agent]`. Run once after cluster bring-up; re-run when agents need config updates.
+**Pattern B: dedicated monitoring-agents playbook** — `ansible/playbooks/zabbix-agent.yml` with `hosts: all` + `roles: [zabbix-agent]`. Run once after cluster bring-up; re-run when agents need config updates.
 
 We use Pattern B — keeps the per-service playbooks tight and lets agent-rollout be a separate operation.
 

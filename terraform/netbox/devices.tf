@@ -84,6 +84,17 @@ resource "netbox_device" "this" {
   # to a Cluster to express that "this device runs VMs in cluster X",
   # which makes per-host VM lists work in the cluster view.
   cluster_id = each.value.role == "proxmox-host" ? netbox_cluster.niflheim.id : null
+
+  # Phase 5h.3 — Ansible inventory group via tag. role → group:
+  #   proxmox-host → ansible:proxmox
+  #   nas          → ansible:synology
+  #   firewall     → (no Ansible — UCG is config-via-UI only)
+  tags = compact([
+    each.value.role == "proxmox-host" ? "ansible:proxmox" : "",
+    each.value.role == "nas" ? "ansible:synology" : "",
+  ])
+
+  depends_on = [netbox_tag.this]
 }
 
 import {

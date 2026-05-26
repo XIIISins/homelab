@@ -1,0 +1,81 @@
+# ansible/inventory/netbox.yml
+---
+# NetBox dynamic inventory — primary source per the 5h.3 design
+# (docs/architecture/ansible-orchestration.md).
+#
+# Hosts + group memberships come from NetBox. File-based static
+# inventory (`hosts.yml`) is merged in afterward as DR + day-1
+# fallback — see ansible.cfg `inventory = inventory/netbox.yml,
+# inventory/hosts.yml`. Each plugin contributes hosts; first-match
+# wins for any overlap.
+#
+# Group membership flows through NetBox TAGS. Convention:
+# `ansible:<group>` tags applied to every device + VM via
+# terraform/netbox/ (devices.tf + vms.tf, Phase 5h.3.b). The
+# keyed_groups block below projects ONLY tags starting with
+# `ansible:` into Ansible groups — strips the prefix, so
+# `ansible:postgres` becomes the inventory group `postgres` matching
+# the static hosts.yml shape 1:1. Non-`ansible:` tags (iac:*, lxc,
+# vm, role-name tags like `ansible:patroni` for what's INSTALLED on
+# a host vs which group converges it) stay as NetBox-side
+# documentation and don't pollute the inventory graph.
+#
+# group_by: (commented-out) was the simpler first-cut config but it
+# projects EVERY tag as a group including iac:terraform, lxc, etc.,
+# producing noisy ungrouped buckets like `tag_iacterraform`.
+# keyed_groups with a regex separator + prefix='' is the targeted
+# alternative.
+
+plugin: netbox.netbox.nb_inventory
+api_endpoint: https://netbox.niflheim.xiiisins.com
+token: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/netbox/inventory-token').secret.value }}"
+validate_certs: true
+
+# Only pull active hosts with a primary IP — anything else can't be
+# SSH'd to anyway. Silent-skip on missing primary IP is the #1
+# inventory-bring-up gotcha (per docs/operations/open-questions.md
+# Phase 5i.4 notes); the `compose` block below sets ansible_host
+# explicitly from the primary IP to make the failure mode loud if a
+# host slips through with no primary_ip.
+query_filters:
+  - status: active
+  - has_primary_ip: "True"
+
+# Project the ansible:<group> tag namespace into Ansible groups.
+# Hosts WITHOUT any ansible:* tag won't land in any dynamic group
+# but still appear in `all`; static hosts.yml's group definitions
+# remain authoritative for those (e.g. asgard_k3s_cp, postgres_hosts
+# parent group names that don't have a 1:1 tag).
+keyed_groups:
+  - key: tags
+    prefix: ""
+    separator: ""
+    parent_group: ""
+    # Trim each tag entry to the group portion if it starts with
+    # ansible:; non-matching tags don't contribute groups.
+    trailing_separator: false
+
+# ansible_host = primary IPv4 (strip the CIDR suffix). NetBox stores
+# IPs as <ip>/<prefix>; ansible_host wants a bare IP.
+compose:
+  ansible_host: primary_ip4.address | default(primary_ip.address) | regex_replace('/.*$', '')
+
+# jsonfile cache reduces NetBox load + lets `ansible-playbook` runs
+# tolerate brief NetBox blips. 4h TTL chosen as the routine-add-VM-
+# to-NetBox-and-it-gets-picked-up cadence; manual refresh (via the
+# Semaphore `refresh-netbox-inventory` template at Phase 5h.3.e)
+# covers the "I just added it, run NOW" case by deleting the cache
+# file + re-querying.
+#
+# cache_connection differs between MacBook + Semaphore runs:
+#   - MacBook: $HOME/.cache/ansible/netbox-inventory (operator's $HOME)
+#   - Semaphore: /var/lib/semaphore/inventory-cache (per the K8s
+#     manifests in Phase 5h.3.d). The env-var override
+#     ANSIBLE_INVENTORY_CACHE_CONNECTION points at the right path
+#     per-environment; default below is the MacBook path so local
+#     runs work without env-var dance.
+cache: true
+cache_plugin: jsonfile
+cache_timeout: 14400
+cache_connection: ~/.cache/ansible/netbox-inventory
+cache_prefix: netbox_asgard_

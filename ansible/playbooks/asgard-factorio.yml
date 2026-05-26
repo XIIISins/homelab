@@ -1,5 +1,5 @@
 ---
-# ansible/playbooks/factorio-host.yml
+# ansible/playbooks/asgard-factorio.yml
 #
 # Provisions the Factorio LXC (host `factorio` in group `factorio_host`,
 # 10.0.11.220 on VLAN 11).
@@ -14,10 +14,10 @@
 #     PermitRootLogin prohibit-password (root SSH blocked by AllowUsers)
 #
 # Bootstrap (first run — LXC has only root SSH, no ansible user yet):
-#     ansible-playbook -u root playbooks/factorio-host.yml
+#     ansible-playbook -u root playbooks/asgard-factorio.yml
 #
 # Subsequent runs (use ansible_user: ansible from group_vars/all/vars.yml):
-#     ansible-playbook playbooks/factorio-host.yml
+#     ansible-playbook playbooks/asgard-factorio.yml
 #
 # Tags (run any subset during development):
 #     --tags baseline,factorio,sftpgo,hardening
