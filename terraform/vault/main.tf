@@ -638,11 +638,12 @@ resource "random_password" "semaphore_cookie_hash" {
   special = false
 }
 
-# Local admin password — break-glass account for when OIDC is unavailable
-# (Authentik down, identity provider rotation, etc.). Routine login is
-# always OIDC. Rotation: `terraform apply -replace=random_password.semaphore_admin_password`
-# then `kubectl rollout restart sts -n semaphore semaphore` to re-render.
-resource "random_password" "semaphore_admin_password" {
+# cookie_encryption — Semaphore auto-generates this if missing from
+# config.json, but auto-generated values can't persist back to a
+# read-only Secret-mounted file → every pod restart would mint a new
+# value, invalidating every active session. Vault-mint instead so the
+# value is stable across rebuilds.
+resource "random_password" "semaphore_cookie_encryption" {
   length  = 32
   special = false
 }
@@ -653,6 +654,6 @@ resource "vault_kv_secret_v2" "semaphore_app" {
   data_json = jsonencode({
     access_key_encryption = random_password.semaphore_access_key_encryption.result
     cookie_hash           = random_password.semaphore_cookie_hash.result
-    admin_password        = random_password.semaphore_admin_password.result
+    cookie_encryption     = random_password.semaphore_cookie_encryption.result
   })
 }

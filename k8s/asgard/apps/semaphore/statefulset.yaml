@@ -64,14 +64,17 @@ spec:
           # collections in ansible/requirements.yml.
           image: semaphoreui/semaphore:v2.18.5-ansible2.16.5
           imagePullPolicy: IfNotPresent
-          envFrom:
-            - secretRef:
-                name: semaphore-app
-          # Cache path lives at /var/lib/semaphore/inventory-cache to
-          # match the netbox.yml inventory plugin's cache_connection
-          # default. ANSIBLE_INVENTORY_CACHE_CONNECTION overrides it
-          # per-environment (MacBook uses ~/.cache/ansible/...);
-          # in-pod the default path is correct.
+          # Config lives ENTIRELY in the mounted /etc/semaphore/config.json
+          # (rendered by ESO from Vault — see externalsecret.yaml). No
+          # envFrom: Semaphore's setup command silently drops fields
+          # (oidc_providers, port, web_host, ...) when translating env
+          # → config.json, even when the env var is set with valid JSON.
+          # Mounting the full file sidesteps setup entirely.
+          #
+          # Only this one env var stays — it's not a Semaphore field,
+          # it's an Ansible-plugin override for the inventory cache path
+          # (the netbox.yml plugin reads it, MacBook uses a different
+          # path, semaphore pod uses this one).
           env:
             - name: ANSIBLE_INVENTORY_CACHE_CONNECTION
               value: /var/lib/semaphore/inventory-cache
@@ -81,6 +84,16 @@ spec:
           volumeMounts:
             - name: inventory-cache
               mountPath: /var/lib/semaphore/inventory-cache
+            # subPath mount: drops just the `config.json` key from the
+            # semaphore-config Secret at /etc/semaphore/config.json
+            # without clobbering the rest of /etc/semaphore. Kubelet
+            # snapshots subPath mounts at pod start (CLAUDE.md
+            # "subPath-mounted ConfigMap/Secret keys do NOT auto-update"
+            # gotcha) → rotation requires `kubectl rollout restart sts`.
+            - name: config
+              mountPath: /etc/semaphore/config.json
+              subPath: config.json
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /api/ping
@@ -126,3 +139,14 @@ spec:
           # is well under 1MB; 100Mi is comfortable headroom.
           emptyDir:
             sizeLimit: 100Mi
+        - name: config
+          # ESO-rendered semaphore-config Secret carries a single
+          # `config.json` key — the whole Semaphore config tree.
+          # Mounted via subPath above so /etc/semaphore retains its
+          # other contents (the container's installed defaults / runtime
+          # state).
+          secret:
+            secretName: semaphore-config
+            items:
+              - key: config.json
+                path: config.json
