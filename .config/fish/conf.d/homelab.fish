@@ -75,7 +75,8 @@ set -g __homelab_static_env_map \
     "ADGUARD_SCHEME|http" \
     "AWS_DEFAULT_REGION|eu-west-1" \
     "NETBOX_SERVER_URL|https://netbox.niflheim.xiiisins.com" \
-    "SEMAPHOREUI_API_BASE_URL|https://semaphore.niflheim.xiiisins.com/api"
+    "SEMAPHOREUI_API_BASE_URL|https://semaphore.niflheim.xiiisins.com/api" \
+    "ANSIBLE_VAULT_PASSWORD_FILE|$HOME/.vault-pass"
 
 # Dual-format cache (see header). Both files have the same TTL — freshness
 # is checked against the fish file's mtime (both are written together).
