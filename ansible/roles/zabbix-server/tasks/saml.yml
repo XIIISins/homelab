@@ -120,51 +120,52 @@
     name: "{{ zabbix_saml_userdirectory_name }}"
     idp_type: saml
     # Identifiers + endpoints — from the Vault payload TF wrote.
-    saml:
-      idp_entityid: >-
-        {{ lookup('community.hashi_vault.vault_kv2_get',
-                  zabbix_saml_idp_vault_path).secret['entity_id'] }}
-      sso_url: >-
-        {{ lookup('community.hashi_vault.vault_kv2_get',
-                  zabbix_saml_idp_vault_path).secret['sso_url'] }}
-      slo_url: >-
-        {{ lookup('community.hashi_vault.vault_kv2_get',
-                  zabbix_saml_idp_vault_path).secret['slo_url'] }}
-      sp_entityid: "{{ zabbix_saml_sp_entity_id }}"
-      # Username source — which SAML attribute Zabbix uses as
-      # the canonical username. NameID is the simplest: we configured
-      # name_id_mapping = email on the IdP side, so NameID carries the
-      # user's email + that becomes the Zabbix username.
-      username_attribute: "{{ zabbix_saml_username_attribute }}"
-      # NameID format — emailAddress matches our IdP-side
-      # name_id_mapping. Zabbix validates incoming NameIDs against this
-      # format declaration.
-      nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
-      # Signature policy. Authentik signs Responses + Assertions by
-      # default; we sign AuthnRequests (so the IdP can verify them via
-      # the verification_kp we registered). Logout flows aren't a
-      # day-1 surface but we leave their signing on for consistency.
-      sign_messages: true
-      sign_assertions: true
-      sign_authn_requests: true
-      sign_logout_requests: true
-      sign_logout_responses: true
-      # NameID + assertion encryption — Authentik supports both but
-      # they add cipher complexity without solving a real threat in our
-      # tunnel/TLS-terminated topology. Defer to plain signed-only.
-      encrypt_nameid: false
-      encrypt_assertions: false
-      # Group → usergroup JIT dispatch. The `group_name` SAML attr
-      # carries Authentik's group list; each entry is matched against
-      # the `name` field below + dispatched into `user_groups`.
-      group_name: "{{ zabbix_saml_groups_attribute }}"
-      # User provisioning enabled — auto-creates Zabbix users on first
-      # successful SAML login. Without this, only pre-created users
-      # (matched by username on the IdP side) can authenticate.
-      provision_status: 1
-      # SCIM disabled — provisioning via the SAML attributes themselves
-      # is enough; we don't need a separate SCIM endpoint for sync.
-      scim_status: 0
+    # community.zabbix 4.x flattens the SAML fields onto the module
+    # itself rather than nesting them in a `saml:` block.
+    idp_entityid: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_idp_vault_path).secret['entity_id'] }}
+    sso_url: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_idp_vault_path).secret['sso_url'] }}
+    slo_url: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_saml_idp_vault_path).secret['slo_url'] }}
+    sp_entityid: "{{ zabbix_saml_sp_entity_id }}"
+    # Username source — which SAML attribute Zabbix uses as
+    # the canonical username. NameID is the simplest: we configured
+    # name_id_mapping = email on the IdP side, so NameID carries the
+    # user's email + that becomes the Zabbix username.
+    username_attribute: "{{ zabbix_saml_username_attribute }}"
+    # NameID format — emailAddress matches our IdP-side
+    # name_id_mapping. Zabbix validates incoming NameIDs against this
+    # format declaration.
+    nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+    # Signature policy. Authentik signs Responses + Assertions by
+    # default; we sign AuthnRequests (so the IdP can verify them via
+    # the verification_kp we registered). Logout flows aren't a
+    # day-1 surface but we leave their signing on for consistency.
+    sign_messages: true
+    sign_assertions: true
+    sign_authn_requests: true
+    sign_logout_requests: true
+    sign_logout_responses: true
+    # NameID + assertion encryption — Authentik supports both but
+    # they add cipher complexity without solving a real threat in our
+    # tunnel/TLS-terminated topology. Defer to plain signed-only.
+    encrypt_nameid: false
+    encrypt_assertions: false
+    # Group → usergroup JIT dispatch. The `group_name` SAML attr
+    # carries Authentik's group list; each entry is matched against
+    # the `name` field below + dispatched into `user_groups`.
+    group_name: "{{ zabbix_saml_groups_attribute }}"
+    # User provisioning enabled — auto-creates Zabbix users on first
+    # successful SAML login. Without this, only pre-created users
+    # (matched by username on the IdP side) can authenticate.
+    provision_status: 1
+    # SCIM disabled — provisioning via the SAML attributes themselves
+    # is enough; we don't need a separate SCIM endpoint for sync.
+    scim_status: 0
     # Group → usergroup mapping table. Each entry: an Authentik group
     # name (`name`) + the Zabbix usergroup(s) and role to grant. Roles
     # are referenced by display name; "Super admin role" is built-in.
