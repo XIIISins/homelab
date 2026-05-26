@@ -26,10 +26,15 @@ TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # URL with embedded soft-auth config-key — rendered from Vault at template time.
 HERMOD_URL='{{ patroni_hermod_scheme }}://{{ patroni_hermod_host }}/notify/{{ lookup("community.hashi_vault.vault_kv2_get", patroni_hermod_config_key_vault_path).secret[patroni_hermod_config_key_vault_field] }}'
 
-# Map role transition → (tag, type, title). Type drives Discord embed colour:
-#   warning (yellow) → promotion (cluster geometry changing)
-#   info    (blue)   → demotion / steady-state role assignment
-#   failure (red)    → unexpected role drops not covered here (none today)
+# Map role transition → (tag, type, title). All transitions use warning
+# (yellow) — promotion + demotion are paired halves of a single failover
+# event, equally noteworthy from an operator-attention standpoint.
+# Initial design coloured demotion `info` (blue) but that hides the half
+# of the failover where the OLD leader stepped down; operator feedback
+# 2026-05-26 confirmed both halves should land at the same attention
+# level. Cold cluster start now fires three warning messages (one per
+# node settling into its role) — acceptable as a per-lifetime one-off.
+# `failure` (red) reserved for future unexpected role-drop semantics.
 case "${ROLE}" in
     master)
         TAG="alert"
@@ -38,12 +43,12 @@ case "${ROLE}" in
         ;;
     replica)
         TAG="alert"
-        TYPE="info"
+        TYPE="warning"
         TITLE="Patroni: ${HOST} is REPLICA (${SCOPE})"
         ;;
     standby_leader)
         TAG="alert"
-        TYPE="info"
+        TYPE="warning"
         TITLE="Patroni: ${HOST} now STANDBY LEADER (${SCOPE})"
         ;;
     *)
