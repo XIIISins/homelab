@@ -24,6 +24,10 @@
     group: root
     mode: "0644"
   notify: restart nginx
+  # Tagged with zabbix:saml so the X-Forwarded-Proto → HTTPS reflection
+  # picks up when the SAML pass enables proxy auth (same class as the
+  # zabbix.conf.php render below).
+  tags: [zabbix, zabbix:web-config, zabbix:saml, zabbix:saml-nginx]
 
 - name: Render /etc/zabbix/web/zabbix.conf.php
   ansible.builtin.template:
