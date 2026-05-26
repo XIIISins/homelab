@@ -39,6 +39,16 @@ spec:
       labels:
         app.kubernetes.io/name: semaphore
     spec:
+      # Disable legacy service-link env vars. K8s auto-injects
+      # <SVC>_SERVICE_HOST / <SVC>_PORT / <SVC>_PORT_<n>_TCP_* for every
+      # Service in the namespace; here the `semaphore` Service generates
+      # SEMAPHORE_PORT=tcp://<clusterip>:80, which Semaphore reads as
+      # its own listen-port config and panics on (expects /^:?[0-9]+$/).
+      # Same collision class hits any app whose env-var naming overlaps
+      # an in-namespace Service name. enableServiceLinks=false drops
+      # the injection entirely — pods that need cross-Service discovery
+      # should use DNS (<svc>.<ns>.svc.cluster.local) anyway.
+      enableServiceLinks: false
       # emptyDir respects fsGroup natively (the Synology CSI iSCSI
       # fsGroup-not-honored quirk doesn't apply) — pod-level
       # securityContext.fsGroup is sufficient; no chown initContainer
