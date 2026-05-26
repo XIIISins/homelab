@@ -2,7 +2,7 @@
 
 # Zabbix (host/LXC monitoring — Phase 8c, pre-implementation)
 
-Zabbix 7.0 LTS on LXC 1102 (Skuld, `10.0.11.21`). The host/LXC-layer half of the observability stack — counterweight to Phase 8a's in-cluster VL/VM placement. Stays on its own LXC outside K3s by design: when K3s itself is the thing on fire, Zabbix is what tells us about it.
+Zabbix 7.0 LTS on LXC 1102 (Urd, `10.0.11.21`). The host/LXC-layer half of the observability stack — counterweight to Phase 8a's in-cluster VL/VM placement. Stays on its own LXC outside K3s by design: when K3s itself is the thing on fire, Zabbix is what tells us about it.
 
 **Status: pre-implementation.** Server-side scaffolding (TF LXC block, both Ansible roles, both playbooks) was written during Phase 5h sketch-work and pre-existed this phase's docs. Phase 8c finalises auth wiring (Authentik native SAML), ingress (Traefik fronts the LXC for `hugin.midgard.xiiisins.com` LAN + `hugin.xiiisins.com` WAN), Vault secret minting, and the post-server agent-rollout pattern.
 
@@ -25,7 +25,7 @@ Three corresponding decision rows in [`../operations/decisions.md`](../operation
 | Web UI | `zabbix-frontend-php` + `zabbix-nginx-conf` | nginx :80 serving PHP-FPM. Plain HTTP on the LXC — TLS terminates at Traefik. |
 | Local agent | `zabbix-agent2` | Server runs the agent locally too — gives Zabbix visibility into its own host as a sanity check. |
 | Database | PG via HAProxy VIP `10.0.10.210:5432`, `sslmode=require` | `zabbix` DB declared in `ansible/inventory/group_vars/postgres_hosts.yml:49–51` (owner `zabbix`, password at Vault `ansible/postgres/zabbix-password`). Patroni handles failover transparently — HAProxy `/master` health-check + `balance first` routes writes to the current leader. |
-| Auth | Authentik native SAML 2.0 + local-Admin break-glass | Authentik SAML IdP via `authentik_provider_saml`; Zabbix's built-in SAML support handles the round-trip. NameID = email, JIT user provisioning from group claim. `homelab_admins` Authentik group gates access. Local `Admin` user stays enabled for emergency/backdoor login only. |
+| Auth | Authentik native SAML 2.0 + local-Admin break-glass | Authentik SAML IdP via `authentik_provider_saml`; Zabbix's built-in SAML support handles the round-trip. NameID = email, JIT user provisioning from group claim. `zabbix-admins` Authentik group gates access. Local `Admin` user stays enabled for emergency/backdoor login only. |
 | LAN ingress | Traefik fronts the LXC, midgard Gateway | AGH rewrite `hugin.midgard.xiiisins.com` → Traefik VIP `10.0.20.10`. HTTPRoute on midgard Gateway → K8s Service (no selector) + EndpointSlice → `10.0.11.21:80`. Existing `*.midgard.xiiisins.com` wildcard cert covers it. |
 | WAN ingress | Cloudflared tunnel → Traefik ClusterIP DNS | `hugin.xiiisins.com` CNAME → tunnel; ingress rule targets `https://traefik.traefik.svc.cluster.local` with `httpHostHeader: hugin.xiiisins.com` + `noTLSVerify: true`. Mirrors the Authentik apex pattern. |
 | Backdoor | `hugin-direct.niflheim.xiiisins.com` → LXC `:80` direct | AGH rewrite bypasses Traefik entirely. Plain HTTP, local-Admin login only (no SAML). For K3s-down emergencies — see [Recovery model](#recovery-model) below. |
@@ -44,9 +44,9 @@ Four Vault paths feed Zabbix:
 | `ansible/zabbix/admin-password` | `zabbix-server` role + operator (1P copy) | `password` | Break-glass local-Admin user. Rotated from chart default `zabbix` on first deploy. 1P recovery copy for backdoor login. |
 | `ansible/zabbix/saml-sp-keypair` | `zabbix-server` role | `key`, `cert` | RSA 2048 self-signed, used by Zabbix to sign SAML AuthnRequests. Generated once: `openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj '/CN=hugin.midgard.xiiisins.com'`. Long lifetime — Zabbix-side cert rotation is operationally rare. |
 | `ansible/zabbix/api-token` | `zabbix-agent` role + `community.zabbix.*` modules | `token` | Populated post-deploy in 8c.7 via `zabbix-server-bootstrap.yml`. Empty placeholder pre-8c.7. |
-| `k8s/zabbix/saml-idp` | `zabbix-server` role | `idp_metadata_url`, `idp_signing_cert` | Written by `terraform/authentik/zabbix.tf` outputs (TF→Vault hand-off pattern). Zabbix role reads at deploy time to wire IdP side of SAML. |
+| `ansible/zabbix/saml-idp` | `zabbix-server` role | `idp_metadata_url`, `idp_signing_cert` | Written by `terraform/authentik/zabbix.tf` outputs (TF→Vault hand-off pattern). Zabbix role reads at deploy time to wire IdP side of SAML. |
 
-Per the Vault path convention (machine-consumer-domain prefix), Ansible-consumed secrets live under `ansible/`. The single K8s-consumed entry is the TF→Vault hand-off from `terraform/authentik/`.
+Per the Vault path convention (machine-consumer-domain prefix), all five secrets live under `ansible/` — the consumer is the Ansible role on the Zabbix LXC, including the TF→Vault SAML IdP hand-off (the TF module *writes* but the LXC role *consumes*, and the convention keys off the consumer, not the minter).
 
 ## Authentication chain
 
@@ -54,10 +54,12 @@ Per the Vault path convention (machine-consumer-domain prefix), Ansible-consumed
 2. Traefik routes by hostname (HTTPRoute attaches to the midgard Gateway, listener `websecure-midgard` or `websecure-apex-wildcard`/`websecure-apex-bare`). Backend Service has no pod selector — manually-curated EndpointSlice points at `10.0.11.21:80`. Traefik terminates TLS using the existing wildcard cert.
 3. Zabbix frontend renders the login page. User clicks "Sign in with SAML".
 4. Zabbix builds a SAML AuthnRequest signed with its SP keypair, redirects browser to Authentik's SSO URL.
-5. Authentik authenticates (if not already), checks user's `homelab_admins` group membership against the `zabbix` Application's policy binding, returns a signed SAML Response with the user's email (NameID), username, and group claims.
-6. Zabbix validates the response signature against the IdP cert (in Vault at `k8s/zabbix/saml-idp`), extracts the email/groups claims, JIT-provisions the user into the matching Zabbix usergroup if not already present, sets a session cookie, redirects to the dashboard.
+5. Authentik authenticates (if not already), checks user's `zabbix-admins` group membership against the `zabbix` Application's policy binding, returns a signed SAML Response with the user's email (NameID), username, and group claims.
+6. Zabbix validates the response signature against the IdP cert (in Vault at `ansible/zabbix/saml-idp`), extracts the email/groups claims, JIT-provisions the user into the matching Zabbix usergroup if not already present, sets a session cookie, redirects to the dashboard.
 
 **Backdoor path** (Traefik / Authentik / K3s down): browse `http://hugin-direct.niflheim.xiiisins.com` from internal LAN. AGH rewrite resolves directly to `10.0.11.21`. Zabbix nginx serves `:80` plain HTTP. Operator logs in with local `Admin` + Vault-stored password. SAML not invoked.
+
+**Single canonical SAML hostname.** Authentik's `authentik_provider_saml` resource pins ONE `acs_url`. Zabbix's frontend bakes the current request's Host header into the AuthnRequest's `AssertionConsumerServiceURL`, so an AuthnRequest originating from `hugin.midgard.xiiisins.com` would be rejected by Authentik (ACS mismatch against the apex-pinned URL). The canonical SAML hostname is therefore `hugin.xiiisins.com` — both WAN clients (via Cloudflare tunnel) and LAN clients reach it cleanly, since the apex DNS record resolves through public Cloudflare regardless of where the client sits. The midgard alias still works for non-SAML traffic (e.g. already-authenticated browsing within a session), but each fresh SSO login lands back at the apex. Bookmark `hugin.xiiisins.com` accordingly.
 
 **Why native SAML over Traefik ForwardAuth.** Decision row "Zabbix UI auth — native SAML, not Traefik ForwardAuth" — vmui/VL (Phase 8a) only use ForwardAuth because they have no native SSO. Zabbix 7.0 has built-in SAML 2.0; using its strongest available auth path is the right default. ForwardAuth would also add a K3s dependency for what's supposed to be a K3s-independent service's auth path. Native OIDC isn't viable in Zabbix 7.0 (OIDC is MFA-only there).
 
@@ -112,7 +114,7 @@ Full step-by-step plan tracked in [`../operations/open-questions.md`](../operati
 - **Templates-as-code.** Zabbix supports exporting templates to YAML/XML. Bringing the per-service template configuration into Git (instead of UI-managed) is a polish item — defer until template churn becomes a real cost. Mostly relevant when custom templates start landing for app-specific metrics.
 - **Agent TLS.** Currently unencrypted on VLANs 11/21. Bump to PSK or cert-based when the first cross-VLAN or tailnet-exposed agent lands. Defaults are in `zabbix_agent_tls_connect` / `zabbix_agent_tls_accept`.
 - **Notifications wiring (Phase 5h.2).** Zabbix is the first concrete alert producer for Hermod. Media type definition + tag mapping (`Disaster`/`High` → `critical`; `Average` → `alert`) lands as part of the 5h.2 source-side wiring step.
-- **SAML group → Zabbix usergroup mapping at scale.** Day-1 mapping is single group (`homelab_admins` → Zabbix administrators). When read-only access becomes a real need (e.g. sharing dashboards with non-operator users), extend Authentik with `zabbix_viewers` + add the mapping rule. Until then, single-group keeps the JIT provisioning trivial.
+- **SAML group → Zabbix usergroup mapping at scale.** Day-1 mapping is single group (`zabbix-admins` → Zabbix administrators). When read-only access becomes a real need (e.g. sharing dashboards with non-operator users), extend Authentik with `zabbix_viewers` + add the mapping rule. Until then, single-group keeps the JIT provisioning trivial.
 - **Templates export → Git.** Not needed for first deploy (Zabbix ships rich built-in templates that cover Linux + PostgreSQL + nginx + the bulk of what we monitor). Surface as a polish item when custom templates start to accumulate.
 
 ## See also
