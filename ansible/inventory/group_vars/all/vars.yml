@@ -1,14 +1,17 @@
 # Connection defaults — apply to every host unless overridden in a more
 # specific group or per-host.
 ansible_user: ansible
-# ansible_ssh_private_key_file is DELIBERATELY not set here — `~` would
-# expand to the running user's home (e.g. /home/semaphore inside the
-# Semaphore pod, where no such file exists) and Ansible's strict
-# IdentitiesOnly=yes ssh_args path blocks fallthrough to Semaphore's
-# --private-key tempfile. Same class as the vault-pass + private_key
-# fixes in ansible.cfg. Operator's MacBook picks up the path via
-# ANSIBLE_PRIVATE_KEY_FILE in the homelab-env static map; the pod uses
-# the tempfile Semaphore writes from project_inventory.ssh_key_id.
+# Resolve the SSH key path from ANSIBLE_PRIVATE_KEY_FILE env var.
+# MacBook sets it via homelab-env (static map); Semaphore pod sets
+# it via StatefulSet env (pointing at /etc/ssh-keys/ansible_niflheim
+# — the ESO-rendered Secret mount). Default to the operator-MacBook
+# path if env unset (covers --check runs without the shim loaded).
+#
+# Set explicitly here (not in ansible.cfg) because Ansible's effective
+# DEFAULT_PRIVATE_KEY_FILE picked up from the env var doesn't appear
+# to propagate into the SSH command when running under Semaphore;
+# host-var precedence (this file) IS honored unconditionally.
+ansible_ssh_private_key_file: "{{ lookup('env', 'ANSIBLE_PRIVATE_KEY_FILE') | default('~/.ssh/ansible_niflheim', true) }}"
 ansible_python_interpreter: /usr/bin/python3
 
 # Baseline role
