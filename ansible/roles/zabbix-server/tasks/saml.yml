@@ -205,6 +205,12 @@
     # than this from the last refresh.
     saml_jit_status: true
     jit_provision_interval: "1h"
+    # Where Zabbix parks users whose IdP-side group membership no
+    # longer matches the provision_groups mapping. Zabbix's built-in
+    # "Disabled" usergroup ships with the schema + has no access.
+    # Required whenever ldap_jit_status OR saml_jit_status is enabled
+    # (module enforces it).
+    disabled_usrgroup: "Disabled"
   delegate_to: "{{ zabbix_agent_api_delegate }}"
   become: false
   vars:
