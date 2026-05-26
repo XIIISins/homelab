@@ -3,17 +3,19 @@
 # Single-replica StatefulSet. State strategy:
 #   - Application state (projects, templates, history, access keys) → PG
 #     via Patroni VIP. Survives pod restart by virtue of being external.
-#   - Inventory cache (jsonfile, 4h TTL) → PVC. Could be emptyDir but
-#     a fresh-cache miss + NetBox API round-trip on every pod restart
-#     wastes ~30s of bootstrap latency; PVC keeps cache warm across
-#     restarts. 1Gi is far more than the cache will ever grow to.
+#   - Inventory cache (jsonfile, 4h TTL) → emptyDir. Same Synology DS223J
+#     LUN cap that bit the Outline Redis PVC (CLAUDE.md "Synology
+#     DS223J iSCSI LUN cap" — 10/10 in use) made the 11th claim hang
+#     Pending. Cache-class state: rebuild = one NetBox API round-trip
+#     on next pod start (~30s), acceptable tradeoff to side-step the
+#     cap. Mirrors the Outline Redis emptyDir mitigation.
 #   - Ansible Galaxy collections → fetched at template-run time into
 #     /tmp; no persistence needed.
 #
-# StatefulSet (not Deployment) because the inventory cache path is
-# pod-identity-bound (matters if we ever scale > 1 replica, harmless
-# at 1). Same pattern as the Authentik Redis + Outline Redis hand-rolled
-# StatefulSets in this repo.
+# StatefulSet (not Deployment) kept for naming stability + matches the
+# single-replica-emptyDir pattern of Outline Redis + Authentik Redis.
+# No actual stable-storage benefit at 1 replica with emptyDir, but
+# zero downside either.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -37,29 +39,12 @@ spec:
       labels:
         app.kubernetes.io/name: semaphore
     spec:
-      # Synology CSI iSCSI doesn't honor fsGroup reliably — the
-      # established pattern (Vault, Authentik Redis, VictoriaLogs,
-      # NetBox Valkey, Teamspeak, Outline Redis) is an init container
-      # running as UID 0 to chown the PVC mountpoint. Defaults
-      # capabilities preserved (CAP_CHOWN + CAP_FOWNER); `drop: ALL`
-      # would strip those and break the chown — see CLAUDE.md
-      # "Synology CSI iSCSI volumes need a chown initContainer" + the
-      # Teamspeak sub-gotcha.
-      initContainers:
-        - name: inventory-cache-chown
-          image: busybox:1.37
-          command:
-            - sh
-            - -c
-            - chown -R 1001:1001 /var/lib/semaphore/inventory-cache && chmod 750 /var/lib/semaphore/inventory-cache
-          volumeMounts:
-            - name: inventory-cache
-              mountPath: /var/lib/semaphore/inventory-cache
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-            allowPrivilegeEscalation: true
-            readOnlyRootFilesystem: false
+      # emptyDir respects fsGroup natively (the Synology CSI iSCSI
+      # fsGroup-not-honored quirk doesn't apply) — pod-level
+      # securityContext.fsGroup is sufficient; no chown initContainer
+      # needed. Kubelet sets ownership at mount time.
+      securityContext:
+        fsGroup: 1001
       containers:
         - name: semaphore
           # The `-ansibleN.N.N` variant bakes ansible-core into the
@@ -123,12 +108,11 @@ spec:
             readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
-  volumeClaimTemplates:
-    - metadata:
-        name: inventory-cache
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: synology-csi-iscsi-retain
-        resources:
-          requests:
-            storage: 1Gi
+      volumes:
+        - name: inventory-cache
+          # sizeLimit caps the emptyDir to prevent runaway cache
+          # growth from filling the node's ephemeral storage. Actual
+          # NetBox-inventory snapshot at this fleet size (~25 hosts)
+          # is well under 1MB; 100Mi is comfortable headroom.
+          emptyDir:
+            sizeLimit: 100Mi
