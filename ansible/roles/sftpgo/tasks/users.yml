@@ -17,6 +17,10 @@
   loop_control:
     label: "{{ item.username }}"
   no_log: true
+  # Runtime API ops can't run in check mode — sftpgo_admin_jwt is gated
+  # off and the API can't be exercised meaningfully anyway. The home-dir
+  # ensure task below still runs (regular file op).
+  when: not ansible_check_mode
 
 - name: Create new virtual users (POST)
   ansible.builtin.uri:
@@ -28,10 +32,12 @@
     body_format: json
     body: "{{ item.0 | combine({'status': 1, 'home_dir': item.0.home_dir | default('/var/lib/sftpgo/data/' ~ item.0.username)}, recursive=False) }}"
     status_code: 201
-  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results) | list }}"
+  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results | default([])) | list }}"
   loop_control:
     label: "{{ item.0.username }}"
-  when: item.1.status == 404
+  when:
+    - not ansible_check_mode
+    - item.1.status == 404
   no_log: true
 
 - name: Update existing virtual users (PUT)
@@ -44,10 +50,12 @@
     body_format: json
     body: "{{ item.0 | combine({'status': 1, 'home_dir': item.0.home_dir | default('/var/lib/sftpgo/data/' ~ item.0.username)}, recursive=False) }}"
     status_code: 200
-  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results) | list }}"
+  loop: "{{ sftpgo_users | zip(sftpgo_user_state.results | default([])) | list }}"
   loop_control:
     label: "{{ item.0.username }}"
-  when: item.1.status == 200
+  when:
+    - not ansible_check_mode
+    - item.1.status == 200
   no_log: true
 
 - name: Ensure each user's home directory exists

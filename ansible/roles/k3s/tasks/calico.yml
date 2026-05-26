@@ -34,3 +34,4 @@
   delay: 30
   until: calico_ready.rc == 0
   changed_when: false
+  when: not ansible_check_mode

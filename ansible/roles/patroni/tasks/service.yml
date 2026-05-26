@@ -10,12 +10,17 @@
     state: started
     daemon_reload: true
 
+# Check mode never starts/restarts the service, so the wait is either a
+# no-op (service already up) or a guaranteed timeout (service down). The
+# downstream cluster-state query gives a clean drift signal either way —
+# skip the wait in check mode to keep drift-check fast.
 - name: Wait for Patroni REST API to accept connections
   ansible.builtin.wait_for:
     host: "{{ ansible_host }}"
     port: "{{ patroni_restapi_port }}"
     state: started
     timeout: 120
+  when: not ansible_check_mode
 
 # /readiness returns 200 when this node is participating in the cluster
 # (either as leader or as a synced replica). Polls until consensus reached.
@@ -27,6 +32,7 @@
   retries: 30
   delay: 5
   until: patroni_readiness.status == 200
+  when: not ansible_check_mode
 
 - name: Query Patroni cluster state
   ansible.builtin.uri:

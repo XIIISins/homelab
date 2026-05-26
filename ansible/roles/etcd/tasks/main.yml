@@ -106,9 +106,12 @@
     state: started
     daemon_reload: true
 
+# Skipped in check mode — check mode never starts the service, so the
+# wait would either no-op (already up) or hard-timeout (down).
 - name: Wait for etcd client port to be listening
   ansible.builtin.wait_for:
     host: "{{ ansible_host }}"
     port: "{{ etcd_client_port }}"
     state: started
     timeout: 30
+  when: not ansible_check_mode

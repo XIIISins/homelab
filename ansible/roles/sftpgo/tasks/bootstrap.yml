@@ -17,6 +17,9 @@
     enabled: true
     state: started
 
+# Skipped in check mode — the systemctl-start above doesn't actually run
+# in check mode, so this would just hard-timeout when the service was
+# down. The admin-token fetch below gives a clean drift signal either way.
 - name: Wait for SFTPGo admin API to respond
   ansible.builtin.uri:
     url: "{{ sftpgo_admin_api_base }}/healthz"
@@ -25,6 +28,7 @@
   retries: 30
   delay: 1
   until: sftpgo_health.status == 200
+  when: not ansible_check_mode
 
 - name: Authenticate as admin to verify bootstrap succeeded
   ansible.builtin.uri:
@@ -41,3 +45,8 @@
   ansible.builtin.set_fact:
     sftpgo_admin_jwt: "{{ sftpgo_admin_token.json.access_token }}"
   no_log: true
+  # The Authenticate task above auto-skips in check mode (uri with
+  # force_basic_auth is treated as state-changing), so its register
+  # var is empty. Mirror the skip so we don't try to access .json on
+  # an empty dict — users.yml downstream is also check-mode-gated.
+  when: not ansible_check_mode

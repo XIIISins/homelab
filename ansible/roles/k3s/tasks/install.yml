@@ -36,7 +36,9 @@
     host: "{{ hostvars[k3s_init_node]['ansible_host'] }}"
     port: 6443
     timeout: 120
-  when: inventory_hostname == k3s_init_node
+  when:
+    - inventory_hostname == k3s_init_node
+    - not ansible_check_mode
 
 - name: Fetch cluster token from first control plane node
   ansible.builtin.slurp:
@@ -70,6 +72,7 @@
   changed_when: false
   delegate_to: "{{ k3s_init_node }}"
   run_once: true
+  when: not ansible_check_mode
 
 - name: Start K3s on worker nodes
   ansible.builtin.systemd:
@@ -89,6 +92,7 @@
   changed_when: false
   delegate_to: "{{ k3s_init_node }}"
   run_once: true
+  when: not ansible_check_mode
 
 - name: Fetch kubeconfig from first control plane node
   ansible.builtin.fetch:
