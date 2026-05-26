@@ -208,7 +208,7 @@ zabbix_saml_userdirectory_name: "Authentik SAML"
 # role mapping when read-only access becomes a real need.
 zabbix_saml_provision_groups:
   - name: "zabbix-admins"
-    role_name: "Super admin role"
+    role: "Super admin role"
     user_groups:
       - "Zabbix administrators"
 
