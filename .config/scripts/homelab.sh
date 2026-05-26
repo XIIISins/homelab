@@ -71,6 +71,7 @@ __homelab_static_env_map=(
     "NETBOX_SERVER_URL|https://netbox.niflheim.xiiisins.com"
     "SEMAPHOREUI_API_BASE_URL|https://semaphore.niflheim.xiiisins.com/api"
     "ANSIBLE_VAULT_PASSWORD_FILE|$HOME/.vault-pass"
+    "ANSIBLE_PRIVATE_KEY_FILE|$HOME/.ssh/ansible_niflheim"
 )
 
 # Dual-format cache (see header). Both files have the same TTL — freshness

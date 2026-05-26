@@ -147,7 +147,9 @@ resource "semaphoreui_project_environment" "default" {
       # the soft-auth gate per docs/services/notifications.md "Access
       # control — Caddy IP allowlist" (Caddy's IP allowlist is the real
       # gate; the key is belt-and-braces).
-      value = "http://hermod.niflheim.xiiisins.com:8000/notify/${data.vault_kv_secret_v2.hermod_config_key.data["value"]}"
+      # Port 80 — Caddy fronts AppriseAPI; AppriseAPI's own :8000 is
+      # bound to 127.0.0.1 (not externally reachable).
+      value = "http://hermod.niflheim.xiiisins.com/notify/${data.vault_kv_secret_v2.hermod_config_key.data["value"]}"
     },
   ]
 }
