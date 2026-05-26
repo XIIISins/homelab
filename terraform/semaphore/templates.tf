@@ -53,11 +53,19 @@ resource "semaphoreui_project_template" "asgard_drift_check" {
 
   # Vault password supplied via the ansible_vault key — Semaphore
   # writes it to a temp file + passes --vault-password-file.
+  # Provider schema (v0.2.2): `password` is a nested object containing
+  # `vault_key_id` — NOT a `type = "password"` discriminator field with
+  # `vault_key_id` at the top level (that's the WebFetch-documented
+  # shape, but the actual schema differs). TF accepts the wrong shape
+  # silently + stores vaults=null server-side, so playbook runs hit
+  # "Attempting to decrypt but no vault secrets found" on any task
+  # that loads an ansible-vault-encrypted var.
   vaults = [
     {
-      name         = "default"
-      type         = "password"
-      vault_key_id = semaphoreui_project_key.ansible_vault.id
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
     },
   ]
 
@@ -81,11 +89,19 @@ resource "semaphoreui_project_template" "asgard_apply" {
   inventory_id   = semaphoreui_project_inventory.netbox.id
   environment_id = semaphoreui_project_environment.default.id
 
+  # Provider schema (v0.2.2): `password` is a nested object containing
+  # `vault_key_id` — NOT a `type = "password"` discriminator field with
+  # `vault_key_id` at the top level (that's the WebFetch-documented
+  # shape, but the actual schema differs). TF accepts the wrong shape
+  # silently + stores vaults=null server-side, so playbook runs hit
+  # "Attempting to decrypt but no vault secrets found" on any task
+  # that loads an ansible-vault-encrypted var.
   vaults = [
     {
-      name         = "default"
-      type         = "password"
-      vault_key_id = semaphoreui_project_key.ansible_vault.id
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
     },
   ]
 
