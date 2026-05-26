@@ -122,6 +122,12 @@ resource "semaphoreui_project_environment" "default" {
     # no VAULT_ADDR, so the plugin-specific var is the only path.
     ANSIBLE_HASHI_VAULT_ADDR        = "http://vault.vault.svc.cluster.local:8200"
     ANSIBLE_CALLBACKS_ENABLED       = "hermod_summary"
+    # SSH key path for managed-host access. Semaphore strips the pod's
+    # baseline env on task spawn — variables set on the StatefulSet
+    # container don't reach ansible-playbook. Must be set here in the
+    # project_environment to actually propagate. Mounted via the
+    # semaphore-ansible-ssh-key Secret + StatefulSet volume.
+    ANSIBLE_PRIVATE_KEY_FILE        = "/etc/ssh-keys/ansible_niflheim"
   }
 
   # role_id, secret_id, and the full Hermod URL (config-key embedded)
