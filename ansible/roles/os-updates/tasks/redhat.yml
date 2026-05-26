@@ -1,0 +1,7 @@
+# ansible/roles/os-updates/tasks/redhat.yml
+---
+- name: Update all packages (dnf)
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest  # noqa: package-latest — explicit "patch everything" semantics
+  notify: os-updates reboot

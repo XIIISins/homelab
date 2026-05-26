@@ -1,0 +1,10 @@
+# ansible/roles/os-updates/handlers/main.yml
+---
+# Distinct handler name from the (now-removed) baseline `reboot` handler
+# so cross-role accidental triggering can't happen. `os_updates_reboot`
+# defaults true; set false to stage updates without rebooting.
+- name: os-updates reboot
+  ansible.builtin.reboot:
+    reboot_timeout: "{{ os_updates_reboot_timeout }}"
+    msg: "Rebooting after OS package updates"
+  when: os_updates_reboot | bool

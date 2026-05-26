@@ -1,0 +1,19 @@
+# ansible/roles/os-updates/tasks/main.yml
+---
+# OS package updates. Split out of `baseline` so the baseline play is
+# pure config-idempotency and OS patching can run on its own cadence
+# (Semaphore-scheduled, separate from converge). Pair with
+# `ansible/playbooks/os-updates.yml` for the orchestration shape
+# (per-group `serial: 1` for quorum-sensitive groups).
+- name: Run RedHat-family update tasks
+  ansible.builtin.include_tasks: redhat.yml
+  when: ansible_os_family == "RedHat"
+
+- name: Run Debian-family update tasks
+  ansible.builtin.include_tasks: debian.yml
+  when: ansible_os_family == "Debian"
+
+- name: Fail on unsupported OS family
+  ansible.builtin.fail:
+    msg: "os-updates role does not support ansible_os_family={{ ansible_os_family }}"
+  when: ansible_os_family not in ["RedHat", "Debian"]

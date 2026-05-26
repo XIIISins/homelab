@@ -1,0 +1,89 @@
+# ansible/playbooks/os-updates.yml
+---
+# OS package patching — runs the `os-updates` role across the fleet.
+# Split out of `baseline` so converge plays stay pure config-idempotency
+# and patching has its own cadence (Semaphore-scheduled).
+#
+# Orchestration shape:
+#   - One play per quorum-sensitive group with `serial: 1` so we never
+#     lose more than one member at a time during the reboot. K3s CPs,
+#     PG/Patroni replicas, etcd nodes, AdGuard trio, Tailscale subnet
+#     routers all qualify.
+#   - Standalone-service LXCs (Factorio, Zabbix, Hermod, PBS) batch
+#     into one play — no peer to wait for.
+#   - Proxmox PVE hosts are NOT in this playbook. Host reboots take
+#     every VM/LXC on the node with them, so they belong in a separate
+#     manual procedure (`docs/procedures/proxmox-host-patching.md`,
+#     not yet written) that drains workloads first.
+#
+# Override the upgrade-without-reboot path:
+#   ansible-playbook playbooks/os-updates.yml -e os_updates_reboot=false
+#
+# Override the per-group serial for a fast batch run (NOT recommended
+# for unattended Semaphore runs against quorum groups):
+#   ansible-playbook playbooks/os-updates.yml -e '{"os_updates_serial": "100%"}'
+
+- name: Patch K3s control planes
+  hosts: k3s_cp
+  become: true
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch K3s workers
+  hosts: k3s_worker
+  become: true
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch PostgreSQL/Patroni cluster
+  hosts: postgres
+  become: true
+  # serial: 1 so Patroni always has 2/3 voters; the leader reboots last
+  # by inventory order (fulla/vor/idunn) which is fine — Patroni
+  # auto-promotes a replica when the leader goes down.
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch HAProxy/etcd trio
+  hosts: haproxy_etcd
+  become: true
+  # etcd needs 2/3 for quorum; keepalived demotes the VIP-holder when
+  # HAProxy stops. serial: 1 keeps both invariants.
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch AdGuard Home trio
+  hosts: adguard
+  become: true
+  # VIP follows whichever node is healthy; serial: 1 lets one node
+  # reboot while the other two keep answering DNS.
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch Tailscale LXCs
+  hosts: tailscale
+  become: true
+  # Subnet-router redundancy: two routers advertise the 10.0.0.0/16
+  # supernet; Tailscale clients re-route to a healthy one within
+  # seconds of an outage. Gjallarbru (exit node) is independent.
+  serial: "{{ os_updates_serial | default(1) }}"
+  roles:
+    - role: os-updates
+      tags: [os-updates]
+
+- name: Patch standalone service LXCs
+  hosts: factorio:zabbix:hermod:pbs
+  become: true
+  roles:
+    - role: os-updates
+      tags: [os-updates]

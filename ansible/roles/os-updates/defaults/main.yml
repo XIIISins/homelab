@@ -1,0 +1,24 @@
+# ansible/roles/os-updates/defaults/main.yml
+---
+# Whether to reboot when the package set changes. Default on — package
+# upgrades pull new kernels / glibc / systemd routinely, and skipping
+# the reboot leaves the running system on stale code paths. Override
+# `-e os_updates_reboot=false` for a "stage updates, reboot in a later
+# window" workflow.
+os_updates_reboot: true
+
+# Reboot timeout (seconds). Matches the baseline role's reboot handler
+# for consistency.
+os_updates_reboot_timeout: 300
+
+# Debian apt upgrade mode. `full` ≡ `apt-get dist-upgrade` (resolves
+# transitions that may add/remove packages). `safe` ≡ `apt-get upgrade`
+# (refuses to touch held packages or removals). Default `full` matches
+# the pre-split baseline behaviour.
+os_updates_apt_upgrade: full
+
+# Run `apt autoremove` after the upgrade to clean up orphaned deps
+# (old kernel images especially — these accumulate without it and
+# eventually exhaust /boot on Debian). Safe to leave on; apt only
+# removes packages it auto-installed.
+os_updates_apt_autoremove: true

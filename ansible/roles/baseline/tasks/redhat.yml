@@ -27,8 +27,5 @@
     - ansible_virtualization_type != 'lxc'
     - qemu_agent_install.changed | default(false)
 
-- name: Update all packages
-  ansible.builtin.dnf:
-    name: "*"
-    state: latest
-  notify: reboot
+# Package upgrades live in the `os-updates` role + `os-updates.yml`
+# playbook (Semaphore-scheduled). Baseline stays pure config-idempotency.

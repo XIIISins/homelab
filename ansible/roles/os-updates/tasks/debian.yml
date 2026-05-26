@@ -1,0 +1,14 @@
+# ansible/roles/os-updates/tasks/debian.yml
+---
+- name: Upgrade all packages (apt)
+  ansible.builtin.apt:
+    upgrade: "{{ os_updates_apt_upgrade }}"
+    update_cache: true
+  register: os_updates_apt_result
+  notify: os-updates reboot
+
+- name: Autoremove orphaned packages (apt)
+  ansible.builtin.apt:
+    autoremove: true
+  when: os_updates_apt_autoremove | bool
+  notify: os-updates reboot
