@@ -43,6 +43,12 @@
     name: rsyslog
     enabled: true
     state: started
+  # Skip in check_mode: on a host where the apt install above hasn't
+  # actually applied yet, the rsyslog unit doesn't exist and the
+  # systemd module hard-fails ("Could not find the requested service
+  # rsyslog: host"). The package-install diff above is enough drift
+  # signal in check_mode.
+  when: not ansible_check_mode
   tags: [vlagent, vlagent:packages]
 
 - name: Create vlagent directory layout
@@ -138,4 +144,9 @@
     name: vlagent.service
     enabled: true
     state: started
+  # Skip in check_mode: on a host where the unit file template hasn't
+  # actually rendered to disk yet, the unit doesn't exist and the
+  # systemd module hard-fails. Template diff above covers the drift
+  # signal in check_mode.
+  when: not ansible_check_mode
   tags: [vlagent, vlagent:service]
