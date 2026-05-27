@@ -6,4 +6,12 @@
   roles:
     - { role: baseline, tags: baseline }
     - { role: k3s, tags: k3s }
+
+    # Agents live in the per-host-group playbook so drift-check covers
+    # them in this group's converge without re-iterating via the
+    # cluster-wide standalones. K3s VMs ship host journald/syslog only —
+    # pod logs go via the K8s-side victoria-logs-collector DaemonSet.
+    - { role: vlagent, tags: vlagent }
+    - { role: zabbix-agent, tags: zabbix-agent }
+
     - { role: hardening, tags: hardening }

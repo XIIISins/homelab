@@ -1,0 +1,26 @@
+# ansible/playbooks/asgard-proxmox.yml
+---
+# Proxmox PVE hosts (Urd, Verd, Skuld) — agent-only converge.
+#
+# PVE hosts are operator-managed at the OS level (see group_vars/
+# proxmox.yml — no `ansible` user, root-only SSH, no baseline role).
+# This playbook deliberately ships ONLY the observability agents
+# so they land in inventory-driven converge runs (site.yml /
+# drift-check) without touching the hypervisor's user/SSH/sysctl
+# config — that posture is intentionally outside Ansible's scope.
+#
+# The vlagent.yml + zabbix-agent.yml standalone playbooks still
+# target `all` (so they cover proxmox + pbs alongside everything
+# else for the daily fleet-agents reconverge) — this playbook is
+# the per-host-group equivalent so drift-check has coverage too.
+
+- name: Configure Proxmox PVE agents
+  hosts: proxmox
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: vlagent
+      tags: [vlagent]
+    - role: zabbix-agent
+      tags: [zabbix-agent]

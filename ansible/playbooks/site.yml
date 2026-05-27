@@ -1,8 +1,7 @@
 # ansible/playbooks/site.yml
 ---
 # Top-level orchestrator — single entry point for "converge everything".
-# Imports every per-host-group playbook + the cluster-wide agent
-# rollouts. Used by:
+# Imports every per-host-group playbook. Used by:
 #
 #   - `ansible-playbook site.yml` (manual converge from MacBook)
 #   - Semaphore's `asgard-apply` task template (Phase 5h.3)
@@ -19,11 +18,18 @@
 #      for Authentik / NetBox / Outline / Hermod consumers.
 #   4. Application LXCs (asgard-factorio, asgard-hermod, asgard-zabbix)
 #      — services that depend on the layers above.
-#   5. Cluster-wide agent rollouts (vlagent, zabbix-agent) — re-applied
-#      across the fleet. Each per-group playbook above already covers
-#      its own group's agents, so this is the gap-filler for hosts
-#      that don't have a per-group playbook (PVE hosts, PBS) plus a
-#      cheap re-converge for the rest. Idempotent.
+#   5. Substrate (asgard-proxmox, asgard-pbs) — PVE hosts + PBS LXC,
+#      agent-only converge (operator-managed at the OS level — see
+#      group_vars/proxmox.yml + group_vars/pbs.yml for the
+#      no-baseline rationale).
+#
+# Every per-host-group playbook above ships vlagent + zabbix-agent in
+# its own role chain. site.yml does NOT include the cluster-wide
+# vlagent.yml / zabbix-agent.yml standalones — drift-check + apply
+# pay the gather_facts cost once per host instead of three times. The
+# standalones are kept runnable ad-hoc (e.g. `--limit factorio`) and
+# scheduled daily via the asgard-fleet-agents Semaphore template
+# (defense-in-depth fleet reconverge).
 #
 # Day-1 bring-up uses targeted plays (`--limit`), not site.yml. site.yml
 # is the steady-state converge tool.
@@ -63,5 +69,5 @@
 - import_playbook: asgard-factorio.yml
 - import_playbook: asgard-hermod.yml
 - import_playbook: asgard-zabbix.yml
-- import_playbook: vlagent.yml
-- import_playbook: zabbix-agent.yml
+- import_playbook: asgard-proxmox.yml
+- import_playbook: asgard-pbs.yml

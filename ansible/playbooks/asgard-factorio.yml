@@ -49,5 +49,15 @@
       tags: [factorio]
     - role: sftpgo
       tags: [sftpgo]
+
+    # Agents live in the per-host-group playbook so a single converge
+    # covers everything for this group — drift-check then doesn't need
+    # to re-iterate via the cluster-wide vlagent.yml + zabbix-agent.yml
+    # standalones (those are kept for daily fleet sanity reconverge).
+    - role: vlagent
+      tags: [vlagent]
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
     - role: hardening
       tags: [hardening]

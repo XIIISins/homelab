@@ -44,5 +44,15 @@
       tags: [baseline]
     - role: tailscale
       tags: [tailscale]
+
+    # Agents live in the per-host-group playbook so drift-check covers
+    # them in this group's converge without re-iterating via the
+    # cluster-wide standalones. Tailscale LXCs run tailscaled which owns
+    # /etc/resolv.conf — agents don't touch it.
+    - role: vlagent
+      tags: [vlagent]
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
     - role: hardening
       tags: [hardening]

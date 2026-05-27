@@ -37,3 +37,18 @@
 
     - role: hardening
       tags: [hardening]
+
+# Second play — agents in parallel, no serial tax (each node's vlagent +
+# zabbix-agent rollout is independent of cluster state). Mirrors the
+# postgres playbook's 2-play split for the same reason: keep serial=1
+# constrained to the work that actually needs ordering.
+- name: AdGuard agents — parallel
+  hosts: adguard
+  become: true
+
+  roles:
+    - role: vlagent
+      tags: [vlagent]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]

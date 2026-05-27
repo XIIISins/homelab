@@ -13,5 +13,14 @@
       tags: [haproxy]
     - role: keepalived
       tags: [keepalived]
+
+    # Agents live in the per-host-group playbook so drift-check covers
+    # them in this group's converge without re-iterating via the
+    # cluster-wide standalones.
+    - role: vlagent
+      tags: [vlagent]
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
     - role: hardening
       tags: [hardening]

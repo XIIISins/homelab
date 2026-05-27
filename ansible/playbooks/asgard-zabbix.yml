@@ -25,5 +25,11 @@
     - role: zabbix-agent
       tags: [zabbix-agent]
 
+    # vlagent for Hugin's own host logs (nginx access/error, php-fpm,
+    # zabbix-server). In the per-host-group playbook so drift-check
+    # covers it without re-iterating via the cluster-wide standalone.
+    - role: vlagent
+      tags: [vlagent]
+
     - role: hardening
       tags: [hardening]

@@ -1,0 +1,25 @@
+# ansible/playbooks/asgard-pbs.yml
+---
+# PBS (Proxmox Backup Server, LXC 1101 on Skuld) — agent-only converge.
+#
+# PBS was installed via the upstream PBS installer outside Ansible
+# (see group_vars/pbs.yml — root-only SSH, no `ansible` user, no
+# baseline role). This playbook deliberately ships ONLY the
+# observability agents so they land in inventory-driven converge
+# runs (site.yml / drift-check) without touching the substrate.
+#
+# The vlagent.yml + zabbix-agent.yml standalone playbooks still
+# target `all` (so they cover proxmox + pbs alongside everything
+# else for the daily fleet-agents reconverge) — this playbook is
+# the per-host-group equivalent so drift-check has coverage too.
+
+- name: Configure PBS agents
+  hosts: pbs
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: vlagent
+      tags: [vlagent]
+    - role: zabbix-agent
+      tags: [zabbix-agent]
