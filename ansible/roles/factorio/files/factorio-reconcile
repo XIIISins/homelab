@@ -122,7 +122,10 @@ def setup_logging() -> None:
         uid, gid = factorio_ids()
         try:
             os.chown(LOG_DIR, uid, gid)
-            os.chmod(LOG_DIR, 0o755)
+            # 2775 matches roles/factorio/tasks/dirs.yml — setgid bit so SFTP
+            # uploads inherit factorio group. 0755 loses the setgid bit and
+            # makes Ansible's dirs.yml flip the mode 'changed' every run.
+            os.chmod(LOG_DIR, 0o2775)
         except PermissionError:
             pass
         fh = logging.handlers.RotatingFileHandler(
