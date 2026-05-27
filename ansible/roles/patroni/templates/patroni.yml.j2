@@ -19,7 +19,8 @@ restapi:
 
 etcd3:
   hosts:
-{% for h in groups[patroni_etcd_inventory_group] %}
+{# sort by inventory_hostname to keep render order stable across inventory sources (hosts.yml vs NetBox) #}
+{% for h in groups[patroni_etcd_inventory_group] | sort %}
     - {{ hostvars[h]['ansible_host'] }}:{{ patroni_etcd_client_port }}
 {% endfor %}
 
@@ -122,7 +123,8 @@ postgresql:
 {% for cidr in postgres_allowed_cidrs %}
     - hostssl all all {{ cidr }} scram-sha-256
 {% endfor %}
-{% for h in groups[patroni_pg_inventory_group] %}
+{# sort by inventory_hostname to keep render order stable across inventory sources (hosts.yml vs NetBox) #}
+{% for h in groups[patroni_pg_inventory_group] | sort %}
     - hostssl replication {{ patroni_replication_username }} {{ hostvars[h]['ansible_host'] }}/32 scram-sha-256
 {% endfor %}
 

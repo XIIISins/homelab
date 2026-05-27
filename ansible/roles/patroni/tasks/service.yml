@@ -41,6 +41,7 @@
     return_content: true
   register: patroni_cluster_state
   changed_when: false
+  check_mode: false  # read-only GET; must run in --check or .json is undef downstream
 
 - name: Determine if this node holds the Patroni leader role
   ansible.builtin.set_fact:

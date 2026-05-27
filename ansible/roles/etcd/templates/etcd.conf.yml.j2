@@ -11,7 +11,7 @@ initial-advertise-peer-urls: 'http://{{ ansible_host }}:{{ etcd_peer_port }}'
 
 initial-cluster-token: '{{ etcd_cluster_token }}'
 initial-cluster-state: 'new'
-initial-cluster: '{% for h in groups[etcd_inventory_group] %}{{ h }}=http://{{ hostvars[h]["ansible_host"] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}'
+initial-cluster: '{% for h in groups[etcd_inventory_group] | sort %}{{ h }}=http://{{ hostvars[h]["ansible_host"] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}'
 
 logger: 'zap'
 log-outputs: ['stderr']
