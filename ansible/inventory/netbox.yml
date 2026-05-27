@@ -50,6 +50,7 @@ query_filters:
 # this list (e.g. switch, ap, pdu).
 device_query_filters:
   - role__n: firewall
+  - role__n: nas
 
 # Compose runs BEFORE groups + keyed_groups. Two jobs here:
 #   1. ansible_host  ← primary IPv4 with CIDR stripped.
