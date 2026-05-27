@@ -21,3 +21,9 @@ baseline_nameservers:
   - 10.0.254.1 # UCG, forwards to AdGuard VIP
 baseline_dns_search:
   - niflheim.xiiisins.com
+
+# Set to false on hosts whose /etc/resolv.conf is owned by another component
+# (e.g. tailscaled with MagicDNS on the tailscale LXCs — overwriting it breaks
+# resolution, so we accept the drift). Cloud-init's manage_resolv_conf flag is
+# still flipped off — only the template task is gated.
+baseline_manage_resolv_conf: true

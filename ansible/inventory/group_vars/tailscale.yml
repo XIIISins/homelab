@@ -2,6 +2,11 @@
 ---
 # Tailscale LXCs — subnet routers Bifrost/Heimdall + exit-node Gjallarbru.
 
+# tailscaled owns /etc/resolv.conf when MagicDNS is active — re-templating it
+# from baseline overwrites tailscaled's nameservers and breaks DNS. Drift on
+# these hosts is accepted by design.
+baseline_manage_resolv_conf: false
+
 zabbix_agent_host_groups:
   - "Linux servers"
   - "Asgard/LXCs/Tailscale"
