@@ -124,3 +124,8 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/AdGuard"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+
+# -----------------------------------------------------------------------------
+# Skip templating resolv.conf on DNS hosts.
+# -----------------------------------------------------------------------------
+baseline_manage_resolv_conf: false
