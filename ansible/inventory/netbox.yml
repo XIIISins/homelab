@@ -39,6 +39,18 @@ query_filters:
   - status: active
   - has_primary_ip: "True"
 
+# Device-only exclusions — UCG-Ultra (role=firewall) is config-via-UI
+# only, never SSH'd to. Without this, the broad-sweep plays
+# (vlagent.yml hosts: all, zabbix-agent.yml hosts: all:!zabbix,
+# zabbix-host-groups.yml hosts: all) would target it. UCG correctly
+# has no ansible:* tag (terraform/netbox/devices.tf — "firewall →
+# (no Ansible — UCG is config-via-UI only)"), but the dynamic
+# inventory pulled it into `all` regardless.
+# Future NetBox-tracked-but-not-Ansible-managed device roles: extend
+# this list (e.g. switch, ap, pdu).
+device_query_filters:
+  - role__n: firewall
+
 # Compose runs BEFORE groups + keyed_groups. Two jobs here:
 #   1. ansible_host  ← primary IPv4 with CIDR stripped.
 #   2. Alias the plugin-hardcoded `tags` hostvar to `netbox_tags`.
