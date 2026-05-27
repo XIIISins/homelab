@@ -24,10 +24,17 @@
     mode: "0664"
   when: not factorio_install_check.stat.exists
 
+# Only on FRESH install: synchronously run reconcile to guarantee factorio
+# is installed before the post-install tasks (save generation, factorio.service
+# start). The 30s reconcile.timer handles ongoing convergence on steady-state
+# runs — re-firing the oneshot service here every play would report 'changed'
+# every run (drift-check false positive). Gate matches the surrounding
+# state-flip tasks at lines 17-25 and 74-82.
 - name: Run factorio-reconcile synchronously to ensure factorio is installed
   ansible.builtin.systemd:
     name: factorio-reconcile.service
     state: started
+  when: not factorio_install_check.stat.exists
 
 - name: Verify /opt/factorio symlink exists after reconcile
   ansible.builtin.stat:
