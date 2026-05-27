@@ -31,7 +31,7 @@
     shell: /usr/sbin/nologin
     home: "{{ hermod_api_install_dir }}"
     create_home: false
-    password: "*"  # valid form, no usable password; pubkey + systemd only
+    password: "*" # valid form, no usable password; pubkey + systemd only
     state: present
   tags: [hermod-api, hermod-api:user]
 
@@ -55,6 +55,8 @@
   become_user: "{{ hermod_api_user }}"
   notify: restart apprise-api
   tags: [hermod-api, hermod-api:src]
+  when:
+    - not ansible_check_mode
 
 - name: Create Python venv
   ansible.builtin.command:
@@ -68,10 +70,12 @@
     name:
       - pip
       - wheel
-    state: latest  # noqa: package-latest — bootstrap tooling, not runtime
+    state: latest # noqa: package-latest — bootstrap tooling, not runtime
     virtualenv: "{{ hermod_api_venv_dir }}"
   become_user: "{{ hermod_api_user }}"
   tags: [hermod-api, hermod-api:venv]
+  when:
+    - not ansible_check_mode
 
 - name: Install AppriseAPI requirements into venv
   ansible.builtin.pip:
@@ -81,6 +85,8 @@
   become_user: "{{ hermod_api_user }}"
   notify: restart apprise-api
   tags: [hermod-api, hermod-api:venv]
+  when:
+    - not ansible_check_mode
 
 - name: Ensure gunicorn is installed in venv
   ansible.builtin.pip:
@@ -90,6 +96,8 @@
   become_user: "{{ hermod_api_user }}"
   notify: restart apprise-api
   tags: [hermod-api, hermod-api:venv]
+  when:
+    - not ansible_check_mode
 
 - name: Create config directory
   ansible.builtin.file:
@@ -123,7 +131,7 @@
     owner: "{{ hermod_api_user }}"
     group: "{{ hermod_api_group }}"
     mode: "0640"
-  no_log: true  # template contains Discord webhook URLs
+  no_log: true # template contains Discord webhook URLs
   notify: restart apprise-api
   tags: [hermod-api, hermod-api:config]
 
