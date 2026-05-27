@@ -7,6 +7,12 @@
 # Re-runs are safe — postgresql_user compares hashed passwords and ALTERs
 # on drift; postgresql_db is no-op if the DB already exists.
 #
+# Skipped under --check: postgresql_db's check_mode path queries
+# pg_database for a column (daticulocale) renamed in PG 17 (datlocale),
+# producing a hard error against current upstream. Drift-check is not
+# the right venue for verifying mutating DB/role provisioning anyway —
+# these are post-deploy, never-drift state.
+#
 # Sub-task entry points (callable via tasks_from):
 #   - users     — management roles only (used by postgres/prepare.yml for
 #                 the adoption-time pre-Patroni primary)
@@ -17,7 +23,9 @@
     file: users.yml
     apply:
       tags: [postgres-common-users] # apply: required — include_tasks doesn't propagate --tags to inner tasks
-  when: (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+  when:
+    - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+    - not ansible_check_mode
   tags: [postgres-common-users]
 
 - name: Create per-service databases and owning roles
@@ -28,4 +36,5 @@
   when:
     - postgres_databases | length > 0
     - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+    - not ansible_check_mode
   tags: [postgres-common-databases]
