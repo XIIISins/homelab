@@ -47,6 +47,21 @@ else
     rm -f "${files[@]}"
 fi
 
+# Isolate the inventory file from ansible/inventory/group_vars/. Ansible
+# auto-discovers group_vars/ adjacent to the inventory file's directory,
+# and group_vars/all/vault.yml is ansible-vault encrypted. The Semaphore
+# `refresh-netbox-inventory` template is `app = "bash"`, which has no
+# vaults block (only ansible-app templates wire --vault-password-file),
+# so the decrypt fails with "Attempting to decrypt but no vault secrets
+# found". Copy the netbox.yml plugin config to a directory with no
+# adjacent group_vars/ — the cache file is keyed on the plugin name +
+# resolved API params (not the inventory file path), so consumers still
+# read what refresh writes. group_vars get merged at consumer playbook
+# runtime, where the vault password IS available.
+iso_dir="$(mktemp -d)"
+cp "$INVENTORY" "$iso_dir/netbox.yml"
+INVENTORY="$iso_dir/netbox.yml"
+
 # Step 2: retry-loop rebuilding the cache. NetBox transient 500s
 # usually clear on the next attempt; bound to ATTEMPTS so a real
 # NetBox outage still fails the job (and fires the alert) within
@@ -55,7 +70,7 @@ fi
 # a side effect.
 tmp="$(mktemp)"
 err="$(mktemp)"
-trap 'rm -f "$tmp" "$err"' EXIT
+trap 'rm -rf "$iso_dir"; rm -f "$tmp" "$err"' EXIT
 
 for i in $(seq 1 "$ATTEMPTS"); do
     echo "attempt $i/$ATTEMPTS: ansible-inventory -i $INVENTORY --list"
