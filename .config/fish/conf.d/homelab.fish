@@ -18,6 +18,9 @@
 #   set-aws-creds         — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
 #   set-proxmox-password  — set PROXMOX_VE_PASSWORD from 1P (manual; for asgard-lxcs-root)
 #   rotate-approle        — rotate a Vault AppRole SecretID (--help, --fix)
+#                           1P-canonical (used for ansible-local on MacBook)
+#   rotate-semaphore-approle — rotate Semaphore's ansible-awx SecretID
+#                              Vault-KV-canonical (Vault KV → TF apply → Semaphore)
 #
 # Extending:
 #   - New env var loaded by homelab-env: append to $__homelab_env_map.
@@ -631,7 +634,11 @@ function rotate-approle --description "Rotate a Vault AppRole SecretID"
     echo "  expires_at         = $expires_at"
     echo ""
     echo "Both old and new SecretIDs are currently valid."
-    read -P "Press enter once 1P is updated (Ctrl+C aborts; run --fix to recover orphans): " _
+    # `_` is a read-only var in fish (last command name). Use a real name
+    # for the throwaway target. Surfaced 2026-05-27 mid-rotation: helper
+    # bombed AFTER 1P paste + BEFORE revoke, leaving the leaked SecretID
+    # active. Manual revoke required to finish the job.
+    read -P "Press enter once 1P is updated (Ctrl+C aborts; run --fix to recover orphans): " _ack
 
     # Step 3: revoke old.
     echo "Revoking old SecretID..."
@@ -645,4 +652,142 @@ function rotate-approle --description "Rotate a Vault AppRole SecretID"
     echo ""
     echo "Next: homelab-env  (re-pull new SecretID into env)"
     echo "Then: set -e VAULT_TOKEN; homelab-env --refresh  (clears the cached copy too)"
+end
+
+# === rotate-semaphore-approle: Semaphore-specific AppRole rotation ===
+#
+# Semaphore consumes the `ansible-awx` AppRole (inherited from when AWX
+# was the planned consumer of that role). Credentials are stored at
+# Vault KV `secret/k8s/semaphore/vault-approle` (NOT 1P — different
+# storage convention from rotate-approle ansible-local), and propagated
+# to Semaphore env id 1 via `terraform apply` in terraform/semaphore/.
+#
+# This is structurally different from rotate-approle (1P-canonical), so
+# it's a separate function rather than a flag on the existing one.
+# Don't conflate the two — running `rotate-approle ansible-local` does
+# NOT rotate Semaphore's credentials (different AppRole entirely).
+#
+# Surfaced 2026-05-27: a transcript leak of ansible-local's RoleID +
+# SecretID triggered a `rotate-approle ansible-local` rotation, which
+# was correct for MacBook BUT didn't touch Semaphore (which uses
+# ansible-awx and was never compromised by that leak). When the
+# operator manually wrote ansible-local's new SecretID into Semaphore's
+# Vault KV (assuming Semaphore used ansible-local), Semaphore auth
+# broke — role_id stored at the Vault KV path was ansible-awx's
+# (c43a483d-), and the freshly-minted SecretID was ansible-local's
+# (mismatched pair). This function exists to make the correct flow
+# explicit + scripted.
+function rotate-semaphore-approle --description "Rotate Semaphore's AppRole SecretID (ansible-awx via Vault KV + TF apply)"
+    set -l role ansible-awx
+    set -l vault_kv_path k8s/semaphore/vault-approle
+    set -l repo_root (git rev-parse --show-toplevel 2>/dev/null)
+
+    if test -z "$repo_root"
+        echo "rotate-semaphore-approle: must be run from within the homelab repo" >&2
+        return 1
+    end
+    set -l tf_module $repo_root/terraform/semaphore
+    if not test -d $tf_module
+        echo "rotate-semaphore-approle: $tf_module not a directory" >&2
+        return 1
+    end
+
+    if not set -q VAULT_TOKEN
+        echo "rotate-semaphore-approle: VAULT_TOKEN not set. Run: set-vault-token root" >&2
+        return 1
+    end
+    if not set -q VAULT_ADDR
+        echo "rotate-semaphore-approle: VAULT_ADDR not set. Run: homelab-env" >&2
+        return 1
+    end
+
+    # Snapshot existing accessors BEFORE mint so we can revoke after.
+    set -l old_accessors (vault list -format=json auth/approle/role/$role/secret-id 2>/dev/null | jq -r '.[]?')
+    if test (count $old_accessors) -eq 0
+        echo "rotate-semaphore-approle: no existing SecretIDs found for $role." >&2
+        echo "(Bootstrap case? Run vault write -f auth/approle/role/$role/secret-id manually.)" >&2
+        return 1
+    end
+    echo "Rotating $role (Vault KV: secret/$vault_kv_path, TF: $tf_module)"
+    echo "Old accessor(s) to revoke after success:"
+    printf '  %s\n' $old_accessors
+    echo ""
+
+    # Mint new SecretID.
+    echo "Minting new SecretID..."
+    set -l json (vault write -format=json -f auth/approle/role/$role/secret-id)
+    if test $status -ne 0
+        echo "rotate-semaphore-approle: mint failed. Old SecretIDs untouched." >&2
+        return 1
+    end
+    set -l new_sid (echo $json | jq -r .data.secret_id)
+    set -l new_accessor (echo $json | jq -r .data.secret_id_accessor)
+    echo "  new accessor: $new_accessor"
+
+    # Write new SecretID to Vault KV. Argv exposure is <100ms; acceptable
+    # on a single-user MacBook.
+    echo "Writing to Vault KV (secret/$vault_kv_path)..."
+    vault kv patch -mount=secret $vault_kv_path secret_id="$new_sid" > /dev/null
+    if test $status -ne 0
+        echo "rotate-semaphore-approle: Vault KV write failed." >&2
+        echo "  New SecretID minted but not propagated." >&2
+        echo "  Manual revoke: vault write auth/approle/role/$role/secret-id-accessor/destroy secret_id_accessor=$new_accessor" >&2
+        set -e new_sid json new_accessor
+        return 1
+    end
+
+    # Verify the KV write actually persisted the right value. The
+    # `secret_id=-` stdin pattern silently produced length-correct but
+    # content-wrong values during the 2026-05-27 rotation — hash-compare
+    # is the defense.
+    set -l kv_hash (vault kv get -mount=secret -field=secret_id $vault_kv_path 2>/dev/null | shasum -a 256 | string sub -l 16)
+    set -l mint_hash (printf '%s' $new_sid | shasum -a 256 | string sub -l 16)
+    if test "$kv_hash" != "$mint_hash"
+        echo "rotate-semaphore-approle: HASH MISMATCH after Vault KV write." >&2
+        echo "  Vault KV did not store the value we sent. Aborting." >&2
+        echo "  Manual revoke: vault write auth/approle/role/$role/secret-id-accessor/destroy secret_id_accessor=$new_accessor" >&2
+        set -e new_sid json new_accessor
+        return 1
+    end
+    set -e new_sid json
+    echo "✓ Vault KV updated (hash verified)"
+    echo ""
+
+    # Terraform apply to propagate Vault KV → Semaphore env id 1.
+    echo "Running terraform apply in $tf_module..."
+    pushd $tf_module > /dev/null
+    terraform apply
+    set -l tf_status $status
+    popd > /dev/null
+    if test $tf_status -ne 0
+        echo "rotate-semaphore-approle: terraform apply failed/declined." >&2
+        echo "  Old SecretIDs still valid; new SecretID present in Vault KV but" >&2
+        echo "  not yet propagated to Semaphore. Re-run terraform apply manually" >&2
+        echo "  or revoke the new SecretID:" >&2
+        echo "    vault write auth/approle/role/$role/secret-id-accessor/destroy secret_id_accessor=$new_accessor" >&2
+        return 1
+    end
+    echo ""
+
+    # Prompt for validation BEFORE revoking — old SecretIDs are still
+    # valid, so if Semaphore is somehow broken by the new credential
+    # operator can rollback by re-pointing Vault KV at the old
+    # SecretID's accessor (well, can't actually rollback the SecretID
+    # value itself, but at least don't compound by revoking old).
+    echo "Trigger a Semaphore drift-check now to validate the new SecretID works."
+    echo "Watch the output for 'Inventory has N hosts — proceeding' (success)"
+    echo "vs 'permission denied' (failure)."
+    read -P "Press enter once validated (Ctrl+C aborts; old SecretIDs still valid): " _ack
+
+    # Revoke old SecretIDs.
+    echo ""
+    echo "Revoking "(count $old_accessors)" old SecretID(s)..."
+    for acc in $old_accessors
+        echo "  destroying $acc"
+        vault write auth/approle/role/$role/secret-id-accessor/destroy secret_id_accessor=$acc > /dev/null
+        if test $status -ne 0
+            echo "  ⚠ failed to revoke $acc — destroy manually" >&2
+        end
+    end
+    echo "✓ Done. Active accessor: $new_accessor"
 end
