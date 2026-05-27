@@ -23,7 +23,9 @@
     url: "{{ adguardhome_sync_tarball_url }}"
     dest: "/tmp/adguardhome-sync_{{ adguardhome_sync_version }}_linux_amd64.tar.gz"
     mode: "0644"
-  when: adguardhome_sync_installed_version != adguardhome_sync_version
+  when:
+    - adguardhome_sync_installed_version != adguardhome_sync_version
+    - not ansible_check_mode
 
 - name: Extract adguardhome-sync binary to /usr/local/bin
   ansible.builtin.unarchive:
@@ -34,14 +36,18 @@
     group: root
     mode: "0755"
     include: ["adguardhome-sync"]
-  when: adguardhome_sync_installed_version != adguardhome_sync_version
+  when:
+    - adguardhome_sync_installed_version != adguardhome_sync_version
+    - not ansible_check_mode
   notify: restart adguardhome-sync
 
 - name: Clean up tarball
   ansible.builtin.file:
     path: "/tmp/adguardhome-sync_{{ adguardhome_sync_version }}_linux_amd64.tar.gz"
     state: absent
-  when: adguardhome_sync_installed_version != adguardhome_sync_version
+  when:
+    - adguardhome_sync_installed_version != adguardhome_sync_version
+    - not ansible_check_mode
 
 - name: Look up admin password from Vault
   ansible.builtin.set_fact:
