@@ -10,7 +10,9 @@
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
-  when: ansible_os_family == 'Debian'
+  when:
+    - ansible_os_family == 'Debian'
+    - not ansible_check_mode
   failed_when: false
   register: vlagent_apt_cache
   tags: [vlagent, vlagent:packages]
@@ -69,7 +71,7 @@
   register: vlagent_installed_version_check
   changed_when: false
   failed_when: false
-  check_mode: false  # read-only probe; must run in --check or set_fact errors on undef .stdout
+  check_mode: false # read-only probe; must run in --check or set_fact errors on undef .stdout
   tags: [vlagent, vlagent:install]
 
 - name: Set fact for installed version
@@ -84,7 +86,9 @@
     url: "{{ vlagent_tarball_url }}"
     dest: "/tmp/vlutils-{{ vlagent_version }}.tar.gz"
     mode: "0644"
-  when: vlagent_installed_version != vlagent_version
+  when:
+    - vlagent_installed_version != vlagent_version
+    - not ansible_check_mode
   tags: [vlagent, vlagent:install]
 
 - name: Extract vlagent binary to /usr/local/bin
@@ -96,7 +100,9 @@
     owner: root
     group: root
     mode: "0755"
-  when: vlagent_installed_version != vlagent_version
+  when:
+    - vlagent_installed_version != vlagent_version
+    - not ansible_check_mode
   notify: restart vlagent
   tags: [vlagent, vlagent:install]
 
@@ -116,7 +122,9 @@
   ansible.builtin.file:
     path: "/tmp/vlutils-{{ vlagent_version }}.tar.gz"
     state: absent
-  when: vlagent_installed_version != vlagent_version
+  when:
+    - vlagent_installed_version != vlagent_version
+    - not ansible_check_mode
   tags: [vlagent, vlagent:install]
 
 # Note: vlagent has no YAML/file-based config — all settings go via
