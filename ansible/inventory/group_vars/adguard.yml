@@ -48,6 +48,8 @@ adguard_rewrites: []
 adguard_admin_user: ghost
 adguardhome_sync_admin_user: ghost
 
+# fallback adguard_extract_dir, should be made by tmpfile in install.yml
+adguard_extract_dir: "/tmp/agh.tmp/"
 # -----------------------------------------------------------------------------
 # keepalived — VIP 10.0.10.200 on VLAN 10 (HL-ASG-VIP)
 # -----------------------------------------------------------------------------
