@@ -72,7 +72,7 @@ A single playbook file can hold multiple plays with different host selectors and
 
 Two inventory sources merge transparently:
 
-- **NetBox dynamic** (primary). The `netbox.netbox.nb_inventory` plugin queries NetBox at runtime, projects hosts and groups from NetBox tags (`ansible:postgres`, `ansible:k3s-cp`, etc.). The jsonfile cache survives pod restarts; refresh cadence is independent of consumption cadence.
+- **NetBox dynamic** (primary). The `netbox.netbox.nb_inventory` plugin queries NetBox at runtime, projects hosts and groups from NetBox tags (`ansible:postgres`, `ansible:k3s-cp`, etc.). A jsonfile cache (24h TTL) sits in front of the live query; refresh cadence (4h, Semaphore template) is deliberately faster than TTL, so consumer playbooks always hit a warm cache between refreshes. The cache itself lives in an `emptyDir` mounted at the Semaphore container's `~/.cache/ansible/netbox-inventory` — pod restart loses the cache, and the next inventory build lands a cold-fetch from NetBox. `site.yml` asserts a minimum host count up front so a cold-fetch that returns zero hosts (NetBox blip during pod restart) fails loud instead of silently no-op'ing.
 - **`hosts.yml`** (fallback). Hand-maintained, committed. Used when NetBox is down, on day-1 bootstrap before NetBox exists, and in disaster recovery.
 
 NetBox supplies "what is this host?" — hostnames, IPs, group membership, primary interface metadata. File-based `group_vars/` and `host_vars/` supply "how should Ansible configure it?" — passwords (via Vault lookup), tunable knobs, per-environment overrides. The split keeps each store authoritative for its domain.
@@ -81,7 +81,7 @@ NetBox supplies "what is this host?" — hostnames, IPs, group membership, prima
 
 ## Semaphore — scheduling Ansible
 
-Semaphore runs in asgard K3s as a single-replica StatefulSet, Postgres-backed (on the Patroni VIP), Authentik-gated. Its job is to schedule and run Ansible playbooks against the homelab on a recurring cadence, post-deploy notifications to the **Notifications hub**, and record an audit trail.
+Semaphore runs in asgard K3s as a single-replica StatefulSet, Postgres-backed (on the Patroni VIP), Authentik-gated. Its job is to schedule and run Ansible playbooks against the homelab on a recurring cadence, post-deploy notifications to **Hermod**, and record an audit trail.
 
 | Template | Cadence | What it runs | Notify on |
 |---|---|---|---|
@@ -94,14 +94,14 @@ Semaphore authenticates to Vault via the `ansible-awx` AppRole — credentials l
 
 ### The drift loop
 
-The shape of the loop is deliberately conservative: detect → notify → operator decides → manually converge.
+Today the loop is detect → notify → operator decides → manually converge.
 
 1. Every 6h, Semaphore runs `site.yml --check --diff` against the fleet.
-2. If any host shows `changed=N`, Semaphore posts to the Notifications hub with `tag: alert` and a summary of which tasks would change on which hosts.
+2. If any host shows `changed=N`, Semaphore posts to Hermod with `tag: alert` and a summary of which tasks would change on which hosts.
 3. Operator reads the alert in Discord, investigates the drift, and decides whether to converge.
 4. To converge: trigger the `asgard-apply` template manually. Apply success is silent; apply failure pages with `tag: critical`.
 
-**There is no scheduled auto-apply by design.** Drift is information; convergence is a decision. Removing the operator from that loop has separate failure-mode implications (a misconfigured role would silently rewrite the fleet) and would require a different testing posture than the homelab maintains today.
+The directional goal is auto-remediation — drift detected by the check loop converges automatically without operator involvement, and misbehaving VMs/LXCs get torn down and rebuilt from scratch rather than nursed back. Reaching that state needs every role to be reliably check-mode-faithful (so the alerts that auto-converge are real, not false positives) and enough test coverage that an unintended role change can't silently rewrite the fleet. Until those are in place, the human in the loop is the safety net.
 
 ### Drift-check caveats
 
