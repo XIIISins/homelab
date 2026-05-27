@@ -77,7 +77,9 @@
   ansible.builtin.file:
     path: "{{ adguard_binary }}"
     state: absent
-  when: adguard_installed_version != adguard_version
+  when:
+    - adguard_installed_version != adguard_version
+    - not ansible_check_mode
 
 - name: Locate AdGuardHome binary inside extracted tree
   ansible.builtin.find:

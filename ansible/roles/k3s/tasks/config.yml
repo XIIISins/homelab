@@ -29,7 +29,9 @@
     mode: "0644"
     owner: root
     group: root
-  when: inventory_hostname == k3s_init_node
+  when:
+    - inventory_hostname == k3s_init_node
+    - not ansible_check_mode
   notify: restart k3s
 
 - name: Template K3s config for additional control plane nodes
@@ -42,6 +44,7 @@
   when:
     - inventory_hostname in groups['k3s_cp']
     - inventory_hostname != k3s_init_node
+    - not ansible_check_mode
   notify: restart k3s
 
 - name: Template K3s config for worker nodes
@@ -51,7 +54,9 @@
     mode: "0644"
     owner: root
     group: root
-  when: inventory_hostname in groups['k3s_worker']
+  when:
+    - inventory_hostname in groups['k3s_worker']
+    - not ansible_check_mode
   notify: restart k3s
 
 - name: Template K3s systemd service file

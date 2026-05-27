@@ -32,4 +32,5 @@
   when:
     - inventory_hostname == k3s_init_node
     - not k3s_already_healthy
+    - not ansible_check_mode
   tags: k3s_calico
