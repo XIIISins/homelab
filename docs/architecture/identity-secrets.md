@@ -64,7 +64,7 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
 - **AppRole auth method** at `auth/approle/` (added 2026-05-16, D1)
   - `ansible` policy: read on `secret/data/ansible/*` — narrower than `eso`, Ansible only reads its own subtree
   - `ansible-local` role: MacBook control node, manual playbook runs. RoleID + SecretID stored in 1P (Homelab vault, item `Ansible - Vault - k3s`) — single source of truth, no env file on disk. Loaded into env via `homelab-env`. 90-day rotation via `rotate-approle ansible-local`. See Control-node fish tooling sub-section.
-  - `ansible-awx` role: AWX automated runs (deployed later, in asgard K3s). Role exists; SecretID generated at AWX deploy time and stored in AWX's credential store.
+  - `ansible-awx` role: Originally created for AWX; **now consumed by Semaphore** (Phase 5h.3 replaced AWX with Semaphore but kept this AppRole). RoleID + SecretID stored at Vault KV `secret/k8s/semaphore/vault-approle` (NOT 1P — different storage convention from `ansible-local`), propagated to Semaphore env id 1 via `terraform apply` in `terraform/semaphore/`. Rotate via `rotate-semaphore-approle` (separate function from `rotate-approle`, see Control-node fish tooling). Do NOT use `rotate-approle ansible-awx` — that helper is 1P-canonical and ansible-awx has no 1P entry; running it errors out at "unknown role". Surfaced 2026-05-27 during a leak-driven rotation: operator assumed Semaphore used `ansible-local`, manually wrote `ansible-local`'s new SecretID into Semaphore's Vault KV slot, mismatched role_id+secret_id → Semaphore auth broke until corrected.
   - SecretIDs are NEVER managed by Terraform — generated manually with `vault write -f auth/approle/role/<role>/secret-id`, stored externally. See AppRole bootstrap runbook below.
 - ESO ClusterSecretStore `vault` points at `http://vault.vault.svc.cluster.local:8200`, path `secret`, v2, kubernetes auth mount `kubernetes`, role `eso`
 - All Vault config (mounts, auth methods, policies, roles) captured in Terraform (`terraform/vault/`). Local state, `VAULT_ADDR`/`VAULT_TOKEN` via env. Provider `hashicorp/vault ~> 4.0`. Scoped Terraform token and remote state deferred.
@@ -213,7 +213,8 @@ Public functions:
 | `homelab-env` | Loads homelab env vars from 1P (`VAULT_ADDR`, `ANSIBLE_HASHI_VAULT_*`). Idempotent. |
 | `set-vault-token <source>` | Sets `VAULT_TOKEN`. `root` pulls from 1P; `approle` mints via `vault write auth/approle/login` using already-loaded creds (fails loudly if `homelab-env` hasn't run). |
 | `vault-root-token` | Pure value-producer; echoes the root token. |
-| `rotate-approle <role>` | Mints a new SecretID, prints values to paste into 1P, prompts for confirmation, revokes the old SecretID. `--fix` destroys SecretIDs in Vault that aren't in 1P (recovery for partial rotations). `--help` for usage + hazard notes. |
+| `rotate-approle <role>` | **1P-canonical flow.** Mints a new SecretID, prints values to paste into 1P, prompts for confirmation, revokes the old SecretID. `--fix` destroys SecretIDs in Vault that aren't in 1P (recovery for partial rotations). `--help` for usage + hazard notes. Use for `ansible-local` (MacBook). |
+| `rotate-semaphore-approle` | **Vault-KV-canonical flow.** Mints a new SecretID for `ansible-awx`, writes it to Vault KV `secret/k8s/semaphore/vault-approle`, runs `terraform apply` in `terraform/semaphore/` to push it to Semaphore env id 1, prompts for drift-check validation, then revokes old SecretIDs. No 1P involvement — Vault KV is the source of truth for Semaphore's credentials. |
 
 Extension points:
 - **New env var loaded by `homelab-env`:** append a line to `$__homelab_env_map` in the form `"ENV_VAR|1P item name|field"`. No other code change.
