@@ -19,6 +19,8 @@
     group: root
     mode: "0644"
     force: false
+  when:
+    - not ansible_check_mode
 
 - name: Install Tailscale apt source list
   ansible.builtin.copy:

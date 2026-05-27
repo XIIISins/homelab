@@ -32,3 +32,5 @@
       {% if tailscale_up_reset %}--reset{% endif %}
   no_log: true
   changed_when: ts_pre_state != 'Running'
+  when:
+    - not ansible_check_mode

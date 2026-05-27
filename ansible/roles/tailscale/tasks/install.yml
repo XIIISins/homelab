@@ -3,6 +3,8 @@
 - name: Apt update (pick up Tailscale repo)
   ansible.builtin.apt:
     update_cache: true
+  when:
+    - not ansible_check_mode
 
 - name: Install Tailscale
   ansible.builtin.apt:
