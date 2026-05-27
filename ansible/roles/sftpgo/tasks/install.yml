@@ -3,14 +3,19 @@
   ansible.builtin.apt:
     name: sftpgo
     state: present
+  register: sftpgo_apt_install
 
-# The package starts SFTPGo immediately with default config. We need to
-# stop it before we drop our config + admin bootstrap env vars in, so the
-# admin-create env vars take effect on the *next* (managed) start.
+# Only on FRESH install: the apt postinstall starts sftpgo immediately with
+# default config. Stop it so the admin-create env vars in our managed config
+# take effect on the bootstrap-driven (next) start. On steady-state runs the
+# daemon is already running with managed config — stopping it would force
+# a needless restart and report 'changed' every play (drift-check false
+# positive).
 - name: Stop SFTPGo to prepare for managed configuration
   ansible.builtin.systemd:
     name: sftpgo.service
     state: stopped
+  when: sftpgo_apt_install is changed
   # If this fails (e.g. unit doesn't exist yet on a weird install), continue.
   failed_when: false
 
