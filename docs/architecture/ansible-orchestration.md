@@ -156,12 +156,19 @@ The drift-check template runs `ansible-playbook site.yml --check --diff` against
 - **Drift detected** (`changed=N` for any host): `tag: alert` POST to Hermod with title `"Drift detected: <N> tasks would change on <M> host(s)"`, body containing the host-task summary, `format: markdown`.
 - **Hard failure** (`failed=N`): `tag: alert` POST with title `"Drift check failed: <playbook> on <host>"`, body containing the error message.
 
-**`--check` mode caveats** (documented in CLAUDE.md / role READMEs):
-- `--check` doesn't validate file ownership/mode — only existence. Bugs that only surface on real apply are invisible to drift-check.
-- Some modules (especially `uri:` with POST, `command:`, `shell:`) are no-ops in `--check`. Tasks downstream of those may report "would change" even on a converged host.
-- `roles/sftpgo/` has a known `check_mode: false` need (POST-then-read pattern) — captured in [open-questions.md](../operations/open-questions.md).
+**`--check` mode caveats** — patterns that emerged during the 5h.3 baselining sweep (clean drift-check across the asgard fleet, 2026-05-27):
 
-Each role owner is responsible for making the role check-mode-faithful enough that drift-check doesn't produce false alarms. When false-positive cycles surface in `tag: alert` notifications, the fix lives in the role, not the drift-check template.
+- `--check` doesn't validate file ownership/mode, only existence. Bugs that only surface on real apply are invisible to drift-check.
+- Modules with side-effects outside Ansible's awareness (`uri:` POST, `command:`, `shell:`, package downloads, `unarchive` of remote URLs) are no-ops in `--check` and would error if attempted against not-yet-bootstrapped state. Roles guard these by class:
+  - **Download + extract** (AGH tarball, kubeconfig fetch, AppriseAPI tarball, Factorio tarball) — skipped when `ansible_check_mode` and the destination is absent, so first-time drift-check against a not-yet-bootstrapped host doesn't fail loud.
+  - **Service enable + start** — skipped in `--check` for roles where the unit file is rendered by the same play (vlagent, hermod-api, etc.) — handler would race the render.
+  - **Mutating API calls** that read-back to compare state (`sftpgo` POST-then-read, Patroni `/cluster` REST polling, NetBox provisioning, postgres-common `CREATE ROLE / CREATE DATABASE`) are gated either by `check_mode: false` on the read-only probe or by skipping the mutating task entirely on `--check`.
+  - **Leader-gated provisioning** (postgres-common databases, Patroni adoption) skips under `--check` — leader discovery itself depends on a live cluster the check-mode invocation may not have warmed.
+  - **Fresh-install-only paths** (sftpgo daemon stop, factorio reconcile-on-bootstrap) gate on `is_fresh_install` AND `not ansible_check_mode`.
+- The drift-check Semaphore template wraps `ansible-playbook` in a preflight assert that demands `--check` is present + that `ansible_check_mode` is true at play-start — prevents an accidental `--check`-less re-run from mutating the fleet.
+- `roles/sftpgo/` still has structural `check_mode: false` on the POST-then-read pattern (documented in [open-questions.md](../operations/open-questions.md)).
+
+When false-positive cycles surface in `tag: alert` notifications, the fix lives in the role, not the drift-check template. Per-role check-mode handling is intentionally NOT documented inline in each role's README — the patterns are uniform across roles and the catalogue above is the canonical reference; role-level READMEs note check-mode behavior only when the role does something genuinely role-specific (currently none).
 
 ### What drift-check reports vs what apply does
 
@@ -197,7 +204,7 @@ Semaphore's notification webhook config posts to Hermod at `http://hermod.niflhe
 4. **5h.3.d** — Deploy Semaphore in asgard K3s: `k8s/asgard/apps/semaphore/` (StatefulSet, PVC, Service, HTTPRoute on niflheim Gateway, ESO secrets, Authentik OIDC integration). Pinned chart or hand-rolled per the existing K3s pattern.
 5. **5h.3.e** — Semaphore project setup (templated as far as possible via Semaphore's API + Terraform if a provider is available; manual UI otherwise): repo + key + Vault integration + the three core task templates with their cron schedules + the Hermod webhook config.
 6. **5h.3.f** — Smoketest matrix: trigger drift-check manually against a clean fleet → no Hermod notification, VL has the log; mutate something on a host (`touch /etc/foo`) → drift-check detects → Hermod `alert` fires; manual apply converges → no notification; force a fail → Hermod `critical` fires.
-7. **5h.3.g** — Documentation pass: per-role README updates noting check-mode behavior (any `check_mode: false` gates, any tasks that are no-ops in `--check`), AGH rewrite for `semaphore.niflheim.xiiisins.com → 10.0.20.10`.
+7. **5h.3.g** — Documentation pass: canonical `--check` mode caveats section in this doc (above), AGH rewrite for `semaphore.niflheim.xiiisins.com → 10.0.20.10`, post-flight (build-sequence tick, decisions row, incident retro, CLAUDE.md gotchas). Per-role README updates folded into the design-doc catalogue rather than duplicated 17 times — scope decision recorded 2026-05-27.
 
 ## Open items at implementation time
 
