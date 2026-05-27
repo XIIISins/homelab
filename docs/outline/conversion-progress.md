@@ -10,8 +10,8 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 
 ## Status snapshot
 
-- **Drafted:** 7 pages (1 collection root + 1 section parent + 5 subpages).
-- **Pending:** 2 subpages under Components & Interactions, then 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
+- **Drafted:** 8 pages (1 collection root + 1 section parent + 6 subpages).
+- **Pending:** 1 subpage under Components & Interactions (observability), then 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
 
 ---
 
@@ -29,13 +29,14 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 - [x] `components-and-interactions/storage-and-data.md` — local LVM-thin, Synology iSCSI, Synology NFS, Garage S3, Postgres + Patroni, PBS, failure surfaces.
 - [x] `components-and-interactions/identity-and-secrets.md` — Authentik OIDC/LDAP/SAML, three-store model, Vault Kubernetes + AppRole auth, ESO + AppRole interaction flows, failure surfaces.
 - [x] `components-and-interactions/gitops-and-automation.md` — Terraform/Ansible/Flux/docs ownership boundary, Flux per-component-config layering, Ansible per-host-group playbooks + NetBox dynamic inventory, Semaphore drift loop, end-to-end change flow, failure surfaces.
+- [x] `components-and-interactions/edge.md` — three DNS zones + three Gateways + three wildcards (one CF token), Traefik with Gateway API only, cert-manager DNS-01, Cloudflared external entry, in-cluster CoreDNS rewrite, three access paths end-to-end, failure surfaces.
 
 ---
 
 ## Pending
 
 ### Components & Interactions — remaining subpages
-- [ ] `edge.md` — Traefik, Cloudflared, cert-manager DNS-01, the three DNS zones at the certificate layer.
+
 - [ ] `observability.md` — VictoriaMetrics + VictoriaLogs, Zabbix split, Hermod tag taxonomy, vmagent/vlagent shippers.
 
 ### Hardware section
@@ -100,4 +101,4 @@ If the order shifts again, update the parent + this file + the "See also" refere
 
 ## Next
 
-Resume at **`edge.md`** under Components & Interactions. Cover Traefik + Gateway API, Cloudflared tunnel for external exposure, cert-manager DNS-01 with the zone-scoped Cloudflare token, and the three DNS zones at the certificate layer. Pair with the upcoming `observability.md` to close out Components & Interactions.
+Resume at **`observability.md`** under Components & Interactions to close out the section. Cover VictoriaMetrics + VictoriaLogs (single-binary, no Grafana), the Zabbix-LXC + VM-in-cluster split that keeps host monitoring on a separate failure domain, vmagent (K8s metrics) + vlagent (logs, K8s DaemonSet + Ansible-systemd for off-cluster shippers), and the Hermod tag taxonomy (`critical` / `alert` / `media`) that this layer drives notifications through.
