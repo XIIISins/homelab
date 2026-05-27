@@ -186,11 +186,23 @@ spec:
       enabled: false
 
     # ── Resource sizing ───────────────────────────────────────────────
-    # `medium` bitnami preset = 500m/750m CPU, 1024Mi/1536Mi memory.
-    # Bumped from `small` (768Mi) on first deploy — Django bootstrap +
-    # migrations + gunicorn workers OOMKilled at 768Mi. 1536Mi is the
-    # documented stable size for a small-to-medium NetBox install.
-    resourcesPreset: medium
+    # Memory tracks bitnami `medium` preset (1Gi/1536Mi) — bumped from
+    # `small` (768Mi) on first deploy after Django bootstrap + migrations
+    # + gunicorn workers OOMKilled. CPU limit bumped from medium-preset
+    # 750m → 1500m: a `terraform apply` state-refresh against /api/* can
+    # peg granian to the limit for tens of seconds, which trips the
+    # chart's 1s readiness probe and drops the pod from Service endpoints
+    # while staying "Running" (liveness is TCP-only). Skuld worker is
+    # 2 vCPU so 1500m leaves headroom for other pods; request stays at
+    # 500m so scheduling pressure is unchanged.
+    resourcesPreset: "none"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1500m
+        memory: 1536Mi
     replicaCount: 1 # bump to 2 once steady-state, for rolling-update headroom
 
     worker:
