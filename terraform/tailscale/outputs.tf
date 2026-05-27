@@ -4,7 +4,7 @@
 # Useful as a sanity check after apply that we hit the right tailnet.
 output "tailnet" {
   description = "Tailnet name resolved from OAuth client default."
-  value       = "-"  # provider config uses `tailnet = -` (default)
+  value       = "-" # provider config uses `tailnet = -` (default)
 }
 
 # ACL resource ID (always literal "acl" — single policy file per tailnet).

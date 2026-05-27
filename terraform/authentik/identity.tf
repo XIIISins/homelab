@@ -48,7 +48,7 @@ locals {
 resource "terraform_data" "identity_validation" {
   lifecycle {
     precondition {
-      condition = length(local.unknown_group_refs) == 0
+      condition     = length(local.unknown_group_refs) == 0
       error_message = <<-EOT
         users.yaml references groups not defined in groups.yaml:
         ${join("\n", [for ref in local.unknown_group_refs : "  - user '${ref.user}' references group '${ref.group}'"])}
@@ -87,9 +87,9 @@ resource "authentik_group" "this" {
 resource "authentik_user" "this" {
   for_each = local.users_yaml
 
-  username = each.key
-  name     = each.value.name
-  email    = lookup(each.value, "email", null)
+  username  = each.key
+  name      = each.value.name
+  email     = lookup(each.value, "email", null)
   is_active = lookup(each.value, "is_active", true)
 
   # Each user's groups, resolved to authentik_group resource IDs.

@@ -76,9 +76,9 @@ resource "vault_approle_auth_backend_role" "ansible_local" {
   backend        = vault_auth_backend.approle.path
   role_name      = "ansible-local"
   token_policies = ["ansible"]
-  token_ttl      = 1800     # 30min — short-lived working tokens
-  token_max_ttl  = 3600     # 1h hard ceiling
-  secret_id_ttl  = 7776000  # 90 days — manual rotation cadence
+  token_ttl      = 1800    # 30min — short-lived working tokens
+  token_max_ttl  = 3600    # 1h hard ceiling
+  secret_id_ttl  = 7776000 # 90 days — manual rotation cadence
   # No token_bound_cidrs: MacBook IP changes (home, travel, tethering).
 }
 
@@ -110,7 +110,7 @@ resource "vault_approle_auth_backend_role" "ansible_awx" {
 # lookup pattern.
 resource "random_password" "keepalived_pg_vrrp" {
   length  = 8
-  special = false   # VRRP auth field is ASCII-only; keep it printable
+  special = false # VRRP auth field is ASCII-only; keep it printable
 }
 
 resource "vault_kv_secret_v2" "keepalived_pg_vrrp" {
@@ -200,7 +200,7 @@ resource "vault_kv_secret_v2" "hermod_config_key" {
 
 resource "random_password" "netbox_postgres" {
   length  = 32
-  special = false   # PG password field; avoid quoting issues in env vars / config files
+  special = false # PG password field; avoid quoting issues in env vars / config files
 }
 
 resource "vault_kv_secret_v2" "netbox_postgres_ansible" {

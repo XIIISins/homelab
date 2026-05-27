@@ -26,7 +26,7 @@ locals {
     monitoring        = { vm_role = true, description = "Monitoring (Zabbix, etc.)" }
     # notifications: added Phase 5h.2. No import_id — role doesn't exist
     # in NetBox yet, will be created on first apply.
-    notifications     = { vm_role = true, description = "Notification aggregation hub (AppriseAPI, Hermod)" }
+    notifications = { vm_role = true, description = "Notification aggregation hub (AppriseAPI, Hermod)" }
   }
 
   # Import IDs sourced from /api/dcim/device-roles/ at retrofit time.
