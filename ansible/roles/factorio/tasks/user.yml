@@ -2,7 +2,13 @@
 - name: Create factorio group
   ansible.builtin.group:
     name: "{{ factorio_group }}"
-    gid: "{{ factorio_gid | default(omit) }}"
+    # `default(omit, true)` — second arg makes default also fire on falsy
+    # values. Defaults set factorio_gid: null which is *defined as None*,
+    # not undefined; without the boolean omit doesn't fire and the module
+    # gets the string "None" → fails to int() under check_mode's eager
+    # parameter validation (apply tolerated it because getent short-
+    # circuited the diff before validation).
+    gid: "{{ factorio_gid | default(omit, true) }}"
     system: true
     state: present
 
@@ -10,7 +16,7 @@
   ansible.builtin.user:
     name: "{{ factorio_user }}"
     group: "{{ factorio_group }}"
-    uid: "{{ factorio_uid | default(omit) }}"
+    uid: "{{ factorio_uid | default(omit, true) }}"
     home: "{{ factorio_home }}"
     create_home: false       # we manage the directory tree ourselves in dirs.yml
     shell: /usr/sbin/nologin
