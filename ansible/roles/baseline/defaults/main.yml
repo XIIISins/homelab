@@ -16,10 +16,14 @@ rhel_subscription_password: ""
 baseline_timezone: Europe/Amsterdam
 baseline_locale: en_US.UTF-8
 
-# DNS resolution — owned by Ansible, cloud-init disabled
+# DNS resolution — owned by Ansible, cloud-init disabled.
+# List order is the resolver order in /etc/resolv.conf (primary first,
+# fallback after). Don't reorder casually — AdGuard VIP direct must be the
+# primary, the UCG gateway only catches the case where the VIP itself is
+# unreachable from this host.
 baseline_nameservers:
-  - 10.0.10.200 # Fallback to AdGuard VIP directly
-  - 10.0.254.1 # UCG, forwards to AdGuard VIP
+  - 10.0.10.200 # primary — AdGuard VIP direct (keepalived across Saga/Mimir/Kvasir)
+  - 10.0.254.1  # fallback — UCG gateway (forwards to AdGuard VIP)
 baseline_dns_search:
   - niflheim.xiiisins.com
 
