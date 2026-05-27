@@ -17,7 +17,7 @@
 locals {
   devices = {
     urd = {
-      name           = "Urd"
+      name           = "urd"
       role           = "proxmox-host"
       device_type    = "msi_cubi"
       interface_name = "enp45s0"
