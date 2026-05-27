@@ -28,6 +28,33 @@
 # Day-1 bring-up uses targeted plays (`--limit`), not site.yml. site.yml
 # is the steady-state converge tool.
 
+# Preflight — fail loud if the inventory is empty / nearly-empty.
+# Catches the failure mode where the NetBox inventory cache is cold
+# AND a live rebuild hit a NetBox blip — without the assert, every
+# downstream play silently `skipping: no hosts matched` and Semaphore
+# reports `success`. Triggered by task 27 (2026-05-27) which ran
+# right after a cache wipe + the consumer's live rebuild caught a
+# transient NetBox 500. site_inventory_min_hosts is overrideable
+# per-run for partial-fleet scenarios (e.g. -e
+# site_inventory_min_hosts=5 against a teardown-and-rebuild test).
+- name: Preflight — inventory sanity check
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: assert inventory has a sane host count
+      ansible.builtin.assert:
+        that:
+          - groups['all'] | length >= (site_inventory_min_hosts | default(20) | int)
+        fail_msg: >-
+          Inventory has only {{ groups['all'] | length }} host(s); expected
+          at least {{ site_inventory_min_hosts | default(20) }}. The NetBox
+          inventory cache is likely cold (pod restart) AND a live rebuild
+          failed — run the `refresh-netbox-inventory` Semaphore template
+          (or `ansible-inventory -i ansible/inventory/netbox.yml --list`
+          locally) before retrying.
+        success_msg: >-
+          Inventory has {{ groups['all'] | length }} hosts — proceeding.
+
 - import_playbook: asgard-k3s.yml
 - import_playbook: asgard-adguard.yml
 - import_playbook: asgard-tailscale.yml

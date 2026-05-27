@@ -15,13 +15,16 @@
 
 # === refresh-netbox-inventory ===
 #
-# Wipes the netbox.netbox dynamic-inventory cache file so the next
-# inventory build re-queries NetBox. Uses Semaphore's `bash` app
-# type — the work is a one-liner, no playbook needed.
+# Wipes the netbox.netbox dynamic-inventory cache + actively rebuilds
+# it via `ansible-inventory --list`, with retry-loop tolerance for
+# transient NetBox 500s. cache_timeout (24h in netbox.yml) exceeds
+# this template's refresh cadence (4h), so consumer playbooks always
+# hit the warm cache between refreshes — the refresh template is the
+# only NetBox-live path in steady state. See the script for details.
 resource "semaphoreui_project_template" "refresh_netbox_inventory" {
   project_id     = semaphoreui_project.asgard.id
   name           = "refresh-netbox-inventory"
-  description    = "Wipe NetBox dynamic-inventory cache; next playbook re-queries NetBox."
+  description    = "Rebuild NetBox dynamic-inventory cache (with retry). Drift-check / apply read the cache, not live NetBox."
   app            = "bash"
   playbook       = "ansible/scripts/refresh-netbox-inventory.sh"
   repository_id  = semaphoreui_project_repository.homelab.id

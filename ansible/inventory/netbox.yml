@@ -73,12 +73,18 @@ keyed_groups:
     prefix: ""
     separator: ""
 
-# jsonfile cache reduces NetBox load + lets `ansible-playbook` runs
-# tolerate brief NetBox blips. 4h TTL chosen as the routine-add-VM-
-# to-NetBox-and-it-gets-picked-up cadence; manual refresh (via the
-# Semaphore `refresh-netbox-inventory` template at Phase 5h.3.e)
-# covers the "I just added it, run NOW" case by deleting the cache
-# file + re-querying.
+# jsonfile cache: TTL (24h) deliberately exceeds the
+# `refresh-netbox-inventory` Semaphore cadence (4h) so consumer
+# playbooks ALWAYS hit a warm cache between refreshes. Means
+# drift-check + apply never touch NetBox at inventory-build time in
+# steady state — the refresh template is the only NetBox-live path.
+# Manual "I just added it, run NOW" case covered by triggering the
+# refresh template on-demand. Post-task-27 design (2026-05-27) —
+# previous 4h TTL matched the refresh cadence exactly, leaving a
+# race window where a consumer running between refresh-wipe and
+# refresh-repopulate would cold-rebuild against NetBox; site.yml's
+# preflight assert is the defense-in-depth for any remaining
+# cache-miss scenario (pod restart wipes the emptyDir).
 #
 # cache_connection differs between MacBook + Semaphore runs:
 #   - MacBook: $HOME/.cache/ansible/netbox-inventory (operator's $HOME)
@@ -89,6 +95,6 @@ keyed_groups:
 #     runs work without env-var dance.
 cache: true
 cache_plugin: jsonfile
-cache_timeout: 14400
+cache_timeout: 86400
 cache_connection: ~/.cache/ansible/netbox-inventory
 cache_prefix: netbox_asgard_
