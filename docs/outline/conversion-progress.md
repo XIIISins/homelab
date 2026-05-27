@@ -10,8 +10,8 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 
 ## Status snapshot
 
-- **Drafted:** 5 pages (1 collection root + 1 section parent + 3 subpages).
-- **Pending:** 4 subpages under Components & Interactions, then 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
+- **Drafted:** 6 pages (1 collection root + 1 section parent + 4 subpages).
+- **Pending:** 3 subpages under Components & Interactions, then 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
 
 ---
 
@@ -27,6 +27,7 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 - [x] `components-and-interactions/compute-and-hypervisors.md` — Proxmox cluster, VM/LXC decision, asgard/jotunheim split, ID scheme, specs, bootstrap flow.
 - [x] `components-and-interactions/network.md` — VLAN model, firewall posture, DNS architecture (incl. in-cluster CoreDNS rewrites), MetalLB, multi-homed worker landmines, source-based policy routing, key IPs.
 - [x] `components-and-interactions/storage-and-data.md` — local LVM-thin, Synology iSCSI, Synology NFS, Garage S3, Postgres + Patroni, PBS, failure surfaces.
+- [x] `components-and-interactions/identity-and-secrets.md` — Authentik OIDC/LDAP/SAML, three-store model, Vault Kubernetes + AppRole auth, ESO + AppRole interaction flows, failure surfaces.
 
 ---
 
@@ -34,7 +35,6 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 
 ### Components & Interactions — remaining subpages
 
-- [ ] `identity-and-secrets.md` — Authentik OIDC/LDAP, Vault three-store model, ESO + AppRole flows, 1Password discipline.
 - [ ] `gitops-and-automation.md` — Flux structure, Semaphore templates, Ansible role layout, Terraform/Ansible/Flux layering, drift-check.
 - [ ] `edge.md` — Traefik, Cloudflared, cert-manager DNS-01, the three DNS zones at the certificate layer.
 - [ ] `observability.md` — VictoriaMetrics + VictoriaLogs, Zabbix split, Hermod tag taxonomy, vmagent/vlagent shippers.
@@ -101,4 +101,4 @@ If the order shifts again, update the parent + this file + the "See also" refere
 
 ## Next
 
-Resume at **`identity-and-secrets.md`** under Components & Interactions. Three-store model (Vault / 1Password / Ansible Vault) is the unique design content; ESO + AppRole flows are the two interaction patterns to spell out.
+Resume at **`gitops-and-automation.md`** under Components & Interactions. Cover Flux's per-component-config layering, the Terraform/Ansible/Flux split (who provisions what), Semaphore's drift-check + apply templates, and the data-flow when a change lands in Git.
