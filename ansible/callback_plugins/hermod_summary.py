@@ -8,6 +8,8 @@ callback sees — the wrapper:
 
     playbooks/drift-check.yml  -> mode=drift  (alert on changes/failure)
     playbooks/apply.yml        -> mode=apply  (critical on failure only)
+    playbooks/fleet-agents.yml -> mode=apply  (critical on failure only;
+                                  daily fleet-wide agent reconverge)
 
 Any other wrapper is a no-op — the callback is meant for the Semaphore
 wrapper playbooks; per-host ad-hoc runs from the operator's MacBook
@@ -54,7 +56,11 @@ class CallbackModule(CallbackBase):
     CALLBACK_NAME = "hermod_summary"
     CALLBACK_NEEDS_WHITELIST = True
 
-    _MODES = {"drift-check.yml": "drift", "apply.yml": "apply"}
+    _MODES = {
+        "drift-check.yml": "drift",
+        "apply.yml": "apply",
+        "fleet-agents.yml": "apply",
+    }
 
     def __init__(self):
         super().__init__()

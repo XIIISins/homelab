@@ -1,0 +1,17 @@
+# ansible/playbooks/fleet-agents.yml
+#
+# Semaphore wrapper for the `asgard-fleet-agents` template (daily
+# cron — defense-in-depth fleet-wide reconverge of the observability
+# agents). The standalone vlagent.yml + zabbix-agent.yml playbooks
+# target `all` (every host in inventory); per-host-group playbooks
+# in site.yml ship the same roles but at the 6h drift-check cadence.
+# This wrapper is the once-per-day belt-and-braces sweep that catches
+# any host the per-group playbooks may have missed (e.g. a future
+# new playbook that forgets to add agents).
+#
+# The hermod_summary callback treats this wrapper like apply.yml —
+# failure → `critical` Hermod notification, success → silent (daily
+# success would otherwise be noise).
+---
+- import_playbook: vlagent.yml
+- import_playbook: zabbix-agent.yml

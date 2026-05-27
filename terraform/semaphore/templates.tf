@@ -1,17 +1,22 @@
 # terraform/semaphore/templates.tf
 #
-# Three templates per the design doc:
+# Four templates per the design doc:
 #
 #   - refresh-netbox-inventory  cron */4h  ansible-side: ad-hoc command
 #   - asgard-drift-check        cron */6h  --check --diff site.yml
 #   - asgard-apply              manual     site.yml (full converge)
+#   - asgard-fleet-agents       cron daily fleet-agents.yml (defense-
+#                                          in-depth vlagent + zabbix-
+#                                          agent reconverge across
+#                                          every host, complementing
+#                                          the per-host-group agent
+#                                          roles in site.yml)
 #
-# The drift-check + apply templates run *wrapper* playbooks
-# (drift-check.yml / apply.yml) rather than site.yml directly. The
-# wrappers set HERMOD_MODE in the play's vars block so the
-# hermod_summary callback plugin can tag its end-of-run POST
-# correctly. The wrappers `import_playbook: site.yml` so the actual
-# convergence logic stays in site.yml.
+# The drift-check + apply + fleet-agents templates run *wrapper*
+# playbooks (drift-check.yml / apply.yml / fleet-agents.yml) rather
+# than the underlying playbooks directly. The wrapper's filename is
+# what the hermod_summary callback plugin uses to infer mode for its
+# end-of-run POST.
 
 # === refresh-netbox-inventory ===
 #
@@ -114,6 +119,39 @@ resource "semaphoreui_project_template" "asgard_apply" {
   suppress_success_alerts = false
 }
 
+# === asgard-fleet-agents ===
+#
+# Daily fleet-wide vlagent + zabbix-agent reconverge. Every per-host-
+# group playbook in site.yml already ships these roles, so this is
+# belt-and-braces — catches any host the per-group playbooks missed
+# (future new playbook that forgets to add agents, etc.).
+# Hermod posture matches apply: failure → critical, success → silent.
+resource "semaphoreui_project_template" "asgard_fleet_agents" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "asgard-fleet-agents"
+  description    = "Daily fleet-wide vlagent + zabbix-agent reconverge (defense-in-depth)."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/fleet-agents.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  # Same vaults shape as the other ansible templates.
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  # Defense-in-depth job — successful daily runs are background noise,
+  # only surface failures (which also fire Hermod `critical` via the
+  # callback's apply-mode classification).
+  suppress_success_alerts = true
+}
+
 # === Schedules ===
 
 resource "semaphoreui_project_schedule" "refresh_netbox_inventory" {
@@ -136,3 +174,14 @@ resource "semaphoreui_project_schedule" "asgard_drift_check" {
 }
 
 # asgard-apply has no schedule — manual-only.
+
+resource "semaphoreui_project_schedule" "asgard_fleet_agents" {
+  project_id  = semaphoreui_project.asgard.id
+  template_id = semaphoreui_project_template.asgard_fleet_agents.id
+  name        = "daily"
+  # 04:30 UTC daily — quiet hours for the homelab, after the
+  # inventory-refresh cron at minute 0 + drift-check at minute 15.
+  # Use minute 30 to keep crons visually grouped on the hour.
+  cron_format = "30 4 * * *"
+  enabled     = true
+}
