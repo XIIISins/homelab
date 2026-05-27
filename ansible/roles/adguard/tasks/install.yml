@@ -21,7 +21,9 @@
     url: "{{ adguard_tarball_url }}"
     dest: "/tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz"
     mode: "0644"
-  when: adguard_installed_version != adguard_version
+  when:
+    - adguard_installed_version != adguard_version
+    - not ansible_check_mode
 
 - name: Ensure install dir exists
   ansible.builtin.file:
@@ -63,7 +65,9 @@
   ansible.builtin.command:
     cmd: tar -xzf /tmp/AdGuardHome_{{ adguard_version }}_linux_amd64.tar.gz -C {{ adguard_extract_dir.path }}
   changed_when: true
-  when: adguard_installed_version != adguard_version
+  when:
+    - adguard_installed_version != adguard_version
+    - not ansible_check_mode
 
 # Recovery: a previous broken extract (2026-05-25 release of this role)
 # could leave `<adguard_binary>` as a DIRECTORY. Remove it first so the
