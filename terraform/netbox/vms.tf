@@ -52,7 +52,7 @@ locals {
     einherjar-skuld = { vmid = "2103", role = "k3s-worker", device = "skuld", cpu = 2, memory = 8192, primary_iface = "eth0" }
 
     # ── PBS (Proxmox Backup Server, privileged LXC, no IaC) ────────
-    PBS = { vmid = "1101", role = "backup-server", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
+    pbs = { vmid = "1101", role = "backup-server", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
     # ── Hugin — Zabbix server (LXC 1102, Phase 7c) ─────────────────
     hugin = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
@@ -68,19 +68,19 @@ locals {
     # (1 vCPU / 512MB / 4GB disk). Apply this update AFTER the 5b.2
     # LXC deploy lands so NetBox + reality agree.
     saga   = { vmid = "1110", role = "dns", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
-    Mimir  = { vmid = "1111", role = "dns", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    mimir  = { vmid = "1111", role = "dns", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
     kvasir = { vmid = "1112", role = "dns", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
 
     # ── Tailscale trio (subnet routers Bifrost/Heimdall + exit Gjallarbru) ─
-    Bifrost    = { vmid = "1113", role = "tailscale-gateway", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
-    Heimdall   = { vmid = "1114", role = "tailscale-gateway", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
-    Gjallarbru = { vmid = "1115", role = "tailscale-gateway", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
+    bifrost    = { vmid = "1113", role = "tailscale-gateway", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    heimdall   = { vmid = "1114", role = "tailscale-gateway", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    gjallarbru = { vmid = "1115", role = "tailscale-gateway", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
 
     # ── Factorio LXC ───────────────────────────────────────────────
     factorio = { vmid = "1120", role = "game-server", device = "urd", cpu = 4, memory = 8192, primary_iface = "eth0" }
 
     # ── PostgreSQL trio (Patroni) ──────────────────────────────────
-    Fulla = { vmid = "1130", role = "db", device = "skuld", cpu = 2, memory = 4096, primary_iface = "eth0" }
+    fulla = { vmid = "1130", role = "db", device = "skuld", cpu = 2, memory = 4096, primary_iface = "eth0" }
     vor   = { vmid = "1131", role = "db", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
     idunn = { vmid = "1132", role = "db", device = "verd", cpu = 2, memory = 4096, primary_iface = "eth0" }
 
@@ -108,17 +108,17 @@ locals {
     "einherjar-skuld.eth1" = { vm = "einherjar-skuld", name = "eth1", ip = "10.0.20.203/24" }
 
     # PBS + Hugin (Zabbix) + AGH trio + Tailscale trio + Factorio + PG trio (single-homed VLAN 11)
-    "PBS.eth0"        = { vm = "PBS", name = "eth0", ip = "10.0.11.20/24" }
+    "pbs.eth0"        = { vm = "pbs", name = "eth0", ip = "10.0.11.20/24" }
     "hugin.eth0"      = { vm = "hugin", name = "eth0", ip = "10.0.11.21/24" }
     "hermod.eth0"     = { vm = "hermod", name = "eth0", ip = "10.0.11.22/24" }
     "saga.eth0"       = { vm = "saga", name = "eth0", ip = "10.0.11.201/24" }
-    "Mimir.eth0"      = { vm = "Mimir", name = "eth0", ip = "10.0.11.202/24" }
+    "mimir.eth0"      = { vm = "mimir", name = "eth0", ip = "10.0.11.202/24" }
     "kvasir.eth0"     = { vm = "kvasir", name = "eth0", ip = "10.0.11.203/24" }
-    "Bifrost.eth0"    = { vm = "Bifrost", name = "eth0", ip = "10.0.11.213/24" }
-    "Heimdall.eth0"   = { vm = "Heimdall", name = "eth0", ip = "10.0.11.214/24" }
-    "Gjallarbru.eth0" = { vm = "Gjallarbru", name = "eth0", ip = "10.0.11.215/24" }
+    "bifrost.eth0"    = { vm = "bifrost", name = "eth0", ip = "10.0.11.213/24" }
+    "heimdall.eth0"   = { vm = "heimdall", name = "eth0", ip = "10.0.11.214/24" }
+    "gjallarbru.eth0" = { vm = "gjallarbru", name = "eth0", ip = "10.0.11.215/24" }
     "factorio.eth0"   = { vm = "factorio", name = "eth0", ip = "10.0.11.220/24" }
-    "Fulla.eth0"      = { vm = "Fulla", name = "eth0", ip = "10.0.11.230/24" }
+    "fulla.eth0"      = { vm = "fulla", name = "eth0", ip = "10.0.11.230/24" }
     "vor.eth0"        = { vm = "vor", name = "eth0", ip = "10.0.11.231/24" }
     "idunn.eth0"      = { vm = "idunn", name = "eth0", ip = "10.0.11.232/24" }
 
@@ -142,15 +142,15 @@ locals {
     einherjar-urd   = "4"
     einherjar-verd  = "5"
     einherjar-skuld = "6"
-    PBS             = "7"
+    pbs             = "7"
     saga            = "8"
-    Mimir           = "9"
+    mimir           = "9"
     kvasir          = "10"
-    Bifrost         = "11"
-    Heimdall        = "12"
-    Gjallarbru      = "13"
+    bifrost         = "11"
+    heimdall        = "12"
+    gjallarbru      = "13"
     factorio        = "14"
-    Fulla           = "15"
+    fulla           = "15"
     vor             = "16"
     idunn           = "17"
     hlin            = "18"
@@ -167,15 +167,15 @@ locals {
     "einherjar-verd.eth1"  = "10"
     "einherjar-skuld.eth0" = "3"
     "einherjar-skuld.eth1" = "8"
-    "PBS.eth0"             = "11"
+    "pbs.eth0"             = "11"
     "saga.eth0"            = "12"
-    "Mimir.eth0"           = "13"
+    "mimir.eth0"           = "13"
     "kvasir.eth0"          = "14"
-    "Bifrost.eth0"         = "17"
-    "Heimdall.eth0"        = "15"
-    "Gjallarbru.eth0"      = "16"
+    "bifrost.eth0"         = "17"
+    "heimdall.eth0"        = "15"
+    "gjallarbru.eth0"      = "16"
     "factorio.eth0"        = "18"
-    "Fulla.eth0"           = "19"
+    "fulla.eth0"           = "19"
     "vor.eth0"             = "20"
     "idunn.eth0"           = "21"
     "hlin.eth0"            = "24"
@@ -195,15 +195,15 @@ locals {
     "einherjar-verd.eth1"  = "10"
     "einherjar-skuld.eth0" = "6"
     "einherjar-skuld.eth1" = "8"
-    "PBS.eth0"             = "11"
+    "pbs.eth0"             = "11"
     "saga.eth0"            = "12"
-    "Mimir.eth0"           = "13"
+    "mimir.eth0"           = "13"
     "kvasir.eth0"          = "14"
-    "Bifrost.eth0"         = "17"
-    "Heimdall.eth0"        = "15"
-    "Gjallarbru.eth0"      = "16"
+    "bifrost.eth0"         = "17"
+    "heimdall.eth0"        = "15"
+    "gjallarbru.eth0"      = "16"
     "factorio.eth0"        = "18"
-    "Fulla.eth0"           = "19"
+    "fulla.eth0"           = "19"
     "vor.eth0"             = "20"
     "idunn.eth0"           = "21"
     "hlin.eth0"            = "24"
@@ -289,4 +289,119 @@ resource "netbox_primary_ip" "this" {
 
   virtual_machine_id = netbox_virtual_machine.this[each.key].id
   ip_address_id      = netbox_ip_address.vm["${each.key}.${each.value.primary_iface}"].id
+}
+
+# State rebinding: the 6 VMs below were originally registered with
+# capital-first-letter keys (matching the Norse display names) but the
+# rest of the codebase — static hosts.yml, group_vars dict keys, role
+# conventions — uses lowercase. NetBox-as-inventory-source returned
+# capital `inventory_hostname` for these hosts, which broke any role
+# dereferencing `keepalived_priorities[inventory_hostname]` etc.
+# (Surfaced 2026-05-27 in Semaphore drift-check run #32: Mimir failed
+# on the keepalived dict lookup while saga/kvasir succeeded.)
+#
+# Lowercasing the local-map keys above changes the TF resource address
+# from e.g. netbox_virtual_machine.this["Mimir"] to
+# netbox_virtual_machine.this["mimir"]; the `moved` blocks below
+# re-key state in place so the apply is just a `name` attribute update
+# (capital → lowercase) on the existing NetBox records, not a
+# destroy+recreate.
+moved {
+  from = netbox_virtual_machine.this["PBS"]
+  to   = netbox_virtual_machine.this["pbs"]
+}
+moved {
+  from = netbox_virtual_machine.this["Mimir"]
+  to   = netbox_virtual_machine.this["mimir"]
+}
+moved {
+  from = netbox_virtual_machine.this["Bifrost"]
+  to   = netbox_virtual_machine.this["bifrost"]
+}
+moved {
+  from = netbox_virtual_machine.this["Heimdall"]
+  to   = netbox_virtual_machine.this["heimdall"]
+}
+moved {
+  from = netbox_virtual_machine.this["Gjallarbru"]
+  to   = netbox_virtual_machine.this["gjallarbru"]
+}
+moved {
+  from = netbox_virtual_machine.this["Fulla"]
+  to   = netbox_virtual_machine.this["fulla"]
+}
+
+moved {
+  from = netbox_interface.this["PBS.eth0"]
+  to   = netbox_interface.this["pbs.eth0"]
+}
+moved {
+  from = netbox_interface.this["Mimir.eth0"]
+  to   = netbox_interface.this["mimir.eth0"]
+}
+moved {
+  from = netbox_interface.this["Bifrost.eth0"]
+  to   = netbox_interface.this["bifrost.eth0"]
+}
+moved {
+  from = netbox_interface.this["Heimdall.eth0"]
+  to   = netbox_interface.this["heimdall.eth0"]
+}
+moved {
+  from = netbox_interface.this["Gjallarbru.eth0"]
+  to   = netbox_interface.this["gjallarbru.eth0"]
+}
+moved {
+  from = netbox_interface.this["Fulla.eth0"]
+  to   = netbox_interface.this["fulla.eth0"]
+}
+
+moved {
+  from = netbox_ip_address.vm["PBS.eth0"]
+  to   = netbox_ip_address.vm["pbs.eth0"]
+}
+moved {
+  from = netbox_ip_address.vm["Mimir.eth0"]
+  to   = netbox_ip_address.vm["mimir.eth0"]
+}
+moved {
+  from = netbox_ip_address.vm["Bifrost.eth0"]
+  to   = netbox_ip_address.vm["bifrost.eth0"]
+}
+moved {
+  from = netbox_ip_address.vm["Heimdall.eth0"]
+  to   = netbox_ip_address.vm["heimdall.eth0"]
+}
+moved {
+  from = netbox_ip_address.vm["Gjallarbru.eth0"]
+  to   = netbox_ip_address.vm["gjallarbru.eth0"]
+}
+moved {
+  from = netbox_ip_address.vm["Fulla.eth0"]
+  to   = netbox_ip_address.vm["fulla.eth0"]
+}
+
+moved {
+  from = netbox_primary_ip.this["PBS"]
+  to   = netbox_primary_ip.this["pbs"]
+}
+moved {
+  from = netbox_primary_ip.this["Mimir"]
+  to   = netbox_primary_ip.this["mimir"]
+}
+moved {
+  from = netbox_primary_ip.this["Bifrost"]
+  to   = netbox_primary_ip.this["bifrost"]
+}
+moved {
+  from = netbox_primary_ip.this["Heimdall"]
+  to   = netbox_primary_ip.this["heimdall"]
+}
+moved {
+  from = netbox_primary_ip.this["Gjallarbru"]
+  to   = netbox_primary_ip.this["gjallarbru"]
+}
+moved {
+  from = netbox_primary_ip.this["Fulla"]
+  to   = netbox_primary_ip.this["fulla"]
 }
