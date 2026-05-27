@@ -20,5 +20,12 @@
 
 - name: Register host in Zabbix server (declarative, via API)
   ansible.builtin.import_tasks: register-host.yml
-  when: zabbix_agent_register_host
+  when:
+    - zabbix_agent_register_host
+    # Skip under --check: community.zabbix's httpapi connection + check_mode
+    # path is unreliable, and host registration is mutating remote (Zabbix)
+    # state — not in-scope for drift-check, which targets managed state on
+    # the local host. Missing-host drift is already visible in Zabbix's UI
+    # via the agent's own heartbeat. Same pattern as postgres-common.
+    - not ansible_check_mode
   tags: [zabbix-agent, zabbix-agent:register]

@@ -40,6 +40,10 @@
     status_code: 200
   register: sftpgo_admin_token
   no_log: true
+  # Skip in check_mode — Wait-for-healthz above is also check-mode-gated,
+  # so the daemon may not be reachable here; downstream set_fact + users.yml
+  # are likewise gated.
+  when: not ansible_check_mode
 
 - name: Store admin JWT for subsequent tasks
   ansible.builtin.set_fact:

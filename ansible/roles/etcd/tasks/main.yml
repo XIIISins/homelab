@@ -32,6 +32,10 @@
     path: "{{ etcd_install_dir }}/etcd"
   register: etcd_binary_stat
 
+# Fresh-install chain. Skipped in check_mode on never-deployed hosts so
+# drift-check reports drift (binary missing → "would install") without
+# hard-failing on the grep that runs against a tarball the previous
+# get_url didn't actually fetch.
 - name: Download upstream SHA256SUMS for this release
   ansible.builtin.get_url:
     url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/SHA256SUMS"
@@ -39,15 +43,18 @@
     mode: '0644'
     owner: root
     group: root
-  when: not etcd_binary_stat.stat.exists
+  when:
+    - not etcd_binary_stat.stat.exists
+    - not ansible_check_mode
 
 - name: Extract SHA256 for the linux-amd64 tarball
   ansible.builtin.command:
     cmd: "grep 'etcd-{{ etcd_version }}-linux-amd64.tar.gz' /tmp/etcd-{{ etcd_version }}.sha256sums"
   register: etcd_sha256_line
   changed_when: false
-  check_mode: false
-  when: not etcd_binary_stat.stat.exists
+  when:
+    - not etcd_binary_stat.stat.exists
+    - not ansible_check_mode
 
 - name: Download etcd tarball with checksum verification
   ansible.builtin.get_url:
@@ -57,7 +64,9 @@
     mode: '0644'
     owner: root
     group: root
-  when: not etcd_binary_stat.stat.exists
+  when:
+    - not etcd_binary_stat.stat.exists
+    - not ansible_check_mode
 
 - name: Extract etcd archive to /opt
   ansible.builtin.unarchive:
@@ -67,6 +76,9 @@
     creates: "{{ etcd_install_dir }}/etcd"
     owner: root
     group: root
+  when:
+    - not etcd_binary_stat.stat.exists
+    - not ansible_check_mode
 
 - name: Symlink etcd binaries into /usr/local/bin
   ansible.builtin.file:

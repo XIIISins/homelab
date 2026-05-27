@@ -39,6 +39,9 @@
   notify: restart postgresql
 
 - name: Generate PostgreSQL TLS CSR
+  # Skip in check_mode: openssl_privatekey is skipped (would create), so on
+  # a never-deployed host the privatekey_path doesn't exist and csr errors.
+  when: not ansible_check_mode
   community.crypto.openssl_csr:
     path: "/etc/postgresql/{{ postgres_version }}/{{ postgres_cluster }}/server.csr"
     privatekey_path: "{{ postgres_tls_key_path }}"
@@ -54,6 +57,7 @@
     mode: "0644"
 
 - name: Generate PostgreSQL TLS certificate (self-signed)
+  when: not ansible_check_mode  # paired with csr above
   community.crypto.x509_certificate:
     path: "{{ postgres_tls_cert_path }}"
     privatekey_path: "{{ postgres_tls_key_path }}"

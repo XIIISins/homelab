@@ -22,6 +22,10 @@
   when: not pg_cluster_conf.stat.exists
 
 - name: Assert cluster {{ postgres_version }}/{{ postgres_cluster }} exists
+  # Skip in check_mode: pg_createcluster is skipped in check_mode (command
+  # module default), so on a fresh host the post-check stat reports
+  # not-exists and the assert hard-fails the drift-check.
+  when: not ansible_check_mode
   ansible.builtin.assert:
     that:
       - (pg_cluster_conf_post.stat.exists if not pg_cluster_conf.stat.exists else true)

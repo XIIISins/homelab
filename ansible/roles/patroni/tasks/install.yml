@@ -40,6 +40,9 @@
         (patroni_installed_version_check.stdout | default('') is not search('patroni ' ~ patroni_version))
       }}
 
+# Fresh-install chain. Also gated on `not ansible_check_mode` so drift-check
+# against a never-deployed host reports the drift (binary missing) without
+# hard-failing on the unarchive that reads a tarball get_url didn't fetch.
 - name: Download Patroni source tarball with SHA256 verification
   ansible.builtin.get_url:
     url: "{{ patroni_source_url }}"
@@ -48,7 +51,9 @@
     mode: '0644'
     owner: root
     group: root
-  when: patroni_needs_install
+  when:
+    - patroni_needs_install
+    - not ansible_check_mode
 
 - name: Extract Patroni source to {{ patroni_src_dir }}
   ansible.builtin.unarchive:
@@ -58,7 +63,9 @@
     creates: "{{ patroni_src_dir }}/setup.py"
     owner: root
     group: root
-  when: patroni_needs_install
+  when:
+    - patroni_needs_install
+    - not ansible_check_mode
 
 # GitHub archive extracts to patroni-<version>/ (without the v prefix on tag).
 # Rename if needed so the install path matches patroni_src_dir.
@@ -67,13 +74,17 @@
     cmd: "mv /opt/patroni-{{ patroni_version }} {{ patroni_src_dir }}"
     creates: "{{ patroni_src_dir }}"
     removes: "/opt/patroni-{{ patroni_version }}"
-  when: patroni_needs_install
+  when:
+    - patroni_needs_install
+    - not ansible_check_mode
 
 - name: Create Patroni venv at {{ patroni_venv_dir }}
   ansible.builtin.command:
     cmd: "python3 -m venv {{ patroni_venv_dir }}"
     creates: "{{ patroni_venv_dir }}/bin/python3"
-  when: patroni_needs_install
+  when:
+    - patroni_needs_install
+    - not ansible_check_mode
 
 - name: Install Patroni + etcd3 + psycopg2-binary into venv
   ansible.builtin.pip:
@@ -89,7 +100,9 @@
       - "{{ patroni_src_dir }}[etcd3,psycopg2-binary]"
     state: present
     virtualenv: "{{ patroni_venv_dir }}"
-  when: patroni_needs_install
+  when:
+    - patroni_needs_install
+    - not ansible_check_mode
   notify: restart patroni
 
 - name: Symlink patroni + patronictl into /usr/local/bin

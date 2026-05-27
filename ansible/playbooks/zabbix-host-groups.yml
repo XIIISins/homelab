@@ -34,6 +34,7 @@
       tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap]
 
     - name: Ensure host groups exist in Zabbix
+      when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
       community.zabbix.zabbix_group:
         host_groups: "{{ _zabbix_all_host_groups }}"
         state: present

@@ -116,6 +116,7 @@
 # The module is "create-or-update by name" — re-running with the same
 # `name` reconciles existing fields, not duplicates.
 - name: Create or update Authentik SAML user directory
+  when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
   community.zabbix.zabbix_user_directory:
     name: "{{ zabbix_saml_userdirectory_name }}"
     idp_type: saml
@@ -193,6 +194,7 @@
 # alternative path. The deprovision_groupid + JIT settings live on the
 # userdirectory itself, not here.
 - name: Enable SAML authentication globally
+  when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
   community.zabbix.zabbix_authentication:
     authentication_type: internal
     saml_auth_enabled: true

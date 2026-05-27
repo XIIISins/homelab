@@ -21,6 +21,7 @@
       when:
         - factorio_rcon_password | length == 0
         - not rconpw_stat.stat.exists
+        - not ansible_check_mode  # pwgen skips in check_mode; write below would deref undef .stdout on fresh hosts
 
     - name: Write RCON password file (generated)
       ansible.builtin.copy:
@@ -32,6 +33,7 @@
       when:
         - factorio_rcon_password | length == 0
         - not rconpw_stat.stat.exists
+        - not ansible_check_mode  # paired with pwgen above
 
     - name: Write RCON password file (operator-supplied)
       ansible.builtin.copy:

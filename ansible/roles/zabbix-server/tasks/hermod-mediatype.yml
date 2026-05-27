@@ -20,6 +20,7 @@
 # per-host scoping concerns + no fact-pre-population pass needed.
 
 - name: Create or update Hermod webhook media type
+  when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
   community.zabbix.zabbix_mediatype:
     name: "{{ zabbix_hermod_mediatype_name }}"
     type: webhook
@@ -167,5 +168,7 @@
                 zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
     ansible_zabbix_url_path: ""
   no_log: true  # token in vars
-  when: zabbix_hermod_enabled
+  when:
+    - zabbix_hermod_enabled
+    - not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
   tags: [zabbix, zabbix:hermod, zabbix:hermod-user-media]

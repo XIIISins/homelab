@@ -40,7 +40,9 @@
       factorio-reconcile ran but /opt/factorio is missing.
       Check /factorio/logs/reconcile.log and
       /factorio/control/factorio-status.json for errors.
-  when: not factorio_symlink.stat.exists
+  when:
+    - not factorio_symlink.stat.exists
+    - not ansible_check_mode  # reconcile is a no-op in check_mode; don't expect /opt/factorio to materialize
 
 - name: Check for existing saves
   ansible.builtin.find:
@@ -53,7 +55,9 @@
   ansible.builtin.command:
     cmd: "{{ factorio_install_base }}/factorio/bin/x64/factorio --create {{ factorio_home }}/saves/default.zip"
   become_user: "{{ factorio_user }}"
-  when: factorio_saves.matched == 0
+  when:
+    - factorio_saves.matched == 0
+    - not ansible_check_mode  # factorio binary won't exist on fresh hosts in check_mode
   changed_when: true
 
 - name: Ensure default save is owned by factorio user (if just created)
@@ -63,7 +67,9 @@
     group: "{{ factorio_group }}"
     mode: "0664"
     state: file
-  when: factorio_saves.matched == 0
+  when:
+    - factorio_saves.matched == 0
+    - not ansible_check_mode  # save file won't exist in check_mode (above task skipped)
 
 - name: Flip control state=running after first-install save creation
   ansible.builtin.copy:
