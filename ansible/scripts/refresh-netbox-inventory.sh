@@ -22,7 +22,12 @@
 # with every play `skipping: no hosts matched`.
 set -euo pipefail
 
-CACHE_DIR="${ANSIBLE_INVENTORY_CACHE_CONNECTION:-/var/lib/semaphore/inventory-cache}"
+# Cache lives at $HOME/.cache/ansible/netbox-inventory — matches the
+# cache_connection in ansible/inventory/netbox.yml (`~/.cache/...`).
+# Override via REFRESH_CACHE_DIR only for unusual test setups; in
+# normal Semaphore + MacBook runs the default is correct because both
+# environments mount the persistent cache at this HOME-relative path.
+CACHE_DIR="${REFRESH_CACHE_DIR:-$HOME/.cache/ansible/netbox-inventory}"
 INVENTORY="${REFRESH_INVENTORY:-ansible/inventory/netbox.yml}"
 ATTEMPTS="${REFRESH_ATTEMPTS:-10}"
 SLEEP="${REFRESH_SLEEP:-30}"
@@ -88,14 +93,35 @@ except Exception:
     print(0)
 " 2>/dev/null || echo 0)"
 
-        if [[ "$count" -ge "$MIN_HOSTS" ]]; then
-            echo "ok: $count hosts cached (cache TTL per netbox.yml)"
-            exit 0
-        fi
-        echo "  query returned $count host(s), below floor $MIN_HOSTS"
-        if [[ -s "$err" ]]; then
-            echo "  stderr from this attempt:"
-            sed 's/^/    /' "$err"
+        if [[ "$count" -lt "$MIN_HOSTS" ]]; then
+            echo "  query returned $count host(s), below floor $MIN_HOSTS"
+            if [[ -s "$err" ]]; then
+                echo "  stderr from this attempt:"
+                sed 's/^/    /' "$err"
+            fi
+        else
+            # Verify the cache file actually got written + is fresh.
+            # ansible-inventory --list returning N hosts does NOT prove
+            # the plugin wrote them to the cache — earlier bug had the
+            # plugin silently no-op'ing the write (wrong cache path) +
+            # the script declaring success while consumers continued to
+            # read stale data. Find a netbox_asgard_* file created
+            # within the last 60s under CACHE_DIR.
+            shopt -s nullglob
+            fresh=()
+            for f in "$CACHE_DIR"/netbox_asgard_*; do
+                if [[ -n "$(find "$f" -mmin -1 -print -quit 2>/dev/null)" ]]; then
+                    fresh+=("$f")
+                fi
+            done
+            shopt -u nullglob
+            if [[ ${#fresh[@]} -eq 0 ]]; then
+                echo "  query returned $count hosts but NO fresh cache files in $CACHE_DIR"
+                echo "  (cache_connection in netbox.yml may not match CACHE_DIR — consumer plays will read stale data)"
+            else
+                echo "ok: $count hosts cached (${#fresh[@]} fresh files in $CACHE_DIR)"
+                exit 0
+            fi
         fi
     else
         echo "  ansible-inventory exited non-zero:"

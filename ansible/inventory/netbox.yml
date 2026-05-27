@@ -86,13 +86,20 @@ keyed_groups:
 # preflight assert is the defense-in-depth for any remaining
 # cache-miss scenario (pod restart wipes the emptyDir).
 #
-# cache_connection differs between MacBook + Semaphore runs:
-#   - MacBook: $HOME/.cache/ansible/netbox-inventory (operator's $HOME)
-#   - Semaphore: /var/lib/semaphore/inventory-cache (per the K8s
-#     manifests in Phase 5h.3.d). The env-var override
-#     ANSIBLE_INVENTORY_CACHE_CONNECTION points at the right path
-#     per-environment; default below is the MacBook path so local
-#     runs work without env-var dance.
+# cache_connection is HOME-relative (`~`) so the cache lives in the
+# same place for both MacBook + Semaphore — the user's $HOME. The
+# K8s statefulset's emptyDir is mounted at this exact path inside
+# the pod so cache writes land on the persistent (per-pod) volume.
+# Earlier design used ANSIBLE_INVENTORY_CACHE_CONNECTION env-var
+# override — that env var doesn't exist in Ansible (only
+# ANSIBLE_CACHE_PLUGIN_CONNECTION does, and inventory-file explicit
+# settings outrank it), so the env var was a no-op and the cache
+# silently landed at $HOME/.cache/... in the pod regardless. Today
+# we just lean into HOME-relative: every consumer (refresh script,
+# drift-check, apply, MacBook ansible-playbook) resolves `~` the
+# same way and ends up at the same cache file.
+# Templating in cache_connection (e.g. `{{ lookup('env', ...) }}`)
+# is NOT supported — `~` literal is the supported pattern.
 cache: true
 cache_plugin: jsonfile
 cache_timeout: 86400

@@ -85,13 +85,7 @@ spec:
           # → config.json, even when the env var is set with valid JSON.
           # Mounting the full file sidesteps setup entirely.
           #
-          # Only this one env var stays — it's not a Semaphore field,
-          # it's an Ansible-plugin override for the inventory cache path
-          # (the netbox.yml plugin reads it, MacBook uses a different
-          # path, semaphore pod uses this one).
           env:
-            - name: ANSIBLE_INVENTORY_CACHE_CONNECTION
-              value: /var/lib/semaphore/inventory-cache
             # Path of the mounted SSH private key (rendered by the
             # semaphore-ansible-ssh-key ExternalSecret). Ansible reads
             # this for every host connection — Semaphore's
@@ -105,7 +99,20 @@ spec:
               containerPort: 3000
           volumeMounts:
             - name: inventory-cache
-              mountPath: /var/lib/semaphore/inventory-cache
+              # Mounted at the path the netbox.netbox.nb_inventory
+              # plugin actually writes to (cache_connection in
+              # ansible/inventory/netbox.yml = `~/.cache/ansible/
+              # netbox-inventory`, and `~` resolves to the
+              # semaphore container's HOME=/home/semaphore). Earlier
+              # attempts mounted at /var/lib/semaphore/inventory-cache
+              # + relied on an ANSIBLE_INVENTORY_CACHE_CONNECTION env
+              # var to override the plugin — but that env var doesn't
+              # exist in Ansible, and inventory-file `cache_connection`
+              # outranks the only real cache-connection env var
+              # (ANSIBLE_CACHE_PLUGIN_CONNECTION) anyway, so the
+              # cache silently landed at the HOME-relative path while
+              # the refresh script wiped a different (empty) location.
+              mountPath: /home/semaphore/.cache/ansible/netbox-inventory
             # subPath mount: drops just the `config.json` key from the
             # semaphore-config Secret at /etc/semaphore/config.json
             # without clobbering the rest of /etc/semaphore. Kubelet
