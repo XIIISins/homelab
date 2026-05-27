@@ -32,10 +32,10 @@ locals {
     "k3s-worker"        = "k3s-worker"
     "backup-server"     = "pbs"
     "monitoring"        = "zabbix"
-    "notifications"     = "hermod"
+    "notifications"     = "apprise"
     "dns"               = "adguard"
     "tailscale-gateway" = "tailscale"
-    "game-server"       = "factorio"
+    "game-server"       = "gameserver"
     "db"                = "postgres"
     "service-frontend"  = "haproxy-etcd"
   }

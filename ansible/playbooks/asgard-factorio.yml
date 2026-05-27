@@ -38,7 +38,7 @@
 #     factorio.xiiisins.com            → WAN IP        (external, public)
 
 - name: Configure Factorio LXC
-  hosts: factorio
+  hosts: gameserver
   gather_facts: true
   become: true
 

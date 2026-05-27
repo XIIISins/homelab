@@ -102,7 +102,7 @@ no-ops — operator-set stopped state wins.
 ## Usage
 
 ```yaml
-- hosts: factorio
+- hosts: gameserver
   become: true
   roles:
     - role: factorio

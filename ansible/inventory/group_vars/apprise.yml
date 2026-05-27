@@ -1,4 +1,4 @@
-# ansible/inventory/group_vars/hermod.yml
+# ansible/inventory/group_vars/apprise.yml
 ---
 # Hermod — notifications hub group vars. Composes with role defaults from
 # baseline, caddy-reverse-proxy, hermod-api, vlagent, zabbix-agent, hardening.

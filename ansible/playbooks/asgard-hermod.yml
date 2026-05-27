@@ -1,7 +1,7 @@
 # ansible/playbooks/asgard-hermod.yml
 ---
 - name: Configure Hermod (notifications hub)
-  hosts: hermod
+  hosts: apprise
   become: true
 
   # Single host today (LXC 1103 on Verd). No serialization concern — kept

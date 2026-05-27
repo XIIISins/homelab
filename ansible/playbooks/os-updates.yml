@@ -82,7 +82,7 @@
       tags: [os-updates]
 
 - name: Patch standalone service LXCs
-  hosts: factorio:zabbix:hermod:pbs
+  hosts: gameserver:zabbix:apprise:pbs
   become: true
   roles:
     - role: os-updates

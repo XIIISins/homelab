@@ -40,8 +40,9 @@ locals {
     # Ansible groups; the role tags above stay as NetBox-side
     # documentation without polluting the inventory graph.
     "ansible:adguard"      = { slug = "ansibleadguard", color_hex = "00bcd4" }
+    "ansible:apprise"      = { slug = "ansibleapprise", color_hex = "ff9800" }
+    "ansible:gameserver"   = { slug = "ansiblegameserver", color_hex = "795548" }
     "ansible:haproxy-etcd" = { slug = "ansiblehaproxy-etcd", color_hex = "8bc34a" }
-    "ansible:hermod"       = { slug = "ansiblehermod", color_hex = "ff9800" }
     "ansible:k3s-cp"       = { slug = "ansiblek3s-cp", color_hex = "e91e63" }
     "ansible:k3s-worker"   = { slug = "ansiblek3s-worker", color_hex = "f06292" }
     "ansible:pbs"          = { slug = "ansiblepbs", color_hex = "607d8b" }
