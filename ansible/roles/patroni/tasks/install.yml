@@ -29,6 +29,7 @@
   register: patroni_installed_version_check
   failed_when: false
   changed_when: false
+  check_mode: false  # read-only; must run in --check or downstream set_fact misfires
   when: patroni_binary_stat.stat.exists
 
 - name: Set fact for whether reinstall is needed

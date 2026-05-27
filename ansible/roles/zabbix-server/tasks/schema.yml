@@ -25,6 +25,7 @@
   register: zabbix_schema_check
   changed_when: false
   no_log: true
+  check_mode: false  # read-only SELECT probe; must run in --check or zabbix_schema_loaded misfires
 
 - name: Set schema-loaded fact
   ansible.builtin.set_fact:

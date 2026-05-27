@@ -16,6 +16,7 @@
   register: patroni_debian_pg_enabled_check
   failed_when: false
   changed_when: false
+  check_mode: false  # read-only; must run in --check or downstream set_fact errors on undef .rc
 
 - name: Set fact for Debian PG service state
   ansible.builtin.set_fact:

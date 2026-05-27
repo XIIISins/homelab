@@ -63,6 +63,7 @@
   register: vlagent_installed_version_check
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only probe; must run in --check or set_fact errors on undef .stdout
   tags: [vlagent, vlagent:install]
 
 - name: Set fact for installed version

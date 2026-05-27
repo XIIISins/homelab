@@ -15,6 +15,7 @@
   register: k3s_service_state
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only probe; must run in --check or k3s_already_healthy misfires
 
 - name: Check if this node is Ready in the cluster
   ansible.builtin.command:
@@ -25,6 +26,7 @@
   register: k3s_node_ready
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only probe; must run in --check or k3s_already_healthy misfires
   # Only meaningful if init node has K3s running. On true cluster bootstrap
   # (init node not yet up), this returns rc!=0 and stdout is empty, which
   # correctly evaluates to "not healthy" below.

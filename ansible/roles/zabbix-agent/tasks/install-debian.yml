@@ -8,6 +8,7 @@
   register: zabbix_release_installed
   changed_when: false
   failed_when: false
+  check_mode: false  # read-only probe; must run in --check or .rc consumers misfire
 
 - name: Download zabbix-release package
   ansible.builtin.get_url:
