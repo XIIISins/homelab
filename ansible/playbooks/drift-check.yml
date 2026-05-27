@@ -2,11 +2,39 @@
 #
 # Semaphore wrapper for the `asgard-drift-check` template (Phase 5h.3.e).
 # Runs site.yml as-is — Semaphore passes --check --diff via the
-# template's `arguments`, so this wrapper just sets up the file
-# basename for the hermod_summary callback to infer mode=drift.
+# template's `arguments` (terraform/semaphore/templates.tf), so this
+# wrapper just sets up the file basename for the hermod_summary
+# callback to infer mode=drift.
 #
 # Don't run this playbook locally without Semaphore's env — the
 # callback POSTs to Hermod, and ad-hoc local runs would falsely
 # attribute drift to a manual operator check.
 ---
+# Belt-and-braces guard: refuse to proceed if --check isn't in effect.
+# Semaphore's template enforces `--check --diff` via `arguments` +
+# `allow_override_args_in_task = false`, but the manual-run UI dialog
+# still surfaces dry_run/diff checkboxes that an operator might assume
+# they need to flip. This assert makes drift-check.yml self-enforcing:
+# any invocation (Semaphore, ad-hoc ansible-playbook from the MacBook,
+# anywhere else) that reaches this wrapper without --check will fail
+# fast at the localhost preflight — before site.yml's plays touch any
+# real host.
+- name: Drift-check preflight — assert --check is in effect
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert ansible_check_mode is true
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode | bool
+        fail_msg: |
+          drift-check.yml requires --check mode (and conventionally
+          --diff for readable output). The Semaphore template sets
+          both in `arguments` + disallows task-level override; if
+          you're seeing this error from a Semaphore-triggered run,
+          terraform/semaphore/ state has drifted — re-apply that
+          module. For ad-hoc local invocations, re-run with:
+              ansible-playbook --check --diff drift-check.yml
+        success_msg: "drift-check in --check mode, proceeding."
+
 - import_playbook: site.yml
