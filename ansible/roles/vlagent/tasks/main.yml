@@ -117,6 +117,8 @@
     owner: root
     group: root
   tags: [vlagent, vlagent:install]
+  when:
+    - not ansible_check_mode
 
 - name: Clean up tarball
   ansible.builtin.file:
