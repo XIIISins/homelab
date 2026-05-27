@@ -11,7 +11,7 @@ A ground-up homelab rebuild on 3 physical nodes (Urd / Verd / Skuld). Goals: rel
 - [`docs/homelab-design.md`](docs/homelab-design.md) — top-level index
 - [`docs/architecture/`](docs/architecture/) — hardware, network, identity-secrets, IaC layering
 - [`docs/services/`](docs/services/) — per-service deep dives (asgard-k3s, jotunheim-k3s, LXCs, Factorio, Postgres, Synology)
-- [`docs/operations/`](docs/operations/) — build sequence, decisions log, open questions
+- [`docs/operations/`](docs/operations/) — build sequence, decisions log, open questions, [1.0 stabilization plan](docs/operations/1.0-stabilization.md)
 - [`docs/incidents/`](docs/incidents/) — per-incident retrospectives (date-indexed in README)
 - [`docs/procedures/`](docs/procedures/) — operational runbooks (teardown-rebuild, etc.)
 

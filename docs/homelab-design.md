@@ -47,6 +47,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`operations/build-sequence.md`](operations/build-sequence.md) — phase status table (Phases 1-8). Concise one-line rows with ✅/🟡/🔲 tick.
 - [`operations/decisions.md`](operations/decisions.md) — Key decisions log, ~130 rows. Every architectural decision with reason + date.
 - [`operations/open-questions.md`](operations/open-questions.md) — pending tasks + open architectural questions.
+- [`operations/1.0-stabilization.md`](operations/1.0-stabilization.md) — 1.0 stabilization plan: pre-build-on-top hardening waves (validation / recovery / role debt / observability / pins / cleanup / fragility audit). Drafted 2026-05-27.
 
 ### Incidents — what broke and what we learned
 - [`incidents/`](incidents/) — per-incident retrospectives. See [`incidents/README.md`](incidents/README.md) for the date-indexed table.
