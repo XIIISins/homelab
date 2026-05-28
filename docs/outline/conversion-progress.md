@@ -10,8 +10,8 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 
 ## Status snapshot
 
-- **Drafted:** 8 pages (1 collection root + 1 section parent + 6 subpages).
-- **Pending:** 1 subpage under Components & Interactions (observability), then 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
+- **Drafted:** 9 pages (1 collection root + 1 section parent + 7 subpages — Components & Interactions complete).
+- **Pending:** 4 more sections (Hardware, Services and purpose, Procedures, Troubleshooting) plus the URLs page.
 
 ---
 
@@ -30,14 +30,11 @@ Working tracker for converting `docs/` content into reader-shaped Outline pages.
 - [x] `components-and-interactions/identity-and-secrets.md` — Authentik OIDC/LDAP/SAML, three-store model, Vault Kubernetes + AppRole auth, ESO + AppRole interaction flows, failure surfaces.
 - [x] `components-and-interactions/gitops-and-automation.md` — Terraform/Ansible/Flux/docs ownership boundary, Flux per-component-config layering, Ansible per-host-group playbooks + NetBox dynamic inventory, Semaphore drift loop, end-to-end change flow, failure surfaces.
 - [x] `components-and-interactions/edge.md` — three DNS zones + three Gateways + three wildcards (one CF token), Traefik with Gateway API only, cert-manager DNS-01, Cloudflared external entry, in-cluster CoreDNS rewrite, three access paths end-to-end, failure surfaces.
+- [x] `components-and-interactions/observability.md` — VM/VL in-cluster vs Zabbix LXC split, vmagent (K8s metrics + apiserver-proxy scrape), vlagent (DaemonSet + Ansible systemd, two ingress endpoints), Zabbix host+service templates, Hermod tag taxonomy + producer wiring, failure surfaces.
 
 ---
 
 ## Pending
-
-### Components & Interactions — remaining subpages
-
-- [ ] `observability.md` — VictoriaMetrics + VictoriaLogs, Zabbix split, Hermod tag taxonomy, vmagent/vlagent shippers.
 
 ### Hardware section
 
@@ -101,4 +98,4 @@ If the order shifts again, update the parent + this file + the "See also" refere
 
 ## Next
 
-Resume at **`observability.md`** under Components & Interactions to close out the section. Cover VictoriaMetrics + VictoriaLogs (single-binary, no Grafana), the Zabbix-LXC + VM-in-cluster split that keeps host monitoring on a separate failure domain, vmagent (K8s metrics) + vlagent (logs, K8s DaemonSet + Ansible-systemd for off-cluster shippers), and the Hermod tag taxonomy (`critical` / `alert` / `media`) that this layer drives notifications through.
+Components & Interactions is done. Resume with the **Hardware section parent** (`hardware.md`) — physical-layer overview that the three Hardware subpages (hypervisors, networking, storage) hang off. After that, decide order of remaining sections: Services and purpose (catalogue-shaped — needs the most thinking about per-service vs index-only), Procedures (mechanical, source already in `docs/procedures/`), Troubleshooting (CLAUDE.md gotchas reshaped as reader playbooks), and the standalone URLs page.
