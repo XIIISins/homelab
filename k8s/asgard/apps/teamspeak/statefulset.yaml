@@ -130,17 +130,16 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/ts3server
-  # 5Gi initial. StorageClass `synology-csi-iscsi-retain` has
-  # allowVolumeExpansion: true — grow up to 20Gi later via
-  # `kubectl edit pvc data-teamspeak-0 -n teamspeak` (Synology CSI does
-  # online iSCSI LUN resize + the kernel re-reads block geometry; ext4
-  # auto-resizes after).
+  # NFS tier (storage redesign Class N, 2026-05-30): config/file-transfer
+  # blobs + logs, no SQLite (PG backend) → NFS-safe. Moved off iSCSI to free
+  # a LUN against the DS223J cap. Right-sized 5Gi→1Gi (NFS size is advisory,
+  # not reserved). Data migrated via rsync static-rebind (checksums verified).
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: synology-csi-iscsi-retain
+        storageClassName: nfs-client
         resources:
           requests:
-            storage: 5Gi
+            storage: 1Gi
