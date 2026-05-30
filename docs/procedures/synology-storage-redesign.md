@@ -121,9 +121,9 @@ Garage-meta stays block but moves to Volume2. Use the rsync static-rebind onto `
 
 ### Stage 0 — Prep
 - ✅ NFS tier validated; vol2 SC + VM retention committed.
-- 🔲 Deploy local-path-provisioner.
-- 🔲 Decide `k8s-nfs` final volume.
-- 🔲 PBS baseline restore test (rollback anchor for the Volume1 work).
+- ✅ `k8s-nfs` final volume = Volume2; `nfs-client` SC corrected `/volume1`→`/volume2` + smoke-tested bound on Volume2 (commit `cf00ad0`, 2026-05-30). SC `parameters` are immutable → applied via delete-SC + Flux recreate (safe: 0 NFS PVCs bound).
+- 🔲 Deploy local-path-provisioner (Rancher `local-path-provisioner` via Flux, `WaitForFirstConsumer`, `reclaimPolicy: Delete` — Raft is the durability layer). Gates only the Vault Class-L step.
+- ⛔ ~~PBS baseline restore test~~ — out of scope (2026-05-30): PBS restore confirmed working out-of-band. Stage 3's own post-recreate restore-verify still applies.
 
 ### Stage 1 — Vacate LUNs (workload migrations, lowest-stakes first)
 Order: **emptyDir** (redis, valkey — frees 2 LUNs, trivial) → **Class N** NFS (teamspeak → VL → VM → garage-data) → **Class L** Vault (needs local-path-provisioner). Each frees LUN(s); verify before deleting old LUNs.
@@ -148,7 +148,7 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 - **mmap on NFS = corruption** — Garage-meta (LMDB) and Vault (BoltDB) must NOT go on NFS. iSCSI / local-path respectively. Non-negotiable.
 - **local-path = node-pinned, no per-PVC HA** — fine for Vault (Raft gives HA at the app layer); do NOT use it for single-instance critical data without app replication.
 - ~~**NFS share home vs Volume1 shrink**~~ — **resolved**: `k8s-nfs` is on Volume2, not Volume1, so the Volume1 recreate never touches it. No double-move.
-- **PBS** — old datastore is the only backup copy until Stage 3 verifies the new one. Don't skip the restore test.
+- **PBS** — old datastore is the only backup copy until Stage 3's own post-recreate restore-verify confirms the new one. (Stage-0 baseline restore test dropped — restore confirmed working out-of-band 2026-05-30; the in-line Stage-3 verify is non-negotiable regardless.)
 - **No K8s PVC backup** — the iSCSI/NFS PVC data isn't in PBS; the Retain-based rollback is the net. Verify-before-delete is mandatory.
 
 ---
@@ -158,4 +158,5 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 - ✅ NFS tier (csi-driver-nfs 4.13.2) deployed + smoke-tested clean (no shared-folder pollution, 0 LUNs).
 - ✅ `vol2` iSCSI SC + VM retention 6mo→1mo committed.
 - ⏸️ **Paused here** — workload migrations + Volume1 shrink to resume in a fresh session (data-movement-heavy).
-- 🔲 Next on resume: deploy local-path-provisioner, decide `k8s-nfs` home, then Stage 1 (emptyDir caches → NFS file-class → Vault local-path).
+- ✅ `nfs-client` SC pointed at Volume2 + smoke-tested; Stage-0 PBS baseline test dropped (out of scope).
+- 🔲 Next on resume: deploy local-path-provisioner, then Stage 1 (emptyDir caches → NFS file-class → Vault local-path).
