@@ -28,13 +28,13 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 
 | Tier | StorageClass | Backed by | Use for | LUN cost |
 |------|-------------|-----------|---------|----------|
-| **NFS** | `nfs-client` | Synology share `/volume1/k8s-nfs` via `csi-driver-nfs` | file-class: append/large-file, fsync-tolerant | **0** |
-| **local-path** | `local-path` *(provisioner TBD)* | Proxmox VM local disk | app-replicated state (Raft/quorum) | **0** |
+| **NFS** | `nfs-client` | Synology share `/volume2/k8s-nfs` via `csi-driver-nfs` | file-class: append/large-file, fsync-tolerant | **0** |
+| **local-path** | `local-path` | dedicated 50G `scsi1` `/data` disk per worker (xfs) | app-replicated state (Raft/quorum) | **0** |
 | **iSCSI** | `synology-csi-iscsi-retain-vol2` | Synology LUN on Volume2 | block-critical single-instance: mmap/fsync (LMDB, BoltDB) | **1 each** |
 | **emptyDir** | — | pod ephemeral | pure cache (rebuilds on restart) | **0** |
 
 - **NFS** is live + validated (csi-driver-nfs 4.13.2, one `pvc-<uuid>` subdir per PV inside the single `k8s-nfs` share — **no shared-folder-per-PV pollution**; that's synology-csi's NFS mode, deliberately not used).
-- **local-path** needs a provisioner deployed — K3s's built-in `local-storage` is **disabled** in our CP config, so deploy Rancher `local-path-provisioner` (or static `local` PVs). Prerequisite for the Vault tier.
+- **local-path** is live (2026-05-30) — Rancher `local-path-provisioner` v0.0.36 via Flux (`nodePathMap → /data`), backed by a dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` SELinux mount). K3s's built-in `local-storage` stays **disabled**. Ready for the Vault tier. See CLAUDE.md "local-path-provisioner" gotchas.
 - **iSCSI** stays only where block semantics are load-bearing (memory-mapped DBs hate NFS).
 
 ---
@@ -99,7 +99,7 @@ For garage-data, teamspeak, VL, VM. Cross-StorageClass copy.
 ### Class L — iSCSI → local-path (Vault, Raft re-sync, no copy)
 Per-node, keep 2/3 quorum, leader last. Each node's storage recreated empty on local-path; Raft re-syncs from leader.
 ```
-# 0. Deploy local-path-provisioner first.
+# 0. local-path-provisioner is deployed (2026-05-30) — confirm SC `local-path` present + a worker /data mount.
 # 1. Edit vault HR: storageClass → local-path. Delete STS --cascade=orphan (pods keep running).
 # 2. For vault-2 → vault-1 → vault-0 (leader LAST, step-down first):
 #    delete pod + delete pvc data-vault-<N> + delete old PV → STS recreates PVC on local-path
