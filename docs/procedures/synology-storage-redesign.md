@@ -42,8 +42,8 @@ Reference gotchas: CLAUDE.md → "Synology DS223J iSCSI LUN cap", "First-deploy 
 |-----|-----|-----|-------|--------|
 | `garage/data-garage-0` | 200 Gi | **20 Gi** | **C** rsync | Outline S3, ~5 GB used; grows online for Immich later |
 | `garage/meta-garage-0` | 10 Gi | **10 Gi** | **C** rsync | carries Garage layout + node id — must preserve |
-| `monitoring/…victorialogs…-0` | 50 Gi | **5 Gi** | **A** fresh | logs, 1-mo retention, ~1 GB/mo |
-| `monitoring/…victoriametrics…-0` | 50 Gi | **10 Gi** | **A** fresh | metrics, **retention 6mo→1mo**, ~5 GB/mo |
+| `monitoring/…victorialogs…-0` | 50 Gi | **5 Gi** | **C** rsync | logs preserved (operator: keep), ~1 GB/mo at 1-mo retention |
+| `monitoring/…victoriametrics…-0` | 50 Gi | **10 Gi** | **C** rsync | metrics preserved, **retention 6mo→1mo**, ~5 GB/mo |
 | `authentik/data-authentik-redis-0` | 1 Gi | **1 Gi** | **A** fresh | cache — rebuilds |
 | `netbox/valkey-data-…-0` | 2 Gi | **2 Gi** | **A** fresh | cache — rebuilds |
 | `teamspeak/data-teamspeak-0` | 5 Gi | **5 Gi** | **C** rsync | holds TS3 identity/config files |
@@ -61,7 +61,7 @@ Sum of new reservations ≈ **63 Gi** → 100 GB iSCSI-A leaves room for those 1
 
 ### Class A — Recreate-fresh (data discarded)
 
-For monitoring/cache data we accept losing. ~5 days of logs/metrics or a cache is trivial.
+For **pure cache** only — Authentik-Redis + NetBox-Valkey, which rebuild on restart. (VictoriaLogs/Metrics were moved to Class C — operator opted to preserve their history.)
 
 ```
 # 1. Edit the helmrelease: storageClass → synology-csi-iscsi-retain-volA,
@@ -209,9 +209,9 @@ For **Garage** apply Class C to **both** `data-garage-0` (200→20) and `meta-ga
    ```
    Commit + push → `flux reconcile hr synology-csi -n synology-csi` → confirm `kubectl get sc synology-csi-iscsi-retain-volA`.
 3. **Migrate in this order** (safest first, stateful last):
-   - **Class A** (fresh): victorialogs, victoriametrics (with retention edit), authentik-redis, netbox-valkey.
+   - **Class A** (fresh): authentik-redis, netbox-valkey (pure caches).
+   - **Class C** (rsync): victorialogs, victoriametrics (with retention edit), then teamspeak, then garage (meta + data together). Do VL/VM first as the easy Class-C warm-up (tiny data) before the higher-stakes Garage.
    - **Class B** (Raft): vault-2 → vault-1 → vault-0 (leader last, verify peers between each).
-   - **Class C** (rsync): teamspeak, then garage (meta + data together).
 4. **Verify each workload** before moving to the next. Do NOT delete any old LUN yet — they stay on Volume1 as the rollback.
 
 **Rollback (Stage 1, per workload):** old PV is `Released`, not deleted — recreate the workload's PVC bound back to the old PV (`volumeName: <old-pv>`, clear its claimRef) and revert the helmrelease.
