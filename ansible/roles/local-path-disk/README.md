@@ -12,9 +12,14 @@ reattached (mounted by `UUID`) to preserve stateful data. Pairs with the
 
 ## What it does (idempotent)
 
-1. Installs `xfsprogs`.
-2. Asserts the target device (`/dev/sdb` by default) exists and is ~50 GiB —
-   refuses to `mkfs` anything outside the size window (won't touch the OS disk).
+1. **Resolves the data disk by stable SCSI address** (`*-scsi-0:0:0:1` in
+   `/dev/disk/by-path/`), NOT a `/dev/sdX` name. iSCSI LUNs (Vault's PVC etc.)
+   also claim `sd*` letters with unstable ordering, so a `/dev/sdb` assumption
+   could target a live LUN. The scsi1 virtual disk is always at SCSI `0:0:0:1`;
+   iSCSI is `ip-…-iscsi-…` and can't collide. Skips gracefully if absent (safe
+   for not-yet-provisioned nodes + drift-check).
+2. Installs `xfsprogs`; asserts the resolved device is ~50 GiB (defence against
+   a mis-set SCSI address) before touching it.
 3. `mkfs.xfs` (skips if a filesystem already exists — never reformats).
 4. Mounts it at `/data` and persists in `/etc/fstab` by `UUID`, with
    `nofail` (a bad entry can't hang boot) and a blanket SELinux
@@ -44,7 +49,7 @@ local-path-provisioner".
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `local_path_disk_device` | `/dev/sdb` | scsi1 data disk (scsi0 = OS) |
+| `local_path_disk_scsi_address` | `0:0:0:1` | scsi1 SCSI address (scsi0/`0:0:0:0` = OS) |
 | `local_path_disk_mountpoint` | `/data` | whole-volume container-writable mount |
 | `local_path_disk_selinux_context` | `system_u:object_r:container_file_t:s0` | blanket FS label |
 | `local_path_disk_min_gib` / `_max_gib` | `40` / `60` | mkfs safety window |

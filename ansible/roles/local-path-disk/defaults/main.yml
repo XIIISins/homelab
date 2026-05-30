@@ -1,8 +1,14 @@
 # ansible/roles/local-path-disk/defaults/main.yml
 ---
 # Dedicated node-local data disk backing local-path-provisioner.
-# scsi1 on the worker VMs presents as /dev/sdb (scsi0 = /dev/sda is the OS disk).
-local_path_disk_device: /dev/sdb
+#
+# The disk is identified by its STABLE SCSI address, NOT a /dev/sdX name:
+# iSCSI LUNs (Vault's PVC, and post-migration others) also claim sd* letters
+# and their ordering isn't stable across reboots, so /dev/sdb is unsafe. The
+# scsi1 virtual disk always appears at /dev/disk/by-path/*-scsi-0:0:0:1 (the
+# virtio-scsi HBA, target LUN 1 — scsi0/0:0:0:0 is the OS disk). iSCSI LUNs are
+# ip-...-iscsi-... and can never match that glob.
+local_path_disk_scsi_address: "0:0:0:1"
 local_path_disk_fstype: xfs
 
 # Whole-disk mount at a short, top-level path. The worker VMs are exclusively
@@ -12,7 +18,7 @@ local_path_disk_fstype: xfs
 local_path_disk_mountpoint: /data
 local_path_disk_selinux_context: "system_u:object_r:container_file_t:s0"
 
-# Safety window (GiB) — refuse to mkfs a device outside it, so a wrong device
-# name never reformats the OS disk. Wide enough to absorb GB-vs-GiB reporting.
+# Safety window (GiB) — refuse to mkfs a resolved device outside it (defence in
+# depth against a mis-set SCSI address). Wide enough to absorb GB-vs-GiB reporting.
 local_path_disk_min_gib: 40
 local_path_disk_max_gib: 60
