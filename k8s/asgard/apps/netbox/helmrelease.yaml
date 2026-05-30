@@ -69,18 +69,14 @@ spec:
         enabled: false
       auth:
         enabled: true # default; chart auto-wires the password through
-      # Synology CSI iSCSI volumes don't honor fsGroup reliably (see
-      # CLAUDE.md "Storage / iSCSI" gotchas — same class as Vault +
-      # Authentik Redis). bitnami-valkey ships a built-in chown
-      # initContainer for this; enabling it adds a root-running pre-pod
-      # that chowns the data dir to the valkey runtime UID/GID.
-      volumePermissions:
-        enabled: true
       primary:
+        # Cache-class KV store, rebuilds on restart → emptyDir, not
+        # iSCSI, per the storage-tiering redesign (Class E) — frees a
+        # LUN against the DS223J cap. With persistence disabled the chart
+        # backs the data dir with emptyDir; fsGroup is honored there, so
+        # the iSCSI-only volumePermissions chown initContainer is dropped.
         persistence:
-          enabled: true
-          storageClass: synology-csi-iscsi-retain
-          size: 2Gi
+          enabled: false
 
     # ── App secrets (mounted via existingSecret references) ───────────
     existingSecret: netbox-app # provides secret_key

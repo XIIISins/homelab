@@ -19,20 +19,11 @@ spec:
         runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
-      initContainers:
-        - name: redis-data-chown
-          image: busybox:stable
-          command:
-            - sh
-            - -c
-            - chown -R 999:999 /data && chmod 750 /data
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: data
-              mountPath: /data
+      # Cache-class: session/cache store, rebuilds on restart. emptyDir
+      # (not iSCSI) per the storage-tiering redesign (Class E) — frees a
+      # LUN against the DS223J cap. fsGroup is honored natively on
+      # emptyDir, so the iSCSI-only redis-data-chown initContainer that
+      # used to live here is no longer needed.
       containers:
         - name: redis
           image: redis:7-alpine
@@ -78,15 +69,9 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: synology-csi-iscsi-retain
-        resources:
-          requests:
-            storage: 1Gi
+      volumes:
+        - name: data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
