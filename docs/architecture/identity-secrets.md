@@ -216,12 +216,26 @@ Public functions:
 | `rotate-approle <role>` | **1P-canonical flow.** Mints a new SecretID, prints values to paste into 1P, prompts for confirmation, revokes the old SecretID. `--fix` destroys SecretIDs in Vault that aren't in 1P (recovery for partial rotations). `--help` for usage + hazard notes. Use for `ansible-local` (MacBook). |
 | `rotate-semaphore-approle` | **Vault-KV-canonical flow.** Mints a new SecretID for `ansible-awx`, writes it to Vault KV `secret/k8s/semaphore/vault-approle`, runs `terraform apply` in `terraform/semaphore/` to push it to Semaphore env id 1, prompts for drift-check validation, then revokes old SecretIDs. No 1P involvement — Vault KV is the source of truth for Semaphore's credentials. |
 
-Extension points:
-- **New env var loaded by `homelab-env`:** append a line to `$__homelab_env_map` in the form `"ENV_VAR|1P item name|field"`. No other code change.
-- **New `set-vault-token` source:** add a `case <name>` branch to the function's switch block. Wire to a 1P read or another Vault auth method.
-- **New AppRole role for rotation:** append a line to `$__homelab_approle_items` in the form `"role-name|1P item name"`. The 1P item must have fields `username` (RoleID), `password` (SecretID), `secret_id_accessor`, `expires_at`.
+Machine-accessed items are referenced by **1P item UUID, not title** (see "1Password vault organisation" below). Each UUID is a named `__op_*` variable near the top of the file (self-documenting via a current-title comment); the env map / approle map reference those vars. This decouples automation from item names so the vault can be reorganised freely.
 
-The 1P vault name (`Homelab`) is lifted to `$__homelab_op_vault` at the top of the file — single-point edit if it ever changes.
+Extension points:
+- **New env var loaded by `homelab-env`:** add a `__op_<name>` UUID var, then append a line to `$__homelab_env_map` in the form `"ENV_VAR|$__op_<name>|field"`. Do this in **both** `homelab.fish` and `.config/scripts/homelab.sh` (the `.sh` is repo-only source-of-truth, not currently deployed). No other code change.
+- **New `set-vault-token` source:** add a `case <name>` branch to the function's switch block. Wire to a 1P read or another Vault auth method.
+- **New AppRole role for rotation:** append a line to `$__homelab_approle_items` in the form `"role-name|$__op_<name>"`. The 1P item must have fields `username` (RoleID), `password` (SecretID), `secret_id_accessor`, `expires_at`.
+
+The 1P vault name (`Homelab 2.0`) is lifted to `$__homelab_op_vault` at the top of the file — single-point edit if it ever changes.
+
+## 1Password vault organisation
+
+The **Homelab 2.0** vault uses the title convention **`[Realm] - Consumer - Service - Detail`** (the bracket is a pseudo-folder — 1P has no in-vault folders; brackets also sort to the top). Established 2026-05-30 (Wave S1).
+
+- **Realm**: `[Asgard]` (cluster + its services) · `[Bootstrap]` (must-survive-Vault-down) · `[Infra]` (hardware under the homelab — Proxmox / Synology / UCG / UniFi / personal AWS / fleet-wide SSH key) · `[DO - Offsite]` (DigitalOcean fallback env). `[Jotunheim]` reserved for the future second cluster.
+- **Consumer** — the "what's it used for" axis: `Terraform` / `Ansible` (read live by automation — edit carefully) · `Mirror` (cold offline copy of a Vault machine-secret, DR-only) · `Manual` (human / break-glass / web logins).
+- Examples: `[Asgard] - Terraform - NetBox - Admin API token`, `[Asgard] - Mirror - Postgres - Admin password`, `[Bootstrap] - Manual - Vault - Root token`, `[Infra] - Manual - Synology - Admin login`.
+
+**Rename safety:** because the shim + TF reference machine items by UUID (above), renaming/retagging is non-breaking — `op://Homelab 2.0/<item-UUID>/<field>` resolves regardless of title. Two CLI caveats: `op item edit --title` cannot rename **SSH-Key items** or **Password items missing a `ps` value** (rename those in the 1P app); everything else renames via CLI.
+
+Every NEW Homelab-vault item follows the convention; if it's machine-read, add its UUID as a `__op_*` var (not the title) in both shim files.
 
 Source-of-truth posture: AppRole RoleID/SecretID and the Vault root token live in 1P only. No copies on disk on the control node. Rotation = update the 1P item; next `homelab-env` picks up the change.
 
