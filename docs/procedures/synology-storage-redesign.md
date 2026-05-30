@@ -56,15 +56,19 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 
 ---
 
-## Volume layout (separate, space-side)
+## Volume layout (two volumes for the whole homelab, excluding media)
+
+Single RAID1 pool on the DS223j → volume separation is **logical only** (no IO isolation; all volumes share the same two spindles). The layout is organisational, not a performance boundary. Protocol-mixing on a volume (NFS share + iSCSI LUN coexisting) is therefore fine — the enterprise "separate protocols onto separate aggregates/tiers" reflex buys nothing on a single-pool unit, and the LUN cap is DSM-wide regardless of volume.
 
 | Volume | Size | Purpose | Notes |
 |--------|------|---------|-------|
-| **Volume1** | shrink to ~120 GB | backup (`proxmox-backup` 74 GB + growth) | the `k8s-nfs` share currently lives here — **move it first** if shrinking |
-| **Volume2** | ~100 GB (created) | iSCSI — now holds just garage-meta + headroom | over-provisioned for 1 LUN; could shrink later |
-| **Volume9** | 2 TB | media (arr-stack) | deferred; create last for clean numbering |
+| **Volume1** | recreate ~125 GB | backup — PBS datastore + Hyperbackup (all NFS) | currently oversized + still holds the live iSCSI LUNs; shrink is the LAST step (Stage 3), after every LUN is offloaded |
+| **Volume2** | 100 GB (~95 effective), expandable | **all asgard k8s storage** — `k8s-nfs` share (all NFS PVCs) + the one surviving iSCSI LUN (garage-meta) | the unified k8s volume; watch free space before the VL/VM/garage-data NFS copies, expand if tight |
+| **Volume3** | — | **PBS staging only** (transient) — holds the PBS datastore during the Volume1 recreate, then retired | not a k8s volume; drops out once Stage 3 completes |
+| *(media)* | 2 TB | media (arr-stack) | deferred; own volume, created last |
 
-⚠️ The `k8s-nfs` share is on **Volume1** today. If Volume1 is deleted/recreated to shrink it, the NFS share (and any migrated data on it) must move first. **Decide before migrating file-class data onto NFS:** either (a) relocate `k8s-nfs` to its own volume now, or (b) do the Volume1 backup-shrink *before* migrating workloads to NFS. Cleanest: give NFS its own volume.
+- ✅ `k8s-nfs` already lives on **Volume2** — the "move it off Volume1 first" risk is **resolved**; no double-move.
+- **Long-term:** when jotunheim lands, give it its **own k8s volume** mirroring asgard's shape (NFS-primary, iSCSI only when block semantics are load-bearing). Keeps the cluster failure-domain reflected at the storage layer too.
 
 ---
 
@@ -73,7 +77,7 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 - ✅ **csi-driver-nfs** deployed (4.13.2), `nfs-client` SC, `k8s-nfs` share validated.
 - ✅ **iSCSI vol2 SC** + VM retention 6mo→1mo committed (commit `62c300b`).
 - 🔲 **local-path-provisioner** — deploy before the Vault tier (K3s built-in is disabled).
-- 🔲 **Decide `k8s-nfs` final home** (own volume vs Volume1) — see Volume-layout warning above.
+- ✅ **`k8s-nfs` final home decided** — Volume2 (its own volume, separate from the backup Volume1). No double-move.
 
 ---
 
@@ -128,7 +132,7 @@ Order: **emptyDir** (redis, valkey — frees 2 LUNs, trivial) → **Class N** NF
 Once slots are free, move the one remaining block LUN to the right-sized Volume2. Delete the old Volume1 garage-meta LUN.
 
 ### Stage 3 — Volume1 → backup (shrink)
-Synology can't shrink in place → delete+recreate. **Move `k8s-nfs` off Volume1 first** (if it's still there). Then: relocate PBS datastore to a staging volume → delete Volume1 → recreate ~120 GB → restore PBS → verify restore. (Operator opted for the full shrink.)
+Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Volume1 (on Volume2), so no share-relocation needed. **Gate: all 10 iSCSI LUNs must be offloaded + verified first** (Stages 1–2) — the live LUNs sit on Volume1; recreating it before they're vacated destroys live data. Then: relocate the PBS datastore → **Volume3 staging** (online folder "location" change — long-running, safe to start any time) → delete Volume1 → recreate ~125 GB → restore PBS → verify restore → retire Volume3. (Operator opted for the full shrink.)
 
 ### Stage 4 — Cleanup + docs
 - Delete all old Volume1 iSCSI LUNs (verify each workload healthy first).
@@ -143,7 +147,7 @@ Synology can't shrink in place → delete+recreate. **Move `k8s-nfs` off Volume1
 - **Garage identity** — layout/node-id is in `meta` (staying iSCSI). The `data` LUN (→NFS) is just blocks; copy + verify Outline reads documents before deleting old `data`.
 - **mmap on NFS = corruption** — Garage-meta (LMDB) and Vault (BoltDB) must NOT go on NFS. iSCSI / local-path respectively. Non-negotiable.
 - **local-path = node-pinned, no per-PVC HA** — fine for Vault (Raft gives HA at the app layer); do NOT use it for single-instance critical data without app replication.
-- **NFS share home vs Volume1 shrink** — migrating data onto `k8s-nfs` while it sits on Volume1, then shrinking Volume1, means moving that data twice. Resolve the share's home before Stage 1 file-class migrations.
+- ~~**NFS share home vs Volume1 shrink**~~ — **resolved**: `k8s-nfs` is on Volume2, not Volume1, so the Volume1 recreate never touches it. No double-move.
 - **PBS** — old datastore is the only backup copy until Stage 3 verifies the new one. Don't skip the restore test.
 - **No K8s PVC backup** — the iSCSI/NFS PVC data isn't in PBS; the Retain-based rollback is the net. Verify-before-delete is mandatory.
 
