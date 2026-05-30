@@ -130,11 +130,18 @@ spec:
         resources:
           requests:
             storage: 10Gi
+    # data = content-addressed S3 object blocks (large files, write-once) →
+    # NFS-safe + Garage's own "data may be network storage, meta must be local"
+    # guidance. Moved off iSCSI (storage redesign Class N, 2026-05-30) to free
+    # a LUN; stays on Munin NAS RAID1 + PBS, so NO redundancy downgrade.
+    # Data migrated via rsync static-rebind (checksums verified). Right-sized
+    # 200Gi→50Gi (NFS advisory; grow if Outline/future S3 content needs it).
+    # NB: `meta` (LMDB/mmap) above STAYS iSCSI — mmap must never hit NFS.
     - metadata:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: synology-csi-iscsi-retain
+        storageClassName: nfs-client
         resources:
           requests:
-            storage: 200Gi
+            storage: 50Gi
