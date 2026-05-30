@@ -76,7 +76,7 @@ Single RAID1 pool on the DS223j → volume separation is **logical only** (no IO
 
 - ✅ **csi-driver-nfs** deployed (4.13.2), `nfs-client` SC, `k8s-nfs` share validated.
 - ✅ **iSCSI vol2 SC** + VM retention 6mo→1mo committed (commit `62c300b`).
-- 🔲 **local-path-provisioner** — deploy before the Vault tier (K3s built-in is disabled).
+- ✅ **local-path-provisioner** (2026-05-30) — Rancher v0.0.36 via Flux, SC `local-path`. Backed by a dedicated 50G `scsi1` data disk per worker (xfs, mounted `/data` with a blanket `context=container_file_t` SELinux mount option; ssd+discard+fstrim). All three workers done + reboot-validated; Vault Class-L tier unblocked. See CLAUDE.md "local-path-provisioner" gotchas.
 - ✅ **`k8s-nfs` final home decided** — Volume2 (its own volume, separate from the backup Volume1). No double-move.
 
 ---
@@ -122,7 +122,7 @@ Garage-meta stays block but moves to Volume2. Use the rsync static-rebind onto `
 ### Stage 0 — Prep
 - ✅ NFS tier validated; vol2 SC + VM retention committed.
 - ✅ `k8s-nfs` final volume = Volume2; `nfs-client` SC corrected `/volume1`→`/volume2` + smoke-tested bound on Volume2 (commit `cf00ad0`, 2026-05-30). SC `parameters` are immutable → applied via delete-SC + Flux recreate (safe: 0 NFS PVCs bound).
-- 🔲 Deploy local-path-provisioner (Rancher `local-path-provisioner` via Flux, `WaitForFirstConsumer`, `reclaimPolicy: Delete` — Raft is the durability layer). Gates only the Vault Class-L step.
+- ✅ Deploy local-path-provisioner (2026-05-30) — Rancher v0.0.36 via Flux (`WaitForFirstConsumer`, `Delete` reclaim), `nodePathMap → /data`. Dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` mount, ssd+discard+fstrim) via `ansible/roles/local-path-disk`. Rolled out urd (canary) → verd → skuld, each reboot-validated (Vault self-healed 3/3 every time); end-to-end PVC bind+write confirmed. Vault Class-L step now unblocked.
 - ⛔ ~~PBS baseline restore test~~ — out of scope (2026-05-30): PBS restore confirmed working out-of-band. Stage 3's own post-recreate restore-verify still applies.
 
 ### Stage 1 — Vacate LUNs (workload migrations, lowest-stakes first)
@@ -159,4 +159,5 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 - ✅ `vol2` iSCSI SC + VM retention 6mo→1mo committed.
 - ⏸️ **Paused here** — workload migrations + Volume1 shrink to resume in a fresh session (data-movement-heavy).
 - ✅ `nfs-client` SC pointed at Volume2 + smoke-tested; Stage-0 PBS baseline test dropped (out of scope).
-- 🔲 Next on resume: deploy local-path-provisioner, then Stage 1 (emptyDir caches → NFS file-class → Vault local-path).
+- ✅ local-path-provisioner + per-worker `/data` disks deployed (2026-05-30).
+- 🔲 Next on resume: Stage 1 (emptyDir caches → NFS file-class → Vault Class-L onto local-path).
