@@ -28,7 +28,7 @@ spec:
     createNamespace: false
   values:
     # File-class K8s storage, sidesteps the Synology ~10-LUN iSCSI cap
-    # (NFS shares aren't LUNs). Single Synology share `k8s-nfs` on Volume1;
+    # (NFS shares aren't LUNs). Single Synology share `k8s-nfs` on Volume2;
     # the driver creates ONE SUBDIRECTORY per PV inside it — NOT a Synology
     # shared folder per PV (that's synology-csi's NFS mode, which pollutes
     # the Shared Folder overview and is deliberately avoided here).
@@ -38,7 +38,7 @@ spec:
       name: nfs-client
       parameters:
         server: "10.0.254.20"
-        share: /volume1/k8s-nfs
+        share: /volume2/k8s-nfs
         # subDir defaults to pvc-<uuid> — one plain dir per PV inside the share.
         mountPermissions: "0755"
       # Retain mirrors the iSCSI SC: deleting a PVC leaves its subdir in the
