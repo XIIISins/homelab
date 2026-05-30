@@ -42,9 +42,9 @@
 # Vault and `tailscale up` fails with `auth key expired`.
 #
 # Vault paths (read by Ansible):
-#   secret/k8s/tailscale/authkeys/bifrost
-#   secret/k8s/tailscale/authkeys/heimdall
-#   secret/k8s/tailscale/authkeys/gjallarbru
+#   secret/ansible/tailscale/authkeys/bifrost
+#   secret/ansible/tailscale/authkeys/heimdall
+#   secret/ansible/tailscale/authkeys/gjallarbru
 
 locals {
   # Each LXC's role determines its single tag. Matches the LXC tags
@@ -79,7 +79,7 @@ resource "tailscale_tailnet_key" "lxc" {
 }
 
 # Vault writes the freshly-minted key. The Ansible role reads from
-# secret/k8s/tailscale/authkeys/<hostname> via community.hashi_vault
+# secret/ansible/tailscale/authkeys/<hostname> via community.hashi_vault
 # lookup. data_json is a single-field object; the lookup pulls
 # .authkey out of the resulting map.
 resource "vault_kv_secret_v2" "lxc_authkey" {
