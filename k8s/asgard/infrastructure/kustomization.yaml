@@ -5,6 +5,7 @@ kind: Kustomization
 resources:
   - sealed-secrets
   - synology-csi
+  - csi-driver-nfs
   - vault
   - external-secrets
   - metallb

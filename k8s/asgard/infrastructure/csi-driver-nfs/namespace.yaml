@@ -1,0 +1,6 @@
+# k8s/asgard/infrastructure/csi-driver-nfs/namespace.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: csi-driver-nfs
