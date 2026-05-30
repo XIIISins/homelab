@@ -49,8 +49,8 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 | `teamspeak` | iSCSI 5Gi | **NFS** | config/identity files. rsync-copy. |
 | `victorialogs` | iSCSI 50Gi | **NFS** | append-mostly logs, tolerate NFS. rsync-copy (preserve, operator chose). |
 | `victoriametrics` | iSCSI 50Gi | **NFS** | metrics, tolerate NFS. rsync-copy + retention 6mo→1mo (already committed). |
-| `authentik-redis` | iSCSI 1Gi | **emptyDir** | session cache — rebuilds. |
-| `netbox-valkey` | iSCSI 2Gi | **emptyDir** | cache — rebuilds. |
+| `authentik-redis` | ✅ emptyDir | **emptyDir** | session cache — rebuilds. Done 2026-05-30 (LUN dangling, see below). |
+| `netbox-valkey` | ✅ emptyDir | **emptyDir** | cache — rebuilds. Done 2026-05-30 (LUN dangling, see below). |
 
 **End state: Synology iSCSI 10 → ~1 LUN** (garage-meta), ~9 free. NFS absorbs unlimited file-class workloads (jotunheim, Immich, future) without ever touching the cap.
 
@@ -128,6 +128,8 @@ Garage-meta stays block but moves to Volume2. Use the rsync static-rebind onto `
 ### Stage 1 — Vacate LUNs (workload migrations, lowest-stakes first)
 Order: **emptyDir** (redis, valkey — frees 2 LUNs, trivial) → **Class N** NFS (teamspeak → VL → VM → garage-data) → **Class L** Vault (needs local-path-provisioner). Each frees LUN(s); verify before deleting old LUNs.
 
+- ✅ **emptyDir caches done 2026-05-30** (commit `ee12557`) — **cap freed 10/10 → 8/10**: `authentik-redis` (drop `volumeClaimTemplates` + the iSCSI-only `redis-data-chown` init → emptyDir volume) and `netbox-valkey` (`primary.persistence.enabled: false` + drop `volumePermissions`). `volumeClaimTemplates` is immutable → deleted both STSs so Flux/Helm recreated them on emptyDir (netbox HR rolled back to v7 first on the immutable-field error, then upgraded clean to v12 after the valkey STS delete). Both verified healthy (authentik `/-/health/ready/` 200, netbox `/login/` 200). Cutover: orphaned PVCs + PVs deleted in k8s (8 synology PVs), the 2 backing LUNs (`pvc-36dea395…` 1Gi authentik-redis, `pvc-deb42887…` 2Gi netbox-valkey) deleted in DSM SAN Manager by the operator, all 3 workers confirmed free of stale iSCSI node records/sessions for the deleted handles. **Method-of-record for Class E**: edit STS/HR → emptyDir, `kubectl delete sts` (immutable VCT) so Flux/Helm recreate, verify app health, then PVC+PV delete + DSM LUN delete.
+
 ### Stage 2 — garage-meta → Volume2 (Class M)
 Once slots are free, move the one remaining block LUN to the right-sized Volume2. Delete the old Volume1 garage-meta LUN.
 
@@ -160,4 +162,5 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 - ⏸️ **Paused here** — workload migrations + Volume1 shrink to resume in a fresh session (data-movement-heavy).
 - ✅ `nfs-client` SC pointed at Volume2 + smoke-tested; Stage-0 PBS baseline test dropped (out of scope).
 - ✅ local-path-provisioner + per-worker `/data` disks deployed (2026-05-30).
-- 🔲 Next on resume: Stage 1 (emptyDir caches → NFS file-class → Vault Class-L onto local-path).
+- ✅ Stage 1 emptyDir caches (`authentik-redis` + `netbox-valkey`) migrated + verified + LUNs reclaimed (2026-05-30, commit `ee12557`). k8s 8 synology PVs; 2 backing LUNs deleted in DSM by operator → **cap 10/10 → 8/10**; workers free of stale iSCSI records.
+- 🔲 Next on resume: Stage 1 cont. — **Class N** NFS (teamspeak → VL → VM → garage-data), then **Class L** Vault onto local-path.
