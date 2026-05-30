@@ -34,14 +34,16 @@ spec:
       enabled: true
       persistentVolume:
         enabled: true
-        storageClass: synology-csi-iscsi-retain
-        # Retention starts at 30 days — VL is ~15× denser than ES so
-        # 50 Gi at 30d is generous for low-moderate verbosity, but K8s
-        # pod logs can blow this up fast once the vlagent DaemonSet
-        # lights up cluster-wide. Measure ingest after the first month,
-        # then resize the LUN online (Synology CSI supports it) before
-        # bumping retention toward the eventual 6-month target.
-        size: 50Gi
+        # local-path (storage redesign 2026-05-30): VictoriaLogs mmaps its
+        # storage + is the documented Synology-NFS panic case (#61), so it
+        # belongs on local xfs, NOT NFS — and it's single-replica so iSCSI's
+        # network block bought nothing. node-pinned to einherjar-urd via the
+        # bound PV's nodeAffinity. Data migrated via rsync (22450 files,
+        # checksums verified). Right-sized 50Gi→20Gi (local-path advisory;
+        # backed by the 50G /data disk). If 30d ingest outgrows it, grow the
+        # /data disk + bump here.
+        storageClass: local-path
+        size: 20Gi
       retentionPeriod: "30d"
       resources:
         requests: { cpu: 200m, memory: 512Mi }
