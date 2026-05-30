@@ -122,7 +122,8 @@ Garage-meta stays block but moves to Volume2. Use the rsync static-rebind onto `
 ### Stage 0 — Prep
 - ✅ NFS tier validated; vol2 SC + VM retention committed.
 - ✅ `k8s-nfs` final volume = Volume2; `nfs-client` SC corrected `/volume1`→`/volume2` + smoke-tested bound on Volume2 (commit `cf00ad0`, 2026-05-30). SC `parameters` are immutable → applied via delete-SC + Flux recreate (safe: 0 NFS PVCs bound).
-- ✅ Deploy local-path-provisioner (2026-05-30) — Rancher v0.0.36 via Flux (`WaitForFirstConsumer`, `Delete` reclaim), `nodePathMap → /data`. Dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` mount, ssd+discard+fstrim) via `ansible/roles/local-path-disk`. Rolled out urd (canary) → verd → skuld, each reboot-validated (Vault self-healed 3/3 every time); end-to-end PVC bind+write confirmed. Vault Class-L step now unblocked.
+- ✅ Deploy local-path-provisioner (2026-05-30) — Rancher v0.0.36 via Flux (`WaitForFirstConsumer`), `nodePathMap → /data`. Dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` mount, ssd+discard+fstrim) via `ansible/roles/local-path-disk`. Rolled out urd (canary) → verd → skuld, each reboot-validated (Vault self-healed 3/3 every time); end-to-end PVC bind+write confirmed. Vault Class-L step now unblocked.
+- 🟡 **local-path SC `reclaimPolicy: Delete → Retain`** (committed `9bc2c51`, **apply pending**) — a released PVC must not wipe node-local data now that the tier backs single-replica VL/VM. **Apply = `kubectl delete sc local-path` + Flux/Helm recreate** (reclaimPolicy is immutable); **zero-risk while 0 local-path PVCs are bound** (true as of 2026-05-30). Must land before the VL/VM local-path migrations. Tradeoff: orphan `/data` dirs after a PVC delete → occasional manual sweep per worker.
 - ⛔ ~~PBS baseline restore test~~ — out of scope (2026-05-30): PBS restore confirmed working out-of-band. Stage 3's own post-recreate restore-verify still applies.
 
 ### Stage 1 — Vacate LUNs (workload migrations, lowest-stakes first)
@@ -160,7 +161,7 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 
 **Sizing is advisory, not reserved.** `nfs-client` (csi-driver-nfs) and Rancher `local-path` don't hard-enforce the PVC `size` — it's a request, not a quota. Real limits: NFS shares **Volume2 (~95 GiB)** across all NFS PVCs; local-path shares each worker's **50 GiB `/data`** with Vault (post-Class-L) + co-located VL/VM. At current data (<1 GiB each) there's no pressure; pin VL→urd, VM→verd so they don't stack on one disk.
 
-**Preserve vs fresh for VL/VM:** local-path SC is `reclaimPolicy: Delete` (unlike NFS/iSCSI Retain), so a preserve-rsync needs a mid-flight `kubectl patch pv … reclaimPolicy=Retain` to survive the temp-PVC delete during static-rebind (procedure below). Given the data is ~0.14 GiB (VL) / ~0.77 GiB (VM) of **refillable** short-term observability (Zabbix owns long-term trends), **fresh-start is recommended** — far simpler, loses only the current 30d/1mo window. Preserve path documented for completeness.
+**Preserve vs fresh for VL/VM:** the local-path SC is now `reclaimPolicy: Retain` (changed 2026-05-30, commit `9bc2c51` — releasing a PVC must not wipe node-local data), so a preserve-rsync is the **same clean static-rebind as NFS** — no special reclaim handling. Given the data is ~0.14 GiB (VL) / ~0.77 GiB (VM) of **refillable** short-term observability (Zabbix owns long-term trends), **fresh-start is still recommended** — simpler, loses only the current 30d/1mo window — but preserve is now equally clean if wanted.
 
 ### Ordering & rollback
 
@@ -200,7 +201,7 @@ spec:
 
 **Static-rebind (NFS / Retain target):** migrator creates target PV via a temp PVC → after rsync, `kubectl delete pvc <temp>` (PV → Released, Retain) → `kubectl patch pv <newPV> --type=json -p '[{"op":"remove","path":"/spec/claimRef"}]'` → recreate PVC under the **STS-expected name** with `spec.volumeName: <newPV>` → binds. Then edit the STS VCT SC/size, `kubectl delete sts` (immutable VCT), resume Flux → STS recreates + adopts the pre-bound PVC.
 
-**Static-rebind (local-path / Delete target):** identical, but **before** deleting the temp PVC, `kubectl patch pv <newPV> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'` (else the local-path PV is wiped on temp-PVC delete). Optionally patch back to `Delete` after the final PVC binds, so steady-state cleanup works.
+**Static-rebind (local-path / Retain target):** identical to the NFS path above — the local-path SC is now `Retain` (commit `9bc2c51`), so deleting the temp PVC leaves its PV `Released` with the host dir intact; clear `claimRef` and recreate under the STS-expected name with `volumeName`. The PV's node-local `nodeAffinity` pins the recreated STS pod to that worker. (No reclaim-patch needed — that workaround existed only while the SC was `Delete`.) **Prereq:** the SC must already be flipped to Retain (delete+recreate, immutable) before any local-path migration — see Stage 0.
 
 ### Per-workload
 
