@@ -40,7 +40,7 @@ spec:
         enabled: true
         storageClass: synology-csi-iscsi-retain
         size: 100Gi
-      retentionPeriod: "6" # months
+      retentionPeriod: "1" # months — long-term low-res infra trends are covered by Zabbix; VM downsampling is Enterprise-only (storage redesign 2026-05-30)
       # Resource sizing — VM is single-binary, light. Bump if homelab
       # grows enough to spike ingest.
       resources:

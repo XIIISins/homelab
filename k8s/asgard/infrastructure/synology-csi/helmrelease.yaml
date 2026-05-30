@@ -40,6 +40,19 @@ spec:
           protocol: iscsi
           dsm: "10.0.254.20"
         reclaimPolicy: Retain
+      # Volume2 = dedicated, right-sized iSCSI volume (storage redesign
+      # 2026-05-30). `location` pins LUN creation to /volume2; without it
+      # the driver auto-selects (which is how all 10 LUNs landed on
+      # /volume1). Target for the PVC migration off the oversized Volume1.
+      # Per-volume LUN cap is 10 — this volume holds the 10 migrated LUNs
+      # and is then closed to new workloads (next volume gets its own SC).
+      # See docs/procedures/synology-storage-redesign.md.
+      iscsi-retain-vol2:
+        parameters:
+          protocol: iscsi
+          dsm: "10.0.254.20"
+          location: /volume2
+        reclaimPolicy: Retain
       iscsi-delete:
         disabled: true
       smb-retain:
