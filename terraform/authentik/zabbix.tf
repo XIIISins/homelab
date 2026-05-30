@@ -91,6 +91,16 @@ data "vault_kv_secret_v2" "zabbix_sp_keypair" {
 resource "authentik_certificate_key_pair" "zabbix_sp" {
   name             = "Zabbix SP (hugin)"
   certificate_data = data.vault_kv_secret_v2.zabbix_sp_keypair.data["cert"]
+
+  # `key_data` is write-only in the Authentik API (never returned on read,
+  # like a password field). A stale create-time value lingers in TF state
+  # while the server reports has_key=null, so every plan perpetually wants
+  # `key_data -> null` and apply can't converge it. Authentik is already in
+  # the intended cert-only state (verified: has_key=null) — ignore the field
+  # so the module plans clean.
+  lifecycle {
+    ignore_changes = [key_data]
+  }
 }
 
 # -----------------------------------------------------------------------------
