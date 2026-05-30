@@ -42,7 +42,11 @@ spec:
         # checksums verified). Right-sized 50Gi→20Gi (local-path advisory;
         # backed by the 50G /data disk). If 30d ingest outgrows it, grow the
         # /data disk + bump here.
-        storageClass: local-path
+        # NB: the chart key is `storageClassName` (NOT `storageClass` — that's
+        # silently ignored; the old iSCSI binding came from the cluster-DEFAULT
+        # SC, not this value). Set it explicitly so the VCT pins local-path
+        # instead of defaulting a future PVC back to iSCSI.
+        storageClassName: local-path
         size: 20Gi
       retentionPeriod: "30d"
       resources:
