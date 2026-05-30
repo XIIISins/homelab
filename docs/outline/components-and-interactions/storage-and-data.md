@@ -2,9 +2,23 @@
 
 # Storage & data
 
-This subpage covers where state lives. Three tiers of storage (block, object, local), one relational database cluster, and one backup store. Physical drives + the Synology unit itself live in the **Hardware** section; this page is about the software stack on top.
+This subpage covers where state lives. Storage is **tiered by access pattern** — block, node-local, file, object, and cache each have a home — plus one relational database cluster and one backup store. Physical drives + the Synology unit itself live in the **Hardware** section; this page is about the software stack on top.
 
-The principle that shapes every choice on this page: state stays on storage that matches the workload's access pattern. Block for K8s persistent volumes that need single-attach POSIX semantics. Object for shared-access blob storage. Local LVM-thin for VM/LXC disks that need fsync latency the network can't provide.
+The principle that shapes every choice on this page: **state goes on the tier its access pattern needs, not on one storage type for everything.** Memory-mapped databases (LMDB, BoltDB) need real block storage and corrupt on NFS. Replicated/quorum state wants fast node-local disk with HA solved at the app layer. Large append-heavy files are fine on NFS. Pure caches rebuild on restart and need no persistence at all. Matching each workload to its tier is what keeps the single small NAS from being a bottleneck — or a hard limit.
+
+---
+
+## The storage tiers
+
+| Tier | StorageClass / mechanism | Backed by | Use for |
+|------|--------------------------|-----------|---------|
+| **Local LVM-thin** | Proxmox storage | per-node NVMe | VM + LXC disks |
+| **iSCSI** | `synology-csi-iscsi-retain-vol2` | Synology LUN on Volume2 | block-critical single-instance (mmap/fsync DBs) |
+| **local-path** | `local-path` | per-worker 50 GB `/data` xfs disk | app-replicated / quorum state (Raft) + mmap-safe single-instance |
+| **NFS** | `nfs-client` (csi-driver-nfs) | Synology `k8s-nfs` share on Volume2 | file-class: large/append, fsync-tolerant |
+| **emptyDir** | pod ephemeral | — | pure cache (rebuilds on restart) |
+
+The default StorageClass posture is shifting toward **explicit per-workload naming** — no workload should land on a tier by accident.
 
 ---
 
@@ -18,38 +32,39 @@ Every VM and LXC has its disk on the **local LVM-thin pool** of the Proxmox node
 
 ---
 
-## Synology iSCSI — K8s persistent volumes
+## iSCSI — block-critical single-instance only
 
-The Synology NAS (Munin) is the iSCSI target for every K8s persistent volume. The driver is the **Synology CSI driver** (christian-schlichtherle/synology-csi-chart); each cluster runs its own instance.
+The Synology NAS (Munin) is the iSCSI target via the **Synology CSI driver** (one instance per cluster). The StorageClass is `synology-csi-iscsi-retain-vol2` (LUN on Volume2), `Retain` reclaim — a released PVC leaves its LUN on the NAS for the operator to delete deliberately.
 
-A single StorageClass, `synology-csi-iscsi-retain`, is the default. `Retain` reclaim policy means released PVCs leave their LUN on the NAS — operator deletes manually when ready, preventing accidental data loss.
+iSCSI is now reserved for the **one** thing that genuinely needs block: **memory-mapped databases**. Today that's just Garage's metadata store (LMDB). mmap over NFS corrupts; iSCSI (or node-local xfs) is the only safe home.
 
-### Per-PVC LUN
+### Per-PVC LUN, and the DS223J cap
 
-Each PVC gets its own iSCSI target + LUN on the NAS. There is no shared LUN. This shapes a few invariants:
-
-- **Single-attach.** Only one node can hold the iSCSI session for a LUN at a time. K8s `RWO` semantics line up with this exactly.
-- **No `RWX`.** Synology CSI is iSCSI-only, deliberately. An app that needs shared write across pods has two real options: split the writes (pod-local emptyDir for caches, persistent for canonical state) or use the object store instead.
-- **Migration is operator-visible.** When a pod with a PVC moves nodes, iSCSI session cleanup on the source node matters — stale sessions are a recurring class. The Troubleshooting section covers the diagnostic.
-
-### Why not NFS for K8s
-
-Synology NFS shares pollute the DSM namespace — each share is a top-level Synology folder visible to anyone with NAS access. iSCSI LUNs are scoped to their target and don't leak into operator workflows. Combined with the fact that iSCSI gives stronger fsync semantics than NFS over 1 GbE, iSCSI is the right shape for K8s state.
-
-### DS223J LUN cap
-
-The DS223J has a per-Volume LUN cap that's lower than DSM spec sheets suggest. The trio currently sits at the cap (10 LUNs). New cache-class state (Redis, ephemeral queue state) defaults to `emptyDir` until the cap is lifted via DSM SAN Manager. This is a known constraint, not a recurring failure — it just changes the default for new workloads.
+Synology CSI mints **one iSCSI target + LUN per PVC** — single-attach (`RWO`), no `RWX`. That's the constraint that drove the tiering: the DS223J has a **DSM-wide cap of ~10 LUNs total** (not per-Volume — a hard model limit on the 1 GB-RAM ARM unit). Putting every K8s volume on iSCSI hit that wall. The fix was to stop using iSCSI for everything and tier by access pattern — so iSCSI now carries a single LUN, with ~9 slots free for any future genuinely-block workload. File-class goes to NFS (no LUN cost), replicated state to local-path, caches to emptyDir.
 
 ---
 
-## Synology NFS — operator workflows + PBS
+## local-path — node-local for replicated + mmap-safe state
 
-NFS shares on Munin exist for two purposes:
+Rancher `local-path-provisioner` provides the `local-path` StorageClass (`WaitForFirstConsumer`, `Retain`), backed by a **dedicated 50 GB `/data` xfs disk on each worker** (separate from the OS disk, so it survives a VM rebuild). It's node-pinned: the PV lives on one worker and the pod is pinned there.
 
-- **PBS datastore.** Proxmox Backup Server's LXC mounts an NFS share from Munin and uses it as the backup store. NFS fits because PBS writes are sequential, append-heavy, and tolerant of higher latency.
-- **Ad-hoc operator file workflows.** Anywhere block-storage semantics are overkill (drop a file, pull a file, share a directory between hosts that aren't pods).
+Two kinds of workload live here:
 
-NFS is not a K8s StorageClass and isn't going to become one. iSCSI handles K8s.
+- **App-replicated / quorum state** — **Vault** (3-node Raft) is the model. HA is solved at the *app* layer (Raft re-syncs a wiped node from its peers), so node-local storage with no storage-layer replication is exactly right — lower latency, zero LUN cost.
+- **mmap-safe single-instance** — **VictoriaLogs** and **VictoriaMetrics**. Both use memory-mapped engines and explicitly want local ext4/xfs over NFS. They're single-instance and node-pinned; availability is *recovery* (PBS backs up the worker `/data` disk daily), not HA. Acceptable because the data is refillable short-term observability — Zabbix backstops long-term trends.
+
+The rule: only app-replicated data (Vault) or downtime-tolerant/refillable data (observability) goes on local-path single-instance. Availability-critical single-instance data needs app-level replication, never storage-layer tricks.
+
+---
+
+## NFS — file-class K8s volumes
+
+`csi-driver-nfs` provides the `nfs-client` StorageClass, backed by **one** Synology share (`k8s-nfs` on Volume2) with a `pvc-<uuid>` subdir per PV — no shared-folder-per-PV pollution. NFS is now a first-class K8s tier for **file-class** state: large or append-heavy, fsync-tolerant, fine over 1 GbE.
+
+- **Teamspeak** — file-transfer blobs, logs, identity files (no SQLite; PG-backed).
+- **Garage data** — S3 object blocks (content-addressed, write-once, large). Stays on the NAS RAID1, so no redundancy downgrade vs the old iSCSI placement.
+
+NFS has no LUN cost, so it absorbs unlimited file-class workloads (future Immich, jotunheim) without ever touching the cap.
 
 ---
 
@@ -58,7 +73,7 @@ NFS is not a K8s StorageClass and isn't going to become one. iSCSI handles K8s.
 A single-node Garage instance (`garage` namespace in asgard K3s) provides S3-compatible object storage in-cluster.
 
 - **Topology:** one replica, RF=1, "dangerous consistency" mode (acceptable for the homelab; not a multi-region setup).
-- **Persistence:** 10 GiB metadata PVC + 200 GiB data PVC, both iSCSI-backed.
+- **Persistence is split by access pattern:** **metadata** (LMDB, mmap) on a 10 GiB **iSCSI** PVC — must stay block; **data** (object blocks) on a 50 GiB **NFS** PVC. The cluster identity (node key + layout) lives in metadata, so that LUN is the one piece of Garage that can never go on NFS.
 - **Layout-init Job** runs once on first deploy via an alpine+curl+jq sidecar against Garage's admin API v2 — the Garage image itself is `FROM scratch` with no shell.
 - **Admin API is ClusterIP-only by design.** No external LoadBalancer for the admin endpoint; operator workflow is `kubectl port-forward` from the operator workstation when Terraform needs to talk to it. The S3 endpoint itself is reachable in-cluster only.
 
@@ -69,7 +84,7 @@ A new consumer (e.g. Outline) lands like this:
 1. Operator declares the bucket + access key in `terraform/garage/` (using the `jkossis/garage` provider).
 2. Terraform mints the bucket, the access key, the grant, and writes the resulting credentials to Vault at `secret/k8s/<consumer>/s3`.
 3. The consumer's `ExternalSecret` materializes the Vault path into a K8s Secret.
-4. The consumer reads the Secret and connects to `http://garage-s3.garage.svc.cluster.local:3900` (in-cluster S3 endpoint).
+4. The consumer reads the Secret and connects to the in-cluster S3 endpoint.
 
 The first consumer is Outline (page attachments + uploads). Future Immich + backup targets follow the same pattern.
 
@@ -107,25 +122,34 @@ HAProxy uses `option httpchk` against Patroni's REST API `/master` endpoint. Onl
 
 ## PBS — backups
 
-Proxmox Backup Server runs in a privileged LXC on Skuld (LXC 1101). The datastore is an NFS share from Munin.
+Proxmox Backup Server runs in a privileged LXC on Skuld (LXC 1101). The datastore is an NFS share from Munin, on the dedicated **backup volume (Volume1)** — kept separate from the all-K8s Volume2 so the two never contend.
 
-- **Backup target:** every VM and LXC in `niflheim`. K3s-side state lives on iSCSI PVCs, which Synology snapshots cover separately.
+- **Backup target:** every VM and LXC in `niflheim` — including the K3s worker VMs, which now carry the local-path `/data` disks (Vault Raft, VL, VM). That makes PBS the *recovery* story for the node-pinned local-path tier.
 - **DR posture:** not a true off-site story. Single-site failure (the whole homelab room) loses both Proxmox storage and the PBS datastore. Off-site replication is on the roadmap (likely a Garage-backed mirror, since the bucket-shaped pattern reuses the existing object-store layer).
+
+### Volume layout on the NAS
+
+The DS223J carves its single RAID1 pool into two logical volumes:
+
+- **Volume1 — backup.** The PBS datastore (NFS). Dedicated; holds no live K8s storage.
+- **Volume2 — all K8s.** The `k8s-nfs` share (every NFS PVC) plus the one surviving iSCSI LUN (Garage metadata).
+
+Volume separation is organisational, not a performance boundary — both share the same two spindles. The split keeps the backup store from contending with live K8s I/O and mirrors the failure-domain thinking elsewhere.
 
 ---
 
 ## Failure surfaces worth knowing
 
 - **Postgres leader failure.** Patroni promotes a replica; HAProxy's REST health-check flips routing within seconds. Clients reconnect. Hermod fires a `patroni` tag to Discord.
-- **Worker that holds an iSCSI session dies.** The iSCSI session times out; the pod's PVC eventually re-binds on a surviving worker. Time to recovery depends on the kubelet's iSCSI session-loss timeout. The Troubleshooting section has the diagnostic for orphan sessions.
-- **Synology unavailable.** Every K8s PVC is unavailable. Pods that depend on persistent storage fail health checks. The K3s cluster itself stays up (control plane runs on VM-local disks); pods recover once Munin is back. PG and PBS continue to function (local LVM-thin + NFS datastore respectively).
-- **Garage data corruption.** RF=1 means no built-in redundancy. Restore from PBS-backed VM snapshot of the K3s worker that hosted the PVC at the time of the corruption.
+- **A worker dies.** Pods reschedule, but **local-path data is node-pinned** — a workload whose `/data` lives on the dead worker is down until that VM/node is restored. Vault rides this out (Raft quorum on the surviving two); VL/VM are single-instance and simply wait for the node. Recovery of the disk itself is PBS (daily worker-VM backup including the `/data` disk).
+- **Synology unavailable.** Every iSCSI + NFS PVC stalls (Garage, teamspeak). The K3s control plane stays up (VM-local disks), and **local-path workloads (Vault, VL, VM) are unaffected** — their data is on the workers, not the NAS. PG continues (local LVM-thin). PBS is down (NFS datastore on the NAS). Pods recover when Munin returns. **Note:** a NAS reboot bounces the one iSCSI target — quiesce Garage first (clean session logout) to avoid an ext4-RO journal-abort on the metadata LUN.
+- **Garage data corruption.** RF=1 means no built-in redundancy. The data blocks are on NAS RAID1 + PBS; the identity-bearing metadata LUN is the piece to guard, and it's the one kept on block storage for exactly that reason.
 
 ---
 
 ## See also
 
-- **Hardware** section — drive specifications, NAS hardware, NVMe tier comparison.
+- **Hardware** section — drive specifications, NAS hardware + volume layout, per-worker `/data` disks, NVMe tier comparison.
 - **Network** (this section) — Postgres HAProxy VIP routing, source-based policy routing for VRRP-bearing LXCs.
-- **Identity & secrets** (this section) — Vault paths for Postgres credentials, Garage admin token, S3 access keys.
-- **Troubleshooting** — iSCSI orphan sessions, DS223J LUN cap recovery, RHEL e2fsprogs limits for Synology-formatted volumes.
+- **Identity & secrets** (this section) — Vault on local-path (Raft), Vault paths for Postgres credentials, Garage admin token, S3 access keys.
+- **Troubleshooting** — iSCSI orphan sessions, DS223J LUN cap, RHEL e2fsprogs limits for Synology-formatted volumes, cross-tier migration (rsync static-rebind).
