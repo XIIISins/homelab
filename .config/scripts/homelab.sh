@@ -44,20 +44,35 @@
 
 __homelab_op_vault='Homelab 2.0'
 
-# Each entry: "ENV_VAR|1P item name|field"
+# 1P item UUIDs for machine-accessed credentials. Referenced by UUID (not
+# title) so the 1P items can be renamed/reorganised freely without breaking
+# homelab-env or Terraform. The comment on each line is the *current* 1P
+# title — informational only; the UUID is the stable key. To find a UUID:
+#   op item list --vault 'Homelab 2.0' --format=json | jq -r '.[]|"\(.id)\t\(.title)"'
+__op_ansible_vault_k3s='4srpqv2mt2vditxo7g5rqjquti' # [Asgard] - Ansible - Vault - AppRole (ansible-local)
+__op_cloudflare_tf='ps4mc2hv7a777tzsef755te64m'     # [Asgard] - Terraform - Cloudflare - API token
+__op_authentik_admin='4pxuhyvygrqqeo3vro24bjrhwa'   # [Asgard] - Terraform - Authentik - Admin API token
+__op_adguard_admin='hvh3d7hlivcsbjqqye34f3d7a4'     # [Asgard] - Terraform - AdGuard - Admin login
+__op_netbox_admin='lsqb4z5mbeijeqbxx43y5pkl5q'      # [Asgard] - Terraform - NetBox - Admin API token
+__op_semaphore_admin='24fmbstdhqzwk6eeru4vvaixsm'   # [Asgard] - Terraform - Semaphore - Admin API token
+__op_aws_tf_bootstrap='lhf4xzp3uqehkkease5gidthci'  # [Asgard] - Terraform - AWS - Bootstrap access key
+__op_aws_tf_state='jnvf6aokgml7vkjj4ho2xlcvua'      # [Asgard] - Terraform - AWS - State access key
+__op_proxmox_root='6vv32uzlahikgmkvkiqfnkgshy'      # [Infra] - Terraform - Proxmox - Root password
+
+# Each entry: "ENV_VAR|1P item UUID|field"
 # Fetched from 1Password by homelab-env, cached to disk.
 __homelab_env_map=(
-    "VAULT_ADDR|Ansible - Vault - k3s|url"
-    "ANSIBLE_HASHI_VAULT_AUTH_METHOD|Ansible - Vault - k3s|method"
-    "ANSIBLE_HASHI_VAULT_ROLE_ID|Ansible - Vault - k3s|username"
-    "ANSIBLE_HASHI_VAULT_SECRET_ID|Ansible - Vault - k3s|password"
-    "CLOUDFLARE_API_TOKEN|Cloudflare - Terraform|credential"
-    "AUTHENTIK_TOKEN|Asgard - Authentik - akadmin API token|credential"
-    "AUTHENTIK_URL|Asgard - Authentik - akadmin API token|url"
-    "ADGUARD_USERNAME|Adguard - admin|username"
-    "ADGUARD_PASSWORD|Adguard - admin|password"
-    "NETBOX_API_TOKEN|Asgard - NetBox - Admin API token|credential"
-    "SEMAPHOREUI_API_TOKEN|Asgard - Semaphore - admin API token|credential"
+    "VAULT_ADDR|${__op_ansible_vault_k3s}|url"
+    "ANSIBLE_HASHI_VAULT_AUTH_METHOD|${__op_ansible_vault_k3s}|method"
+    "ANSIBLE_HASHI_VAULT_ROLE_ID|${__op_ansible_vault_k3s}|username"
+    "ANSIBLE_HASHI_VAULT_SECRET_ID|${__op_ansible_vault_k3s}|password"
+    "CLOUDFLARE_API_TOKEN|${__op_cloudflare_tf}|credential"
+    "AUTHENTIK_TOKEN|${__op_authentik_admin}|credential"
+    "AUTHENTIK_URL|${__op_authentik_admin}|url"
+    "ADGUARD_USERNAME|${__op_adguard_admin}|username"
+    "ADGUARD_PASSWORD|${__op_adguard_admin}|password"
+    "NETBOX_API_TOKEN|${__op_netbox_admin}|credential"
+    "SEMAPHOREUI_API_TOKEN|${__op_semaphore_admin}|credential"
 )
 
 # Each entry: "ENV_VAR|literal value"
@@ -81,12 +96,12 @@ __homelab_cache_path_fish="$__homelab_cache_dir/env.fish"
 __homelab_cache_path_sh="$__homelab_cache_dir/env.sh"
 __homelab_cache_ttl_seconds=86400
 
-# Each entry: "approle role name|1P item name"
+# Each entry: "approle role name|1P item UUID"
 # 1P item must have fields: username (RoleID), password (SecretID),
 # secret_id_accessor, expires_at.
 __homelab_approle_items=(
-    "ansible-local|Ansible - Vault - k3s"
-    # "ansible-awx|Ansible - Vault - AWX"   # add when AWX is deployed
+    "ansible-local|${__op_ansible_vault_k3s}"
+    # "ansible-awx|<uuid>"   # add when AWX is deployed
 )
 
 # === Helpers (private) ===
@@ -491,8 +506,8 @@ set-vault-token() {
 # === Public: AWS creds ===
 #
 # Two AWS identities live in 1P:
-#   - "AWS - Terraform - Bootstrap" — admin, for re-applying terraform/aws/
-#   - "AWS - Terraform - State"     — narrow S3-only, for downstream terraform
+#   - bootstrap — admin, for re-applying terraform/aws/ (UUID $__op_aws_tf_bootstrap)
+#   - state     — narrow S3-only, for downstream terraform (UUID $__op_aws_tf_state)
 #
 # set-aws-creds is the canonical AWS-creds loader. homelab-env autocalls
 # `set-aws-creds state` after the env_map loop; `set-aws-creds bootstrap` is
@@ -509,8 +524,8 @@ set-aws-creds() {
     fi
     source=$1
     case "$source" in
-        bootstrap|b) item='AWS - Terraform - Bootstrap' ;;
-        state|s)     item='AWS - Terraform - State' ;;
+        bootstrap|b) item="${__op_aws_tf_bootstrap}" ;;
+        state|s)     item="${__op_aws_tf_state}" ;;
         *)
             echo "set-aws-creds: unknown source '$source'" >&2
             echo "  Sources: bootstrap, state" >&2
@@ -550,8 +565,8 @@ set-aws-creds() {
 
 set-proxmox-password() {
     local value
-    if ! value=$(__homelab_op_field 'Proxmox - Root' password); then
-        echo "set-proxmox-password: failed to read password from 1P item \"Proxmox - Root\"" >&2
+    if ! value=$(__homelab_op_field "${__op_proxmox_root}" password); then
+        echo "set-proxmox-password: failed to read password from 1P (Proxmox root, UUID ${__op_proxmox_root})" >&2
         return 1
     fi
     export PROXMOX_VE_PASSWORD="$value"
