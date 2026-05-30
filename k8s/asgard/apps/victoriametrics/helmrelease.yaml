@@ -29,17 +29,26 @@ spec:
     # ingest > 100k samples/sec or retention > 1 year.
     server:
       enabled: true
-      # Storage on the existing asgard Synology CSI iSCSI StorageClass.
-      # Sizing: ~30 hosts × ~1000 series × ~1 byte/sample × 10s scrape
-      # × 180 days ≈ 45 GB raw + 20% index overhead + 25% merge headroom
-      # ≈ ~65-70 GB. 100 GB gives breathing room for: (a) host count
-      # growth, (b) higher-cardinality scrapes from K3s ServiceMonitors
-      # once vm-operator lands. Synology CSI supports online expansion
-      # if we under-shot; resize the LUN + restart vmsingle pod.
+      # local-path (storage redesign 2026-05-30): VictoriaMetrics mmaps its
+      # storage + NFS is the documented Synology panic case (#61), so it
+      # belongs on local xfs, NOT NFS; single-replica, so iSCSI's network
+      # block bought nothing. Node-pinned to einherjar-verd (spread from VL
+      # on urd) via the bound PV's nodeAffinity. Data migrated via rsync
+      # static-rebind (362 files, checksums verified). Right-sized 100Gi→20Gi
+      # (1-month retention; Zabbix owns long-term trends; local-path advisory,
+      # backed by the 50G /data disk).
+      # NB: chart key is `storageClassName` (NOT `storageClass` — silently
+      # ignored; the old iSCSI binding came from the cluster-DEFAULT SC). Set
+      # explicitly so the VCT pins local-path, not a default-iSCSI fallback.
+      # Redundancy note: this is single-instance + node-pinned (no cross-node
+      # self-heal); recovery floor is PBS daily backup of the worker /data
+      # disk. Acceptable for refillable observability; NOT a template for
+      # availability-critical single-instance data — that needs app-level
+      # replication. See feedback_app_level_redundancy.
       persistentVolume:
         enabled: true
-        storageClass: synology-csi-iscsi-retain
-        size: 100Gi
+        storageClassName: local-path
+        size: 20Gi
       retentionPeriod: "1" # months — long-term low-res infra trends are covered by Zabbix; VM downsampling is Enterprise-only (storage redesign 2026-05-30)
       # Resource sizing — VM is single-binary, light. Bump if homelab
       # grows enough to spike ingest.
