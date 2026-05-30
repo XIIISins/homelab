@@ -48,7 +48,7 @@ The discoverability concern that one-store would solve is handled instead by the
 
 ## Vault — runtime store
 
-Three-node Raft HA in asgard K3s. AWS KMS auto-unseal (eu-west-1 single-key account, decrypt-only IAM user). iSCSI-backed storage. KV-v2 engine mounted at `secret/`.
+Three-node Raft HA in asgard K3s. AWS KMS auto-unseal (eu-west-1 single-key account, decrypt-only IAM user). **Node-local `local-path` storage** — Raft replicates the store across the three nodes, so HA is at the app layer and the per-node disk needs no storage-layer replication (a wiped node re-syncs from its peers + KMS-auto-unseals). KV-v2 engine mounted at `secret/`.
 
 - **Listener TLS is disabled.** `tls_disable = 1` on the Vault listener is deliberate — Traefik terminates TLS at the niflheim Gateway in front of Vault's UI; cluster traffic to Vault is plaintext over the in-cluster network.
 - **Vault config is Terraform-managed.** Auth methods, policies, roles, and KV mounts all live in `terraform/vault/`. SecretIDs are never in state — they're minted manually and stored externally.
@@ -122,7 +122,7 @@ Rotation uses `rotate-semaphore-approle` — a separate helper from `rotate-appr
 
 ## See also
 
-- **Storage & data** (this section) — Vault iSCSI PVC, Patroni-minted DB credentials at `secret/ansible/postgres/<app>-password`.
+- **Storage & data** (this section) — Vault on the node-local `local-path` tier, Patroni-minted DB credentials at `secret/ansible/postgres/<app>-password`.
 - **GitOps & automation** (this section) — Semaphore's Vault KV-stored credentials, drift-check templates that authenticate via the `ansible-awx` AppRole.
 - **Edge** (this section) — Authentik fronted via Traefik + Cloudflared, Traefik ForwardAuth middleware against Authentik proxy providers.
 - **Services and purpose** — per-service notes on which auth method each app uses (OIDC, SAML, ForwardAuth).

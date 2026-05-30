@@ -24,8 +24,10 @@ vmagent collects K8s-layer metrics; Zabbix collects host-layer metrics. No overl
 
 Two single-binary deployments in the `monitoring` namespace. No vmoperator CRDs yet — straight Helm charts.
 
-- **vmsingle** (chart `victoria-metrics-single`) — 100 GiB iSCSI PV, 6-month retention. PromQL queries land here. The built-in **vmui** is the dashboard layer — interactive PromQL playground, chart panels, and a small set of canned dashboards mounted via `customDashboardsPath` ConfigMap.
-- **vlsingle** (chart `victoria-logs-single`) — 50 GiB iSCSI PV, 30-day retention. LogsQL queries (PromQL-flavored) via the native VictoriaLogs UI.
+- **vmsingle** (chart `victoria-metrics-single`) — 20 GiB `local-path` PV (node-local xfs), 1-month retention. PromQL queries land here. The built-in **vmui** is the dashboard layer — interactive PromQL playground, chart panels, and a small set of canned dashboards mounted via `customDashboardsPath` ConfigMap.
+- **vlsingle** (chart `victoria-logs-single`) — 20 GiB `local-path` PV (node-local xfs), 30-day retention. LogsQL queries (PromQL-flavored) via the native VictoriaLogs UI.
+
+Both run on **`local-path`** (a per-worker `/data` disk), not the NAS: their mmap engines want local ext4/xfs, and they're single-instance node-pinned. The data is refillable short-term observability (Zabbix backstops long-term trends) and PBS backs up the worker `/data` disk daily — so durability here is *recovery*, not HA.
 
 There is **no Grafana**. vmui + the VictoriaLogs UI handle every dashboard and ad-hoc query the homelab needs at this scale. The revisit trigger is genuine cross-source dashboards (metrics + logs in a single panel) or wanting to share read-only dashboards with non-operator users.
 
