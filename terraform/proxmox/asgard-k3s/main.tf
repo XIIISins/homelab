@@ -5,10 +5,14 @@ locals {
     sigrun = { node = "skuld", vmid = 2003, ip = "10.0.21.13", template_node = "skuld", template_id = 10004, cores = 2, memory = 4096 }
   }
 
+  # os_disk_ssd: flip the scsi0 OS disk to SSD emulation (rotational=0). Staged
+  # rollout — true on einherjar-urd first as a canary (a single worker is a cheap
+  # rebuild if the in-place flag change misbehaves); verd/skuld + the CPs follow
+  # in a batched pass once validated. NVMe-backed, so true is the accurate value.
   workers = {
-    einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "urd", template_id = 10006, cores = 2, memory = 16384 }
-    einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 16384 }
-    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004, cores = 2, memory = 16384 }
+    einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "urd", template_id = 10006, cores = 2, memory = 16384, os_disk_ssd = true }
+    einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 16384, os_disk_ssd = false }
+    einherjar-skuld = { node = "skuld", vmid = 2103, ip = "10.0.21.23", ip_vlan20 = "10.0.20.203", template_node = "skuld", template_id = 10004, cores = 2, memory = 16384, os_disk_ssd = false }
   }
 }
 
@@ -91,6 +95,7 @@ resource "proxmox_virtual_environment_vm" "worker" {
     size         = 30
     interface    = "scsi0"
     discard      = "on"
+    ssd          = each.value.os_disk_ssd # staged per-node (canary on urd)
   }
 
   # Dedicated node-local data disk for local-path-provisioner — separates
