@@ -1,0 +1,6 @@
+# k8s/asgard/infrastructure/local-path-provisioner/namespace.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-path-storage

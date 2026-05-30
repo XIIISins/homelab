@@ -6,6 +6,9 @@ resources:
   - sealed-secrets
   - synology-csi
   - csi-driver-nfs
+  # Rancher local-path-provisioner — node-local SC `local-path` for
+  # app-replicated state (Vault Raft). Replaces K3s' disabled built-in.
+  - local-path-provisioner
   - vault
   - external-secrets
   - metallb

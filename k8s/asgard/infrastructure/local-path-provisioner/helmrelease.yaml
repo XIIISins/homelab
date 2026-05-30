@@ -1,0 +1,65 @@
+# k8s/asgard/infrastructure/local-path-provisioner/helmrelease.yaml
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: local-path-provisioner
+  namespace: flux-system
+spec:
+  interval: 24h
+  url: https://github.com/rancher/local-path-provisioner
+  # Rancher publishes no Helm repo index (unlike csi-driver-nfs), so the chart
+  # is sourced straight from the upstream git tag — concrete-pinned per the
+  # CLAUDE.md no-floats rule. Bump = move this tag + the image tags below.
+  ref:
+    tag: v0.0.36
+  ignore: |
+    # Pull only the chart dir (smaller clone); exclude everything else.
+    /*
+    !/deploy/chart/local-path-provisioner
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: local-path-provisioner
+  namespace: local-path-storage
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: ./deploy/chart/local-path-provisioner
+      sourceRef:
+        kind: GitRepository
+        name: local-path-provisioner
+        namespace: flux-system
+  install:
+    createNamespace: false
+  values:
+    # Node-local storage for app-replicated state (Vault Raft, Class L in the
+    # storage tiering plan). K3s' built-in local-storage provisioner is disabled
+    # in our CP config; this is the Flux-managed replacement. Data lands on the
+    # workers' local LVM-thin root disk at /opt/local-path-provisioner.
+    # See docs/procedures/synology-storage-redesign.md.
+    image:
+      repository: docker.io/rancher/local-path-provisioner
+      tag: v0.0.36 # concrete pin (matches chart appVersion / git tag)
+    helperImage:
+      # Chart default is the floating busybox:latest — pin per CLAUDE.md no-floats.
+      repository: docker.io/library/busybox
+      tag: "1.37.0"
+    storageClass:
+      create: true
+      name: local-path
+      # NOT the default class — explicit per-workload SC naming. The iSCSI
+      # synology-csi-iscsi-retain stays default (Stage 4 revisits dropping it).
+      defaultClass: false
+      # Delete (not Retain): Raft is the durability layer, so a deleted PVC
+      # should auto-clean its host dir — no orphan dirs to sweep per node.
+      reclaimPolicy: Delete
+      # WaitForFirstConsumer: bind the PV on the node the consuming pod schedules
+      # onto — load-bearing for node-local storage (prevents cross-node binding).
+      volumeBindingMode: WaitForFirstConsumer
+    nodePathMap:
+      - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+        paths:
+          - /opt/local-path-provisioner
