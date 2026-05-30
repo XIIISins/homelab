@@ -104,7 +104,7 @@ spec:
       dataStorage:
         enabled: true
         size: 5Gi
-        storageClass: "synology-csi-iscsi-retain"
+        storageClass: "local-path"
 
       affinity: |
         podAntiAffinity:
