@@ -13,10 +13,11 @@
 # Image: dxflrs/garage:v2.3.0 — latest as of 2026-05-25, v2.x protocol
 # (incompatible with v1.x clusters; greenfield-only, see decisions.md).
 #
-# Storage: meta is LMDB (sync-heavy, small) on a 10Gi PVC; data is
-# content blocks (sequential, large) on 200Gi. Both `synology-csi-iscsi-retain`
-# (default class, allowVolumeExpansion: true — grow via
-# `kubectl edit pvc <meta|data>-garage-0 -n garage` when needed).
+# Storage (post storage-redesign 2026-05-30): meta is LMDB (sync-heavy,
+# small, mmap) on a 10Gi iSCSI PVC on Volume2 (`synology-csi-iscsi-retain-vol2`)
+# — block-critical, must never hit NFS. data is content blocks (large,
+# write-once) on a 50Gi NFS PVC (`nfs-client`). allowVolumeExpansion: true on
+# both — grow via `kubectl edit pvc <meta|data>-garage-0 -n garage`.
 #
 # UID/GID: Garage upstream image runs as user `garage` (UID 1000 / GID 1000).
 # Synology CSI iSCSI doesn't honor fsGroup reliably → chown init container
@@ -122,11 +123,15 @@ spec:
           configMap:
             name: garage-config
   volumeClaimTemplates:
+    # meta = LMDB (mmap, sync-heavy, small) → MUST stay iSCSI block (mmap
+    # corrupts on NFS). Moved off the default class onto Volume2's iSCSI SC
+    # (storage redesign Stage 2 / Class M, 2026-05-30) via rsync static-rebind
+    # (checksums verified, node identity preserved). The last iSCSI LUN.
     - metadata:
         name: meta
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: synology-csi-iscsi-retain
+        storageClassName: synology-csi-iscsi-retain-vol2
         resources:
           requests:
             storage: 10Gi
