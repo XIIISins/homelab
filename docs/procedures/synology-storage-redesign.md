@@ -267,8 +267,12 @@ Edit: `k8s/asgard/infrastructure/garage/statefulset.yaml` — **`data` VCT only*
 
 - ✅ NFS tier (csi-driver-nfs 4.13.2) deployed + smoke-tested clean (no shared-folder pollution, 0 LUNs).
 - ✅ `vol2` iSCSI SC + VM retention 6mo→1mo committed.
-- ⏸️ **Paused here** — workload migrations + Volume1 shrink to resume in a fresh session (data-movement-heavy).
 - ✅ `nfs-client` SC pointed at Volume2 + smoke-tested; Stage-0 PBS baseline test dropped (out of scope).
-- ✅ local-path-provisioner + per-worker `/data` disks deployed (2026-05-30).
-- ✅ Stage 1 emptyDir caches (`authentik-redis` + `netbox-valkey`) migrated + verified + LUNs reclaimed (2026-05-30, commit `ee12557`). k8s 8 synology PVs; 2 backing LUNs deleted in DSM by operator → **cap 10/10 → 8/10**; workers free of stale iSCSI records.
-- 🔲 Next on resume: Stage 1 cont. — **Class N** NFS (teamspeak → VL → VM → garage-data), then **Class L** Vault onto local-path.
+- ✅ local-path-provisioner + per-worker `/data` disks deployed (2026-05-30); SC `reclaimPolicy: Delete → Retain` (commit `9bc2c51`, applied via SC delete+recreate) — released PVC must not wipe node-local data.
+- ✅ Stage 1 emptyDir caches (`authentik-redis` + `netbox-valkey`) migrated + verified + LUNs reclaimed (2026-05-30, commit `ee12557`). 2 LUNs DSM-deleted → **cap 10/10 → 8/10**.
+- ✅ **Stage 1 Class-N/local-path migrations DONE (2026-05-30)** — all four checksum-verified, apps healthy, zero data loss:
+  - `teamspeak` → NFS 1Gi (`4dd2258`); `garage` **data** → NFS 50Gi (`0c1ae20`, meta stays iSCSI); `victorialogs` → local-path 20Gi on **urd** (`8889b15`+`f77b148`); `victoriametrics` → local-path 20Gi on **verd** (`f3e6b01`).
+  - iSCSI now **4 in use** (vault ×3 + garage-meta). 4 old PVs kept `Released`/`Retain` as rollback net → **DSM-delete when satisfied → cap 8/10 → 4/10**: `pvc-c08403b0`(ts), `pvc-65ef60b8`(VL), `pvc-fb33c185`(VM), `pvc-64ff9fbb`(garage-data).
+  - **Durability decision (operator, 2026-05-30):** VL/VM stay single-instance on local-path — acceptable because they're refillable observability (Zabbix backstops long-term) AND PBS daily backs up the worker `/data` disk (`scsi1 backup=1`, verified). The redundancy is *recovery* (PBS), not HA; local-path single-instance does **not** self-heal across node loss. For availability-critical single-instance data the fix is **app-level replication** (Vault Raft model), NOT local-path. garage-data → NFS kept it on NAS RAID1 (no redundancy downgrade — correct for real data). See [[feedback_app_level_redundancy]] + the gotchas added to CLAUDE.md.
+  - Execution gotchas (now in CLAUDE.md): VM/VL chart key is `storageClassName` (not `storageClass`); migrator pods for WaitForFirstConsumer local-path PVCs need `nodeSelector` not `nodeName`; reconcile the Flux *source* before orphan-delete+recreate or the values race rebuilds the STS on the old VCT; privileged migrator + `rsync -aH --numeric-ids` (no `-AX`) for SELinux iSCSI src → NFS/xfs dst.
+- 🔲 Next: **Class L** Vault iSCSI → local-path (per-node, leader last, raft re-sync between each); then Stage 2 (garage-meta → vol2) + Stage 3 (Volume1 shrink). DSM-delete the 4 reclaimed LUNs first.
