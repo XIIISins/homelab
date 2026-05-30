@@ -54,9 +54,15 @@ spec:
       # NOT the default class — explicit per-workload SC naming. The iSCSI
       # synology-csi-iscsi-retain stays default (Stage 4 revisits dropping it).
       defaultClass: false
-      # Delete (not Retain): Raft is the durability layer, so a deleted PVC
-      # should auto-clean its host dir — no orphan dirs to sweep per node.
-      reclaimPolicy: Delete
+      # Retain (not Delete): a released/deleted PVC must NOT wipe its node-local
+      # host dir. The tier now backs single-replica workloads (VictoriaLogs,
+      # VictoriaMetrics) with no app-level replication, so auto-delete-on-release
+      # would be irreversible data loss + a migration footgun. (The original
+      # Delete rationale — "Raft is the durability layer" — only held while this
+      # was Vault-only.) Tradeoff: orphan dirs persist on /data after a PVC
+      # delete and need an occasional manual sweep per worker. Changing this on
+      # a live SC needs delete+recreate (reclaimPolicy is immutable).
+      reclaimPolicy: Retain
       # WaitForFirstConsumer: bind the PV on the node the consuming pod schedules
       # onto — load-bearing for node-local storage (prevents cross-node binding).
       volumeBindingMode: WaitForFirstConsumer
