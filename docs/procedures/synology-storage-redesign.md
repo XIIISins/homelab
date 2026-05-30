@@ -47,8 +47,8 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 | `garage/data` | iSCSI 200Gi | **NFS** | S3 object blocks = large files, NFS-fine. rsync-copy. |
 | `garage/meta` | iSCSI 10Gi | **iSCSI (vol2)** | LMDB (mmap) — MUST stay block. Right-size + move to Volume2. |
 | `teamspeak` | iSCSI 5Gi | **NFS** | config/identity files. rsync-copy. |
-| `victorialogs` | iSCSI 50Gi | **NFS** | append-mostly logs, tolerate NFS. rsync-copy (preserve, operator chose). |
-| `victoriametrics` | iSCSI 50Gi | **NFS** | metrics, tolerate NFS. rsync-copy + retention 6mo→1mo (already committed). |
+| `victorialogs` | iSCSI 50Gi | **local-path** (was NFS) | ⚠️ changed 2026-05-30: VL recommends local ext4, not NFS. mmap engine. → local xfs `/data`. See Stage 1 runbook "VL/VM tier deviation". |
+| `victoriametrics` | iSCSI 50Gi | **local-path** (was NFS) | ⚠️ changed 2026-05-30: VM's only documented NFS panic ([#61](https://github.com/VictoriaMetrics/VictoriaMetrics/issues/61)) is on Synology-over-NFS = our hardware. mmap engine. retention 6mo→1mo committed. See Stage 1 runbook. |
 | `authentik-redis` | ✅ emptyDir | **emptyDir** | session cache — rebuilds. Done 2026-05-30 (LUN dangling, see below). |
 | `netbox-valkey` | ✅ emptyDir | **emptyDir** | cache — rebuilds. Done 2026-05-30 (LUN dangling, see below). |
 
@@ -86,7 +86,7 @@ Single RAID1 pool on the DS223j → volume separation is **logical only** (no IO
 `reclaimPolicy: Retain` everywhere → deleting a PVC leaves the old PV/LUN intact for rollback. StatefulSet `volumeClaimTemplates` are **immutable** → changing SC requires deleting the STS (Flux recreates).
 
 ### Class N — iSCSI → NFS (preserve data)
-For garage-data, teamspeak, VL, VM. Cross-StorageClass copy.
+For garage-data + teamspeak. (VL/VM were Class N in the original table but moved to local-path 2026-05-30 — see Stage 1 runbook "VL/VM tier deviation".) Cross-StorageClass copy.
 ```
 # 1. Quiesce (scale dependents first: Outline→0 before Garage→0). Suspend Flux for the HR.
 # 2. Pre-create the target PVC on nfs-client (right-sized).
@@ -140,6 +140,113 @@ Synology can't shrink in place → delete+recreate. `k8s-nfs` is already off Vol
 - Delete all old Volume1 iSCSI LUNs (verify each workload healthy first).
 - Drop the default StorageClass (explicit per-workload SC naming).
 - Docs: CLAUDE.md storage invariant → tiering model; architecture/hardware NFS tier; decisions row.
+
+---
+
+## Stage 1 execution runbook — Class N + local-path (prepped 2026-05-30)
+
+*Detailed, command-level runbook for the four remaining Stage-1 workload migrations, prepped read-only against live state on 2026-05-30. Nothing here has been applied. Drive one workload at a time, verify, then reclaim its LUN.*
+
+### Decisions (this is the deviation-from-table part — read first)
+
+| Workload | Source | → Target | Right-size | Preserve? | Notes |
+|----------|--------|----------|-----------|-----------|-------|
+| `teamspeak` | iSCSI 5Gi | **nfs-client** | 1Gi | yes (trivial) | hand-rolled STS `k8s/asgard/apps/teamspeak/statefulset.yaml`. `/var/ts3server` = file-transfer blobs + logs + `query_ip_*.txt`; **no SQLite** (PG backend) → NFS-safe. |
+| `victorialogs` | iSCSI 50Gi | **local-path** (was NFS in table) | 20Gi | **fresh-start recommended** | HR `server.persistentVolume`. **NOT NFS** — see flag below. Node-pin **einherjar-urd**. |
+| `victoriametrics` | iSCSI 100Gi (PVC 50Gi) | **local-path** (was NFS in table) | 20Gi | **fresh-start recommended** | HR `persistentVolume`, retention already 1mo (`62c300b`). **NOT NFS**. Node-pin **einherjar-verd** (balance; avoid skuld/16GB). |
+| `garage` **data only** | iSCSI 200Gi | **nfs-client** | 50Gi | yes (near-empty) | hand-rolled STS, **two** VCTs — change `data` only; `meta` (10Gi LMDB) stays iSCSI → Stage 2. Quiesce **Outline → 0 first**. |
+
+**VL/VM tier deviation (operator-approved 2026-05-30):** the per-workload table assigned VL/VM → NFS; changed to **local-path**. VictoriaLogs never endorsed NFS (recommends local ext4); VictoriaMetrics' only documented NFS panic ([issue #61](https://github.com/VictoriaMetrics/VictoriaMetrics/issues/61), `unlinkat: directory not empty` during part-merge) is **on a Synology NAS over NFS — our exact hardware**; both mmap by default. local-path = local xfs `/data` (mmap-safe, VM/VL-recommended, 0 LUN cost, faster). Tradeoff: node-pinned (data on one worker's `scsi1` disk — survives a VM rebuild, lost only on physical-node loss; acceptable for single-replica non-critical observability).
+
+**Sizing is advisory, not reserved.** `nfs-client` (csi-driver-nfs) and Rancher `local-path` don't hard-enforce the PVC `size` — it's a request, not a quota. Real limits: NFS shares **Volume2 (~95 GiB)** across all NFS PVCs; local-path shares each worker's **50 GiB `/data`** with Vault (post-Class-L) + co-located VL/VM. At current data (<1 GiB each) there's no pressure; pin VL→urd, VM→verd so they don't stack on one disk.
+
+**Preserve vs fresh for VL/VM:** local-path SC is `reclaimPolicy: Delete` (unlike NFS/iSCSI Retain), so a preserve-rsync needs a mid-flight `kubectl patch pv … reclaimPolicy=Retain` to survive the temp-PVC delete during static-rebind (procedure below). Given the data is ~0.14 GiB (VL) / ~0.77 GiB (VM) of **refillable** short-term observability (Zabbix owns long-term trends), **fresh-start is recommended** — far simpler, loses only the current 30d/1mo window. Preserve path documented for completeness.
+
+### Ordering & rollback
+
+- **Order:** teamspeak (standalone, trivial) → VL → VM (observability; shippers buffer during the gap) → garage-data (Outline dependency, biggest, last).
+- **Rollback net:** every source iSCSI PV is `Retain`. Each migration deletes the source PVC → PV goes `Released`, LUN intact. **Delete the LUN in DSM SAN Manager only after the app is verified healthy on the new tier** (operator-manual, same as the cache step). Until then, rollback = re-point the STS/HR SC back to iSCSI + rebind the old PV.
+- **Pre-flight:** `csi-nfs-node` pods showed recent restarts (worker reboots from the local-path rollout) — confirm all `Running` + stable before starting. Re-verify `VAULT_TOKEN` if the session is long.
+
+### Shared mechanics
+
+**Quiesce** (so the source PV detaches + Flux doesn't fight the scale-down):
+- HR-managed (VL, VM): `flux suspend hr <name> -n monitoring` → `kubectl scale sts <name> -n monitoring --replicas 0`.
+- Kustomization-managed hand-rolled STS (teamspeak=`apps`, garage=`infrastructure`): `flux suspend kustomization <ks>` (broad but brief — other resources just pause reconcile) → `kubectl scale sts <name> -n <ns> --replicas 0`. For garage: scale **Outline → 0 first**.
+
+**Migrator pod** (mounts old source ro + new target rw; alpine, rsync). NFS target → runs on any node. local-path target → must set `nodeName: <pinned-worker>` (the migrator is the *first consumer* that provisions the node-local PV; that node is then the workload's permanent home). Keep this spec out of `k8s/` (it's transient ops tooling, not Flux-managed) — apply from a local file, delete after.
+
+```yaml
+# migrator.yaml — APPLY MANUALLY, NOT via Flux. Delete after rsync+verify.
+apiVersion: v1
+kind: Pod
+metadata: { name: migrator, namespace: <ns> }
+spec:
+  # nodeName: <worker>        # local-path targets ONLY (pins the workload's home)
+  restartPolicy: Never
+  containers:
+    - name: rsync
+      image: alpine:3.20
+      command: ["sh","-c","apk add --no-cache rsync && rsync -aHAX --numeric-ids --info=progress2 /src/ /dst/ && echo '--- du src/dst ---' && du -sh /src /dst && sleep 3600"]
+      volumeMounts:
+        - { name: src, mountPath: /src, readOnly: true }
+        - { name: dst, mountPath: /dst }
+  volumes:
+    - name: src
+      persistentVolumeClaim: { claimName: <OLD-pvc-name>, readOnly: true }
+    - name: dst
+      persistentVolumeClaim: { claimName: <NEW-pvc-name> }
+```
+
+**Static-rebind (NFS / Retain target):** migrator creates target PV via a temp PVC → after rsync, `kubectl delete pvc <temp>` (PV → Released, Retain) → `kubectl patch pv <newPV> --type=json -p '[{"op":"remove","path":"/spec/claimRef"}]'` → recreate PVC under the **STS-expected name** with `spec.volumeName: <newPV>` → binds. Then edit the STS VCT SC/size, `kubectl delete sts` (immutable VCT), resume Flux → STS recreates + adopts the pre-bound PVC.
+
+**Static-rebind (local-path / Delete target):** identical, but **before** deleting the temp PVC, `kubectl patch pv <newPV> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'` (else the local-path PV is wiped on temp-PVC delete). Optionally patch back to `Delete` after the final PVC binds, so steady-state cleanup works.
+
+### Per-workload
+
+**1. teamspeak → nfs-client (preserve)**
+```
+flux suspend kustomization apps
+kubectl scale sts teamspeak -n teamspeak --replicas 0     # clients drop; reconnect after
+# migrator (no nodeName): OLD=data-teamspeak-0, NEW=temp ts-nfs (create ts-nfs PVC on nfs-client, 1Gi)
+# rsync, verify du, delete migrator
+# static-rebind (NFS): delete ts-nfs → clear claimRef → recreate data-teamspeak-0 volumeName=<nfsPV>
+# edit statefulset.yaml: storageClassName nfs-client, storage 1Gi; kubectl delete sts teamspeak -n teamspeak
+flux resume kustomization apps    # Flux recreates STS, adopts NFS PVC
+# verify: pod Ready, TS3 connects, files/ present. Then DSM-delete old LUN.
+```
+Edit: `k8s/asgard/apps/teamspeak/statefulset.yaml` VCT `data` → `storageClassName: nfs-client`, `storage: 1Gi`.
+
+**2. VL → local-path (fresh recommended)**
+```
+flux suspend hr victorialogs -n monitoring
+kubectl scale sts victoria-logs-single-server -n monitoring --replicas 0
+kubectl delete pvc server-volume-victorialogs-victoria-logs-single-server-0 -n monitoring   # iSCSI PV → Released/Retain (rollback net)
+kubectl delete sts victoria-logs-single-server -n monitoring
+# edit HR: server.persistentVolume.storageClass → local-path, size → 20Gi; (to pin: add nodeSelector for einherjar-urd)
+flux resume hr victorialogs -n monitoring     # recreate → empty local-path PVC provisions on scheduled node
+# verify: pod Ready on the pinned worker, /insert + vmui reachable, ingest resumes. DSM-delete old LUN.
+```
+*Preserve variant:* migrator with `nodeName: einherjar-urd`, OLD=the iSCSI PVC, NEW=temp local-path PVC; rsync; then local-path static-rebind (patch reclaim Retain first). Edit: `k8s/asgard/apps/victorialogs/helmrelease.yaml`.
+
+**3. VM → local-path (fresh recommended)** — identical to VL, pin **einherjar-verd**, STS `victoria-metrics-single-server`, PVC `server-volume-victoriametrics-victoria-metrics-single-server-0`, HR size → 20Gi. vmagent buffers metrics during the gap. Edit: `k8s/asgard/apps/victoriametrics/helmrelease.yaml`.
+
+**4. garage data → nfs-client (preserve; meta stays iSCSI)**
+```
+kubectl scale deploy outline -n outline --replicas 0      # dependent first
+flux suspend kustomization infrastructure
+kubectl scale sts garage -n garage --replicas 0           # detaches data+meta
+# migrator (no nodeName): OLD=data-garage-0, NEW=temp garage-data-nfs (nfs-client, 50Gi); rsync; verify du
+# static-rebind (NFS): delete temp → clear claimRef → recreate data-garage-0 volumeName=<nfsPV>
+# edit garage statefulset.yaml: DATA VCT only → storageClassName nfs-client, storage 50Gi (leave meta VCT on iSCSI)
+kubectl delete sts garage -n garage
+flux resume kustomization infrastructure                  # recreate, adopt NFS data PVC + existing iSCSI meta PVC
+kubectl scale deploy outline -n outline --replicas 1
+# verify: garage healthy, Outline reads documents/attachments from S3. DSM-delete old data LUN (NOT meta).
+```
+Edit: `k8s/asgard/infrastructure/garage/statefulset.yaml` — **`data` VCT only**.
+
+**End of Stage 1:** iSCSI cap `8/10 → 4/10` (teamspeak, VL, VM, garage-data LUNs freed after DSM delete; remaining: 3× Vault + garage-meta). Then Class L (Vault → local-path) and Stage 2 (garage-meta → vol2).
 
 ---
 
