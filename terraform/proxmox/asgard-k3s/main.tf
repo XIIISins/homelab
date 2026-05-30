@@ -93,6 +93,19 @@ resource "proxmox_virtual_environment_vm" "worker" {
     discard      = "on"
   }
 
+  # Dedicated node-local data disk for local-path-provisioner — separates
+  # persistent stateful data from the OS/ephemeral root disk (detach + reattach
+  # to preserve data on host/VM rebuild). Formatted + mounted at /data by the
+  # local-path-disk Ansible role. Thin on local-lvm (cap, not reservation).
+  # discard + ssd: TRIM passthrough to LVM-thin + non-rotational flag (NVMe).
+  disk {
+    datastore_id = "local-lvm"
+    size         = 50
+    interface    = "scsi1"
+    discard      = "on"
+    ssd          = true
+  }
+
   network_device {
     bridge  = "vmbr0"
     vlan_id = 21

@@ -1,0 +1,18 @@
+# ansible/roles/local-path-disk/defaults/main.yml
+---
+# Dedicated node-local data disk backing local-path-provisioner.
+# scsi1 on the worker VMs presents as /dev/sdb (scsi0 = /dev/sda is the OS disk).
+local_path_disk_device: /dev/sdb
+local_path_disk_fstype: xfs
+
+# Whole-disk mount at a short, top-level path. The worker VMs are exclusively
+# K3s — nothing but pods/containers ever writes here — so the ENTIRE filesystem
+# is blanket-labelled container-writable via the SELinux `context=` mount option
+# (no per-dir file-label / semanage needed). local-path PV dirs land directly here.
+local_path_disk_mountpoint: /data
+local_path_disk_selinux_context: "system_u:object_r:container_file_t:s0"
+
+# Safety window (GiB) — refuse to mkfs a device outside it, so a wrong device
+# name never reformats the OS disk. Wide enough to absorb GB-vs-GiB reporting.
+local_path_disk_min_gib: 40
+local_path_disk_max_gib: 60

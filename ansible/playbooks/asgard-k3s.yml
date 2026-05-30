@@ -7,6 +7,14 @@
     - { role: baseline, tags: baseline }
     - { role: k3s, tags: k3s }
 
+    # Dedicated node-local data disk (/data) + SELinux prep for
+    # local-path-provisioner. Workers only — CPs are tainted, no local-path
+    # PVCs land there. Run serial:1 + reboot-test on first apply (Vault keeps
+    # 2/3 quorum through a single-worker bounce).
+    - role: local-path-disk
+      tags: local-path-disk
+      when: "'k3s_worker' in group_names"
+
     # Agents live in the per-host-group playbook so drift-check covers
     # them in this group's converge without re-iterating via the
     # cluster-wide standalones. K3s VMs ship host journald/syslog only —

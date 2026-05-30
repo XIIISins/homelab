@@ -1,0 +1,68 @@
+# ansible/roles/local-path-disk/tasks/main.yml
+---
+- name: Install xfsprogs
+  ansible.builtin.dnf:
+    name: xfsprogs
+    state: present
+
+- name: Stat the target data device
+  ansible.builtin.stat:
+    path: "{{ local_path_disk_device }}"
+  register: lpd_dev
+
+- name: Fail clearly if the data device is missing
+  ansible.builtin.assert:
+    that:
+      - lpd_dev.stat.exists
+      - lpd_dev.stat.isblk | default(false)
+    fail_msg: >-
+      {{ local_path_disk_device }} is not a present block device. Add the scsi1
+      data disk via terraform/proxmox/asgard-k3s and re-run this role.
+
+- name: Compute the device size in GiB from gathered facts
+  ansible.builtin.set_fact:
+    lpd_size_gib: "{{ ansible_devices[local_path_disk_device | basename].size
+                      | default('0 GB')
+                      | regex_replace('[^0-9.].*$', '') | float }}"
+
+- name: Guard against formatting an unexpected device
+  ansible.builtin.assert:
+    that:
+      - lpd_size_gib | float >= local_path_disk_min_gib | float
+      - lpd_size_gib | float <= local_path_disk_max_gib | float
+    fail_msg: >-
+      {{ local_path_disk_device }} reports {{ lpd_size_gib }} GiB, outside the
+      expected {{ local_path_disk_min_gib }}-{{ local_path_disk_max_gib }} GiB
+      window — refusing to mkfs. Override local_path_disk_device if this is wrong.
+
+- name: Create the filesystem (idempotent — never reformats an existing FS)
+  community.general.filesystem:
+    dev: "{{ local_path_disk_device }}"
+    fstype: "{{ local_path_disk_fstype }}"
+
+- name: Read the filesystem UUID (stable mount source across device renames)
+  ansible.builtin.command: blkid -s UUID -o value {{ local_path_disk_device }}
+  register: lpd_uuid
+  changed_when: false
+
+- name: Mount the data volume container-writable + persist in fstab
+  ansible.posix.mount:
+    path: "{{ local_path_disk_mountpoint }}"
+    src: "UUID={{ lpd_uuid.stdout }}"
+    fstype: "{{ local_path_disk_fstype }}"
+    # context=: blanket-label the whole FS container_file_t so the provisioner's
+    #   helper pod (container_t) can write — the VM is K3s-only, no non-container
+    #   workload needs a different label. s0 (no MCS categories) is reachable by
+    #   every pod's container_t:s0:cN context. nofail: a bad entry must never
+    #   hang boot (validated by the post-deploy reboot-test).
+    opts: 'defaults,nofail,context="{{ local_path_disk_selinux_context }}"'
+    state: mounted
+
+- name: Ensure periodic TRIM runs (reclaims thin-LVM blocks under the SSD disk)
+  ansible.builtin.systemd:
+    name: fstrim.timer
+    enabled: true
+    state: started
+  # Periodic fstrim is the right model vs an online `discard` mount option,
+  # which adds latency on every delete. RHEL ships fstrim.timer; this makes the
+  # dependency explicit so thin reclaim isn't left to a distro default.

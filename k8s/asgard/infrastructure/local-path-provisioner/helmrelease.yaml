@@ -37,9 +37,10 @@ spec:
   values:
     # Node-local storage for app-replicated state (Vault Raft, Class L in the
     # storage tiering plan). K3s' built-in local-storage provisioner is disabled
-    # in our CP config; this is the Flux-managed replacement. Data lands on the
-    # workers' local LVM-thin root disk at /opt/local-path-provisioner.
-    # See docs/procedures/synology-storage-redesign.md.
+    # in our CP config; this is the Flux-managed replacement. Data lands on a
+    # dedicated 50G scsi1 data disk on each worker, mounted container-writable
+    # at /data by the local-path-disk Ansible role (separate from the OS disk,
+    # so it survives a VM rebuild). See docs/procedures/synology-storage-redesign.md.
     image:
       repository: docker.io/rancher/local-path-provisioner
       tag: v0.0.36 # concrete pin (matches chart appVersion / git tag)
@@ -62,4 +63,4 @@ spec:
     nodePathMap:
       - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
         paths:
-          - /opt/local-path-provisioner
+          - /data
