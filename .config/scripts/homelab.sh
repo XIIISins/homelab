@@ -58,6 +58,7 @@ __op_semaphore_admin='24fmbstdhqzwk6eeru4vvaixsm'   # [Asgard] - Terraform - Sem
 __op_aws_tf_bootstrap='lhf4xzp3uqehkkease5gidthci'  # [Asgard] - Terraform - AWS - Bootstrap access key
 __op_aws_tf_state='jnvf6aokgml7vkjj4ho2xlcvua'      # [Asgard] - Terraform - AWS - State access key
 __op_proxmox_root='6vv32uzlahikgmkvkiqfnkgshy'      # [Infra] - Terraform - Proxmox - Root password
+__op_vault_root='7g4grolyien2yqkm7me2jficmy'        # [Bootstrap] - Manual - Vault - Root token
 
 # Each entry: "ENV_VAR|1P item UUID|field"
 # Fetched from 1Password by homelab-env, cached to disk.
@@ -449,7 +450,7 @@ homelab-env() {
 # === Public: vault tokens ===
 
 vault-root-token() {
-    __homelab_op_field "Asgard - Vault - Root Token" password
+    __homelab_op_field "$__op_vault_root" password
 }
 
 set-vault-token() {

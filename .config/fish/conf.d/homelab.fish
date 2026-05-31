@@ -67,6 +67,7 @@ set -g __op_semaphore_admin '24fmbstdhqzwk6eeru4vvaixsm' # [Asgard] - Terraform 
 set -g __op_aws_tf_bootstrap 'lhf4xzp3uqehkkease5gidthci' # [Asgard] - Terraform - AWS - Bootstrap access key
 set -g __op_aws_tf_state 'jnvf6aokgml7vkjj4ho2xlcvua' # [Asgard] - Terraform - AWS - State access key
 set -g __op_proxmox_root '6vv32uzlahikgmkvkiqfnkgshy' # [Infra] - Terraform - Proxmox - Root password
+set -g __op_vault_root '7g4grolyien2yqkm7me2jficmy' # [Bootstrap] - Manual - Vault - Root token
 
 # Each entry: "ENV_VAR|1P item UUID|field"
 # Fetched from 1Password by homelab-env, cached to disk.
@@ -445,7 +446,7 @@ end
 # === Public: vault tokens ===
 
 function vault-root-token --description "Echo the Vault root token from 1Password"
-    __homelab_op_field "Asgard - Vault - Root Token" password
+    __homelab_op_field $__op_vault_root password
 end
 
 function set-vault-token --description "Set VAULT_TOKEN from a named source"
