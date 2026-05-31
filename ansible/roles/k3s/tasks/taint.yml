@@ -1,0 +1,37 @@
+---
+# ansible/roles/k3s/tasks/taint.yml
+#
+# Converge the control-plane NoSchedule taint. The `node-taint:` directive in
+# config-{init,server}.yaml.j2 is applied by k3s ONLY at node registration
+# (k3s gotcha) — restarting k3s on an existing cluster member does not
+# re-apply it. So a CP that registered before the taint was added (the Phase
+# 4a state — those CPs were hand-tainted via kubectl), or one that somehow
+# lost it, needs an explicit reconcile. Runs once from the init node (which
+# has the kubeconfig); idempotent (only taints registered CPs missing it).
+# Closes the Phase 4a registration-time-only gap.
+- name: Read control-plane taint state per CP node
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl get node {{ item }}
+      -o jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}
+  register: k3s_cp_taint_state
+  changed_when: false
+  failed_when: false # a CP may not be registered yet during a fresh bootstrap
+  loop: "{{ groups['k3s_cp'] }}"
+  run_once: true
+  delegate_to: "{{ k3s_init_node }}"
+
+- name: Apply CP NoSchedule taint where missing (registered nodes only)
+  ansible.builtin.command:
+    cmd: >-
+      k3s kubectl taint node {{ item.item }}
+      node-role.kubernetes.io/control-plane=:NoSchedule
+  when:
+    - item.rc == 0 # node is registered (skip mid-bootstrap; config applies it at registration)
+    - "'NoSchedule' not in item.stdout" # taint absent → apply it
+  loop: "{{ k3s_cp_taint_state.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  run_once: true
+  delegate_to: "{{ k3s_init_node }}"
+  changed_when: true

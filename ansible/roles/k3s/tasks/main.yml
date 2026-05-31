@@ -34,3 +34,10 @@
     - not k3s_already_healthy
     - not ansible_check_mode
   tags: k3s_calico
+
+- name: Converge control-plane NoSchedule taint
+  # `node-taint:` config applies only at registration — reconcile existing CPs
+  # via kubectl. Runs once from the init node; idempotent. Closes Phase 4a gap.
+  ansible.builtin.import_tasks: taint.yml
+  when: not ansible_check_mode
+  tags: k3s_taint
