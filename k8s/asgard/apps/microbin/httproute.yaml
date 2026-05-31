@@ -36,7 +36,20 @@ spec:
   hostnames:
     - "paste.xiiisins.com"
   rules:
-    # Gated: list + admin surface (multiple matches = OR, one ForwardAuth).
+    # Gated: list + admin surface, PLUS the Authentik outpost path. Multiple
+    # matches = OR, one ForwardAuth filter.
+    #
+    # /outpost.goauthentik.io MUST run through ForwardAuth here. After login,
+    # Authentik redirects the browser to
+    # /outpost.goauthentik.io/callback?code=…; the embedded outpost only
+    # processes that callback when the request passes through the ForwardAuth
+    # middleware (the outpost's /auth/traefik endpoint inspects X-Forwarded-Uri,
+    # exchanges the code, sets the session cookie, and 302s back to the
+    # original URL). For a FULLY-gated app (VL/VM) the callback rides the
+    # gated `/` catchall automatically — but MicroBin's `/` catchall is OPEN,
+    # so the callback would fall through to the MicroBin backend and 404.
+    # Routing the outpost path through this gated rule fixes that without any
+    # cross-namespace route to authentik-server.
     - matches:
         - path:
             type: PathPrefix
@@ -50,6 +63,9 @@ spec:
         - path:
             type: PathPrefix
             value: /remove
+        - path:
+            type: PathPrefix
+            value: /outpost.goauthentik.io
       filters:
         - type: ExtensionRef
           extensionRef:
