@@ -1,3 +1,4 @@
+# terraform/vault/versions.tf
 terraform {
   required_version = ">= 1.10.0"
 
@@ -12,7 +13,7 @@ terraform {
   required_providers {
     vault = {
       source  = "hashicorp/vault"
-      version = "~> 4.0"
+      version = "4.8.0"
     }
     random = {
       source  = "hashicorp/random"

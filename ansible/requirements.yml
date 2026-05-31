@@ -3,22 +3,27 @@
 # Galaxy collection requirements.
 #
 # Install: ansible-galaxy collection install -r ansible/requirements.yml
-# Upgrade: ansible-galaxy collection install -r ansible/requirements.yml --upgrade
+# Bump:    edit a pin, then `ansible-galaxy collection install -r ansible/requirements.yml --force`
+#
+# Concrete-pinned per the IaC pin policy (decisions.md "IaC pin policy"):
+# floats are banned because a minor/major bump can break us silently —
+# community.zabbix 4.x dropping env-var auth is the canonical example.
+# Versions below are the tested/installed set as of Wave S5 (2026-05-31).
 
 collections:
   - name: community.hashi_vault
-    version: ">=6.0.0,<7.0.0"
+    version: "6.2.1"
   - name: community.crypto
-    version: ">=2.0.0"
+    version: "3.2.1"
   - name: community.postgresql
-    version: ">=3.0.0"
+    version: "4.2.0"
   # NetBox dynamic inventory + the wider netbox.netbox module set used
   # by community.zabbix's host registration and (Phase 5h.3.b) the
   # `nb_inventory` plugin in ansible/inventory/netbox.yml.
   - name: netbox.netbox
-    version: ">=3.0.0"
+    version: "3.22.0"
   # community.zabbix is referenced by Phase 8c roles + the existing
-  # Hermod media-type producer wiring — pin to the major that ships
-  # the httpapi connection plugin (4.x dropped env-var auth).
+  # Hermod media-type producer wiring — the 4.x line ships the httpapi
+  # connection plugin (4.x dropped env-var auth).
   - name: community.zabbix
-    version: ">=4.0.0"
+    version: "4.2.0"
