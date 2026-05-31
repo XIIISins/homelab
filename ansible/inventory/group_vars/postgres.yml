@@ -113,3 +113,10 @@ zabbix_agent_host_macros:
   - macro: "{$PG.PASSWORD}"
     value: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/postgres/zabbix-monitor-password').secret.value }}"
     type: secret
+  # Tighter than the global 80/90 baseline (Wave S4) — a full disk on a
+  # PG node is an outage (WAL writes fail -> Patroni demotes/crashes), so
+  # alert with more headroom. CRIT is Average severity -> routes to Hermod.
+  - macro: "{$VFS.FS.PUSED.MAX.WARN}"
+    value: "75"
+  - macro: "{$VFS.FS.PUSED.MAX.CRIT}"
+    value: "85"
