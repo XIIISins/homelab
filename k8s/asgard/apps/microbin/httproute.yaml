@@ -1,11 +1,23 @@
 # k8s/asgard/apps/microbin/httproute.yaml
 #
 # Routes paste.xiiisins.com to MicroBin, with PARTIAL auth. Gateway API
-# longest-prefix matching means the specific /pastalist + /admin rules win
-# over the / catchall, so only those two carry the Authentik ForwardAuth
-# middleware — everything else (create, view-by-URL, upload, /static) is
-# open/anonymous. (This is the inverse of the VictoriaLogs route, which
-# exempts /insert from an otherwise-gated app.)
+# longest-prefix matching means the specific gated rules win over the /
+# catchall, so only those carry the Authentik ForwardAuth middleware —
+# everything else (create, view-by-URL, upload, /static) is open/anonymous.
+# (This is the inverse of the VictoriaLogs route, which exempts /insert
+# from an otherwise-gated app.)
+#
+# GATED endpoints (verified against MicroBin source, NOT the docs — the
+# docs call the list "/pastalist" but the real route is "/list"):
+#   /list        — endpoints/list.rs  #[get("/list")]   the paste index
+#   /admin       — endpoints/admin.rs #[get/post("/admin")]  admin actions
+#   /auth_admin  — endpoints/auth_admin.rs  the admin login form /admin
+#                  redirects to (must be gated too or it's an open backdoor
+#                  to the admin login)
+#   /remove      — endpoints/remove.rs #[get/post("/remove/{id}")]  delete
+# Paste viewing is /{id} (getpasta), which falls through to the open
+# catchall — PathPrefix matches by path segment, so /list etc. don't shadow
+# hash-id paste URLs.
 #
 # External-only: apex zone is Cloudflare-resolved. Public path is
 #   client → Cloudflare edge → tunnel → cloudflared → Traefik → here.
@@ -24,25 +36,20 @@ spec:
   hostnames:
     - "paste.xiiisins.com"
   rules:
-    # Gated: the paste index (browse titles/metadata for janitor cleanup).
+    # Gated: list + admin surface (multiple matches = OR, one ForwardAuth).
     - matches:
         - path:
             type: PathPrefix
-            value: /pastalist
-      filters:
-        - type: ExtensionRef
-          extensionRef:
-            group: traefik.io
-            kind: Middleware
-            name: authentik-forward-auth
-      backendRefs:
-        - name: microbin
-          port: 80
-    # Gated: the admin interface (the only deletion path, EDITABLE=false).
-    - matches:
+            value: /list
         - path:
             type: PathPrefix
             value: /admin
+        - path:
+            type: PathPrefix
+            value: /auth_admin
+        - path:
+            type: PathPrefix
+            value: /remove
       filters:
         - type: ExtensionRef
           extensionRef:
