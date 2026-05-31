@@ -2,7 +2,7 @@
 
 # Garage (asgard K3s)
 
-S3-compatible object store for in-cluster consumers (first user: Outline). Single-node, replication-factor 1, backed by Synology iSCSI. Lives in `k8s/asgard/infrastructure/garage/` (Flux Kustomization `infrastructure`).
+S3-compatible object store for in-cluster consumers (first user: Outline). Single-node, replication-factor 1. Storage is tiered after the 2026-05-30 redesign: LMDB **metadata on iSCSI** (Synology Volume2, the cluster's sole remaining iSCSI LUN — mmap-class, NFS-hostile) + **object data on NFS** (`csi-driver-nfs`, no per-DSM LUN-cap pressure). Lives in `k8s/asgard/infrastructure/garage/` (Flux Kustomization `infrastructure`).
 
 Picked Garage over MinIO + SeaweedFS in 2026-05-25 after the MinIO OSS pivot made it no-longer-trustable upstream and SeaweedFS's POSIX/WebDAV surfaces turned out redundant with the existing iSCSI + NFS paths. Garage is purpose-built as a small-scale S3 — Rust, distroless image, LMDB metadata, no JVM, no shell. Fits the homelab's "as little surface as possible" posture.
 
@@ -12,8 +12,8 @@ Picked Garage over MinIO + SeaweedFS in 2026-05-25 after the MinIO OSS pivot mad
 |-------|-------|-------|
 | Image | `dxflrs/garage:v2.3.0` | Distroless/scratch — no shell, no debug. `kubectl exec` is dead, use the admin API. |
 | Workload | StatefulSet `garage/garage` | 1 replica, UID 1000, fsGroup 1000 |
-| Metadata | PVC `meta-garage-0`, 10Gi, `synology-csi-iscsi-retain` | LMDB store (`db_engine="lmdb"`) |
-| Object data | PVC `data-garage-0`, 200Gi, `synology-csi-iscsi-retain` | Per-object chunked layout |
+| Metadata | PVC `meta-garage-0`, 10Gi, `synology-csi-iscsi-retain-vol2` (Volume2) | LMDB store (`db_engine="lmdb"`) — block/mmap-class, kept on iSCSI by design (Class-M); the cluster's sole remaining iSCSI LUN |
+| Object data | PVC `data-garage-0`, 50Gi, `nfs-client` (`csi-driver-nfs`) | Per-object chunked layout — file-class, moved iSCSI 200Gi → NFS 50Gi in the 2026-05-30 redesign (Class-N) to free the iSCSI LUN cap; `allowVolumeExpansion` if S3 content grows |
 | RPC service | `garage-headless` (port 3901, headless, `publishNotReadyAddresses: true`) | Cluster RPC; not-ready publishing is load-bearing — see "Bootstrap chicken-and-egg" below |
 | S3 service | `garage-s3` ClusterIP, port 3900 (S3) + 3902 (web) | Consumers dial this |
 | Admin service | `garage-admin` ClusterIP, port 3903 | `/health`, `/v2/*` — operator-only, no external exposure |
@@ -26,7 +26,7 @@ Picked Garage over MinIO + SeaweedFS in 2026-05-25 after the MinIO OSS pivot mad
 Consumer pod (e.g. outline)
   → DNS garage-s3.garage.svc.cluster.local → ClusterIP 10.43.x.x:3900
   → kube-proxy → garage-0 pod (10.42.x.x:3900)
-  → garage S3 API → LMDB meta + chunked data on the two iSCSI LUNs
+  → garage S3 API → LMDB meta (iSCSI, Volume2) + chunked data (NFS)
 Reply path is the inverse — all in pod network, never touches MetalLB.
 ```
 
@@ -36,9 +36,9 @@ The admin API (3903) is ClusterIP-only by design. Operator workflows hit it via 
 
 Garage is built for 3+ nodes with replication. Running one node with `replication_factor=1` + `consistency_mode="dangerous"` is an explicit homelab choice:
 
-- The data already sits on the Synology via iSCSI. Replicating *inside* Garage on top of a single NAS adds zero safety — both copies live on the same RAID1 — but does block startup until quorum is met. The "second layer of replication" is a fiction here.
+- Both tiers already sit on the Synology (Volume2 — metadata on iSCSI, data on NFS). Replicating *inside* Garage on top of a single NAS adds zero safety — every copy lands on the same RAID1 — but does block startup until quorum is met. The "second layer of replication" is a fiction here.
 - `consistency_mode="dangerous"` skips quorum reads. With one node there's no quorum to satisfy; the alternative modes hang on writes waiting for peers that will never exist.
-- LUN-level snapshots (PBS via Synology iSCSI snapshots) are the actual durability story. Garage is the *protocol* layer, not the *durability* layer.
+- NAS-level backup is the actual durability story — Garage is the *protocol* layer, not the *durability* layer. Durability rides on the Synology RAID1 plus whatever covers Volume2; Garage's own single-node `replication_factor=1` provides none.
 
 If a second NAS lands later (jotunheim-storage, B2 offsite mirror, anything), scale-out is `terraform apply` to add the node + a layout edit assigning capacity in a second zone. The data path doesn't change.
 
@@ -61,13 +61,13 @@ Same class as the K3s "ClusterIP companion for host-network consumers" pattern �
 - The Job has its own retry semantics + visible Completed/Failed state, separable from the pod.
 - Flux preserves the Job indefinitely; re-runs for layout edits (scale-out) are `kubectl delete job/layout-init && flux reconcile kustomization infrastructure` away.
 
-The Job is `alpine:3.20 + apk add curl jq`, idempotent (skips if cluster layout version >= 1), `backoffLimit: 30` with a 5-minute wait loop per attempt — total ~2.5h budget. The budget exists because the first-deploy `mkfs.ext4` on the 200Gi data LUN takes ~20 minutes (Synology iSCSI is TRIM-bound at ~10GB/min). Subsequent runs return in seconds.
+The Job is `alpine:3.20 + apk add curl jq`, idempotent (skips if cluster layout version >= 1), `backoffLimit: 30` with a 5-minute wait loop per attempt — total ~2.5h budget. The generous budget was originally sized for the first-deploy `mkfs.ext4` on the 200Gi iSCSI data LUN (~20 min — Synology iSCSI is TRIM-bound at ~10GB/min). Post-2026-05-30 the data tier is NFS (no mkfs) and only the 10Gi iSCSI meta LUN formats (<1 min), so a fresh deploy is far quicker; the budget is harmless and kept. Subsequent runs return in seconds.
 
 ## Bootstrap order
 
 1. **Mint server secrets in Vault.** `(cd terraform/vault && terraform apply)` — creates `rpc_secret` + `admin_token` at `secret/k8s/garage/server`.
 2. **Deploy via Flux.** `k8s/asgard/infrastructure/garage/` lands via the `infrastructure` Kustomization. ExternalSecret resolves; StatefulSet pod schedules.
-3. **mkfs (~20 min).** First boot only. The 200Gi data PVC's iSCSI LUN goes through TRIM + mkfs.ext4 on the worker. Watch via `kubectl describe pod -n garage garage-0` — `Initialized` event lands when both PVCs are mounted.
+3. **mkfs (fast).** First boot only. The 10Gi meta PVC's iSCSI LUN goes through TRIM + mkfs.ext4 on the worker (<1 min at 10Gi); the 200Gi data PVC is NFS — no mkfs. Watch via `kubectl describe pod -n garage garage-0` — `Initialized` event lands when both PVCs are mounted. (Pre-redesign this step took ~20 min for the 200Gi iSCSI data LUN.)
 4. **layout-init runs.** Job hits the admin API, assigns garage-0 to zone `dc1` with 200GiB capacity, applies layout version 1. Job goes `Completed`.
 5. **garage-0 Ready.** `/health` flips to 200. Service endpoints publish normally.
 6. **Provision buckets.** `kubectl port-forward -n garage svc/garage-admin 3903:3903 &`, then `(cd terraform/garage && terraform apply)`. Per-consumer files (`terraform/garage/outline.tf`, etc.) mint bucket + key + permission + write to the consumer's Vault path.
@@ -122,9 +122,9 @@ See `docs/operations/decisions.md` row "Object storage — Garage" for the dated
 
 ## Known gotchas referenced
 
-- CLAUDE.md "Synology CSI iSCSI volumes need a chown initContainer for non-root pods" — applied for both PVCs. Init container runs as UID 0 with default capabilities (no `drop: [ALL]` — would strip `CAP_CHOWN`/`CAP_FOWNER` per the chown-init sub-gotcha).
+- CLAUDE.md "Synology CSI iSCSI volumes need a chown initContainer for non-root pods" — applied for the **iSCSI meta PVC** (the NFS data PVC doesn't hit the fsGroup-on-iSCSI quirk). Init container runs as UID 0 with default capabilities (no `drop: [ALL]` — would strip `CAP_CHOWN`/`CAP_FOWNER` per the chown-init sub-gotcha). Post-2026-05-30 this is the only iSCSI chown-init left in the cluster (Vault moved to local-path).
 - CLAUDE.md "K3s host network can't reach MetalLB-announced VIPs from the same cluster" — N/A here. Garage is ClusterIP-only; nothing on a K3s host network needs to dial it directly.
 - New gotcha class: **distroless images have no shell**. Standard debug habits (`kubectl exec ... -- sh`) fail with `executable file not found`. All operational access is via admin API + debug pods. Document the admin-API command set per workflow rather than relying on muscle memory.
 - New gotcha class: **headless Service `publishNotReadyAddresses: true` for bootstrap-deadlock breakers**. Same shape may apply to any future workload whose readiness depends on another in-cluster API call against itself.
-- CLAUDE.md (pending entry): **Synology DS223J 10-LUN ceiling**. This deploy added LUNs #9 + #10 (meta + data). The next PVC to land (outline-redis, would have been #11) failed with `Failed to create LUN, err: Number of LUN reach limit`. Tactical fix: outline-redis switched to emptyDir (cache-only, ephemeral state is fine). Open question: J-series LUN cap — is it per-volume, per-DSM, raisable via UI, or hardware-limited? See `docs/operations/open-questions.md`.
-- **First-deploy mkfs.ext4 on Synology iSCSI is TRIM-bound** at ~10GB/min. 200Gi LUN = ~20 min. The layout-init Job's `backoffLimit: 30` + 5min/attempt budget exists for this.
+- **Synology DS223J 10-LUN ceiling** (now resolved structurally). This deploy originally added LUNs #9 + #10 (meta + data) and pushed the DSM to its hard ceiling — the next PVC (outline-redis, #11) failed with `Failed to create LUN, err: Number of LUN reach limit`. The cap was confirmed **DSM-wide (~10), non-raisable, a hard model limit** (not per-volume), and escaped by the 2026-05-30 storage redesign via tiering: Garage's 200Gi data moved iSCSI → NFS, dropping the whole cluster from 10/10 to 1/10 LUNs (Garage's meta being the one remaining). See CLAUDE.md "Synology DS223J iSCSI LUN cap" + [`docs/procedures/synology-storage-redesign.md`](../procedures/synology-storage-redesign.md).
+- **First-deploy mkfs.ext4 on Synology iSCSI is TRIM-bound** at ~10GB/min — applied to the original 200Gi iSCSI data LUN (~20 min), which drove the layout-init Job's `backoffLimit: 30` + 5min/attempt budget. Data is now NFS, so only the 10Gi iSCSI meta LUN formats (<1 min); the budget is retained but no longer load-bearing.
