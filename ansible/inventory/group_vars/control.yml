@@ -18,6 +18,12 @@
 ssh_extra_allow_users:
   - ghost
 
+# Operator's personal SSH public key (the 1Password-agent key "ghost@Luxuria",
+# the same one root accepts on the AGH LXCs). Seeds ghost's authorized_keys so
+# `ssh ghost@frigg` works over host-sshd with the 1P agent. A public key is not
+# secret, so it lives here in plaintext rather than group_vars/all/vault.yml.
+control_node_operator_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFmQmERjJi2CcKSBiVYbBUnHguBRUintOJiI0tKaZxkv ghost@Luxuria"
+
 # -----------------------------------------------------------------------------
 # Tailscale (tailscale role)
 # -----------------------------------------------------------------------------
