@@ -41,6 +41,7 @@ locals {
     # documentation without polluting the inventory graph.
     "ansible:adguard"      = { slug = "ansibleadguard", color_hex = "00bcd4" }
     "ansible:apprise"      = { slug = "ansibleapprise", color_hex = "ff9800" }
+    "ansible:frigg"        = { slug = "ansiblefrigg", color_hex = "673ab7" }
     "ansible:gameserver"   = { slug = "ansiblegameserver", color_hex = "795548" }
     "ansible:haproxy-etcd" = { slug = "ansiblehaproxy-etcd", color_hex = "8bc34a" }
     "ansible:k3s-cp"       = { slug = "ansiblek3s-cp", color_hex = "e91e63" }
