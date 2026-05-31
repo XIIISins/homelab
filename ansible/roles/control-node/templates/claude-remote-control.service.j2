@@ -17,11 +17,11 @@ User={{ control_node_operator_user }}
 Group={{ control_node_operator_group }}
 WorkingDirectory={{ control_node_claude_workdir }}
 
-# CLAUDE_CODE_OAUTH_TOKEN comes from the Vault-sourced EnvironmentFile.
-# The unit is enabled at provision time but only started once this file
-# exists (claude.yml gates the start) — so a tokenless provision run
-# doesn't crash-loop.
-EnvironmentFile={{ control_node_claude_env_path }}
+# NO EnvironmentFile / CLAUDE_CODE_OAUTH_TOKEN: Remote Control requires the
+# full-scope interactive login (claude auth login → ghost's
+# ~/.claude/.credentials.json), and an inference-only token in the env would
+# OVERRIDE that login and make RC fail. claude.yml gates the start on the
+# .credentials.json existing.
 
 # /usr/bin/env so claude resolves via PATH (npm global under the NodeSource
 # prefix). --spawn worktree: each remote session lands in an isolated git
