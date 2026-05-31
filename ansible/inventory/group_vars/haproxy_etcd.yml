@@ -21,6 +21,17 @@
 # `on-marked-down: shutdown-sessions` forces clients to reconnect on
 # leader demotion (otherwise long-lived sessions stick to the deposed
 # primary until they error out — defeats failover transparency).
+#
+# `timeout client/server 30m` + `option tcpka` override the role's 50s
+# defaults FOR THE DB PATH ONLY (the stats listener keeps 50s). The 50s
+# default reaped any PG connection idle >50s — ~5.5k/day of idle-pooled
+# connections (psycopg pools, and Authentik's django-channels LISTEN conn
+# most visibly) got killed, surfacing as `OperationalError(SSL SYSCALL
+# error: EOF detected)` on next reuse. Benign (auto-reconnect) but wasteful
+# + log-noisy. 30m + TCP keepalives matches the upstream Patroni HAProxy
+# reference — DB connections are long-lived by design. (Surfaced 2026-05-31
+# Wave S7 — HAProxy `cD` terminations at Tt≈50s confirmed the idle reap;
+# zero backend DOWN/UP events ruled out shutdown-sessions/failover.)
 
 haproxy_stats:
   bind: "127.0.0.1:9000"
@@ -34,6 +45,7 @@ haproxy_listens:
     options:
       - "tcplog"
       - "httpchk GET /master HTTP/1.0"
+      - "tcpka" # TCP keepalives — detect dead peers under the 30m idle timeout
     http_check:
       expect: "status 200"
     default_server:
@@ -41,6 +53,9 @@ haproxy_listens:
       fall: 3
       rise: 2
       on-marked-down: shutdown-sessions
+    extra:
+      - "timeout client 30m" # DB conns are long-lived; the 50s default reaped idle pooled conns
+      - "timeout server 30m"
     servers:
       - { name: fulla, address: 10.0.11.230, port: 5432, check_port: 8008 }
       - { name: vor,   address: 10.0.11.231, port: 5432, check_port: 8008 }
