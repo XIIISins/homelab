@@ -12,7 +12,13 @@
 # Both files MUST stay in sync — same public surface, same 1P items.
 #
 # Public functions:
-#   homelab-env           — load homelab env vars (cached 24h, --refresh|--clear)
+#   homelab-env           — load homelab env vars from 1P (cached 24h, --refresh|--clear)
+#   vault-homelab-env     — load IaC env from Vault via AppRole, NO 1Password
+#                           (cached 3h to a SEPARATE vault-env.{fish,sh}). For
+#                           the MacBook as a control node away from home.
+#   seed-vault-approle    — (re)write the local ansible-local secret-zero file
+#                           from the loaded env; run after a rotate-approle so
+#                           vault-homelab-env keeps working without 1P.
 #   set-vault-token       — set VAULT_TOKEN from a named source (root|approle)
 #   vault-root-token      — echo the Vault root token from 1P (value-producer)
 #   set-aws-creds         — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
@@ -813,4 +819,316 @@ function rotate-semaphore-approle --description "Rotate Semaphore's AppRole Secr
         end
     end
     echo "✓ Done. Active accessor: $new_accessor"
+end
+
+# === Vault-backed env loading (no 1Password) ===
+#
+# vault-homelab-env is the 1P-free twin of homelab-env. It authenticates to
+# Vault with the `ansible-local` AppRole (secret-zero in a local 0600 file)
+# and pulls every IaC credential from Vault — letting the MacBook act as a
+# control node away from home with no `op` dependency. It mirrors Frigg's
+# Vault-backed shim (ansible/roles/control-node) but writes a SEPARATE 3h
+# cache (vault-env.{fish,sh}) so it never collides with the 1P-backed
+# homelab-env cache (env.{fish,sh}).
+#
+# The MacBook's `ansible-local` AppRole policy is `read secret/data/ansible/*`,
+# which already covers the consolidated bundle Frigg reads at
+# secret/ansible/frigg/* — no Vault/TF change is needed.
+#
+# Secret-zero ($__vault_homelab_approle_env) is NOT auto-synced when
+# rotate-approle updates 1Password (rotate-approle is 1P-canonical). After a
+# rotation, re-sync it once (with 1P available): `homelab-env; seed-vault-approle`.
+#
+# Caveat: the cached VAULT_TOKEN is an AppRole token (~30min ttl) and the 3h
+# cache outlives it — re-run `vault-homelab-env --refresh` to mint a fresh
+# token mid-window. (Same short-lived-token note as homelab-env's cache.)
+
+# --- Config ---
+# Secret-zero file: ANSIBLE_HASHI_VAULT_{AUTH_METHOD,URL,ROLE_ID,SECRET_ID}.
+set -g __vault_homelab_approle_env "$HOME/.config/ansible/vault-approle.env"
+# Fallback Vault address when the secret-zero file carries no URL.
+set -g __vault_homelab_default_addr 'https://vault.niflheim.xiiisins.com'
+
+# Consolidated IaC bundle in Vault (KV v2, mount `secret`). Same paths Frigg
+# reads; kept in lockstep with ansible/roles/control-node/defaults/main.yml.
+set -g __vault_homelab_iac_path 'secret/ansible/frigg/iac-env'
+set -g __vault_homelab_kubeconfig_path 'secret/ansible/frigg/kubeconfig'
+set -g __vault_homelab_ansible_vault_pw_path 'secret/ansible/frigg/ansible-vault-password'
+
+# iac-env field → exported env var. Mirror of control_node_iac_env_fields
+# (Frigg). proxmox_api_token → TF_VAR_proxmox_api_token; the rest map
+# field → UPPERCASE(field) with two SEMAPHOREUI_ renames.
+set -g __vault_homelab_iac_map \
+    "aws_access_key_id|AWS_ACCESS_KEY_ID" \
+    "aws_secret_access_key|AWS_SECRET_ACCESS_KEY" \
+    "aws_default_region|AWS_DEFAULT_REGION" \
+    "netbox_api_token|NETBOX_API_TOKEN" \
+    "netbox_server_url|NETBOX_SERVER_URL" \
+    "authentik_token|AUTHENTIK_TOKEN" \
+    "authentik_url|AUTHENTIK_URL" \
+    "adguard_host|ADGUARD_HOST" \
+    "adguard_scheme|ADGUARD_SCHEME" \
+    "adguard_username|ADGUARD_USERNAME" \
+    "adguard_password|ADGUARD_PASSWORD" \
+    "cloudflare_api_token|CLOUDFLARE_API_TOKEN" \
+    "proxmox_api_token|TF_VAR_proxmox_api_token" \
+    "semaphore_api_token|SEMAPHOREUI_API_TOKEN" \
+    "semaphore_api_base_url|SEMAPHOREUI_API_BASE_URL"
+
+# Files written from Vault + the static SSH key path. Canonical, shared with
+# homelab-env (single cluster / single secret) so kubectl + ansible behave
+# identically whichever loader populated the env.
+set -g __vault_homelab_kubeconfig_out "$HOME/.kube/niflheim-asgard.yaml"
+set -g __vault_homelab_ansible_vault_pw_out "$HOME/.vault-pass"
+set -g __vault_homelab_ssh_key "$HOME/.ssh/ansible_niflheim"
+
+# Separate 3h cache (NOT the 1P homelab-env cache). Away-from-home subshells
+# source it directly: . ~/.cache/homelab/vault-env.sh
+set -g __vault_homelab_cache_path_fish "$__homelab_cache_dir/vault-env.fish"
+set -g __vault_homelab_cache_path_sh "$__homelab_cache_dir/vault-env.sh"
+set -g __vault_homelab_cache_ttl_seconds 10800
+
+# --- Helpers (private) ---
+
+function __vault_homelab_read_approle --argument-names key \
+    --description "Read KEY= from the local AppRole secret-zero file"
+    test -r $__vault_homelab_approle_env; or return 1
+    set -l line (grep -E "^$key=" $__vault_homelab_approle_env | head -n1)
+    test -n "$line"; or return 1
+    # -m1 keeps any '=' in the value intact; tail grabs the value half.
+    string split -m1 '=' -- $line | tail -n1
+end
+
+function __vault_homelab_cache_age_seconds \
+    --description "Echo seconds since vault-env cache mtime; return 1 if missing"
+    test -f $__vault_homelab_cache_path_fish; or return 1
+    set -l mtime (stat -f %m $__vault_homelab_cache_path_fish); or return 1
+    math (date +%s) - $mtime
+end
+
+function __vault_homelab_cache_is_fresh \
+    --description "True if vault-env cache exists and is younger than its TTL"
+    set -l age (__vault_homelab_cache_age_seconds); or return 1
+    test $age -lt $__vault_homelab_cache_ttl_seconds
+end
+
+function __vault_homelab_cache_write \
+    --description "Persist the Vault-sourced env to BOTH vault-env.{fish,sh} atomically"
+    mkdir -p $__homelab_cache_dir
+    chmod 700 $__homelab_cache_dir
+
+    # VAULT_ADDR, then the iac-env env vars, then the file/static vars, then
+    # the ansible hashi_vault approle vars, then VAULT_TOKEN if set.
+    set -l vars VAULT_ADDR
+    for entry in $__vault_homelab_iac_map
+        set -l parts (string split -m1 '|' -- $entry)
+        set -a vars $parts[2]
+    end
+    set -a vars KUBECONFIG ANSIBLE_VAULT_PASSWORD_FILE ANSIBLE_PRIVATE_KEY_FILE
+    set -a vars ANSIBLE_HASHI_VAULT_ADDR ANSIBLE_HASHI_VAULT_AUTH_METHOD \
+        ANSIBLE_HASHI_VAULT_ROLE_ID ANSIBLE_HASHI_VAULT_SECRET_ID
+    if set -q VAULT_TOKEN
+        set -a vars VAULT_TOKEN
+    end
+
+    set -l ts (date -u '+%Y-%m-%dT%H:%M:%SZ')
+    set -l header_fish "# vault-homelab env cache (fish) — written $ts, TTL "$__vault_homelab_cache_ttl_seconds"s
+# Vault-backed (no 1P). Sourced when fresh. Do not edit; run: vault-homelab-env --refresh"
+    set -l header_sh "# vault-homelab env cache (sh/bash/zsh) — written $ts, TTL "$__vault_homelab_cache_ttl_seconds"s
+# Vault-backed (no 1P). Sourced when fresh. Do not edit; run: vault-homelab-env --refresh"
+
+    set -l tmp_fish (mktemp "$__homelab_cache_dir/vault-env.fish.XXXXXX"); or return 1
+    set -l tmp_sh (mktemp "$__homelab_cache_dir/vault-env.sh.XXXXXX")
+    or begin; rm -f $tmp_fish; return 1; end
+    chmod 600 $tmp_fish $tmp_sh
+
+    echo $header_fish > $tmp_fish
+    echo $header_sh > $tmp_sh
+    for env_var in $vars
+        if set -q $env_var
+            echo "set -gx $env_var "(string escape -- $$env_var) >> $tmp_fish
+            echo "export $env_var="(__homelab_posix_quote $$env_var) >> $tmp_sh
+        end
+    end
+
+    mv $tmp_fish $__vault_homelab_cache_path_fish
+    mv $tmp_sh $__vault_homelab_cache_path_sh
+end
+
+# --- Public: Vault-backed env loading ---
+
+function vault-homelab-env --description "Load IaC env from Vault via AppRole, no 1Password (cached 3h)"
+    argparse -n vault-homelab-env h/help r/refresh c/clear -- $argv
+    or return
+
+    if set -q _flag_help
+        echo "Usage:"
+        echo "  vault-homelab-env            Source 3h cache if fresh, else fetch from Vault + cache."
+        echo "  vault-homelab-env --refresh  Skip cache, re-fetch from Vault, rewrite cache."
+        echo "  vault-homelab-env --clear    Remove the vault-env cache files."
+        echo "  vault-homelab-env --help     This help."
+        echo ""
+        echo "1P-free twin of homelab-env: AppRole-logs-in to Vault with the"
+        echo "ansible-local secret-zero in $__vault_homelab_approle_env and pulls"
+        echo "every IaC cred from secret/ansible/frigg/*. Re-sync the secret-zero"
+        echo "after a rotation: homelab-env (1P) then seed-vault-approle."
+        echo ""
+        echo "Cache:     $__vault_homelab_cache_path_sh (+ .fish)"
+        echo "Subshells: . ~/.cache/homelab/vault-env.sh   (NOT env.sh)"
+        echo "TTL:       $__vault_homelab_cache_ttl_seconds seconds (3h)"
+        echo "Note:      cached VAULT_TOKEN is an AppRole token (~30m); --refresh re-mints."
+        return 0
+    end
+
+    if set -q _flag_clear
+        set -l removed 0
+        for path in $__vault_homelab_cache_path_fish $__vault_homelab_cache_path_sh
+            if test -f $path
+                rm $path
+                echo "Cleared $path"
+                set removed (math $removed + 1)
+            end
+        end
+        test $removed -eq 0; and echo "No cache to clear."
+        return 0
+    end
+
+    if not set -q _flag_refresh; and __vault_homelab_cache_is_fresh
+        source $__vault_homelab_cache_path_fish
+        set -l age (__vault_homelab_cache_age_seconds)
+        set -l remaining_h (math --scale=1 "($__vault_homelab_cache_ttl_seconds - $age) / 3600")
+        echo "Loaded vault-homelab env from cache (refresh in "$remaining_h"h, or: vault-homelab-env --refresh)"
+        return 0
+    end
+
+    # === Fresh fetch from Vault ===
+    if not command -v vault >/dev/null 2>&1
+        echo "vault-homelab-env: vault CLI not found on PATH" >&2
+        return 1
+    end
+
+    set -l role_id (__vault_homelab_read_approle ANSIBLE_HASHI_VAULT_ROLE_ID)
+    set -l secret_id (__vault_homelab_read_approle ANSIBLE_HASHI_VAULT_SECRET_ID)
+    set -l file_addr (__vault_homelab_read_approle ANSIBLE_HASHI_VAULT_URL)
+    if test -z "$role_id"; or test -z "$secret_id"
+        echo "vault-homelab-env: cannot read AppRole creds from $__vault_homelab_approle_env" >&2
+        echo "  Seed it first (with 1P available): homelab-env; and seed-vault-approle" >&2
+        return 1
+    end
+
+    if test -n "$file_addr"
+        set -gx VAULT_ADDR $file_addr
+    else
+        set -gx VAULT_ADDR $__vault_homelab_default_addr
+    end
+
+    # AppRole login → token. -field=token emits only the raw token (never a
+    # human-readable dump). RoleID/SecretID stay in shell-local vars.
+    set -l vault_token (vault write -field=token auth/approle/login \
+        role_id=$role_id secret_id=$secret_id 2>/dev/null)
+    if test -z "$vault_token"
+        echo "vault-homelab-env: Vault AppRole login failed against $VAULT_ADDR" >&2
+        echo "  SecretID may be stale/revoked, or Vault unreachable (tailnet up?)." >&2
+        echo "  Re-seed: homelab-env; and seed-vault-approle" >&2
+        return 1
+    end
+    set -gx VAULT_TOKEN $vault_token
+
+    # ---- IaC env bundle: one fetch to a 0600 temp file, jq each field out ----
+    # (Fish collapses newlines in captured command output — write JSON to a
+    #  file and read with jq instead of capturing into a variable.)
+    set -l loaded 0
+    set -l jtmp (mktemp)
+    if not vault kv get -format=json $__vault_homelab_iac_path > $jtmp 2>/dev/null; or not test -s $jtmp
+        rm -f $jtmp
+        echo "vault-homelab-env: could not read $__vault_homelab_iac_path from Vault" >&2
+        return 1
+    end
+    for entry in $__vault_homelab_iac_map
+        set -l parts (string split -m1 '|' -- $entry)
+        set -l value (jq -r --arg f $parts[1] '.data.data[$f] // empty' $jtmp)
+        if test -n "$value"
+            set -gx $parts[2] $value
+            set loaded (math $loaded + 1)
+        else
+            echo "vault-homelab-env: warning — field '$parts[1]' missing from iac-env" >&2
+        end
+    end
+    rm -f $jtmp
+
+    # ---- kubeconfig (write straight to a temp file — preserves newlines) ----
+    set -l ktmp (mktemp)
+    if vault kv get -field=config $__vault_homelab_kubeconfig_path > $ktmp 2>/dev/null; and test -s $ktmp
+        chmod 600 $ktmp
+        mkdir -p (dirname $__vault_homelab_kubeconfig_out)
+        mv $ktmp $__vault_homelab_kubeconfig_out
+        set -gx KUBECONFIG $__vault_homelab_kubeconfig_out
+    else
+        rm -f $ktmp
+        echo "vault-homelab-env: warning — kubeconfig not found at $__vault_homelab_kubeconfig_path" >&2
+    end
+
+    # ---- ansible-vault password ----
+    set -l ptmp (mktemp)
+    if vault kv get -field=value $__vault_homelab_ansible_vault_pw_path > $ptmp 2>/dev/null; and test -s $ptmp
+        chmod 600 $ptmp
+        mv $ptmp $__vault_homelab_ansible_vault_pw_out
+        set -gx ANSIBLE_VAULT_PASSWORD_FILE $__vault_homelab_ansible_vault_pw_out
+    else
+        rm -f $ptmp
+        echo "vault-homelab-env: warning — ansible-vault password not found at $__vault_homelab_ansible_vault_pw_path" >&2
+    end
+
+    # ---- static + ansible community.hashi_vault approle vars ----
+    set -gx ANSIBLE_PRIVATE_KEY_FILE $__vault_homelab_ssh_key
+    set -gx ANSIBLE_HASHI_VAULT_ADDR $VAULT_ADDR
+    set -gx ANSIBLE_HASHI_VAULT_AUTH_METHOD approle
+    set -gx ANSIBLE_HASHI_VAULT_ROLE_ID $role_id
+    set -gx ANSIBLE_HASHI_VAULT_SECRET_ID $secret_id
+
+    __vault_homelab_cache_write
+    set -l ttl_h (math --scale=1 "$__vault_homelab_cache_ttl_seconds / 3600")
+    echo "Loaded vault-homelab env from Vault ($loaded iac-env var(s) + kubeconfig + ansible-vault + approle)."
+    echo "Cached for "$ttl_h"h ($__vault_homelab_cache_path_sh + .fish)"
+end
+
+# --- Public: re-seed the local AppRole secret-zero from the loaded env ---
+#
+# rotate-approle is 1P-canonical: it updates the 1P item, NOT the local
+# vault-approle.env file. After a rotation, run `homelab-env` (pulls the new
+# SecretID from 1P into env), then `seed-vault-approle` to push it into the
+# local file so vault-homelab-env keeps working away-from-home.
+function seed-vault-approle --description "(Re)write the local ansible-local secret-zero file from the loaded env"
+    if not set -q ANSIBLE_HASHI_VAULT_ROLE_ID; or not set -q ANSIBLE_HASHI_VAULT_SECRET_ID
+        echo "seed-vault-approle: AppRole creds not in env." >&2
+        echo "  Run homelab-env (1P) first so ANSIBLE_HASHI_VAULT_ROLE_ID/SECRET_ID are set." >&2
+        return 1
+    end
+
+    set -l addr $__vault_homelab_default_addr
+    if set -q VAULT_ADDR
+        set addr $VAULT_ADDR
+    else if set -q ANSIBLE_HASHI_VAULT_ADDR
+        set addr $ANSIBLE_HASHI_VAULT_ADDR
+    end
+    set -l method approle
+    set -q ANSIBLE_HASHI_VAULT_AUTH_METHOD; and set method $ANSIBLE_HASHI_VAULT_AUTH_METHOD
+
+    mkdir -p (dirname $__vault_homelab_approle_env)
+    set -l tmp (mktemp)
+    chmod 600 $tmp
+    # All four lines go to the file (mode 0600) — the SecretID never hits stdout.
+    begin
+        echo "# ansible-local AppRole secret-zero — managed by seed-vault-approle."
+        echo "# Read by vault-homelab-env (+ ansible) to log in to Vault without 1Password."
+        echo "ANSIBLE_HASHI_VAULT_AUTH_METHOD=$method"
+        echo "ANSIBLE_HASHI_VAULT_URL=$addr"
+        echo "ANSIBLE_HASHI_VAULT_ROLE_ID=$ANSIBLE_HASHI_VAULT_ROLE_ID"
+        echo "ANSIBLE_HASHI_VAULT_SECRET_ID=$ANSIBLE_HASHI_VAULT_SECRET_ID"
+    end > $tmp
+    mv $tmp $__vault_homelab_approle_env
+    chmod 600 $__vault_homelab_approle_env
+
+    echo "Seeded $__vault_homelab_approle_env (ansible-local secret-zero, URL $addr)."
+    echo "vault-homelab-env can now run without 1Password (RoleID $ANSIBLE_HASHI_VAULT_ROLE_ID)."
 end
