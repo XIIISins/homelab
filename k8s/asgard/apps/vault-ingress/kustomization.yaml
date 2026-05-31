@@ -1,0 +1,11 @@
+# k8s/asgard/apps/vault-ingress/kustomization.yaml
+#
+# Vault UI ingress shim — the Vault server + its vault-ui Service live in
+# infrastructure/vault (Helm). This directory only adds the K8s-side
+# routing (HTTPRoute) that fronts vault-ui at vault.niflheim.xiiisins.com.
+# No namespace.yaml: the `vault` namespace is owned by infrastructure/vault.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vault
+resources:
+  - httproute.yaml

@@ -117,6 +117,14 @@ locals {
     # No midgard / apex alias — operator UI, not user-facing.
     "semaphore.niflheim.xiiisins.com" = "10.0.20.10"
 
+    # HashiCorp Vault UI — K8s-fronted, internal-only, behind Authentik
+    # OIDC (Phase 6 Stage 1). Unlike the other 10.0.20.10 entries this
+    # needs NO CoreDNS rewrite: the only consumers are the operator's
+    # browser + the control node (VAULT_ADDR), both OUTSIDE the cluster.
+    # In-cluster consumers (ESO, Semaphore) talk to vault.vault.svc
+    # directly, never this FQDN — so no pod→VIP tromboning to avoid.
+    "vault.niflheim.xiiisins.com" = "10.0.20.10"
+
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
     "wiki.midgard.xiiisins.com"      = "10.0.20.10"

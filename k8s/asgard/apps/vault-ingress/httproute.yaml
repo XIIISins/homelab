@@ -1,0 +1,43 @@
+# k8s/asgard/apps/vault-ingress/httproute.yaml
+#
+# Routes vault.niflheim.xiiisins.com to the Vault UI Service (vault-ui in
+# the vault namespace, created by the Vault Helm chart). Internal-only —
+# attaches to the niflheim Gateway's HTTPS listener; no midgard/apex
+# exposure (the Vault UI/API must never be reachable off-LAN).
+#
+# Traefik terminates TLS with the *.niflheim wildcard; Vault's own
+# listener stays tls_disable=1 (plaintext :8200 inside the cluster).
+# Backend is in this (vault) namespace → no ReferenceGrant; the
+# cross-namespace parent attachment to traefik/niflheim is allowed by the
+# Gateway's allowedRoutes.namespaces.from: All.
+#
+# vault-ui selects all three server pods; Vault standby request-forwarding
+# (cluster port 8201) transparently routes to the active node — identical
+# behavior to the prior MetalLB 10.0.20.11 path, just Traefik-fronted.
+#
+# NOTE (Phase 6 Stage 1): vault-ui is still a LoadBalancer (10.0.20.11) —
+# this route is ADDITIVE, both paths serve in parallel. Flipping vault-ui
+# to ClusterIP (to reclaim .11) is deferred to the operator-coordinated
+# VAULT_ADDR cutover (1P "Ansible - Vault - k3s" url field +
+# homelab-env --refresh) because every Terraform/CLI/Ansible consumer
+# resolves Vault through .11 today. See open-questions.md Phase 6 6.c.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vault-ui
+  namespace: vault
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - vault.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: vault-ui
+          port: 8200

@@ -87,3 +87,15 @@ semaphore-admins:
   # to the admin role on first login. Operator-only today; expand if
   # a second human operator joins. is_superuser=false (no Authentik-
   # side privileges); gating is the per-app policy binding only.
+
+vault-admins:
+  is_superuser: false
+  # Members can authenticate to the HashiCorp Vault UI
+  # (vault.niflheim.xiiisins.com, Phase 6 Stage 1) via the native OIDC
+  # Application (see terraform/authentik/vault.tf for the policy binding)
+  # and receive the Vault `homelab-admin` policy (read+list on secret/*).
+  # This per-app binding IS the authoritative access gate — Vault's role
+  # grants its policy to anyone who completes the flow, so membership here
+  # == Vault human-lookup access. is_superuser=false (no Authentik-side
+  # privileges). Single-tier day-1; add vault-readers when a read-narrower
+  # tier is needed.

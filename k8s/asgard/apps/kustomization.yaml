@@ -32,3 +32,9 @@ resources:
   # Authentik OIDC. NetBox dynamic inventory consumed via the cached
   # netbox.yml plugin (4h TTL, persisted to inventory-cache PVC).
   - semaphore
+  # Phase 6 Stage 1 — Vault UI ingress shim. HTTPRoute fronting the
+  # vault-ui Service (infrastructure/vault) at vault.niflheim.xiiisins.com
+  # under Authentik OIDC (terraform/authentik/vault.tf + terraform/vault/
+  # oidc.tf). Additive — vault-ui stays a LoadBalancer (.11) until the
+  # operator-gated VAULT_ADDR cutover; see open-questions.md Phase 6 6.c.
+  - vault-ingress
