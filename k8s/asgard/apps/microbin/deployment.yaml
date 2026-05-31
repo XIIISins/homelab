@@ -32,10 +32,10 @@ spec:
           command:
             - /bin/sh
             - -c
-            - chown -R 1000:1000 /data
+            - chown -R 1000:1000 /app/pasta_data
           volumeMounts:
             - name: data
-              mountPath: /data
+              mountPath: /app/pasta_data
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -77,8 +77,11 @@ spec:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
           volumeMounts:
+            # NFS volume mounted at MicroBin's hardcoded JSON-DB dir
+            # (pasta_data, relative to WORKDIR /app). DATA_DIR points here
+            # too, so attachments co-locate. See configmap.yaml gotcha note.
             - name: data
-              mountPath: /data
+              mountPath: /app/pasta_data
       volumes:
         - name: data
           persistentVolumeClaim:

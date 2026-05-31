@@ -12,9 +12,17 @@ data:
   MICROBIN_BIND: "0.0.0.0"
   MICROBIN_PORT: "8080"
   # JSON store (NOT SQLite) — sidesteps the SQLite-on-NFS mmap/locking
-  # footgun. Attachments are plain files alongside it under /data.
+  # footgun; its write is tmp-file-then-atomic-rename, which is NFS-safe.
+  #
+  # GOTCHA: with JSON_DB, MicroBin HARDCODES the DB path to
+  # `pasta_data/database.json` relative to WORKDIR /app
+  # (src/util/db_json.rs: `static DATABASE_PATH = "pasta_data/database.json"`)
+  # and IGNORES MICROBIN_DATA_DIR for the DB. MICROBIN_DATA_DIR only moves
+  # *attachments*. So the NFS volume is mounted at /app/pasta_data (the
+  # hardcoded DB dir) and DATA_DIR points there too, co-locating the DB +
+  # attachments on the one persistent volume.
   MICROBIN_JSON_DB: "true"
-  MICROBIN_DATA_DIR: "/data"
+  MICROBIN_DATA_DIR: "/app/pasta_data"
   # Public URL so generated links + QR codes are correct behind the tunnel.
   MICROBIN_PUBLIC_PATH: "https://paste.xiiisins.com"
   # Per-paste "private" checkbox (hidden from /pastalist; URL still works).
