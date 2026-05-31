@@ -129,11 +129,10 @@
     allow_downgrade: true
   tags: [control-node, control-node:toolchain]
 
-- name: Install kubectl (pinned)
+- name: Install kubectl (latest patch in the pinned v{{ control_node_kubectl_minor }} channel)
   ansible.builtin.apt:
-    name: "kubectl={{ control_node_kubectl_version }}"
+    name: kubectl
     state: present
-    allow_downgrade: true
   tags: [control-node, control-node:toolchain]
 
 - name: Install Node.js (NodeSource)
