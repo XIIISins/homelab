@@ -637,9 +637,16 @@ function rotate-approle --description "Rotate a Vault AppRole SecretID"
 
     set -l new_secret_id (echo $json | jq -r '.data.secret_id')
     set -l new_accessor (echo $json | jq -r '.data.secret_id_accessor')
-    # macOS date first, GNU date fallback.
-    set -l expires_at (date -u -v+90d '+%Y-%m-%d' 2>/dev/null; \
-        or date -u -d '+90 days' '+%Y-%m-%d')
+    # Read the SecretID's REAL expiration from Vault — authoritative, reflects
+    # the mount's max_lease_ttl. Don't assume the role's secret_id_ttl: a +90d
+    # guess stamped 1P 58d past the true date back when the mount clamped to 32d.
+    # (Surfaced 2026-05-31 Wave S7; mount ceiling since raised to 90d.)
+    set -l expires_at (vault write -format=json \
+        auth/approle/role/$role/secret-id-accessor/lookup \
+        secret_id_accessor=$new_accessor 2>/dev/null \
+        | jq -r '.data.expiration_time[0:10] // empty' 2>/dev/null)
+    test -n "$expires_at"; or set expires_at \
+        "(lookup failed — run: vault write auth/approle/role/$role/secret-id-accessor/lookup secret_id_accessor=$new_accessor)"
 
     echo ""
     echo "Update 1P item \"$item\" with these values:"

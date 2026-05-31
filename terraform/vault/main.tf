@@ -53,6 +53,16 @@ resource "vault_kubernetes_auth_backend_role" "eso" {
 resource "vault_auth_backend" "approle" {
   type = "approle"
   path = "approle"
+
+  # The mount's max_lease_ttl is the ceiling for each role's secret_id_ttl.
+  # Vault's system default (768h = 32d) was silently clamping the 90d
+  # secret_id_ttl on the roles below — a minted SecretID expired 32d after
+  # creation despite the 90d request, forcing a monthly re-mint treadmill.
+  # Raise the mount ceiling to 90d so secret_id_ttl takes full effect.
+  # (Surfaced 2026-05-31 Wave S7.)
+  tune {
+    max_lease_ttl = "2160h" # 90 days — matches secret_id_ttl on the roles below
+  }
 }
 
 # ansible policy: read on secret/data/ansible/*
