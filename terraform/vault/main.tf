@@ -328,6 +328,69 @@ resource "vault_kv_secret_v2" "netbox_inventory_token" {
 }
 
 # -----------------------------------------------------------------------------
+# Cloudflare API token mirror (Wave S4 — infra-health-check)
+# -----------------------------------------------------------------------------
+# The Cloudflare API token is a bootstrap/operator credential that lives
+# primarily in 1Password (read at TF runtime by homelab-env into
+# CLOUDFLARE_API_TOKEN). The Semaphore-scheduled infra-health-check
+# playbook needs the SAME token at runtime to hit /user/tokens/verify
+# (the verify endpoint validates the token used to call it), and Semaphore
+# auths to Vault via AppRole — so the token has to be reachable in Vault.
+#
+# This is a deliberate exception to "the CF token stays 1P-only": once a
+# machine consumer (Semaphore) needs it at runtime, the secrets rule puts
+# it in Vault (machine-at-runtime -> Vault), with 1P as the offline mirror.
+# Scope it to a read-only verify-capable token if you mint a dedicated one;
+# the existing terraform-cloudflare token also self-verifies fine.
+#
+# Operator: mirror the 1P value in once —
+#   vault kv put secret/ansible/cloudflare/api-token \
+#     value=$(op read "op://Homelab 2.0/<cloudflare-token-item>/credential")
+resource "vault_kv_secret_v2" "cloudflare_api_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/cloudflare/api-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-operator-mint"
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
+# -----------------------------------------------------------------------------
+# PBS API token (Wave S4 — infra-health-check PBS backup-failure probe)
+# -----------------------------------------------------------------------------
+# PBS has its own API/token system (proxmox-backup-manager), NOT the
+# Proxmox VE API — so bpg/proxmox can't mint this, and terraform/proxmox/
+# zabbix-access/ (which mints the PVE monitoring token) doesn't cover it.
+# The official "Proxmox Backup Server by HTTP" Zabbix template needs Zabbix
+# 7.2+ and we run 7.0 LTS, so PBS backup-failure detection rides the
+# infra-health-check.yml prober instead (GET /api2/json/.../tasks?errors=1).
+# It reads this token's `value` (the token secret) via AppRole; the
+# non-secret token-id 'zabbix@pbs!monitoring' lives in the playbook vars.
+#
+# Operator (on the PBS LXC, as root):
+#   proxmox-backup-manager user create zabbix@pbs
+#   proxmox-backup-manager user generate-token zabbix@pbs monitoring
+#   proxmox-backup-manager acl update / Audit \
+#     --auth-id 'zabbix@pbs!monitoring'
+#   # then store the printed token secret (the `value` field) in Vault:
+#   vault kv put secret/ansible/zabbix/pbs-token value='<token-secret>'
+# The token-id is 'zabbix@pbs!monitoring' (not secret; lives in group_vars).
+resource "vault_kv_secret_v2" "zabbix_pbs_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/zabbix/pbs-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-operator-mint"
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Teamspeak PG password — dual-path mint (same pattern as netbox_postgres)
 # -----------------------------------------------------------------------------
 # TS3 3.13+ supports PostgreSQL natively via the first-party ts3db_postgresql
