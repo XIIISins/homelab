@@ -11,7 +11,8 @@ sftpgo_extra_groups:
 sftpgo_users:
   - username: operator
     description: "Factorio server operator (friend with shell-by-SFTP access)"
-    password: "{{ vault_factorio_operator_password }}"
+    # HashiCorp Vault (preserved value, migrated off Ansible-Vault in Wave S3).
+    password: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/factorio/operator-password').secret.value }}"
     status: 1
     home_dir: /factorio
     permissions:

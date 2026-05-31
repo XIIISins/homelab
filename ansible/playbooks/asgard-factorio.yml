@@ -26,8 +26,11 @@
 #     ansible_user_ssh_public_key         baseline → ansible user
 #     breakglass_ssh_public_key           baseline → recovery user
 #     rhel_activation_key, rhel_org_id    baseline (RHEL only, unused here)
-#     sftpgo_admin_password               sftpgo (auto-generated if blank)
-#     vault_factorio_operator_password    sftpgo (operator SFTP password)
+#
+# SFTPGo passwords are read at runtime from HashiCorp Vault via AppRole
+# (migrated off Ansible-Vault / on-disk in Wave S3, preserved values):
+#     secret/ansible/sftpgo/admin-password        SFTPGo admin
+#     secret/ansible/factorio/operator-password   operator SFTP login
 #
 # Required UCG-Ultra port forwards (manual — UCG is not in IaC):
 #     UDP 34197 → 10.0.11.220:34197    Factorio game protocol

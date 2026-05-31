@@ -181,6 +181,16 @@ resource "vault_kv_secret_v2" "hermod_config_key" {
   })
 }
 
+# NOTE (Wave S3): the SFTPGo admin password (secret/ansible/sftpgo/admin-password)
+# and the Factorio operator password (secret/ansible/factorio/operator-password)
+# are NOT TF-managed. Both were *preserved* existing values lifted into Vault
+# (admin pw off the role's on-disk /etc/sftpgo/admin-password.txt; operator pw
+# off Ansible-Vault) rather than freshly minted — the operator pw is already
+# distributed to humans, and the admin pw was preserved to avoid an SFTPGo-side
+# reconcile. They're operator-minted Vault secrets (same model as the Hermod
+# Discord URLs). To convert either to TF-managed random + rotation later, add a
+# random_password + vault_kv_secret_v2 here and run the rotation reconcile.
+
 # -----------------------------------------------------------------------------
 # Per-service PG passwords — single mint, dual path
 # -----------------------------------------------------------------------------
