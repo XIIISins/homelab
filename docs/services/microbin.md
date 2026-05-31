@@ -3,7 +3,7 @@
 
 Public pastebin + file-share at **`paste.xiiisins.com`** (internet-exposed via
 cloudflared). Anonymous create/view/upload; a trusted "janitor" crew gets the
-gated `/pastalist` + `/admin` for cleanup.
+gated `/list` + `/admin` for cleanup.
 
 - **Manifests:** `k8s/asgard/apps/microbin/`
 - **Image:** `danielszabo99/microbin:2.1.4` (the official image — repo README badges)
@@ -29,10 +29,10 @@ stated use in one box.
 | Path | Access |
 |---|---|
 | `/`, `/upload`, paste view, `/static`, file download | **open / anonymous** |
-| `/pastalist` (browse paste list/metadata) | **Authentik ForwardAuth** (`paste-janitors`) |
+| `/list` (browse paste list/metadata) | **Authentik ForwardAuth** (`paste-janitors`) |
 | `/admin` (manage + delete any paste) | **Authentik ForwardAuth** (`paste-janitors`) + MicroBin admin login |
 
-Partial gating is done at Traefik: the HTTPRoute has specific `/pastalist` +
+Partial gating is done at Traefik: the HTTPRoute has specific `/list` +
 `/admin` rules carrying the `authentik-forward-auth` Middleware via Gateway-API
 `extensionRef`; the `/` catchall has none (Gateway-API longest-prefix matching
 picks the specific rules first). This is the inverse of the VictoriaLogs route
@@ -44,7 +44,7 @@ Because MicroBin has no user accounts, a janitor can delete **any** paste, not
 just their own — shared cleanup, by design. `MICROBIN_EDITABLE=false` means
 there's no URL-based deletion at all; all deletion flows through the gated
 `/admin`. Per-paste *private* pastes (`MICROBIN_PRIVATE=true`) are hidden from
-`/pastalist` even for janitors — those are managed via `/admin` (sees all) or
+`/list` even for janitors — those are managed via `/admin` (sees all) or
 just expire.
 
 ## Config (`configmap.yaml` + admin secret)
@@ -106,7 +106,7 @@ login / 500 from the outpost.
 - **Pod crashloops on `db_json.rs … failed to create temporary database file`** —
   the NFS PV isn't mounted at `/app/pasta_data` (the hardcoded DB dir). See the
   storage gotcha.
-- **`/pastalist` or `/admin` returns 200 to anonymous / never asks for login** —
+- **`/list` or `/admin` returns 200 to anonymous / never asks for login** —
   the embedded-outpost provider attach was missed, or the Middleware isn't on
   that route. Gating is at Traefik; curling the Service directly always returns
   200 (test through the tunnel: should 302 → Authentik).
