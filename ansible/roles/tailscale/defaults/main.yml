@@ -29,3 +29,18 @@ tailscale_authkey_vault_path: "ansible/tailscale/authkeys/{{ inventory_hostname 
 # explicitly passed reverts to default. Keeps state in sync with
 # inventory; makes re-runs deterministic.
 tailscale_up_reset: true
+
+# Whether to accept the tailnet's pushed DNS config (MagicDNS). Default
+# true = upstream/tailscale default (no behaviour change for the existing
+# tailnet LXCs, which intentionally live on MagicDNS with
+# baseline_manage_resolv_conf=false).
+#
+# Set FALSE on LAN servers that must keep baseline-owned /etc/resolv.conf
+# (AdGuard VIP direct). On a control node like Frigg this is load-bearing:
+# accept-dns=true lets tailscaled overwrite resolv.conf with MagicDNS, and
+# if the tailnet split-DNS path to AdGuard hiccups (observed "server
+# misbehaving" after a reboot) the box can no longer resolve
+# vault.niflheim.xiiisins.com → homelab-env dies → the whole IaC toolchain
+# is down. accept-dns=false keeps resolution on the direct LAN AdGuard path,
+# independent of tailscaled health.
+tailscale_accept_dns: true

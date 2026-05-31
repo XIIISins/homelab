@@ -28,6 +28,7 @@
       --authkey={{ tailscale_authkey }}
       --hostname={{ inventory_hostname }}
       --advertise-tags=tag:{{ tailscale_tag }}
+      --accept-dns={{ tailscale_accept_dns | default(true) | lower }}
       {% if tailscale_advertise_routes is defined and tailscale_advertise_routes %}--advertise-routes={{ tailscale_advertise_routes }}{% endif %}
       {% if tailscale_advertise_exit_node | default(false) %}--advertise-exit-node{% endif %}
       {% if tailscale_ssh | default(false) %}--ssh{% endif %}

@@ -34,6 +34,17 @@ control_node_operator_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFmQm
 tailscale_tag: server
 tailscale_ssh: true
 
+# Do NOT accept MagicDNS. Frigg is a LAN control node whose /etc/resolv.conf
+# is baseline-owned (AdGuard VIP 10.0.10.200 direct, baseline_manage_resolv_conf
+# defaults true). With the upstream-default accept-dns=true, tailscaled
+# overwrites resolv.conf with MagicDNS — and a post-reboot tailnet split-DNS
+# hiccup ("server misbehaving" reaching AdGuard) then leaves Frigg unable to
+# resolve vault.niflheim.xiiisins.com, killing homelab-env + the whole IaC
+# toolchain. accept-dns=false keeps DNS on the direct LAN AdGuard path,
+# independent of tailscaled. (The tailnet LXCs deliberately do the opposite —
+# they set baseline_manage_resolv_conf=false and live on MagicDNS.)
+tailscale_accept_dns: false
+
 # -----------------------------------------------------------------------------
 # vlagent (log shipping)
 # -----------------------------------------------------------------------------
