@@ -1,8 +1,12 @@
 <!-- docs/procedures/teardown-rebuild.md -->
 
-# Disaster recovery & rebuild — asgard K3s
+# Disaster recovery & full rebuild — homelab
 
-> Originally the 2026-05-17 `must-run → asgard` rename+rebuild runbook; now the canonical DR procedure. **Mirrored as a PDF in 1Password (+ iCloud/Dropbox)** so it's reachable when the homelab — including Munin and the wiki — is down. Contains **no secrets, only pointers.**
+> The canonical DR + rebuild procedure. **Mirrored as a PDF in 1Password (+ iCloud/Dropbox)** so it's reachable when the homelab — including Munin and the wiki — is down. Contains **no secrets, only pointers.**
+>
+> Supersedes the 2026-05-17 asgard-K3s-only rebuild runbook, archived at [`archive/2026-05-17-asgard-rename-rebuild.md`](archive/2026-05-17-asgard-rename-rebuild.md) (still the validated reference for the *K3s-cluster-only* rebuild path).
+
+---
 
 ## Disaster-recovery entry point — start here if everything is down
 
@@ -11,1411 +15,617 @@ The recovery chain has four legs, **none of which depend on the homelab**:
 1. **The IaC** — `git@github.com:XIIISins/homelab.git` (private). Clone to `~/Dev/xiiisins/homelab`. Complete declarative spec: Terraform + Ansible + Flux.
 2. **The bootstrap secrets** — 1Password **"Homelab 2.0"** vault. To rebuild from zero you need:
    - `[Bootstrap] - Manual - Vault - Root token` + `[Bootstrap] - Manual - Vault - Recovery keys` — Vault root + unseal
-   - `[Bootstrap] - Manual - AWS - KMS unseal access key` + `[Bootstrap] - Manual - Vault - KMS unseal config` — auto-unseal (region + key ARN)
-   - `[Bootstrap] - Manual - Sealed Secrets - Master keys` — decrypts every SealedSecret; **apply BEFORE the sealed-secrets controller starts** (Section 5)
-   - `[Bootstrap] - Manual - Flux - Deploy key` — reuse so `flux bootstrap` doesn't orphan the GitHub deploy key (Section 5)
-   - `[Asgard] - Ansible - Vault - AppRole (ansible-local)` — Ansible→Vault runtime creds
+   - `[Bootstrap] - Manual - AWS - KMS unseal access key` + `[Bootstrap] - Manual - Vault - KMS unseal config` — auto-unseal (region `eu-west-1` + key ARN; the ARN embeds the AWS account ID, kept in 1P not git)
+   - `[Bootstrap] - Manual - Sealed Secrets - Master keys` — decrypts every SealedSecret; **apply BEFORE the sealed-secrets controller starts** (§3.4)
+   - `[Bootstrap] - Manual - Flux - Deploy key` — reuse so `flux bootstrap` doesn't orphan the GitHub deploy key (§3.3)
+   - `[Asgard] - Ansible - Vault - AppRole (ansible-local)` — Ansible→Vault runtime creds (item `Ansible - Vault - k3s`: `username`=RoleID, `password`=SecretID)
    - `[Asgard] - Manual - Ansible - Vault password` — decrypts `group_vars/all/vault.yml`
    - `[Infra] - ansible - SSH - Private key` + `[Infra] - recovery - SSH - Private key` — node + break-glass access
-   - `[Infra] - Terraform - Proxmox - API token` (+ `Root password` for ticket-auth LXCs) — Proxmox provider
-   - `[Asgard] - Terraform - AWS - State access key` (+ `Bootstrap access key` for the `aws/` module) — Terraform S3 state
+   - `[Infra] - Terraform - Proxmox - API token` (+ `Root password` for ticket-auth LXCs — `terraform/proxmox/asgard-lxcs-root/`)
+   - `[Asgard] - Terraform - AWS - State access key` (+ `Bootstrap access key` for the `aws/` module — see §2)
+   - `[Infra] - Manual - Synology - admin` + `[Infra] - Manual - UCG-Ultra` + `[Infra] - Manual - KPN` — foundation config (§1)
    - `[Asgard] - Manual - K3s - Kubeconfig (asgard)` — cluster access once it's up
 3. **This runbook** — the procedure below.
-4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`); AppRole bootstrap in [`docs/architecture/identity-secrets.md`](../architecture/identity-secrets.md).
+4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `flux`, `kubeseal`, `jq`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`, or `homelab-env` in fish); AppRole bootstrap in [`../architecture/identity-secrets.md`](../architecture/identity-secrets.md).
 
-**Which sections apply:** Section 2 (the one-time `must-run → asgard` rename) is **historical** — the cluster is already `asgard`. For a rebuild, run **§1 (capture) → §3 (checks) → §4 (teardown) → §5 (rebuild) → §6 (verify)** and **skip §2**.
+**Reference the offline mirror, not memory.** Every credential above lives in 1Password; fetch dynamically (`op read …`, `vault kv get …`) — never type a literal secret into a shell or this document.
 
 ---
 
-*Last updated: 2026-05-17 (rebuild validated) — DR entry point added 2026-05-31. Restore path validated 2026-05-31 (PBS CT backup→destroy→restore, sentinel intact).*
+## Scope & starting assumptions
 
-The first deliberate end-to-end rebuild of the production K3s cluster. Combines a directory/naming rename (`must-run` → `asgard`, `can-run` → `jotunheim`) with a clean teardown and rebuild from IaC. Validates that the IaC is complete and the rebuild path actually works.
+**This guide rebuilds the entire homelab from a single assumed-standing layer: the Proxmox hosts.**
 
-**Validation outcome (2026-05-17):** rebuild completed end-to-end. Surfaced 9 architectural gaps (CRD timing, master-keys backup, route_localnet, policy routing, idempotency guard, etcd member cleanup, init-node override, Raft auto-join, stuck-init recovery). All fixed in IaC during the same session. See `homelab-design.md` § Incident log § 2026-05-17 for the full narrative. This document was updated post-rebuild to bake those recoveries into the runbook so the next rebuild doesn't re-discover them.
-
-## Scope
-
-**In scope:**
-- Must-run K3s VMs (2001–2003 CPs, 2101–2103 workers) — destroy and recreate
-- All `k8s/must-run/` Flux manifests → `k8s/asgard/`
-- All Ansible group names, playbook filenames, role references
-- All Terraform module directories (`must-run-k3s/`, `must-run-lxcs/`) — rename only, LXC module not destroyed
-- All documentation references
-- UCG-Ultra VLAN names (`HL-CORE-*`, `HL-CR-*` → `HL-ASG-*`, `HL-JOT-*`)
-
-**Out of scope:**
-- Factorio LXC (1120) — directory rename only, LXC keeps running
-- AdGuard Home LXCs (Saga/Mimir/Kvasir) — not touched
-- PBS LXC — not touched
-- Synology (Munin) — not touched, but old iSCSI LUNs need cleanup post-rebuild
-- KPN Experia Box and UCG-Ultra config — VLAN labels updated, firewall rules unchanged
-- Public DNS zone `midgard.xiiisins.com` — not renamed (separate from K3s cluster names)
-- `docs/outline/` content quality — being deleted entirely (regenerable from `homelab-design.md` later)
-
-## Naming target
-
-| Old | New |
+| Assumed already up (NOT rebuilt here) | Rebuilt by this runbook |
 |---|---|
-| `must-run` (kebab-case, paths/text) | `asgard` |
-| `Must-run` (capitalized prose) | `Asgard` |
-| `must_run` (snake_case, Ansible groups) | `asgard` |
-| `can-run` | `jotunheim` |
-| `Can-run` | `Jotunheim` |
-| `HL-CORE-*` (UCG VLAN names) | `HL-ASG-*` |
-| `HL-CR-*` | `HL-JOT-*` |
-| `~/.kube/niflheim-must-run.yaml` | `~/.kube/niflheim-asgard.yaml` |
+| Proxmox PVE on Urd/Verd/Skuld, cluster `niflheim` formed, VM/LXC templates present | Everything else: network config, Synology config, all LXCs, asgard K3s, all Terraform-managed resources, all Flux workloads |
 
-Norse VM/node names (Niflheim, Urd/Verd/Skuld, Göndul/Hlökk/Sigrún, Einherjar-*, Munin) stay — those are identity, not cluster role.
+Everything below the Proxmox layer that *isn't* in IaC (UCG-Ultra, KPN, Synology base config) is rebuilt **manually** in §1, guided by [`../architecture/network.md`](../architecture/network.md) and [`../services/synology.md`](../services/synology.md). Everything in IaC is rebuilt by re-applying Terraform / re-running Ansible / letting Flux reconcile.
 
-## Arc
+**Validation status — be honest with yourself mid-rebuild.** The **asgard-K3s-cluster path** (§3) is end-to-end validated (2026-05-17; partial CP/worker swaps validated 2026-05-22). The **foundation, LXC-tier, and data-restore paths** (§1, §4–§6) are derived from the live IaC + design docs and have **not** been exercised as a single cold rebuild. Treat the ordering as correct-by-construction but watch for gaps; when you hit one, see [Appendix E](#appendix-e--when-you-spot-an-iac-gap).
+
+### Dependency / bring-up order
 
 ```
-1. Pre-rebuild state capture (read-only)
-2. Per-tier rename commits in Git (no infra changes)
-3. Pre-teardown final checks (verify Git is consistent)
-4. Teardown — terraform destroy on K3s cluster
-5. Rebuild — terraform apply → Ansible → Flux bootstrap → Vault config + KV restore
-6. Verification checklist
-7. Rollback notes
+§1 Foundation (manual)        Network (UCG/KPN) ─┐
+                              Synology (Munin)  ─┤
+                                                 ▼
+§2 Terraform state            S3 backend reachable, identities loaded
+                                                 ▼
+§3 Asgard K3s core            VMs → Ansible(K3s) → Flux → Vault(restore) → infra+storage
+                                                 ▼
+§4 Network / identity LXCs    AdGuard (DNS) → Tailscale  ── need Vault (§3) for secrets
+                                                 ▼
+§5 Data tier                  etcd DCS → Patroni PG → DB data restore
+                                                 ▼
+§6 App / monitoring LXCs      Factorio → Hermod → Zabbix(Hugin) → PBS
+                                                 ▼
+§7 Secret-minting TF + apps   cloudflare/authentik/tailscale/netbox/garage/semaphore/… → Flux apps converge
+                                                 ▼
+§8 Fleet agents               vlagent + zabbix-agent + Semaphore templates
+                                                 ▼
+§9 Verification
 ```
 
-Per-tier commits in Section 2 don't touch running infrastructure — they're text changes only. The teardown in Section 4 is what actually destroys things.
+The order is the steady-state converge order encoded in [`ansible/playbooks/site.yml`](../../ansible/playbooks/site.yml), adjusted for cold-boot dependencies (etcd before Patroni; the DNS and Vault↔AppRole circular breaks called out inline — full rationale in [Appendix D](#appendix-d--bootstrap-ordering-rationale)). **Day-1 bring-up uses targeted `--limit` plays, never `site.yml`** (site.yml is the steady-state tool and asserts a ≥20-host inventory).
 
-## Session pause points
+### Time budget & two-day split
 
-The arc is designed to be stoppable at clean boundaries. Natural pause points:
+Times are wall-clock for one operator working the happy path; add slack for first-cold-rebuild discovery.
 
-| After section | State | Safe to walk away? |
-|---|---|---|
-| End of Section 1 | State captured, infra untouched | ✅ Indefinitely |
-| End of Section 2 (any tier) | Git renamed for completed tiers; remaining tiers untouched; infra untouched | ✅ Indefinitely. Note last completed tier. |
-| End of Section 2 (all tiers) | Git fully renamed; infra still on old naming | ✅ Indefinitely. Repo is in "renamed but not yet rebuilt" state — Terraform plan on asgard-k3s/ would show full destroy+create, but you don't run it yet. |
-| End of Section 3 | Final checks passed; ready to destroy | ✅ Same as above |
-| Mid Section 4 (after destroy, before apply) | **K3s gone, nothing rebuilt yet** | ⚠️ Only for short breaks (lunch). Don't sleep on this state. Asgard services unavailable. |
-| Mid Section 5 (Ansible playbook running) | **Partial cluster bring-up** | ❌ Don't pause here. Let the playbook finish or revert. |
-| End of Section 5.6 (Vault terraform applied) | Vault has fresh init + TF config | ✅ For short breaks. KV data not restored yet. |
-| End of Section 5 | Full rebuild done | ✅ Indefinitely |
+| § | Section | Est. | Day |
+|---|---|---|---|
+| 0 | Control node + secrets bootstrap | 20–30 min | **1** |
+| 1.1 | Network — UCG-Ultra + KPN (manual UI) | 30–60 min | **1** |
+| 1.2 | Synology (Munin) — volumes/shares/NFS/iSCSI/user/Tailscale (manual) | 60–120 min | **1** |
+| 2 | Terraform state sanity | 10 min | **1** |
+| 3.1 | K3s VMs (Terraform) | 10 min | **1** |
+| 3.2 | K3s bootstrap (Ansible) | 25–35 min | **1** |
+| 3.3 | Flux bootstrap + deploy key | 10 min | **1** |
+| 3.4 | Sealed-secrets keypair restore ⚠️ | 5 min | **1** |
+| 3.5 | Vault recovery (snapshot or fresh init) | 20–45 min | **1** |
+| 3.6 | Vault TF config + AppRole SecretIDs | 15 min | **1** |
+| 3.7 | Infra + storage-tier reconcile | 20–40 min | **1** |
+| 4 | AdGuard + Tailscale LXCs | 30–45 min | **2** |
+| 5 | Data tier (etcd → Patroni → DB restore) | 45–75 min | **2** |
+| 6 | Factorio + Hermod + Zabbix + PBS LXCs | 60–90 min | **2** |
+| 7 | Secret-minting TF modules + Flux apps | 30–60 min | **2** |
+| 8 | Fleet agents + Semaphore | 15 min | **2** |
+| 9 | Verification | 30 min | **2** |
 
-**Two-day plan (you have ~2h tonight + Sunday morning):**
-- **Tonight:** Sections 1 + 2. State capture (Section 1) is methodical, ~30 min. Rename commits (Section 2) is mechanical, ~30–60 min. End with all rename commits in Git, nothing applied.
-- **Tomorrow morning:** Section 3 + 4 + 5 + 6. Teardown + rebuild + verify is ~1.5–2.5h end-to-end. Plenty of slack for Vault re-init faffing and KV restore.
+**Day 1 — critical path / foundation (≈4–6 h).** §0 → §3. End state: foundation up, asgard K3s 3+3 Ready, Vault restored + 3/3 voters, infra Kustomizations healthy. **Clean pause point** — safe to walk away indefinitely; no half-built quorum-sensitive state.
 
-**End-of-tonight handoff note** (write into your scratch / commit message of last rename commit):
-```
-Stopped after Section 2 — all rename commits in Git.
-Tomorrow: resume at Section 3 (pre-teardown checks), then teardown.
-State capture is at ~/homelab-rebuild-state/.
-Vault root token in 1Password (verified working tonight in Section 1.3).
-```
+**Day 2 — services on top (≈4–6 h).** §4 → §9. LXC tiers, PG data, app reconcile, verification.
+
+> ⚠️ **Do not pause inside §3.2 (Ansible mid-play), §3.5 (Vault init mid-flight), or §5 (Patroni bootstrap).** Those leave half-formed clusters. Finish the section or revert it.
 
 ---
 
-## Section 1 — Pre-rebuild state capture
+## Section 0 — Control node + secrets bootstrap
 
-All read-only. Output is captured for reference and recovery.
-
-### 1.1 Repo state
+~20–30 min. Goal: a shell that can reach AWS (state), Proxmox, and (later) Vault.
 
 ```fish
+# Tools: op, terraform, ansible, kubectl, vault, flux, kubeseal, jq, fish.
+# On a fresh Mac the Bash-tool / non-interactive PATH may miss Homebrew —
+# prefix with PATH="/opt/homebrew/bin:$PATH" if a binary is "not found".
+
+git clone git@github.com:XIIISins/homelab.git ~/Dev/xiiisins/homelab
 cd ~/Dev/xiiisins/homelab
-git status
-git log --oneline -10
-git stash list  # should be empty
+
+# 1Password CLI signed in
+op vault list | grep -i 'Homelab 2.0'
+
+# Control-node fish tooling (loads VAULT_ADDR + ANSIBLE_HASHI_VAULT_* + AWS_* + … from 1P)
+ln -sf (pwd)/.config/fish/conf.d/homelab.fish ~/.config/fish/conf.d/homelab.fish
+homelab-env            # caches to ~/.cache/homelab/env.{sh,fish}, 24h TTL
+
+# Ansible deps
+ansible-galaxy collection install -r ansible/requirements.yml
+pipx inject ansible hvac           # if Ansible is pipx-installed
+set -Ux OBJC_DISABLE_INITIALIZE_FORK_SAFETY YES   # macOS fork-safety, one-time
+
+# SSH keys for node access (ansible + recovery break-glass) from 1P
+op read 'op://Homelab 2.0/<Infra - ansible - SSH - Private key UUID>/private key' > ~/.ssh/homelab_ansible
+op read 'op://Homelab 2.0/<Infra - recovery - SSH - Private key UUID>/private key' > ~/.ssh/homelab_recovery
+chmod 600 ~/.ssh/homelab_*
+
+# Ansible Vault password file (decrypts group_vars/all/vault.yml)
+op read 'op://Homelab 2.0/<Asgard - Manual - Ansible - Vault password UUID>/password' > ~/.config/ansible/vault-pass
+chmod 600 ~/.config/ansible/vault-pass
 ```
 
-Verify clean working tree, recent commits look right, no leftover stashes.
-
-### 1.2 Terraform plan currency
-
-Each module must show "no changes" before teardown — otherwise drift is mixed in.
-
-```fish
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/must-run-k3s
-terraform plan -detailed-exitcode
-# Exit 0 = no changes (good)
-# Exit 2 = drift — investigate before proceeding
-
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/must-run-lxcs
-terraform plan -detailed-exitcode
-
-cd ~/Dev/xiiisins/homelab/terraform/vault
-terraform plan -detailed-exitcode  # needs VAULT_TOKEN set
-```
-
-### 1.3 Vault recovery state confirmation
-
-You have root token and recovery keys in 1Password. Confirm the root token still works:
-
-```fish
-env VAULT_ADDR=http://10.0.20.11:8200 VAULT_TOKEN=<root-from-1Password> vault status
-```
-
-Expected output: `Initialized: true`, `Sealed: false`. If "permission denied", the root token has been rotated since you captured it — generate a new root via:
-
-```fish
-vault operator generate-root -init  # gives you nonce + OTP
-# Then for each recovery key (need 3):
-vault operator generate-root  # paste recovery key
-# Final command produces encoded token; decode with the OTP from step 1
-```
-
-Update 1Password with the new root token before proceeding.
-
-### 1.4 Vault KV inventory
-
-Capture all KV data — this is the only Vault state not in IaC.
-
-```fish
-set -x VAULT_ADDR http://10.0.20.11:8200
-set -x VAULT_TOKEN <root-from-1Password>
-
-vault kv list secret/
-vault kv list secret/ansible/
-vault kv list secret/ansible/sftpgo/
-```
-
-For each entry found, capture the value:
-
-```fish
-mkdir -p ~/homelab-rebuild-state
-cd ~/homelab-rebuild-state
-
-vault kv get -format=json secret/ansible/sftpgo/admin-password \
-    > sftpgo-admin-password.json
-```
-
-Currently only one entry (`sftpgo/admin-password`). If new entries have been added since, list them above and capture each.
-
-### 1.5 Vault config snapshot (sanity check that TF matches reality)
-
-```fish
-cd ~/homelab-rebuild-state
-
-vault auth list -format=json > auth-methods.json
-vault policy list > policies.txt
-for p in (vault policy list | grep -v '^root$\|^default$')
-    echo "=== Policy: $p ==="
-    vault policy read $p
-end > policies-content.txt
-
-vault list -format=json auth/approle/role > approle-roles.json
-vault read -format=json auth/approle/role/ansible-local > approle-ansible-local.json
-vault read -format=json auth/approle/role/ansible-awx > approle-ansible-awx.json
-vault read -format=json auth/kubernetes/config > k8s-auth-config.json
-vault list -format=json auth/kubernetes/role > k8s-roles.json
-vault read -format=json auth/kubernetes/role/eso > k8s-role-eso.json
-```
-
-Compare against `terraform/vault/main.tf` to confirm IaC matches live state.
-
-### 1.6 Cluster resource snapshot
-
-```fish
-cd ~/homelab-rebuild-state
-
-kubectl get all -A -o wide > all-resources.txt
-kubectl get nodes -o wide > nodes.txt
-kubectl get pv,pvc -A > storage.txt
-kubectl get svc -A > services.txt
-kubectl get secrets -A > secrets-list.txt  # names only, not values
-kubectl get configmaps -A > configmaps-list.txt
-flux get all -A > flux-state.txt
-flux get kustomizations > flux-kustomizations.txt
-```
-
-### 1.7 Synology iSCSI LUN inventory
-
-The LUNs will be abandoned post-teardown (we're letting CSI provision fresh). Capture which exist so you can clean them up on Synology side after rebuild.
-
-```fish
-ssh ansible@10.0.21.21 sudo iscsiadm -m session  # Einherjar-urd
-ssh ansible@10.0.21.22 sudo iscsiadm -m session  # Einherjar-verd
-ssh ansible@10.0.21.23 sudo iscsiadm -m session  # Einherjar-skuld
-```
-
-Note all `iqn.2000-01.com.synology:munin.pvc-*` targets. Save the list.
-
-### 1.8 PBS backup currency
-
-In the PBS UI (`https://10.0.11.20:8007`) or SSH to LXC 1101:
-- Confirm recent backups exist for VM IDs 2001, 2002, 2003, 2101, 2102, 2103
-- Verify no failed jobs in last 24h
-- Note backup snapshot IDs for the most recent good state (rollback reference)
-
-### 1.9 Reachability baseline
-
-```fish
-ping -c 2 10.0.10.200    # AGH VIP
-ping -c 2 10.0.11.20     # PBS
-ping -c 2 10.0.11.220    # Factorio LXC
-ping -c 2 10.0.254.20    # Synology
-ping -c 2 10.0.254.11    # Urd
-ping -c 2 10.0.254.12    # Verd
-ping -c 2 10.0.254.13    # Skuld
-```
-
-All should succeed. During teardown only the 10.0.21.x range should become unreachable.
-
-### 1.10 Sealed-secrets master keys backup ⚠️ CRITICAL
-
-The sealed-secrets controller generates a fresh keypair on first start. Every SealedSecret in Git is encrypted against that pair's public cert. **If you skip this step, every existing SealedSecret becomes undecryptable after rebuild** and must be re-sealed from plaintext sources — adding 15-30 min of recovery work and requiring access to all the original plaintext values.
-
-```fish
-# Snapshot the active sealed-secrets master keypair
-mkdir -p ~/homelab-rebuild-state
-kubectl get secret \
-  -n sealed-secrets \
-  -l sealedsecrets.bitnami.com/sealed-secrets-key=active \
-  -o yaml \
-  > ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
-
-# Verify it's not empty (~15 lines for a single active key)
-wc -l ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
-grep -c "tls.crt\|tls.key" ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
-# Expected: 2 (one each)
-```
-
-**Then copy the file's contents into 1Password** as a Secure Note in the Homelab vault, named `sealed-secrets master keys — asgard <date>`. The local file alone isn't enough — if you lose the Mac mid-rebuild you've lost the keys.
-
-This step is restored in Section 5.4 below, *before* the sealed-secrets controller starts on the rebuilt cluster.
-
-### 1.11 Flux deploy key backup ⚠️
-
-`flux bootstrap github` reuses an existing `flux-system/flux-system` Secret if present at bootstrap time, alongside the matching deploy key in the repo's Settings → Deploy keys. Without this backup, bootstrap generates a fresh keypair and registers a new deploy key in GitHub, orphaning the previous one (manual cleanup needed in repo settings).
-
-```fish
-kubectl get secret -n flux-system flux-system -o yaml \
-  > ~/homelab-rebuild-state/flux-deploy-key.yaml
-
-# Verify the three data fields are present
-grep -cE "^  (identity|identity\.pub|known_hosts):" \
-  ~/homelab-rebuild-state/flux-deploy-key.yaml
-# Expected: 3
-```
-
-**Then copy the file's contents into 1Password** as a Secure Note in the Homelab vault, named `Flux deploy key — asgard`. Note in the same item that the matching public key is registered in the GitHub repo's Settings → Deploy keys — both halves are required for the bootstrap-reuse path.
-
-If a 1Password item already exists from a previous rebuild and the live Secret hasn't been rotated since, you can skip the re-capture, but still write the file to disk so it's local for Section 5.4.
-
-This step is restored in Section 5.4 below, *before* `flux bootstrap` is invoked.
+`VAULT_TOKEN` is NOT loaded yet (Vault is down). It comes in §3.5.
 
 ---
 
-## Section 2 — Per-tier rename (Git only, no infra changes)
+## Section 1 — Foundation (manual, not in IaC)
 
-Each tier is a self-contained commit. Verify each before moving on.
+Proxmox is up; the network and Synology are not. Both are consumer/appliance config with no useful API — they live in docs, not IaC.
 
-**Mac note:** all `perl -i -pe` commands work natively on macOS without the BSD-vs-GNU sed quoting issue.
+### 1.1 Network — UCG-Ultra + KPN  (~30–60 min)
 
-### Tier A — Terraform module directories
+Restore from [`../architecture/network.md`](../architecture/network.md). Key state to recreate in the UniFi UI:
 
-```fish
-cd ~/Dev/xiiisins/homelab
+- **VLANs** (ID + subnet must match exactly — everything downstream is hard-coded to these):
 
-git mv terraform/proxmox/must-run-k3s terraform/proxmox/asgard-k3s
-git mv terraform/proxmox/must-run-lxcs terraform/proxmox/asgard-lxcs
+  | VLAN | Subnet | Name |
+  |---|---|---|
+  | 1 | `10.0.254.0/24` | HL-MGMT |
+  | 10 | `10.0.10.0/24` | HL-ASG-VIP |
+  | 11 | `10.0.11.0/24` | HL-ASG-SVC |
+  | 20 | `10.0.20.0/24` | HL-ASG-K3S-VIP |
+  | 21 | `10.0.21.0/24` | HL-ASG-K3S-NODE |
+  | 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP |
+  | 31 | `10.0.31.0/24` | HL-JOT-K3S-NODE |
+  | 60 | `10.0.60.0/24` | HL-CLIENT |
+  | 100 | `10.0.100.0/24` | HL-STOR |
+  | 222 | `10.0.222.0/24` | Untrusted |
 
-# Update text references inside the moved files
-perl -i -pe 's/must-run/asgard/g; s/must_run/asgard/g' \
-    terraform/proxmox/asgard-k3s/*.tf \
-    terraform/proxmox/asgard-k3s/*.tfvars.example \
-    terraform/proxmox/asgard-lxcs/*.tf \
-    terraform/proxmox/asgard-lxcs/*.tfvars.example
-```
+- **Zone firewall** — all VLANs in the Internal zone; `Internal → Any: Allow`, `External → Internal: Allow Return`, `Any → Any: Deny` (last). UCG is the sole firewall boundary.
+- **Port-forwards (UCG only)** — recreate for every externally-exposed service. Today: Teamspeak voice (UDP 9987) + filetransfer (TCP 30033) → MetalLB `10.0.20.12`; and any other service whose HTTPRoute is external via cloudflared is reached *through the tunnel*, not a port-forward (cloudflared dials out — no inbound rule needed). SFTP/game for Factorio if exposed.
+- **KPN Experia Box** — "exposed host" / DMZ mode forwarding all unsolicited inbound (IPv4 **and** IPv6 tabs) to the UCG WAN IP. KPN keeps outbound NAT for `192.168.2.0/24` only.
 
-Note: `terraform.tfvars` (without `.example`) is in `.gitignore` and isn't tracked, but if it has `must-run` strings, update it manually:
+**Verify before flipping the DMZ:** confirm the `Any → Any: Deny` rule exists.
 
-```fish
-perl -i -pe 's/must-run/asgard/g; s/must_run/asgard/g' \
-    terraform/proxmox/asgard-k3s/terraform.tfvars \
-    terraform/proxmox/asgard-lxcs/terraform.tfvars
-```
+### 1.2 Synology (Munin) — storage  (~60–120 min)
 
-Review:
+Restore from [`../services/synology.md`](../services/synology.md) and [`synology-storage-redesign.md`](synology-storage-redesign.md) (the latter is the *current* tiered layout). DSM is manual UI. Recreate:
 
-```fish
-git diff
-git status
-```
+- **Volumes** on the RAID-1 pool — Volume1 (data / backups), Volume2 (media + Garage meta). The 2026-05-30 redesign made **Volume1 the dedicated backup volume**; mind the **DSM-wide ~10 iSCSI LUN cap** (hard model limit — see CLAUDE.md). Storage tiering is what keeps you under it: iSCSI only for block-critical single-instance data; NFS for file-class; local-path (node-NVMe) for app-replicated; emptyDir for caches.
+- **Shared folders + exports** — `proxmox-backup` (NFS, PBS datastore), `db-backups` (NFS), `uploads` (Factorio SFTP), `media`/`manga`/`downloads`/`immich`, plus the NFS exports backing the K3s file-class tier (`csi-driver-nfs`). Match the export paths the redesign moved things to (`/volumeN/…`) — a stale path = stale NFS handle on clients.
+- **iSCSI** — SAN Manager installed; Synology CSI auto-creates one target+LUN per PVC at provision time, so **no manual LUNs to pre-create** — just the SAN Manager service.
+- **`kubernetes` user** (admin) — consumed by Synology CSI. Credentials in 1P; the SealedSecret in `synology-csi-config/` carries them into the cluster.
+- **Tailscale subnet-router** (DSM Package Center) — see [Appendix C](#appendix-c--munin-tailscale-subnet-router-install-dsm-7). Optional at this stage; needed for K3s-independent break-glass.
 
-Look for:
-- Resource block names changed (e.g. `resource "..." "must_run_k3s_cp"` → `resource "..." "asgard_k3s_cp"`) — these are state-relevant for the LXCs module (NOT the K3s module which is being destroyed anyway).
-- Variable names changed.
-- Tags changed: `tags = ["must-run", ...]` → `tags = ["asgard", ...]`.
-
-**Note on LXC state implications:** if the Factorio LXC resource block was named `must_run_lxc` or similar, the rename would normally cause Terraform to plan destroy+create. We don't want that. Two options:
-
-1. Leave the *resource block name* unchanged (just rename the directory and update tags). This is the simplest.
-2. Rename resource block too, then run `terraform state mv` to migrate state. Cleaner but riskier.
-
-Recommend option 1 — check `terraform/proxmox/asgard-lxcs/lxcs.tf`:
-
-```fish
-grep -n 'resource\|module' terraform/proxmox/asgard-lxcs/lxcs.tf
-```
-
-If the resource block name doesn't contain `must-run` or `must_run`, you're already good. If it does, revert just that line with `git checkout`:
-
-```fish
-# Example, if the resource was renamed and you want to keep the old block name:
-git diff terraform/proxmox/asgard-lxcs/lxcs.tf  # confirm what changed
-# Manually edit lxcs.tf to keep resource block name as-is
-```
-
-Verify the LXC module still plans clean:
-
-```fish
-cd terraform/proxmox/asgard-lxcs
-terraform plan
-# Expected: only the tags = ["asgard", ...] change shows, nothing else
-```
-
-If that's the only plan diff, commit:
-
-```fish
-cd ~/Dev/xiiisins/homelab
-git add -A
-git commit -m "rename: terraform module dirs must-run-* → asgard-*
-
-Rename of:
-- terraform/proxmox/must-run-k3s/ → asgard-k3s/
-- terraform/proxmox/must-run-lxcs/ → asgard-lxcs/
-
-Text references within updated. Factorio LXC tags change from
-\"must-run\" to \"asgard\" — will cause a no-op tag update on
-next terraform apply. Resource block names preserved to keep
-LXC state continuity."
-```
-
-### Tier B — Ansible
-
-Files affected (from grep):
-- `ansible/playbooks/must-run-k3s.yml` → `asgard-k3s.yml`
-- `ansible/inventory/hosts.yml` — group names
-- `ansible/roles/k3s/defaults/main.yml` — kubeconfig path
-- `ansible/roles/k3s/handlers/main.yml` — group references
-- `ansible/roles/k3s/tasks/install.yml` — group references
-- `ansible/roles/k3s/templates/k3s.service.j2` — group references
-
-```fish
-cd ~/Dev/xiiisins/homelab
-
-git mv ansible/playbooks/must-run-k3s.yml ansible/playbooks/asgard-k3s.yml
-
-perl -i -pe 's/must-run/asgard/g; s/must_run/asgard/g; s/niflheim-must-run/niflheim-asgard/g' \
-    ansible/playbooks/asgard-k3s.yml \
-    ansible/inventory/hosts.yml \
-    ansible/roles/k3s/defaults/main.yml \
-    ansible/roles/k3s/handlers/main.yml \
-    ansible/roles/k3s/tasks/install.yml \
-    ansible/roles/k3s/templates/k3s.service.j2
-```
-
-Review:
-
-```fish
-git diff
-```
-
-Look for:
-- `must_run_k3s` → `asgard_k3s` group names
-- `must_run_k3s_cp` → `asgard_k3s_cp`
-- `must_run_k3s_workers` → `asgard_k3s_workers`
-- `must_run_lxcs` → `asgard_lxcs`
-- Playbook `hosts: must_run_k3s` → `hosts: asgard_k3s`
-- kubeconfig path updated
-
-**Important — handle existing kubeconfig:**
-
-```fish
-# Move the existing kubeconfig to match new path (will be overwritten by playbook
-# on rebuild, but useful during the rename phase if you need to kubectl anything)
-mv ~/.kube/niflheim-must-run.yaml ~/.kube/niflheim-asgard.yaml
-# Update your kubeconfig env if you use one
-```
-
-Verify Ansible parses:
-
-```fish
-cd ansible
-ansible-inventory -i inventory/hosts.yml --list | head -20
-ansible-playbook --syntax-check playbooks/asgard-k3s.yml
-```
-
-Both should succeed without errors.
-
-Commit:
-
-```fish
-cd ~/Dev/xiiisins/homelab
-git add -A
-git commit -m "rename: Ansible groups/playbook/role refs must_run → asgard
-
-Rename of:
-- playbooks/must-run-k3s.yml → asgard-k3s.yml
-- Inventory groups: must_run_k3s{,_cp,_workers}, must_run_lxcs → asgard_*
-- k3s role handler/install task/service template group conditionals
-- kubeconfig path: ~/.kube/niflheim-must-run.yaml → niflheim-asgard.yaml
-
-Syntax-check + inventory parse verified."
-```
-
-### Tier C — Kubernetes/Flux
-
-```fish
-cd ~/Dev/xiiisins/homelab
-
-git mv k8s/must-run k8s/asgard
-
-# Update all text references inside k8s/asgard/
-find k8s/asgard -type f \( -name '*.yaml' -o -name '*.yml' \) \
-    -exec perl -i -pe 's/must-run/asgard/g' {} +
-```
-
-Review:
-
-```fish
-git diff
-git status
-```
-
-Look for:
-- `path: ./k8s/must-run/...` → `./k8s/asgard/...` in flux-system manifests
-- Header comments updated
-- `metallb-config.yaml` resource name `must-run` (pool name) → `asgard`
-- The L2Advertisement reference to the pool name — needs to match
-
-Verify the renamed pool name is consistent:
-
-```fish
-grep -n 'name:.*asgard\|name:.*must-run' k8s/asgard/metallb-config/metallb-config.yaml
-# All should say asgard, none should say must-run
-```
-
-Render kustomization to confirm it parses:
-
-```fish
-kustomize build k8s/asgard/infrastructure > /tmp/asgard-infrastructure.yaml
-kustomize build k8s/asgard/infrastructure-config > /tmp/asgard-config.yaml
-kustomize build k8s/asgard/metallb-config > /tmp/asgard-metallb.yaml
-echo "All builds succeeded"
-```
-
-Commit:
-
-```fish
-cd ~/Dev/xiiisins/homelab
-git add -A
-git commit -m "rename: k8s/must-run → k8s/asgard
-
-Rename of:
-- k8s/must-run/ → k8s/asgard/
-- All Flux Kustomization spec.path references updated
-- MetalLB IPAddressPool name 'must-run' → 'asgard'
-  (L2Advertisement reference updated to match)
-- Header path comments in manifests updated
-
-kustomize build verified for all three Kustomization roots."
-```
-
-### Tier D — Documentation
-
-Outline dir gets deleted (it's a draft, regenerable from `homelab-design.md` later). Sweep is then just `CLAUDE.md` + `homelab-design.md`.
-
-```fish
-cd ~/Dev/xiiisins/homelab
-
-# Delete the outline drafts — predate D1, regenerable from homelab-design.md later
-git rm -r docs/outline/
-
-# Content sweep on the two live docs
-perl -i -pe '
-    s/must-run/asgard/g;
-    s/Must-run/Asgard/g;
-    s/can-run/jotunheim/g;
-    s/Can-run/Jotunheim/g;
-    s/HL-CORE/HL-ASG/g;
-    s/HL-CR\b/HL-JOT/g;
-    s/niflheim-must-run/niflheim-asgard/g;
-' CLAUDE.md docs/homelab-design.md
-```
-
-Note the `\b` word boundary on `HL-CR` (defensive — no current collisions, but safe).
-
-Review:
-
-```fish
-git diff CLAUDE.md docs/homelab-design.md | less
-git status  # should show docs/outline/ deletions + 2 modified files
-```
-
-Commit:
-
-```fish
-git add -A
-git commit -m "rename: docs must-run/can-run → asgard/jotunheim, drop outline drafts
-
-Content sweep across CLAUDE.md and docs/homelab-design.md:
-- must-run/Must-run → asgard/Asgard
-- can-run/Can-run → jotunheim/Jotunheim
-- HL-CORE-* → HL-ASG-*
-- HL-CR-* → HL-JOT-*
-- niflheim-must-run kubeconfig refs → niflheim-asgard
-
-Also: deleted docs/outline/ entirely. These 22 files were initial
-drafts generated from the original homelab-design.md and never kept
-in sync. They predate D1 and contain stale framing (Authentik
-incorrectly in jotunheim tier, two-layer secrets architecture, etc.).
-Regenerable from current homelab-design.md when an outline doc set
-is actually wanted."
-```
-
-### Tier E — UCG-Ultra VLAN names (manual UI step)
-
-In the UniFi UI at `https://unifi.ui.com` or directly on UCG-Ultra:
-1. Settings → Networks
-2. For each VLAN, rename:
-   - VLAN 10 `HL-CORE-VIP` → `HL-ASG-VIP`
-   - VLAN 11 `HL-CORE-SVC` → `HL-ASG-SVC`
-   - VLAN 20 `HL-CORE-K3S-VIP` → `HL-ASG-K3S-VIP`
-   - VLAN 21 `HL-CORE-K3S-WRK` → `HL-ASG-K3S-WRK`
-   - VLAN 30 `HL-CR-K3S-VIP` → `HL-JOT-K3S-VIP`
-   - VLAN 31 `HL-CR-K3S-WRK` → `HL-JOT-K3S-WRK`
-
-VLAN IDs and subnets unchanged — purely cosmetic UI labels. No network impact.
-
-Verify firewall rules still reference these by ID, not by name (UCG uses IDs internally).
-
-No commit (not in IaC).
+**Reboot-test** the Synology after volume/share/export changes before depending on it (boot-mount failures hide until next reboot).
 
 ---
 
-## Section 3 — Pre-teardown final checks
+## Section 2 — Terraform state sanity  (~10 min)
 
-After all rename commits, before destroying anything:
-
-```fish
-cd ~/Dev/xiiisins/homelab
-
-# Confirm no stale references
-git grep -nE 'must.run|must_run|can.run|HL-CORE|HL-CR' \
-    | grep -v 'docs/procedures/teardown-rebuild.md'  # this file itself
-# Expected: empty (or only this runbook's own contents)
-```
-
-If anything remains, fix it before proceeding.
+State lives in S3 (`xiiisins-homelab-tfstate`, eu-west-1, native lock) — **off-homelab, so it survives a full homelab wipe.** That means each module's state still references the now-destroyed resources; `terraform apply` will refresh, find them gone, and recreate. For *imported* resources (AdGuard LXCs, NetBox records) the `import {}` blocks / `lifecycle.ignore_changes` already in the modules handle re-creation.
 
 ```fish
-# Confirm Terraform module still plans clean for LXCs
-cd terraform/proxmox/asgard-lxcs
-terraform plan
-# Expected: 1 change (tag update on Factorio LXC). Apply it now if you want:
-terraform apply
+# The aws/ module (state bucket + IAM) is local-state and uses the BOOTSTRAP identity, not the runtime one
+set-aws-creds bootstrap          # fish shim; aws/ needs s3:GetBucketPolicy which the runtime identity lacks
+cd terraform/aws
+terraform init && terraform plan  # expect no changes (bucket + IAM survived in AWS)
+
+# Everything else uses the terraform-state runtime identity (the homelab-env default)
+set-aws-creds terraform-state    # or just `homelab-env`
 ```
 
-The K3s module (`asgard-k3s/`) will show a plan that destroys+creates everything because of the directory rename + resource name changes. That's expected and is what we're about to do anyway.
+If the S3 bucket itself is gone (whole AWS account lost), that's a different DR — `terraform/aws/` recreates the bucket but every other module's state is gone with it, turning every `apply` into a from-scratch create (and Vault snapshot-restore in §3.5 becomes the only way back to the KV data). Note it and proceed; the modules are written to create-from-empty.
+
+> **Apply discipline:** `terraform apply` runs only from the main checkout (state-lock serialises writes; this preserves intentionality). `plan` from anywhere is fine. Re-verify `VAULT_TOKEN` before each `vault_*` module apply on a long day — it expires mid-flight.
 
 ---
 
-## Section 4 — Teardown
+## Section 3 — Asgard K3s core
 
-**Point of no return below.** Confirm state capture (Section 1) is complete, root token and recovery keys are in 1Password and verified working, KV data is captured to `~/homelab-rebuild-state/`.
+The cluster everything else talks to. This section is the validated path (see archive). End state: 3+3 Ready, Vault 3/3 voters, infra healthy.
 
-### 4.1 Drain workloads (graceful)
-
-```fish
-# Optional but cleaner — stops Vault writes mid-destroy
-kubectl scale statefulset vault -n vault --replicas=0
-sleep 30
-```
-
-### 4.2 Destroy K3s VMs
+### 3.1 K3s VMs — Terraform  (~10 min)
 
 ```fish
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
-terraform destroy
-# Confirm "yes" when prompted. Destroys VMs 2001-2003 and 2101-2103.
+cd terraform/proxmox/asgard-k3s
+terraform init && terraform apply      # creates VMs 2001–2003 (CP) + 2101–2103 (workers)
 ```
 
-This takes 5–10 minutes. Watch for errors — bpg/proxmox sometimes leaves stale agent locks. If destroy hangs on a VM, force-remove via Proxmox UI.
-
-### 4.3 Clean local kubeconfig
-
-```fish
-rm ~/.kube/niflheim-asgard.yaml  # will be re-fetched by playbook
-# If you have it added to KUBECONFIG env, the next kubectl will fail until rebuild
-```
-
-### 4.4 Clean Synology stale LUNs
-
-The LUNs that backed the destroyed K3s PVs are now orphaned (retain policy). Find them via DSM:
-- DSM → SAN Manager → LUN
-- Look for LUNs with names matching `pvc-<uuid>` (Synology CSI pattern)
-- Cross-reference with the LUN list captured in Section 1.7
-- Delete each one
-
-Also clear stale iSCSI sessions on the Proxmox hosts (defensive — though these should be on the now-destroyed VMs, not the hosts):
-
-```fish
-# Not strictly needed for hosts since VMs are gone, but if you reboot a host
-# later and it still has stale session records (it shouldn't), this is the fix:
-# ssh root@10.0.254.11 iscsiadm -m node -o delete
-```
-
-### 4.5 Pre-rebuild verification
-
-```fish
-ping -c 2 10.0.21.11  # gondul — expected: no route / dest unreachable
-ping -c 2 10.0.10.200 # AGH VIP — expected: success (unaffected)
-ping -c 2 10.0.11.220 # Factorio — expected: success (unaffected)
-```
-
----
-
-## Section 5 — Rebuild
-
-### 5.1 Recreate K3s VMs (Terraform)
-
-```fish
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
-terraform apply
-# Confirm. Takes 5–10 minutes to create 6 VMs.
-```
-
-Verify VMs come up (cloud-init can take 2–3 min after Terraform reports done):
-
-```fish
-for ip in 10.0.21.11 10.0.21.12 10.0.21.13 10.0.21.21 10.0.21.22 10.0.21.23
-    ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$ip 'hostname' 2>&1
-end
-```
-
-Note: SSH host keys will be different (fresh VMs). Clear them from `~/.ssh/known_hosts`:
+Each worker carries a 50G `scsi1` data disk (`/data`, local-path tier — see CLAUDE.md). Cloud-init takes 2–3 min after apply returns. Clear stale host keys + confirm reachability:
 
 ```fish
 for ip in 10.0.21.11 10.0.21.12 10.0.21.13 10.0.21.21 10.0.21.22 10.0.21.23
     ssh-keygen -R $ip
+    ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$ip hostname
 end
 ```
 
-### 5.2 Bootstrap with Ansible
+### 3.2 K3s bootstrap — Ansible  (~25–35 min)
 
-Day-1 bootstrap (baseline-only, as root):
+> ⚠️ **Cold-boot DNS break.** The node `baseline_nameservers` default is `[10.0.10.200 (AGH VIP), 10.0.254.1 (UCG)]` — **both dead** until AdGuard comes up in §4, yet the K3s/Calico install needs working DNS to pull images. Break the circle by overriding to a temporary resolver for the bootstrap run only, then re-converge to AGH defaults in §4. (Confirm whether your UCG runs an independent resolver; if not, use a public one temporarily.)
 
 ```fish
 cd ~/Dev/xiiisins/homelab/ansible
+
+# Day-1 baseline as root (hardening later locks root SSH out). Temporary DNS override.
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml \
-    -e 'ansible_user=root' --tags baseline
+    -e 'ansible_user=root' -e '{"baseline_nameservers":["1.1.1.1","10.0.254.1"]}' \
+    --tags baseline
+
+# Full deploy as ansible user (baseline → k3s → hardening). Init node = gondul by default.
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml \
+    -e '{"baseline_nameservers":["1.1.1.1","10.0.254.1"]}'
 ```
 
-Full deploy (as `ansible` user — hardening locks root out at the end):
-
-```fish
-ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml
-```
-
-Takes 15–30 minutes. K3s installs in this run; Calico addon manifest is dropped on init node and applied by addon controller.
-
-### 5.3 Verify K3s + Calico
-
-The kubeconfig is fetched to `~/.kube/niflheim-asgard.yaml` by the play.
+`detect-state.yml` gates install on health, so re-runs are safe. The init node (`gondul`) `--cluster-init`s; the others join. Kubeconfig is fetched to `~/.kube/niflheim-asgard.yaml`.
 
 ```fish
 set -x KUBECONFIG ~/.kube/niflheim-asgard.yaml
-
-kubectl get nodes -o wide
-# Expected: 3 CP + 3 worker, all Ready
-
-kubectl get pods -n calico-system
-# Expected: tigera-operator + calico-node (3 instances) + calico-kube-controllers running
-
-kubectl get installation default -o jsonpath='{.spec.calicoNetwork}{"\n"}'
-# Expected: nodeAddressAutodetectionV4 cidrs=[10.0.21.0/24], mtu=1450,
-# encapsulation VXLANCrossSubnet, ipPools 10.42.0.0/16
+kubectl get nodes -o wide          # expect 3 CP + 3 worker, all Ready
+kubectl get installation default -o jsonpath='{.spec.calicoNetwork.nodeAddressAutodetectionV4}{"\n"}'
+# expect cidrs=[10.0.21.0/24]  (NOT firstFound — the multi-homed-worker landmine)
 ```
 
-### 5.4 Bootstrap Flux
+### 3.3 Flux bootstrap + deploy key  (~10 min)
 
-The Flux bootstrap re-creates the GitRepository source and points it at the new path:
-
-**First, restore the deploy key Secret** (captured in Section 1.11). The bootstrap reuses it if present; otherwise it generates a fresh keypair and orphans the previous GitHub deploy key.
+**Restore the deploy-key Secret first** (`[Bootstrap] - Manual - Flux - Deploy key`) so bootstrap reuses it instead of orphaning the GitHub deploy key:
 
 ```fish
 kubectl create namespace flux-system
-kubectl apply -f ~/homelab-rebuild-state/flux-deploy-key.yaml
-```
+op read 'op://Homelab 2.0/<Flux deploy key UUID>/notesPlain' | kubectl apply -f -
 
-Then run the bootstrap:
-
-```fish
 flux bootstrap github \
-    --owner=<your-github-user> \
-    --repository=homelab \
-    --branch=main \
-    --path=./k8s/asgard/flux-system \
-    --personal \
-    --private \
+    --owner=XIIISins --repository=homelab --branch=main \
+    --path=./k8s/asgard/flux-system --personal --private \
     --kubeconfig ~/.kube/niflheim-asgard.yaml
 ```
 
-Or, if you have the bootstrap manifests already committed and want to re-apply directly:
+### 3.4 Sealed-secrets master keypair restore ⚠️ CRITICAL  (~5 min)
+
+**Must happen between Flux bootstrap and the sealed-secrets controller's first reconcile.** If the controller starts first it generates a *new* keypair and every SealedSecret in Git (`vault-unseal`, `synology-csi`, …) becomes undecryptable.
 
 ```fish
-kubectl apply -k k8s/asgard/flux-system/flux-system
-# Then Flux self-reconciles from Git
+op read 'op://Homelab 2.0/<Sealed Secrets master keys UUID>/notesPlain' | kubectl apply -f -
+kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key=active
+# expect ≥1 Secret listed
 ```
 
-**Notes on `flux bootstrap github`:**
-- If the Secret restored above is present, bootstrap reuses it and the GitHub deploy key stays the same. No GitHub cleanup needed.
-- If both the Secret and the GitHub deploy key are missing, bootstrap generates a fresh keypair and registers a new deploy key. The previous deploy key (if any) becomes orphaned in repo settings.
-- Recovery path is the 1Password Secure Note (`Flux deploy key — asgard`, Homelab vault). Re-bootstrapping without it works but leaves orphaned deploy keys.
+If you raced the controller: re-seal each SealedSecret from plaintext (`vault-unseal` plaintext is in `group_vars/all/vault.yml`; `synology-csi` creds in 1P) against the controller's new cert (`kubeseal --fetch-cert`), commit, push, reconcile.
 
-#### 5.4.1 Restore sealed-secrets master keypair ⚠️ CRITICAL
+### 3.5 Vault recovery  (~20–45 min)
 
-**This step must happen between Flux bootstrap and the sealed-secrets controller's first reconcile.** If the controller starts before the keypair Secret exists, it generates a *new* keypair and all SealedSecrets in Git become undecryptable.
+Vault comes up via its HelmRelease but is **uninitialized** (fresh local-path PV). KMS auto-unseal config (region `eu-west-1` + key ARN) comes from the `vault-unseal` SealedSecret you restored in §3.4.
+
+> **Storage note:** Vault is on the `local-path` tier now (node-NVMe, one PV pinned per worker), not iSCSI. HA is app-level Raft quorum; PBS backs up each worker's `/data`.
+
+#### Path A — Raft snapshot restore (PRIMARY; preserves all KV + auth + policies + AppRole roles)
+
+Use when a recent snapshot exists at `~/homelab-backups/vault/` (the documented backup; `vault operator raft snapshot save`).
 
 ```fish
-# Apply the backed-up master keypair (from Section 1.10)
-kubectl apply -f ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml
+kubectl get pods -n vault -w        # wait for vault-0 Running (sealed, 0/1)
 
-# Verify
-kubectl get secret -n sealed-secrets \
-  -l sealedsecrets.bitnami.com/sealed-secrets-key=active
-# Expected: at least one Secret listed
+# Init a fresh barrier so the pod is unsealed (KMS), then restore the old data over it.
+kubectl exec -n vault vault-0 -- vault operator init \
+    -recovery-shares=5 -recovery-threshold=3 -format=json \
+    > ~/homelab-rebuild-state/vault-init-tmp.json
+kubectl exec -n vault vault-0 -- vault status     # Sealed:false (KMS auto-unseal)
+
+# Restore the snapshot (re-encrypts under the current KMS key; recovery keys + root
+# token revert to the ORIGINAL snapshot's — i.e. the 1P bootstrap values).
+kubectl cp ~/homelab-backups/vault/<latest>.snap vault/vault-0:/tmp/vault.snap
+kubectl exec -n vault vault-0 -- env \
+    VAULT_TOKEN=(op read 'op://Homelab 2.0/<Vault root token UUID>/password') \
+    vault operator raft snapshot restore /tmp/vault.snap
+kubectl exec -n vault vault-0 -- rm /tmp/vault.snap
 ```
 
-If you skipped Section 1.10 — recovery is to re-seal each SealedSecret from plaintext:
+After restore, KV (30+ entries), policies, auth methods (kubernetes + approle), and both AppRole *roles* are back. AppRole *SecretIDs* are NOT in the snapshot (they were never stored in Vault state that way) — re-mint in §3.6. Snapshot does **not** restore external-provider state (Cloudflare records, Authentik objects, Tailscale ACL, NetBox rows) — those come from re-applying their TF modules in §7.
+
+#### Path B — Fresh init from IaC (FALLBACK; no usable snapshot)
+
 ```fish
-# Get the new public cert from the controller
-kubeseal --fetch-cert --controller-namespace=sealed-secrets > /tmp/pub-cert.pem
-
-# Then for each SealedSecret in Git, re-seal from its plaintext source:
-# vault-unseal: plaintext in Ansible Vault (group_vars/all/vault.yml — aws_access_key_id,
-#   aws_secret_access_key, aws_kms_key_id, AWS_REGION=eu-west-1)
-# synology-csi: plaintext in 1Password (Synology kubernetes user creds)
-echo -n "<value>" | kubectl create secret generic <name> -n <ns> \
-  --dry-run=client --from-file=<key>=/dev/stdin -o yaml \
-  | kubeseal --cert /tmp/pub-cert.pem -o yaml > k8s/asgard/<component>-config/<name>.yaml
-# Commit, push, reconcile.
+kubectl exec -n vault vault-0 -- vault operator init \
+    -recovery-shares=5 -recovery-threshold=3 -format=json \
+    > ~/homelab-rebuild-state/vault-init.json
 ```
 
-Watch Flux reconciliation:
+**Update 1Password** with the new root token + 5 recovery keys (replace the bootstrap entries, tag with rebuild date). Then §3.6 re-applies `terraform/vault/` to recreate auth/policies/roles/KV-engine, and **every secret-minting TF module in §7 re-mints its KV entries** — operator-minted KV (Discord webhooks, SP keypairs, etc.) must be re-written by hand from 1P mirrors. This path rotates everything and ripples through every downstream consumer; prefer Path A.
+
+#### Raft followers (both paths)
+
+```fish
+# vault-1/2 often miss the auto-join window → manual join, then KMS auto-unseals them (~30s)
+kubectl exec -n vault vault-1 -- vault operator raft join http://vault-0.vault-internal:8200
+kubectl exec -n vault vault-2 -- vault operator raft join http://vault-0.vault-internal:8200
+kubectl exec -n vault vault-0 -- vault operator raft list-peers   # 3 members, all voter
+```
+
+If init hit a stuck partial state (`stored unseal keys are supported, but none were found`): `kubectl delete sts vault -n vault --cascade=orphan` → `delete pvc data-vault-{0,1,2}` → `delete pod vault-{0,1,2} --force` → `flux reconcile hr vault -n vault --force`, then retry.
+
+### 3.6 Vault TF config + AppRole SecretIDs  (~15 min)
+
+```fish
+fish -c 'homelab-env; set-vault-token root; homelab-env --refresh'   # mint VAULT_TOKEN from 1P
+vault token lookup                                                   # verify
+
+cd terraform/vault
+terraform init && terraform plan
+# Path A: near-no-op (config already present from the snapshot — apply to reconcile any drift)
+# Path B: large additions (KV engine, k8s auth + config, approle + roles, eso policy/role)
+terraform apply
+```
+
+Re-mint AppRole SecretIDs (never in TF state, never in the snapshot):
+
+```fish
+# ansible-local (this control node) — store new SecretID in 1P item "Ansible - Vault - k3s"
+vault write -f auth/approle/role/ansible-local/secret-id     # paste secret_id + accessor into 1P (NOT username — that's the stable RoleID)
+homelab-env --refresh
+
+# ansible-awx (consumed by Semaphore) — Vault-KV-canonical, comes later with Semaphore (§7)
+# Test the lookup path end-to-end:
+set-vault-token approle
+ansible-playbook -i inventory/hosts.yml playbooks/test-vault-lookup.yml   # expects a value back
+set -e VAULT_TOKEN
+```
+
+### 3.7 Infrastructure + storage-tier reconcile  (~20–40 min)
+
+Flux drives the rest of `infrastructure/`. Watch it converge:
 
 ```fish
 flux get all -A --watch
 ```
 
-Expected order:
-1. `flux-system` Kustomization comes up
-2. `infrastructure` Kustomization reconciles — installs sealed-secrets, synology-csi, vault, external-secrets, metallb, tigera-operator (operator already installed by Ansible, this is a no-op)
-3. `infrastructure-config` reconciles after `infrastructure` ready — installs ClusterSecretStore
-4. `metallb-config` reconciles after `infrastructure` ready — installs IPAddressPool + L2Advertisement
-5. `vault-config` reconciles after `infrastructure` ready — applies vault-unseal SealedSecret
-6. `synology-csi-config` reconciles after `infrastructure` ready — applies synology-csi SealedSecret
+Expected dependency order: `infrastructure` (sealed-secrets, ESO, MetalLB, synology-csi, csi-driver-nfs, local-path-provisioner, tigera no-op, traefik, gateway-api, cert-manager, cloudflared, garage, observability) → the `*-config` Kustomizations (`infrastructure-config` ESO ClusterSecretStore, `metallb-config`, `vault-config`, `synology-csi-config`, `cert-manager-config`, `gateway-config`).
 
-**Gotcha — SealedSecret CRD timing:** if you ever add a NEW SealedSecret directly under `infrastructure/`, Flux dry-run will fail with `no matches for kind "SealedSecret" in version "bitnami.com/v1alpha1"` because the CRD doesn't exist at dry-run time. Always put SealedSecrets in a `<component>-config/` Kustomization that `dependsOn: infrastructure`.
-
-### 5.5 Vault — fresh init, capture keys, restore data
-
-Vault comes up via the HelmRelease but is **uninitialized** (new iSCSI LUN, no prior data).
+Verify the load-bearing pieces:
 
 ```fish
-# Wait for pods to be running but Sealed
-kubectl get pods -n vault -w
-# Once vault-0 is Running 0/1 (sealed):
+kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[0].status}{"\n"}'   # True
+kubectl get sc                                          # synology-csi-iscsi-retain(default), local-path, nfs-*
+kubectl get pods -n metallb-system,traefik,cert-manager,garage,monitoring
 
-kubectl exec -n vault vault-0 -- vault operator init \
-    -recovery-shares=5 \
-    -recovery-threshold=3 \
-    -format=json > ~/homelab-rebuild-state/vault-init.json
+# MetalLB VIP reachable from OUTSIDE the cluster (proves route_localnet + VLAN20 policy routing + L2)
+curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://10.0.20.10/    # Traefik VIP; any HTTP code = path works
+# (MetalLB VIPs don't answer ICMP — test with TCP, never ping.)
 ```
 
-**Gotcha — stuck init state.** If `vault operator init` exits non-zero (e.g. you ran it before all pods were ready), the Raft data dir can end up half-initialized. Subsequent `init` attempts fail with `stored unseal keys are supported, but none were found in the storage backend`. Recovery:
+The `local-path` tier needs each worker's `scsi1` `/data` disk mounted with the SELinux `context=` option (the `local-path-disk` role); confirm `kubectl get pv` shows Vault's PVs `Bound` on `local-path`.
+
+> **Day-1 pause point.** Cluster up, Vault restored + 3/3 voters, infra healthy. Safe to stop here.
+
+---
+
+## Section 4 — AdGuard + Tailscale LXCs  (~30–45 min)
+
+These need Vault (their Ansible roles look up `secret/ansible/adguard/*`, `secret/ansible/tailscale/*` via the `ansible-local` AppRole). Vault is up → the circle is broken.
 
 ```fish
-kubectl delete statefulset vault -n vault --cascade=orphan
-kubectl delete pvc -n vault data-vault-0 data-vault-1 data-vault-2
-kubectl delete pod -n vault vault-0 vault-1 vault-2 --force --grace-period=0
-flux reconcile helmrelease vault -n vault --force
-# Wait for pods to come back Running 0/1, then retry init
-# Note: old iSCSI LUNs on Synology survive (retain policy) — clean up via DSM after success
-```
-
-**CRITICAL:** the init output contains the new root token + 5 recovery key shares. Update 1Password:
-- Replace the old root token entry
-- Replace the old recovery keys entry
-- Tag with rebuild date
-
-```fish
-# Vault should now auto-unseal via AWS KMS
-kubectl exec -n vault vault-0 -- vault status
-# Expected: Sealed: false, Initialized: true
-```
-
-**Gotcha — Raft followers don't auto-join.** vault-1 and vault-2 *should* auto-discover vault-0 and join via the chart's `retry_join` config, but in practice they often miss the join window if they started before vault-0 was initialized. Symptom: they sit Sealed with `stored unseal keys are supported, but none were found.` in their logs.
-
-Manual join:
-
-```fish
-kubectl exec -n vault vault-1 -- vault operator raft join http://vault-0.vault-internal:8200
-kubectl exec -n vault vault-2 -- vault operator raft join http://vault-0.vault-internal:8200
-
-# They auto-unseal via KMS after joining (~30 seconds)
-# Verify
-kubectl exec -n vault vault-0 -- vault operator raft list-peers
-# Expected: 3 members, all voter, all not-leader except one
-```
-
-### 5.6 Vault — re-apply Terraform config
-
-```fish
-cd ~/Dev/xiiisins/homelab/terraform/vault
-
-# Set new root token
-set -x VAULT_ADDR http://10.0.20.11:8200  # MetalLB VIP for vault-ui service
-set -x VAULT_TOKEN <new-root-from-step-5.5>
-
-terraform plan
-# Expected: lots of additions (KV engine, K8s auth + config, AppRole + roles, eso policy + role)
-terraform apply
-```
-
-### 5.7 Vault — restore KV data
-
-```fish
-# Re-write the entries you captured in Section 1.4
-vault kv put secret/ansible/sftpgo/admin-password \
-    value=(jq -r '.data.data.value' ~/homelab-rebuild-state/sftpgo-admin-password.json)
-
-# Verify
-vault kv get secret/ansible/sftpgo/admin-password
-```
-
-### 5.8 Vault — re-generate AppRole SecretIDs
-
-The AppRole roles exist (Terraform created them) but no SecretIDs are issued yet.
-
-```fish
-# ansible-local — for your MacBook
-vault read -format=json auth/approle/role/ansible-local/role-id \
-    | jq -r '.data.role_id'
-# Save this RoleID — it's also available as terraform output
-terraform -chdir=~/Dev/xiiisins/homelab/terraform/vault output ansible_local_role_id
-
-# Generate a fresh SecretID
-vault write -f -format=json auth/approle/role/ansible-local/secret-id \
-    | jq -r '.data.secret_id'
-```
-
-Update `~/.config/ansible/vault-approle.env` with the new RoleID and SecretID:
-
-```fish
-echo "set -x ANSIBLE_HASHI_VAULT_AUTH_METHOD approle
-set -x ANSIBLE_HASHI_VAULT_URL http://10.0.20.11:8200
-set -x ANSIBLE_HASHI_VAULT_ROLE_ID <new-role-id>
-set -x ANSIBLE_HASHI_VAULT_SECRET_ID <new-secret-id>" > ~/.config/ansible/vault-approle.env
-chmod 600 ~/.config/ansible/vault-approle.env
-```
-
-Update 1Password recovery copy of the AppRole credentials.
-
-Test the lookup:
-
-```fish
-ansible-vault-env  # source the env vars
+# AdGuard LXCs (Saga/Mimir/Kvasir) — TF import-aware module + Ansible
+cd terraform/proxmox/asgard-lxcs && terraform apply        # creates the 3 AGH LXCs (+ all asgard-lxcs)
 cd ~/Dev/xiiisins/homelab/ansible
-ansible-playbook playbooks/test-vault-lookup.yml
-# Expected: pulls a value from secret/ansible/...
+set-vault-token approle
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-adguard.yml
+# adguard_force_overwrite_config:false preserves operator state on re-runs; first cold deploy
+# seeds rewrites from terraform/adguard/ in §7.
+
+# Tailscale LXCs (Bifrost/Heimdall/Gjallarbru) — device_passthrough needs the root-pam module
+cd terraform/proxmox/asgard-lxcs-root && PROXMOX_VE_PASSWORD=(op read 'op://Homelab 2.0/<Infra - Terraform - Proxmox - Root password UUID>/password') terraform apply
+cd ~/Dev/xiiisins/homelab/ansible
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-tailscale.yml
 ```
 
-### 5.9 ESO ClusterSecretStore — verify Ready
+> **Tailscale authkeys cap at 90 days.** If the last `terraform/tailscale/` apply was >90d ago, re-apply it (§7) **before** the Ansible run — otherwise Vault holds an expired key and `tailscale up` fails.
+
+**Re-converge node DNS to AdGuard.** With AGH serving, drop the temporary resolver override and re-run baseline to restore the AGH-VIP `baseline_nameservers` default:
 
 ```fish
-kubectl get clustersecretstore vault -o yaml | grep -A5 status:
-# Expected: conditions: type Ready, status True
-```
-
-### 5.10 MetalLB — verify VIP reachable from outside the cluster
-
-```fish
-kubectl get svc -A | grep LoadBalancer
-# Look for vault-ui service — should have an EXTERNAL-IP from the pool (10.0.20.11 by default)
-
-# Local ping (loopback path through the cluster)
-ping -c 2 10.0.20.11
-
-# External HTTP (real test — exercises route_localnet + VLAN 20 policy routing)
-curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 http://10.0.20.11:8200/v1/sys/health
-# Expected: 200 (active) or 429 (rate-limited but TCP path works) — anything that returns proves the full chain
-```
-
-The `roles/k3s/tasks/network.yml` role applies four things needed for VIPs to be reachable from outside the cluster on multi-homed workers:
-- Calico autodetection pin (`cidrs: ["10.0.21.0/24"]`)
-- `rp_filter=2` (loose mode)
-- `route_localnet=1`
-- `vlan20-policy-routing.service` systemd unit
-
-If `curl` fails but `ping` succeeds, one of the four is missing. Verify with:
-```fish
-ssh ansible@10.0.21.21 'sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.all.route_localnet'
-# Expected: rp_filter=2, route_localnet=1
-ssh ansible@10.0.21.21 'sudo systemctl is-active vlan20-policy-routing.service'
-# Expected: active
-ssh ansible@10.0.21.21 'sudo ip rule list | grep 10.0.20'
-# Expected: from 10.0.20.0/24 lookup vlan20
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml --tags baseline   # no -e override now
+kubectl rollout restart deploy -n kube-system coredns                              # pick up new node resolv.conf
 ```
 
 ---
 
-## Section 6 — Verification checklist
+## Section 5 — Data tier (etcd → Patroni → DB restore)  (~45–75 min)
 
-After rebuild, walk through:
+> **Cold-boot order differs from `site.yml`.** site.yml lists postgres before haproxy-etcd (steady-state safe), but Patroni's DCS is etcd — **etcd must be up first** on a cold boot.
 
-- [ ] `kubectl get nodes` shows 3+3 Ready
-- [ ] `kubectl get pods -A` shows nothing in CrashLoopBackOff or Error
-- [ ] `flux get all -A` shows all Kustomizations Ready, all HelmReleases Released
-- [ ] `kubectl get clustersecretstore vault -o jsonpath='{.status.conditions[0].status}'` returns `True`
-- [ ] `vault status` shows Initialized + Unsealed on all 3 pods
-- [ ] `vault operator raft list-peers` shows 3 members
-- [ ] MetalLB VIP 10.0.20.11 reachable via HTTP from outside the cluster (proves full plumbing chain: route_localnet + policy routing + L2 advertisement)
-- [ ] AppRole lookup from local Ansible works (`ansible-playbook playbooks/test-vault-lookup.yml`)
-- [ ] Sealed-secrets master keypair matches the pre-rebuild backup (`kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key=active -o yaml | diff - ~/homelab-rebuild-state/sealed-secrets-master-keys.yaml`)
-- [ ] Factorio LXC still reachable on TCP 22022 (SFTP) and UDP 34197 (game) — verified externally if possible
-- [ ] AdGuard still resolving DNS for the network
-- [ ] PBS LXC still backing up — wait for next scheduled job or trigger manually
-- [ ] Reachability baseline (Section 1.9) — all IPs except 10.0.20.11/10.0.21.x originally are unchanged
-- [ ] AdGuard DNS records for new VMs (Göndul, Hlökk, Sigrún, Einherjar-*) point at correct IPs — re-add if cleared
-- [ ] Idempotency check: `ansible-playbook playbooks/asgard-k3s.yml` returns `changed=0` across all 6 hosts (proves `detect-state.yml` is working — install/calico skipped)
+### 5.1 HAProxy + etcd trio (Hlin/Eir/Snotra)
 
-Update `docs/homelab-design.md` build status section:
+```fish
+# LXCs created by asgard-lxcs apply in §4. Bring up etcd DCS + HAProxy + keepalived VIP.
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-haproxy-etcd.yml
+# Verify etcd quorum (3 members) before touching Patroni.
+```
 
-- "Asgard K3s" entries flip from ✅ to "✅ (rebuilt YYYY-MM-DD)"
-- Update "Status (date)" lines
+> ⚠️ **One Ansible playbook at a time across all agents** — concurrent runs race on the `restart etcd` handler (quorum loss). This play has no `serial:`; don't force-handlers it.
 
-Commit any docs corrections discovered during verification.
+### 5.2 PostgreSQL / Patroni trio (Fulla/Vör/Idunn)
+
+```fish
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-postgres.yml
+sudo -n true; ssh ansible@10.0.11.230 'sudo patronictl -c /etc/patroni/patroni.yml list'   # one Leader, two replicas streaming
+```
+
+Patroni bootstraps the leader against etcd, then basebackups the replicas. The HAProxy VIP `10.0.10.210` routes writes to whichever node `/master` returns 200.
+
+### 5.3 Restore database data
+
+A fresh Patroni cluster is **empty** — the app DBs (authentik, netbox, semaphore, zabbix, teamspeak3, outline) must be restored. Backup source: the per-node daily logical dumps at `/var/backups/postgresql` (`globals.sql` + `<db>.dump`, leader-gated, **PBS-captured** — local disk, never NFS). Recover the dump files via a PBS file-restore of the most recent PG-leader backup, then:
+
+```fish
+# On the current Patroni leader, per database (globals FIRST):
+psql -h /var/run/postgresql -f /var/backups/postgresql/globals.sql
+createdb -h /var/run/postgresql <db>
+pg_restore -h /var/run/postgresql -d <db> /var/backups/postgresql/<db>.dump
+```
+
+App roles/passwords come from Vault (`postgres-common` provisions them against the **current leader** — `--limit fulla` is unsafe, leadership floats; discover the leader via `patronictl list`).
+
+> **Alternative — wholesale LXC restore from PBS.** Instead of rebuilding the data tier from IaC + logical restore, you can restore the three PG LXCs directly from PBS (captures the Patroni data dir + dumps). Faster to last-known-good, but skips the IaC-validation the cold rebuild is meant to exercise, and the etcd DCS state must still be consistent. Operator's call per the time budget. **No WAL archiving / PITR** today (scaffolded no-op `archive_command`); effective history is one day of daily restore points.
 
 ---
 
-## Section 7 — Rollback
+## Section 6 — Application + monitoring LXCs  (~60–90 min)
 
-If the rebuild gets stuck and you can't recover within your time budget:
-
-### 7.1 PBS restore
-
-The pre-rebuild PBS snapshots (captured in Section 1.8) contain the last-known-good VMs.
-
-In Proxmox UI:
-1. Datacenter → Storage → pbs
-2. Find backups for VM IDs 2001–2003 + 2101–2103
-3. For each: Restore → choose target node + storage
-
-Note: PBS restores create VMs with the snapshot's original IDs. If `terraform apply` already created new VMs at those IDs, you'll need to first `terraform destroy` what came up partially, OR restore to new IDs and adjust.
-
-### 7.2 Revert Git rename
-
-If you want to back out the rename entirely:
+All depend on Vault (secrets) and most on PG (VIP). Bring up in any order within the section.
 
 ```fish
-cd ~/Dev/xiiisins/homelab
-git log --oneline -10  # find the commit before the rename started
-git reset --hard <pre-rename-commit-sha>
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-factorio.yml   # game LXC 1120 (SFTPGo + reconcile loop)
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-hermod.yml     # notifications LXC 1103 (AppriseAPI + Caddy)
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-zabbix.yml     # Hugin LXC 1102 (Zabbix 7.0 server + frontend)
 ```
 
-Then run terraform from the now-restored `terraform/proxmox/must-run-k3s/` against the PBS-restored VMs.
+**Zabbix DB** is one of the §5.3 restores; **first-login admin** is factory `Admin`/`zabbix` until rotated to the Vault value via UI (see CLAUDE.md Zabbix gotchas — don't pre-login with the Vault value, it locks the account).
 
-### 7.3 What you do NOT roll back
+### 6.x PBS LXC (1101 on Skuld)
 
-- The Vault re-init's new recovery keys + root token (1Password is updated; reverting Git doesn't undo this)
-- Synology iSCSI LUNs deleted in Section 4.4 are gone — but they only held K3s PV data, all of which was either re-created (configmap-style data) or restored from capture (Vault KV)
+PBS was *assumed up* as the restore source for §5.3 / rollback. If PBS itself is also gone, it's a hard bootstrap dependency for data restore — rebuild it early (right after §1.2) so it's available:
+
+```fish
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-pbs.yml        # agent-only converge; datastore is NFS on Munin
+```
+
+The datastore is the `proxmox-backup` NFS export on Munin (§1.2). After mount, `systemctl restart proxmox-backup proxmox-backup-proxy` and **restore-verify** (a real file restore) before relying on it.
 
 ---
 
-## Appendix A — what to do if you spot an "I forgot to put X in IaC" moment
+## Section 7 — Secret-minting Terraform modules + Flux apps  (~30–60 min)
 
-The whole point of this rebuild is to discover gaps. When you hit one:
+These re-create external-provider resources (Cloudflare DNS, Authentik apps/users, Tailscale ACL/DNS, NetBox records, Garage bucket/key, Semaphore project, AGH rewrites, Proxmox Zabbix token) **and** write their machine secrets into Vault KV. On **Path A** (snapshot) the KV writes are no-ops/reconciles but the external resources still need re-creating; on **Path B** they're the only source of those KV entries.
 
-1. **Stop, document.** Don't manually fix — that's how IaC gaps perpetuate. Write down what's missing.
-2. **If non-blocking:** finish the rebuild, add a `terraform import` or backfill task to D-list, address after.
-3. **If blocking:** manually fix to unblock, but commit a follow-up task to capture the manual fix in IaC.
+Apply in dependency order (all from the main checkout):
 
-Likely gap candidates to watch for:
-- AdGuard custom DNS records (currently manual config, not in IaC)
-- Anything you configured imperatively via `kubectl` or `vault write` between D1 completion and rebuild
-- Cloudflare DNS records (not yet in IaC)
-- AWS KMS key + IAM user config (not yet in IaC — G2 backlog item)
+```fish
+# Vault config already applied (§3.6). Now the minting modules:
+terraform -chdir=terraform/cloudflare apply    # tunnel + DNS records + cloudflared creds (secret/k8s/cloudflared/credentials)
+terraform -chdir=terraform/authentik apply     # OIDC/SAML providers + identity-as-data (users.yaml/groups.yaml)
+terraform -chdir=terraform/tailscale apply     # ACL (policy.hujson) + auth keys + split DNS
+terraform -chdir=terraform/netbox apply -parallelism=1   # ~160 records; parallelism=1 avoids the transient 500s
+terraform -chdir=terraform/garage apply        # bucket+key+grant + secret/k8s/outline/s3 (needs `kubectl port-forward svc/garage-admin 3903`)
+terraform -chdir=terraform/semaphore apply     # pushes ansible-awx SecretID + app/oidc/pg config to Semaphore
+terraform -chdir=terraform/adguard apply       # DNS rewrites (write-to-origin Saga; sync fans to Mimir/Kvasir)
+terraform -chdir=terraform/proxmox/zabbix-access apply   # PVE user/token for Zabbix HTTP scrape
+```
+
+For **Path B** also re-mint `ansible-awx` via `rotate-semaphore-approle`, and hand-restore any operator-minted KV from 1P mirrors (Hermod Discord webhooks `secret/ansible/hermod/discord/*`, Zabbix SAML SP keypair, etc.).
+
+Then the Flux **apps** (`k8s/asgard/apps/`) converge once their ExternalSecrets resolve (authentik, netbox, outline, semaphore, teamspeak, victorialogs, victoriametrics, apex-static, zabbix-ingress):
+
+```fish
+flux reconcile kustomization apps --with-source
+flux get hr -A          # all Released
+# Force-sync any ExternalSecret still stale after a fresh KV write:
+kubectl annotate -n <ns> externalsecret <name> force-sync=(date +%s) --overwrite
+```
+
+Apps with PG backends pick up the restored DBs automatically via the VIP. Observability data (VictoriaLogs/Metrics) is **refillable/downtime-tolerant** by design (local-path single-instance, accept-loss) — no restore step; it repopulates from live ingest.
 
 ---
 
-## Appendix B — Partial rebuild: replacing a single CP
-
-This is a different procedure from the full-cluster rebuild above. Use it when you want to destroy and recreate ONE control plane VM (e.g. relocating gondul to a different host, or replacing failed hardware) while the other CPs and workers keep running.
-
-**Scenario it handles:** the surviving cluster has 2/3 CP quorum; you're swapping out the third.
-
-**Risk:** while the CP is being rebuilt, etcd is at 2/3 — a second failure during the window means quorum loss. Don't do this if another node is already unhealthy.
-
-### B.1 Pre-conditions
+## Section 8 — Fleet agents + Semaphore  (~15 min)
 
 ```fish
-# Verify quorum and the OTHER two CPs are healthy
-kubectl get nodes
-kubectl exec -n vault vault-0 -- vault operator raft list-peers
-
-# Optional: snapshot the surviving CPs as safety net
-ssh root@10.0.254.12 "qm snapshot 2002 before-cp-rebuild"
-ssh root@10.0.254.13 "qm snapshot 2003 before-cp-rebuild"
+ansible-playbook -i inventory/hosts.yml playbooks/vlagent.yml         # log shipper, all hosts
+ansible-playbook -i inventory/hosts.yml playbooks/zabbix-agent.yml    # agent2, all hosts
+ansible-playbook -i inventory/hosts.yml playbooks/zabbix-host-groups.yml
 ```
 
-### B.2 Edit Terraform
+Semaphore (deployed in §7 as a K3s app) drives steady-state from here: its `refresh-netbox-inventory` (4h), `asgard-drift-check` (6h), `asgard-apply` (manual), `asgard-fleet-agents` (daily) templates. **Drift-check baseline = zero `changed=` across the fleet** — once green, an `alert` in Hermod means real drift.
 
-Change whatever needed changing (`target_node`, `cores`, `memory`) for the target CP in `locals.control_planes`. Apply with `--target` so you only touch one VM:
+---
+
+## Section 9 — Verification checklist  (~30 min)
+
+**Foundation**
+- [ ] All VLANs resolve + route; `Any→Any Deny` confirmed before DMZ flip
+- [ ] Synology shares/exports mount from a client; iSCSI SAN Manager up; `kubernetes` user works
+- [ ] PBS datastore mounted + a test file-restore succeeds
+
+**Asgard K3s**
+- [ ] `kubectl get nodes` → 3+3 Ready; `kubectl get pods -A` → nothing CrashLoopBackOff
+- [ ] `flux get all -A` → all Kustomizations Ready, all HelmReleases Released
+- [ ] `clustersecretstore vault` status `True`
+- [ ] `vault status` initialized+unsealed on all 3; `raft list-peers` → 3 voters
+- [ ] Sealed-secrets active keypair matches the 1P backup
+- [ ] Traefik VIP `10.0.20.10` answers HTTP from outside the cluster (route_localnet + VLAN20 policy routing + L2)
+- [ ] AppRole lookup works (`test-vault-lookup.yml`); idempotency: `asgard-k3s.yml` → `changed=0`
+
+**LXC tiers**
+- [ ] AdGuard VIP `10.0.10.200` resolving (TCP test, not ping); failover works
+- [ ] Tailscale LXCs + Munin online in tailnet, advertising routes
+- [ ] etcd 3-member quorum; Patroni one Leader + two streaming replicas; HAProxy VIP `10.0.10.210` routes to leader
+- [ ] All app DBs restored + apps connected (Authentik login, NetBox, Outline, Semaphore, Zabbix, Teamspeak)
+- [ ] Factorio reachable; Hermod end-to-end (test POST → Discord); Zabbix collecting from agents
+
+**Apps / external**
+- [ ] External hostnames resolve via cloudflared (`authentik.xiiisins.com`, `wiki.xiiisins.com`, …)
+- [ ] Internal hostnames resolve via AGH→Traefik (`*.niflheim` / `*.midgard`)
+- [ ] Semaphore drift-check returns `changed=0` across the fleet
+
+Then update [`../operations/build-sequence.md`](../operations/build-sequence.md) status lines and commit any IaC gaps found (see Appendix E).
+
+---
+
+## Section 10 — Rollback
+
+If a rebuild stalls past your time budget, restore last-known-good from **PBS** (the pre-existing snapshots of the VMs/LXCs). In Proxmox: Datacenter → Storage → pbs → find the backup for the VM/LXC ID → Restore.
+
+- PBS restores keep the snapshot's original ID — if `terraform apply` already created a VM at that ID, `terraform destroy` the partial first (or restore to a new ID and adjust).
+- **Not rolled back:** the Vault re-init's recovery keys/root token (1P is already updated — Path B only); any Synology LUNs deleted during rebuild (they held only re-creatable PV data + Vault is on local-path now). Vault data on **Path A** is the snapshot, independent of PBS VM state.
+
+---
+
+## Appendix A — Partial rebuild: single control-plane VM
+
+Replace ONE CP (relocate, hardware swap) while the other two keep quorum. Validated 2026-05-22. Full step-list in the archived runbook, [Appendix B](archive/2026-05-17-asgard-rename-rebuild.md#appendix-b--partial-rebuild-replacing-a-single-cp). Essence:
 
 ```fish
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
-terraform plan
-# Expected: 1 to add, 1 to destroy (or "1 to replace")
-terraform apply --target='proxmox_virtual_environment_vm.control_plane["<name>"]'
-```
-
-After apply, the new VM is up but has no K3s.
-
-### B.3 Remove the stale etcd member ⚠️ CRITICAL
-
-The cluster still considers the old VM an etcd member. New VM tries to join with the same name → "duplicate node name found" → systemd restart loop.
-
-```fish
-kubectl delete node <name>
-# K3s's node-delete handler also evicts the stale etcd member
-```
-
-If the new VM's k3s.service is already in a systemd restart loop (because the playbook already ran and failed), the next retry will succeed automatically once the node entry is removed.
-
-### B.4 Run the playbook
-
-```fish
-# Clean stale SSH host key
+# 1. (optional) snapshot the two surviving CPs
+# 2. terraform apply --target='proxmox_virtual_environment_vm.control_plane["<name>"]'
+kubectl delete node <name>          # ⚠️ CRITICAL — evicts stale etcd member; avoids "duplicate node name"
 ssh-keygen -R <ip>
-
-# Run the playbook. Override k3s_init_node IF the CP you're rebuilding IS the default init node (gondul).
-ansible-playbook playbooks/asgard-k3s.yml --limit <name> -e 'k3s_init_node=hlokk'
-
-# If you're NOT rebuilding the default init node, no override needed:
-ansible-playbook playbooks/asgard-k3s.yml --limit <name>
+# 3. run the play; OVERRIDE init node ONLY if rebuilding the default init node (gondul):
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml --limit <name> -e 'k3s_init_node=hlokk'
+kubectl get nodes && kubectl exec -n vault vault-0 -- vault operator raft list-peers   # back to full
 ```
-
-Without the override when rebuilding the default init node, the role would `--cluster-init` the new VM as a fresh cluster, ignoring the existing 2-CP cluster. The override tells the role "this CP is joining, not initing."
-
-### B.5 Verify rejoin
-
-```fish
-kubectl get nodes
-# All 6 Ready
-
-kubectl exec -n vault vault-0 -- vault operator raft list-peers
-# 3 members again
-
-# Idempotency check
-ansible-playbook playbooks/asgard-k3s.yml --limit <name>
-# Expected: changed=0
-```
-
-### B.6 Cleanup
-
-```fish
-# Drop the safety snapshots once stable for >1 hour
-ssh root@10.0.254.12 "qm delsnapshot 2002 before-cp-rebuild"
-ssh root@10.0.254.13 "qm delsnapshot 2003 before-cp-rebuild"
-```
-
-**Why this is appendix-worthy:** every step here is non-obvious. The `kubectl delete node` requirement, the `-e k3s_init_node=` override, and the difference between "VM rebuild via terraform" and "K3s rejoin via ansible" each cost an hour of debugging on first encounter. This appendix bakes the recovery in.
 
 ---
 
-## Appendix C — Partial rebuild: replacing a single worker (stateful)
+## Appendix B — Partial rebuild: single worker VM (stateful)
 
-Procedure for destroying and recreating one worker VM (e.g. correcting `template` / `template_node` references, replacing failed hardware, upgrading worker spec) while the rest of the cluster keeps running.
+Replace ONE worker (template/spec fix, hardware swap) while the rest run. Validated 2026-05-22 (~25 min). Full step-list in the archived runbook, [Appendix C](archive/2026-05-17-asgard-rename-rebuild.md#appendix-c--partial-rebuild-replacing-a-single-worker-stateful). Essence:
 
-**Scenario it handles:** the surviving cluster has 5/6 nodes; you're swapping out one worker.
+- Workers carry stateful iSCSI/local-path PVCs and are NOT etcd members.
+- Vault's chart uses **required** pod anti-affinity (3 replicas / 3 workers) — there is no spare slot, so the "drain + migrate the Vault pod first" pattern can't work. **Accept 2/3 voters for the ~20–30 min window** (Vault stays read+write).
+- Step Raft leadership off the doomed worker first (`vault operator step-down` while healthy), then `kubectl drain` (anti-affinity sends the displaced pod Pending), verify iSCSI/VolumeAttachment cleanup, `terraform apply --target=…worker["<name>"]`, `kubectl delete node`, `ssh-keygen -R`, run the play `--limit`. The new worker becomes Ready → the Pending Vault pod schedules onto it → rejoins Raft.
 
-**Critical differences from Appendix B (CP rebuild):**
-- Workers carry stateful workloads with iSCSI-backed PVCs. The migration sequence has to address the PVC handoff explicitly.
-- Workers are NOT etcd members, so no etcd cleanup needed. But `kubectl delete node` is still required for clean re-registration of the new node's identity.
-- Vault's chart ships pod anti-affinity as `requiredDuringSchedulingIgnoredDuringExecution`. With 3 replicas across 3 workers, there is no other worker that can host a displaced Vault pod — so the "drain to safely migrate the stateful pod first" pattern from naive procedure-writing doesn't work. **Accept 2/3 voters for the rebuild window** is the correct posture.
+---
 
-**Risk:** Vault stays at 2/3 voters from drain through new-node Ready. Single failure of another voter during the window would cost Vault write availability until recovery. Acceptable for ~20-30 min windows on a healthy cluster; reconsider if the operation might stretch (e.g. unfamiliar territory, late at night, peer voter recently restarted).
+## Appendix C — Munin Tailscale subnet-router install (DSM 7)
 
-**Validation outcome (2026-05-22):** einherjar-urd rebuilt end-to-end via this procedure. Total wall-clock ~25 min. Vault rejoined Raft within ~30s of new node becoming Ready. Surfaced one role bug (iproute 6.17 `/etc/iproute2/rt_tables` not shipped — lineinfile `create: yes` fix); otherwise clean.
+Adds Munin (Synology DS223J, DSM 7) to the tailnet as a K3s-independent break-glass subnet-router. Authkey is **UI-minted + 1Password** (out-of-band — not Vault, not auto-renewing); the LXC advertisers use TF-minted Vault keys instead.
 
-### C.1 Pre-conditions
+> ⚠️ **Bring-up must use the CLI authkey, NOT the DSM web-UI login** — the UI applies default flags (accept-routes / exit-node consumption) that route Munin's own `10.0.254.x` traffic into the tailnet and **cut the NAS's own LAN** (kills iSCSI+NFS to the cluster). Correct resting state pins `--accept-routes=false`. See the 2026-05-30 incident.
 
-```fish
-asgard-health && vault-health
-```
+1. **Allow admin-minted `tag:subnet-router` keys** — `terraform/tailscale/policy.hujson` must list `autogroup:admin` as an owner of `tag:subnet-router` (`terraform apply`).
+2. **Mint authkey** (Tailscale admin → Keys): reusable off, ephemeral off, pre-approved on, tag `tag:subnet-router`. Store in 1P.
+3. **Install** Tailscale via DSM Package Center; don't log in via the UI.
+4. **Boot-task** (DSM Task Scheduler, root, Boot-up): `/var/packages/Tailscale/target/bin/tailscale configure-host` then `synosystemctl restart pkgctl-Tailscale.service` (TUN perms; wiped on every package upgrade).
+5. **Run configure-host live** (skip a reboot — iSCSI PVCs are attached): `ssh admin@10.0.254.20`, `sudo …/tailscale configure-host`, `sudo synosystemctl restart pkgctl-Tailscale.service`.
+6. **Bring up** (CLI, the `--reset` is the cure for any stray UI-set flag):
+   ```sh
+   sudo tailscale up --authkey=tskey-auth-XXXX --advertise-routes=10.0.0.0/16 \
+       --accept-routes=false --accept-dns=false --hostname=munin --reset
+   ```
+7. **Verify** in admin: connected, tagged, advertising `10.0.0.0/16` auto-approved, no "cannot relay traffic" warning.
 
-Required green state:
-- All 6 nodes Ready
-- All three Vault pods Running on workers, 3/3 voters
-- No stale VolumeAttachments
-- iSCSI sessions match Bound PVs on every worker
+**Break-glass if a package upgrade breaks routing OR the UI cut the LAN:** reach Munin over its *Tailscale* IP (still online in tailnet) and `sudo tailscale down` to restore LAN immediately — do NOT power-cycle (boot re-applies bad saved state). Then re-run step 5 + step 6.
 
-Identify which Vault pod is on the doomed worker:
+---
 
-```fish
-kubectl get pods -n vault -o wide
-# Note which vault-N is on the worker being destroyed (e.g. vault-0 on einherjar-urd)
-```
+## Appendix D — Bootstrap-ordering rationale
 
-### C.2 Step Vault leadership off the doomed worker (if applicable)
+Why the cold-boot order isn't just "run `site.yml`":
 
-If the Vault pod on the doomed worker is the Raft leader, step it down first. Without this, the upcoming pod-delete forces an election under termination pressure.
+- **Vault ↔ AppRole.** Every LXC Ansible role reads its secrets from Vault via the `ansible-local` AppRole. Vault runs *inside* K3s. So K3s + Vault (§3) must be fully up and populated before any LXC play (§4–§6) can run. This is why the data/identity LXCs come *after* the cluster, even though conceptually they feel like "infrastructure."
+- **Vault ↔ AdGuard ↔ DNS.** AdGuard (DNS) needs Vault (admin-password-hash) → needs K3s → whose nodes' default resolver *is* AdGuard. Circular. **Break:** bootstrap K3s with a temporary resolver (`-e baseline_nameservers=[…]`, §3.2), bring AGH up (§4), then re-converge node resolv.conf to the AGH VIP. AdGuard is therefore *not* the first thing up in a cold rebuild, despite being foundational in steady state.
+- **etcd before Patroni.** Patroni's DCS is the etcd trio. `site.yml` lists `asgard-postgres` before `asgard-haproxy-etcd` because in steady state both already exist; on a cold boot etcd must exist before Patroni can bootstrap (§5.1 → §5.2).
+- **PBS is a data-restore dependency.** §5.3 (PG) and §10 (rollback) read from PBS. If PBS is also down, rebuild it (§6.x) immediately after Synology (§1.2), not in its `site.yml` position at the end.
+- **Snapshot vs external state.** A Vault Raft snapshot restores KV + auth + policies + roles, but **not** Cloudflare/Authentik/Tailscale/NetBox/Garage external-provider resources — those are re-created by re-applying their TF modules (§7) regardless of which Vault path you took.
 
-```fish
-vault-health
-# Check: is the vault pod on the doomed worker HA=active (leader)?
-```
+---
 
-If yes:
+## Appendix E — When you spot an IaC gap
 
-```fish
-kubectl exec -n vault vault-<N> -c vault -- env \
-    VAULT_TOKEN=(op item get 7g4grolyien2yqkm7me2jficmy --reveal --fields password) \
-    vault operator step-down
-sleep 10
-vault-health
-# Confirm: target pod now HA=standby, a different pod is HA=active
-```
+The point of a from-scratch rebuild is to surface "I forgot to put X in IaC" moments. When you hit one:
 
-If no (target pod is already HA=standby): skip this step.
+1. **Stop, document** — don't silently hand-fix (that's how gaps perpetuate).
+2. **Non-blocking** → finish the rebuild, file a backfill task in [`../operations/open-questions.md`](../operations/open-questions.md), address after.
+3. **Blocking** → hand-fix to unblock, but commit a follow-up to capture the fix in IaC.
 
-### C.3 Drain (accept 2/3 voters during the window)
-
-The cordon + pod-delete + migrate strategy does NOT work here — pod anti-affinity blocks reschedule onto any other worker. Drain directly; the doomed worker's Vault pod will go Pending and stay Pending until the rebuilt worker is Ready. Vault operates at 2/3 voters in the meantime.
-
-```fish
-kubectl drain einherjar-urd \
-    --ignore-daemonsets \
-    --delete-emptydir-data \
-    --force \
-    --timeout=300s
-```
-
-Expected behavior:
-- DaemonSet pods (Calico, kube-proxy, MetalLB speaker, synology-csi-node) stay on the node — `--ignore-daemonsets` is correct.
-- The stateful pod (Vault) gets evicted. kubelet runs the unmount sequence; CSI logs out iSCSI; VolumeAttachment is deleted.
-- The displaced Vault pod goes Pending (anti-affinity blocks reschedule) — expected and acceptable.
-
-```fish
-vault-health
-# Expected: 2/3 voters, leader is still active. Pending pod will rejoin once the new worker is Ready.
-```
-
-### C.4 Verify cleanup on the doomed worker
-
-Before destroying the VM, confirm CSI/iSCSI have cleaned up. This prevents stale state from interfering with re-attach on the rebuilt node.
-
-```fish
-ssh ansible@10.0.21.21 'sudo iscsiadm -m session'
-# Expected: "No active sessions" — kubelet+CSI completed the unmount on pod-termination
-
-kubectl get volumeattachment | grep einherjar-urd
-# Expected: empty
-```
-
-If either still shows the migrated PVC's session/VolumeAttachment, force-clean:
-
-```fish
-ssh ansible@10.0.21.21 'sudo iscsiadm -m node -u && sudo iscsiadm -m node -o delete'
-kubectl delete volumeattachment <name>
-```
-
-### C.5 Terraform destroy + recreate
-
-```fish
-cd ~/Dev/xiiisins/homelab/terraform/proxmox/asgard-k3s
-
-# Confirm the diff matches what you intended (template_node correction, spec change, etc.)
-git diff main.tf
-
-terraform plan
-# Expected: 1 to add, 1 to destroy (or "1 to replace") for
-# proxmox_virtual_environment_vm.worker["einherjar-urd"]
-# Nothing else should plan to change. If anything touches other workers
-# or any CP, STOP and investigate.
-
-terraform apply --target='proxmox_virtual_environment_vm.worker["einherjar-urd"]'
-```
-
-**If apply fails with `Logical Volume "vm-21XX-cloudinit" already exists`:** orphan LVs from a prior failed clone. See CLAUDE.md "Proxmox orphan LVs from a host that died mid-clone" gotcha for the recovery pattern (`lvremove` on the affected host).
-
-### C.6 Cluster cleanup
-
-```fish
-# Remove the stale node object
-kubectl delete node einherjar-urd
-
-# Clear stale SSH host key (new VM has a fresh hostkey)
-ssh-keygen -R 10.0.21.21
-ssh-keygen -R einherjar-urd
-```
-
-### C.7 Run the playbook
-
-```fish
-cd ~/Dev/xiiisins/homelab/ansible
-ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml \
-    --limit einherjar-urd
-```
-
-No `-e k3s_init_node=...` override needed — workers don't init clusters, they join via the K3s server URL configured by the role. The init-node override is only relevant for CP rebuilds (Appendix B).
-
-**Expected runtime:** ~10-15 min. Baseline OS prep → K3s agent install → cluster join → DaemonSets roll onto the new node (Calico, kube-proxy, MetalLB speaker, synology-csi-node).
-
-### C.8 Verify Vault rejoin
-
-The new worker becomes Ready → the previously-Pending Vault pod schedules onto it immediately (it's the only worker without a Vault pod now, anti-affinity satisfied) → PVC attaches → pod becomes Ready → Vault rejoins Raft as voter.
-
-```fish
-kubectl get pod -n vault vault-<N> -o wide --watch
-# Ctrl-C once vault-<N> is Running 1/1 on einherjar-urd
-
-vault-health
-# Expected: 3/3 voters, initialized + unsealed + Ready everywhere
-```
-
-### C.9 Verify rejoin
-
-```fish
-kubectl get nodes
-# All 6 Ready, einherjar-urd back in the list and uncordoned
-# (Fresh node comes up uncordoned — no kubectl uncordon needed)
-
-asgard-health && vault-health
-# Expected: same green outcome as pre-rebuild
-
-# Idempotency check
-ansible-playbook -i inventory/hosts.yml playbooks/asgard-k3s.yml --limit einherjar-urd
-# Expected: changed=0
-```
-
-**Why this is appendix-worthy:** the pod-anti-affinity wall against cordon+migrate is non-obvious; the right answer ("just accept 2/3 voters for the window") feels wrong before you've seen the failure mode. The leadership step-down is also non-obvious without Raft background. And the iproute 6.17 / orphan-LV gotchas surface on fresh-from-template clones — exactly when you're least equipped to debug them, because the node isn't in the cluster yet.
-
-## Appendix D — Munin Tailscale subnet-router install (DSM 7)
-
-Adding Munin (Synology DS223J, DSM 7) to the tailnet as a fourth subnet-router for K3s-independent break-glass. Covered in Phase 5e.3.f.
-
-**Why DSM package, not Docker container or `.spk` from `pkgs.tailscale.com`:** Synology's official Tailscale package is set-and-forget, integrates with DSM's auto-start + Package Center update story. ~One version behind upstream stable — fine for a break-glass advertiser; doesn't need bleeding-edge features.
-
-**Why this is appendix-worthy:** the authkey flow for Munin diverges from the LXC pattern (UI-minted + 1Password instead of TF-minted + Vault — see `homelab-design.md` decision row "Munin Tailscale authkey: out-of-band"); the DSM-7 TUN-permissions boot task is non-obvious from the Synology Package Center UI alone; and the "don't reboot" recovery path (manual `configure-host` script) is necessary while iSCSI PVCs are attached and K3s is live (see CLAUDE.md gotcha on iSCSI session timeout → ext4 journal abort → fs-RO).
-
-### Prereqs
-
-- ghost@xiiisins.com admin user on the tailnet (Authentik OIDC).
-- 1Password "Homelab" vault exists.
-- `tag:subnet-router` defined in `policy.hujson` with `autogroup:admin` as one of its owners (this is the key extension — without it, admin-UI key minting with that tag is rejected because only `tag:terraform-tag-owner` would own it).
-
-### Step 1 — Extend `policy.hujson` to let admins mint `tag:subnet-router` keys
-
-Edit `terraform/tailscale/policy.hujson`:
-
-```hujson
-"tagOwners": {
-    "tag:terraform-tag-owner": [],
-    "tag:subnet-router":       ["tag:terraform-tag-owner", "autogroup:admin"],
-    "tag:exit-node":           ["tag:terraform-tag-owner"],
-},
-```
-
-```fish
-cd terraform/tailscale
-terraform plan   # expect 1 in-place change to tailscale_acl.this
-terraform apply
-```
-
-Leave `tag:exit-node` untouched — Gjallarbru is TF-minted, no admin-UI need.
-
-### Step 2 — Mint authkey via Tailscale admin UI
-
-In Tailscale admin → Settings → Keys → Generate auth key:
-
-- **Reusable:** off (single-use).
-- **Ephemeral:** off.
-- **Pre-approved:** on.
-- **Tags:** `tag:subnet-router`.
-- **Expiration:** default (90d is fine — it's only used once at install).
-
-Copy the key. Store in 1Password "Homelab" vault as a new item `Munin Tailscale authkey` (Password field). Tag/label so future-you can find it.
-
-### Step 3 — Install Tailscale via Synology Package Center
-
-DSM web UI → Package Center → search "Tailscale" → Install. Wait for completion. Open the Tailscale package once installed to confirm it's running (don't log in yet via the UI; we'll authenticate with the authkey from CLI).
-
-### Step 4 — DSM Task Scheduler boot-up task for TUN permissions
-
-DSM 7 requires re-asserting TUN device permissions on every boot (and after every Tailscale package upgrade — see CLAUDE.md gotcha).
-
-DSM Control Panel → Task Scheduler → Create → Triggered Task → User-defined script:
-
-- **Name:** `tailscale-tun-permissions`
-- **User:** `root`
-- **Event:** `Boot-up`
-- **Enabled:** on
-- **Run command:**
-  ```sh
-  /var/packages/Tailscale/target/bin/tailscale configure-host
-  synosystemctl restart pkgctl-Tailscale.service
-  ```
-
-Save. Do **not** click "Run" yet from the UI — we'll do this manually over SSH to avoid a reboot.
-
-### Step 5 — Run `configure-host` manually (skip the reboot)
-
-K3s PVCs are iSCSI-attached to Munin. A reboot risks ext4-journal-abort → fs-RO on multiple PVs (see CLAUDE.md gotcha). Run the same script the boot task would run, but live, over SSH:
-
-```fish
-ssh admin@10.0.254.20
-sudo /var/packages/Tailscale/target/bin/tailscale configure-host
-sudo synosystemctl restart pkgctl-Tailscale.service
-```
-
-The boot task validates organically on the next unrelated reboot (DSM update, etc.). At that point, check Task Scheduler → run history.
-
-### Step 6 — Bring Munin up on the tailnet
-
-Still on SSH:
-
-```fish
-sudo tailscale up \
-    --authkey=tskey-auth-xxxxx \
-    --advertise-routes=10.0.0.0/16 \
-    --hostname=munin
-```
-
-Replace `tskey-auth-xxxxx` with the value from 1Password. The key is consumed on first auth; the daemon will use its node key from then on.
-
-Note: Synology's Tailscale package supports `--advertise-routes` but **not** `--accept-routes` (DSM hybrid networking constraint). That's fine — Munin is a route advertiser, not a tailnet client.
-
-### Step 7 — Verify in admin console
-
-Tailscale admin → Machines → confirm `munin` is:
-- Connected (green dot).
-- Tagged `tag:subnet-router`.
-- Advertising `10.0.0.0/16`, route auto-approved (the `autoApprovers.routes` ACL rule does this).
-- No "cannot relay traffic" / "machine is misconfigured" warning. If you see one, `configure-host` didn't take or `pkgctl-Tailscale.service` didn't restart — rerun step 5.
-
-From another tailnet device, ping a `10.0.X.Y` LAN address that isn't already locally reachable. Should resolve via Munin (or one of the LXC advertisers — Tailscale picks one).
-
-### Recovery: subnet-routing breaks after a Tailscale package upgrade
-
-Per Tailscale's Synology docs, package upgrades wipe the configure-host state. Diagnostic: device shows up in tailnet admin but flags "cannot relay traffic"; SSH-side `tailscale netcheck` shows no relay capability.
-
-Fix without rebooting:
-
-```fish
-ssh admin@10.0.254.20
-sudo /var/packages/Tailscale/target/bin/tailscale configure-host
-sudo synosystemctl restart pkgctl-Tailscale.service
-```
-
-The boot task will also re-apply on the next reboot — but don't wait for that if K3s is healthy and you want subnet-routing back immediately.
-
-Going forward, consider disabling Tailscale auto-update in DSM Package Center so upgrades become operator-driven (paired with explicit configure-host re-run).
+Watch especially: anything configured imperatively via `kubectl`/`vault write` since the last rebuild; KPN/UCG/Synology manual config drift; operator-minted Vault KV with no TF minter (mirror exists only in 1P).
