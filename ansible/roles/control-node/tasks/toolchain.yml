@@ -141,14 +141,25 @@
     state: present
   tags: [control-node, control-node:toolchain]
 
-# Ansible itself + hvac (for community.hashi_vault lookups when ansible runs
-# ON Frigg). Installed from Debian apt — system-wide, no venv. ansible-lint
-# is handy for the operator's own dev loop on the control node.
-- name: Install ansible + lookup deps
+# Ansible itself + lookup/inventory deps. Installed from Debian apt —
+# system-wide, no venv (Debian 13 Python is PEP668 externally-managed, so
+# pip would need --break-system-packages; apt is the clean path).
+#   - python3-hvac     : community.hashi_vault lookups when ansible runs ON
+#                        Frigg (tailscale / zabbix-agent register / probes)
+#   - python3-pynetbox : the netbox.netbox.nb_inventory dynamic-inventory
+#                        plugin (primary inventory per ansible.cfg)
+#   - python3-pytz     : nb_inventory hard-imports pytz; without it the
+#                        plugin fails to parse and the whole NetBox inventory
+#                        is silently skipped → Frigg falls back to needing
+#                        `-i inventory/hosts.yml`. Same class as the Semaphore
+#                        pod-start `pip install pytz` gotcha.
+- name: Install ansible + lookup/inventory deps
   ansible.builtin.apt:
     name:
       - ansible
       - python3-hvac
+      - python3-pynetbox
+      - python3-pytz
     state: present
   tags: [control-node, control-node:toolchain]
 
