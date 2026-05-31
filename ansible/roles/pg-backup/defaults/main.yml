@@ -1,0 +1,53 @@
+# ansible/roles/pg-backup/defaults/main.yml
+---
+# Daily logical backup of the local Postgres node. Runs on every Patroni node
+# (Fulla/Vör/Idunn) independently — each dumps its own localhost over the
+# peer-auth unix socket, so no leader discovery is needed and PBS captures
+# three independent copies (one per LXC). Replicas accept the read-only
+# pg_dump fine; the small homelab DBs make recovery-conflict cancellation a
+# non-issue.
+
+# Postgres major version — must match the postgres role's cluster (Debian PGDG
+# installs the versioned binaries under /usr/lib/postgresql/<v>/bin). Patroni
+# nodes are not registered as Debian "clusters" (pg_createcluster suppressed),
+# so the pg_wrapper PATH binaries can't resolve a cluster — use the explicit
+# versioned bindir, never the bare `pg_dump` wrapper.
+pg_backup_pg_version: 17
+pg_backup_bindir: "/usr/lib/postgresql/{{ pg_backup_pg_version }}/bin"
+
+pg_backup_user: postgres
+pg_backup_socket: /var/run/postgresql
+
+# Leader gate. Dumps run ONLY on the current Patroni leader: a long pg_dump of
+# a large high-churn table on a hot standby gets cancelled ("conflict with
+# recovery") when the read collides with WAL replay — observed on the zabbix
+# history tables. The primary has no such conflict. All three nodes install the
+# timer; replicas self-skip via this REST check, so the dump always lands on
+# whoever is leader (and PBS captures it). Patroni REST listens on the node's
+# own IP, not localhost (restapi.listen = <ansible_host>:8008); GET /primary is
+# unauthenticated and returns 200 on the leader, 503 on a replica.
+pg_backup_patroni_url: "http://{{ ansible_host }}:{{ patroni_restapi_port | default(8008) }}"
+
+# Backup destination — local disk (same LVM-thin volume as the data dir, never
+# NFS per the PG storage rule). Only the latest set lives here (each file is
+# overwritten daily) = 1-day local retention; PBS snapshots the LXC nightly and
+# retains 7 days via file-restore, so the effective history is one week.
+pg_backup_dir: /var/backups/postgresql
+pg_backup_log: /var/log/pg-backup.log
+pg_backup_script_path: /usr/local/bin/pg-backup
+
+# Never dumped (template DBs are also filtered SQL-side as datistemplate=false;
+# this list is for additionally excluding any non-template throwaway DB).
+pg_backup_exclude_dbs:
+  - template0
+  - template1
+
+# Schedule. Default 01:00 — AFTER the 00:00 PBS snapshot, so PBS captures the
+# previous run's complete set (≤24h old) with clear margin. Atomic per-file
+# rename means timing is not actually load-bearing (PBS can never catch a torn
+# write); moving this BEFORE the PBS window would instead capture a same-night
+# fresher copy. Left after-PBS per operator preference. Persistent=true catches
+# up a missed run after a reboot.
+pg_backup_oncalendar: "*-*-* 01:00:00"
+pg_backup_randomized_delay: "120"
+pg_backup_timeout: "30min"

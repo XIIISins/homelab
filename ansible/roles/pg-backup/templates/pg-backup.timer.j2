@@ -1,0 +1,13 @@
+{# ansible/roles/pg-backup/templates/pg-backup.timer.j2 #}
+[Unit]
+Description=Postgres daily logical backup timer
+
+[Timer]
+OnCalendar={{ pg_backup_oncalendar }}
+# Catch up a run missed while the LXC was down.
+Persistent=true
+RandomizedDelaySec={{ pg_backup_randomized_delay }}
+Unit=pg-backup.service
+
+[Install]
+WantedBy=timers.target
