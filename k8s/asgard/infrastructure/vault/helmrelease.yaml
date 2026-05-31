@@ -121,3 +121,12 @@ spec:
     ui:
       enabled: true
       serviceType: LoadBalancer
+      # Pin the MetalLB allocation statically. Previously vault-ui had no
+      # loadBalancerIP, so MetalLB dynamically allocated from the pool bottom
+      # (10.0.20.11) — the static/dynamic collision gotcha: a Service recreate
+      # could shift it, and other static claims had to dodge that band.
+      # Pinning .11 makes it a deterministic static claim (MetalLB's
+      # static-beats-dynamic precedence reserves it). Kept deliberately as a
+      # direct, Traefik-independent path to the Vault UI/API alongside the
+      # FQDN HTTPRoute (vault.niflheim.xiiisins.com). Phase 6 Stage 1, 2026-05-31.
+      loadBalancerIP: 10.0.20.11
