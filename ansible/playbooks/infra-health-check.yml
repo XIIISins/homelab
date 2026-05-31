@@ -44,6 +44,11 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  # Pure HTTP/Vault prober — needs no privilege escalation. Explicit
+  # because the control-node ansible.cfg (and potentially the Semaphore
+  # pod) default become: true, which makes the localhost uri tasks try to
+  # sudo and fail ("sudo: a password is required").
+  become: false
 
   vars:
     hermod_url: "{{ lookup('env', 'HERMOD_URL') }}"
@@ -132,13 +137,13 @@
                     if item.failed | default(false) or (item.not_after is not defined)
                     else (['TLS cert for **' ~ item.item.zone ~ '** (`' ~ item.item.host
                            ~ '`) expires in ' ~ _days ~ 'd (<' ~ cert_crit_days ~ 'd) — renewal stuck?']
-                          if (_days | int) < cert_crit_days else [])) }}
+                          if (_days | int) < (cert_crit_days | int) else [])) }}
             warn_findings: >-
               {{ warn_findings | default([])
                  + (['TLS cert for **' ~ item.item.zone ~ '** (`' ~ item.item.host
                      ~ '`) expires in ' ~ _days ~ 'd (<' ~ cert_warn_days ~ 'd).']
                     if (not (item.failed | default(false))) and (item.not_after is defined)
-                       and (_days | int) >= cert_crit_days and (_days | int) < cert_warn_days
+                       and (_days | int) >= (cert_crit_days | int) and (_days | int) < (cert_warn_days | int)
                     else []) }}
           vars:
             _days: >-
@@ -204,12 +209,17 @@
                     if (_total | int > 0 and _healthy | int < 2) else []) }}
           vars:
             _total: "{{ groups['haproxy_etcd'] | default([]) | length }}"
+            # etcd /health returns Content-Type: text/plain, so ansible's
+            # uri does NOT auto-populate `.json` — parse `.content` with
+            # from_json instead (the body IS JSON, just mislabelled).
             _healthy: >-
               {{ etcd_probe.results
                  | selectattr('status', 'defined')
                  | selectattr('status', 'equalto', 200)
-                 | selectattr('json', 'defined')
-                 | selectattr('json.health', 'in', ['true', true])
+                 | selectattr('content', 'defined')
+                 | map(attribute='content')
+                 | map('from_json')
+                 | selectattr('health', 'in', ['true', true])
                  | list | length }}
 
         # --- 5. PBS backup failures + datastore fullness --------------
