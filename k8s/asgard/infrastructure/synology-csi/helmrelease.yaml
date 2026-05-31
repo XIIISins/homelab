@@ -35,7 +35,13 @@ spec:
       nfs-delete:
         disabled: true
       iscsi-retain:
-        isDefault: true
+        # No default StorageClass post-storage-redesign (2026-05-30). With four
+        # tiers live (iscsi / iscsi-vol2 / nfs-client / local-path), a PVC that
+        # omits storageClassName must FAIL to bind rather than silently inherit
+        # a block LUN against the DS223J ~10-LUN cap. Every PVC names its tier
+        # explicitly (verified: all live PVCs + in-repo manifests do).
+        # See docs/procedures/synology-storage-redesign.md.
+        isDefault: false
         parameters:
           protocol: iscsi
           dsm: "10.0.254.20"
