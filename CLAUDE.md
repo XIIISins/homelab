@@ -136,16 +136,24 @@ terraform apply
 ADGUARD_PASSWORD='hunter2' terraform apply
 ```
 
-For the operator's own use, prefer the existing `homelab-env` shim — it loads from 1P + caches without ever echoing the values. That's the right path to recommend in user-facing instructions.
+For the **operator's** own interactive use, the 1P-backed `homelab-env` shim loads from 1P + caches without ever echoing the values — that's the right path to recommend in *user-facing* instructions (the operator can `op signin`).
 
-For Claude's own machine commands needing several env vars at once, **source the shim's cache file** rather than calling `op read` per-var:
+**For Claude's OWN machine commands, prefer the Vault-backed shim (`vault-homelab-env`), NOT the 1P one.** Claude runs non-interactively — and increasingly via `claude remote-control` on a control node — where `op` can't prompt for biometric/signin, so the 1P cache (`env.sh`) only works if the operator happened to run `homelab-env` by hand recently. `vault-homelab-env` needs no human: it AppRole-logs-in to Vault with the on-disk secret-zero (`~/.config/ansible/vault-approle.env`) and pulls the same IaC creds from `secret/ansible/frigg/*`. Self-healing one-liner for any multi-var command — re-fetches from Vault when the 3h cache is stale, fast cache-read when warm:
 
 ```bash
-# Preferred for any multi-var command (cache is almost always warm in this repo)
-. ~/.cache/homelab/env.sh && terraform apply
+# Preferred for Claude's multi-var commands — Vault-backed, no 1Password.
+# `vault-homelab-env` isn't on PATH; it's defined in the repo shim, so source
+# that first. Calling it exports every IaC var into THIS shell → the chained
+# command inherits them.
+source "$(git rev-parse --show-toplevel)/.config/scripts/homelab.sh" \
+  && vault-homelab-env >/dev/null && terraform apply
 ```
 
-`~/.cache/homelab/env.sh` (POSIX) and `~/.cache/homelab/env.fish` (fish) are written by `homelab-env` and contain every 1P-fetched + static var (`KUBECONFIG`, `VAULT_*`, `ADGUARD_*`, `CLOUDFLARE_API_TOKEN`, `AUTHENTIK_*`, plus `VAULT_TOKEN` if set). TTL 24h. Adding a new var means appending to `__homelab_env_map` / `__homelab_static_env_map` in BOTH shim files + `homelab-env --refresh`.
+(The refresh path needs `vault` + `jq` on PATH — prefix `PATH="/opt/homebrew/bin:$PATH"` per the "Bash tool calls don't inherit … PATH" gotcha. The known-warm form `. ~/.cache/homelab/vault-env.sh && <cmd>` needs neither, but does NOT self-heal a stale cache.)
+
+`~/.cache/homelab/vault-env.sh` (POSIX) + `vault-env.fish` (fish) are written by `vault-homelab-env` (**3h TTL**, SEPARATE from the 1P `env.{sh,fish}`) and hold the same IaC set: `KUBECONFIG`, `VAULT_ADDR`/`VAULT_TOKEN`, `ADGUARD_*`, `CLOUDFLARE_API_TOKEN`, `AUTHENTIK_*`, `NETBOX_*`, `AWS_*`, `TF_VAR_proxmox_api_token`, `SEMAPHOREUI_*`, the `ANSIBLE_HASHI_VAULT_*` AppRole vars + `ANSIBLE_VAULT_PASSWORD_FILE`. The cached `VAULT_TOKEN` is a ~30 min AppRole token — `vault-homelab-env --refresh` re-mints it. Adding a new IaC field means appending to `__vault_homelab_iac_map` in BOTH shim files (and `control_node_iac_env_fields` in `roles/control-node` if Frigg should get it) + `vault-homelab-env --refresh`. The on-disk secret-zero is re-synced after a `rotate-approle` via `homelab-env` (1P) then `seed-vault-approle`.
+
+> The 1P-backed `. ~/.cache/homelab/env.sh` / `homelab-env` still works at home and stays the operator's interactive path — it's just no longer Claude's default. On **Frigg** the distinction is moot: its `homelab-env`/`env.sh` is *already* Vault-backed (no `op` on the box), so there `. ~/.cache/homelab/env.sh` IS the Vault path.
 
 For Vault: `$(vault kv get -field=<f> secret/<path>)` follows the same pattern. For Ansible Vault: `--vault-password-file` or `ansible-vault view | grep` piped into the consumer, never copy-paste-in-prompt.
 
