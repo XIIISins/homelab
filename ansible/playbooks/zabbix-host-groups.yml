@@ -64,7 +64,7 @@
       community.zabbix.zabbix_globalmacro:
         macro_name: "{{ item.name }}"
         macro_value: "{{ item.value }}"
-        macro_type: 0  # text
+        macro_type: text  # community.zabbix 4.x wants the string, NOT the int 0
         state: present
       loop: "{{ zabbix_global_macros | default([]) }}"
       loop_control:
