@@ -93,7 +93,7 @@ These are the load-bearing design choices. Any of them changing is a deliberate 
 - **AdGuard Home is the DNS resolver.** Three nodes (Saga/Mimir/Kvasir), keepalived VIP. Rewrites are Terraform-managed against the origin; the other two sync from it.
 - **UCG-Ultra is the sole firewall policy boundary.** KPN is pass-through. Default posture: Internal → Any allow, External → Internal allow-return, default deny.
 - **MetalLB L2 for cluster-internal load balancing.** Workers are multi-homed (eth0 on the node VLAN, eth1 on the MetalLB VLAN).
-- **Synology CSI iSCSI only — no NFS for K8s state.** NFS pollutes the Synology namespace with shared folders; iSCSI is single-consumer per PVC and the right shape for stateful workloads.
+- **Tiered storage by access pattern.** iSCSI (block) for the few memory-mapped single-instance stores that genuinely need it (LMDB/BoltDB), NFS for file-class state, node-local `local-path` for app-replicated state like Vault's Raft, emptyDir for caches. Each workload gets the tier that fits it rather than defaulting everything onto block — which keeps the NAS's iSCSI LUN budget for the workloads that truly need it.
 
 ### Data
 - **PostgreSQL only.** No MySQL/Galera. Patroni HA across three nodes, etcd DCS on a separate HAProxy/etcd trio, a single HAProxy VIP for all consumers.

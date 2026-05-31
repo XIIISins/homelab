@@ -13,7 +13,7 @@ From physical hardware up to the things humans click on:
 1. **Physical.** Three identical MSI Cubi nodes (Urd / Verd / Skuld), the Synology NAS (Munin), the UCG-Ultra router/firewall, two dumb switches.
 2. **Network.** UCG-Ultra carries 10 VLANs and is the sole firewall policy boundary. AdGuard Home (three-node keepalived VIP) resolves DNS. MetalLB announces service VIPs in-cluster on a dedicated VLAN. Everything above depends on this layer being healthy.
 3. **Compute.** Proxmox `niflheim` cluster on the three nodes. VMs host the K3s control planes and workers; LXCs host services that deliberately don't belong in Kubernetes.
-4. **Storage & data.** PostgreSQL (Patroni-managed) for relational data. Synology iSCSI for K8s persistent volumes. Garage for S3 object storage. Local LVM-thin for VM/LXC disks.
+4. **Storage & data.** PostgreSQL (Patroni-managed) for relational data. Tiered K8s persistent storage: iSCSI for block-critical single-instance stores, NFS for file-class, node-local `local-path` for app-replicated state (Vault Raft), emptyDir for caches. Garage for S3 object storage. Local LVM-thin for VM/LXC disks.
 5. **Identity & secrets.** Authentik issues OIDC for web apps and LDAP for SSH. HashiCorp Vault holds machine secrets. 1Password holds bootstrap-only credentials plus an offline mirror of everything in Vault.
 6. **Orchestration.** Flux CD reconciles cluster state from this repo. Semaphore reconciles fleet state (LXCs + VMs) via Ansible. Terraform provisions everything beneath.
 7. **Edge.** Traefik fronts every internal hostname. Cloudflared tunnels publicly-facing hostnames out to Cloudflare. cert-manager issues wildcard TLS for the three DNS zones.
@@ -145,7 +145,7 @@ Each of these is a subpage of this section.
 
 - **Network** — VLAN table, IP assignments, firewall posture, DNS zones.
 - **Compute & hypervisors** — Proxmox cluster, VM/LXC topology, resource ID scheme.
-- **Storage & data** — Synology iSCSI, LVM-thin, Garage S3, Postgres + Patroni topology.
+- **Storage & data** — tiered K8s storage (iSCSI block-critical / NFS file-class / local-path app-replicated / emptyDir caches), LVM-thin for VM/LXC disks, Garage S3, Postgres + Patroni topology.
 - **Identity & secrets** — Authentik, Vault, 1Password, three-store architecture.
 - **GitOps & automation** — Flux structure, Semaphore templates, Ansible role layout, drift-check.
 - **Edge** — Traefik, Cloudflared, cert-manager, the three DNS zones.
