@@ -90,15 +90,19 @@ Semaphore project pointed at the homelab repo, branch `main`, working dir `ansib
 
 ### Templates
 
-Three core Semaphore task templates cover the drift loop. Add per-service variants only when a specific service needs different cadence/serial.
+Five Semaphore task templates: three cover the drift loop, plus a daily fleet-wide agent reconverge and (Wave S4) an active infra-health prober. Add per-service variants only when a specific service needs different cadence/serial.
 
 | Template | Cadence | What it runs | Notify on |
 |----------|---------|--------------|-----------|
 | `refresh-netbox-inventory` | Cron `every 4h` | Refreshes the cached NetBox inventory by deleting the cache file and re-querying NetBox once | Failure only (NetBox down or auth broken) |
 | `asgard-drift-check` | Cron `every 6h` | `ansible-playbook -i inventory/ site.yml --check --diff` | **Changes detected** → `tag: alert` to Hermod with the diff summary. Hard failure → `tag: alert`. Clean → no notification (audit trail in VL via vlagent) |
 | `asgard-apply` | Manual | `ansible-playbook -i inventory/ site.yml` | Failure → `tag: critical` (an apply blew up — manual intervention needed). Success → no notification |
+| `asgard-fleet-agents` | Cron `daily` | `fleet-agents.yml` — fleet-wide vlagent + zabbix-agent reconverge (defence-in-depth over the per-group roles in `site.yml`) | Failure → `tag: critical`. Success → no notification |
+| `infra-health-check` | Cron `every 12h` | `infra-health-check.yml` (`hosts: localhost` in the pod) — active prober: Cloudflare-token validity, served-cert expiry ×3 zones, Patroni REST `/cluster` + etcd `/health` quorum, PBS failed-tasks | Finding → `tag: critical`/`alert` POSTed by the playbook itself; clean → no notification. (The `hermod_summary` callback no-ops for non-drift/apply wrappers, so no double-post.) |
 
 Per-service drift-check variants (e.g. `asgard-postgres-drift-check`) added later when a service needs a different cadence or has a known noisy-but-OK diff class that needs filtering before the alert fires.
+
+The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality, the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Deployed + validated in Wave S4 — see [`docs/operations/1.0-stabilization.md`](../operations/1.0-stabilization.md) + [`docs/procedures/s4-observability-validation.md`](../procedures/s4-observability-validation.md).
 
 ## Inventory — NetBox dynamic + static fallback
 
