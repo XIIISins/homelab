@@ -6,9 +6,25 @@
 # The service is enabled but only started when the token file is present —
 # so a provision run that hasn't been given the token doesn't crash-loop.
 
-- name: Resolve Claude OAuth token from Vault
+# Fetch on frigg via its AppRole + vault CLI (not a controller-side
+# community.hashi_vault lookup — that crashes the ansible worker fork on a
+# macOS/Python-3.14 controller; see repo.yml for the full rationale).
+- name: Fetch Claude OAuth token from Vault (on frigg, via its AppRole)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      . {{ control_node_approle_env_path }}
+      export VAULT_ADDR="${VAULT_ADDR:-{{ control_node_vault_addr }}}"
+      export VAULT_TOKEN="$(vault write -field=token auth/approle/login role_id="$FRIGG_ROLE_ID" secret_id="$FRIGG_SECRET_ID")"
+      vault kv get -field=value "secret/{{ control_node_vault_claude_token_path }}"
+  register: control_node_claude_token_raw
+  changed_when: false
+  no_log: true
+  tags: [control-node, control-node:claude]
+
+- name: Set Claude OAuth token fact
   ansible.builtin.set_fact:
-    control_node_claude_token: "{{ lookup('community.hashi_vault.vault_kv2_get', control_node_vault_claude_token_path).secret.value }}"
+    control_node_claude_token: "{{ control_node_claude_token_raw.stdout }}"
   no_log: true
   tags: [control-node, control-node:claude]
 

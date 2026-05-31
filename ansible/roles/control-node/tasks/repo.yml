@@ -4,9 +4,29 @@
 # from Vault (ansible/frigg/github-deploy-key); the repo is cloned once and
 # then left alone (no force-pull — the operator/claude drive git from here).
 
-- name: Resolve GitHub deploy key from Vault
+# Fetch ON the target (frigg) via its own AppRole + the vault CLI, NOT a
+# controller-side community.hashi_vault lookup: that lookup runs in an
+# ansible worker fork, which crashes on a macOS controller running Python
+# 3.14 (fork-after-thread; the OBJC_DISABLE/no_proxy workaround doesn't
+# cover 3.14). Fetching on frigg (Linux) sidesteps it AND uses frigg's own
+# homelab-frigg AppRole — no controller-side secret handling. Runs after
+# toolchain (vault CLI) + vault-env (secret-zero file) in main.yml.
+- name: Fetch GitHub deploy key from Vault (on frigg, via its AppRole)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      . {{ control_node_approle_env_path }}
+      export VAULT_ADDR="${VAULT_ADDR:-{{ control_node_vault_addr }}}"
+      export VAULT_TOKEN="$(vault write -field=token auth/approle/login role_id="$FRIGG_ROLE_ID" secret_id="$FRIGG_SECRET_ID")"
+      vault kv get -format=json "secret/{{ control_node_vault_github_key_path }}"
+  register: control_node_github_key_raw
+  changed_when: false
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Parse GitHub deploy key fields
   ansible.builtin.set_fact:
-    control_node_github_key: "{{ lookup('community.hashi_vault.vault_kv2_get', control_node_vault_github_key_path).secret }}"
+    control_node_github_key: "{{ (control_node_github_key_raw.stdout | from_json).data.data }}"
   no_log: true
   tags: [control-node, control-node:repo]
 
