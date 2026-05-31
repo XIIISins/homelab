@@ -38,7 +38,7 @@ locals {
     "game-server"       = "gameserver"
     "db"                = "postgres"
     "service-frontend"  = "haproxy-etcd"
-    "control-node"      = "frigg"
+    "control-node"      = "control"
   }
 
   vms = {
