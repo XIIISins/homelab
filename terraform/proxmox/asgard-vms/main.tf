@@ -84,13 +84,15 @@ resource "proxmox_virtual_environment_vm" "this" {
     }
   }
 
-  # Debian genericcloud ships no qemu-guest-agent, so enabling the agent
-  # here would make the provider block waiting for it at create. Leave it
-  # off — the frigg Ansible role installs + enables qemu-guest-agent; flip
-  # to true on a later apply once it's running (gives Proxmox graceful
-  # shutdown + agent-reported IPs).
+  # Enabled now that the guest agent is installed + running. It was created
+  # with enabled=false to dodge the bpg create-hang (Debian genericcloud
+  # ships no qemu-guest-agent, so the provider would block waiting for it);
+  # the agent virtio-serial channel was then added (qm set --agent + a
+  # power-cycle) and the frigg role installs/starts qemu-guest-agent, so
+  # the agent reports → Proxmox gets graceful shutdown + agent IPs (matters
+  # for clean HA shutdown on migration).
   agent {
-    enabled = false
+    enabled = true
   }
 }
 
