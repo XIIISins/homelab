@@ -104,16 +104,26 @@ homelab-env() {
     export VAULT_TOKEN="$vault_token"
 
     # ---- IaC env fields → exported env vars ----
-    for entry in "${__frigg_iac_env_map[@]}"; do
-        field=${entry%%|*}
-        env_var=${entry#*|}
-        if value=$(vault kv get -field="$field" "$__frigg_iac_env_path" 2>/dev/null); then
-            export "$env_var=$value"
-            loaded=$((loaded + 1))
-        else
-            echo "homelab-env: warning — field '$field' missing from $__frigg_iac_env_path" >&2
-        fi
-    done
+    # ONE fetch of the whole iac-env KV, then map each field → env var
+    # locally with jq. A single Vault round-trip instead of one HTTPS call
+    # per field (15 fields × a round-trip through Traefik was the
+    # login-latency culprit).
+    local iac_json
+    if iac_json=$(vault kv get -format=json "$__frigg_iac_env_path" 2>/dev/null); then
+        for entry in "${__frigg_iac_env_map[@]}"; do
+            field=${entry%%|*}
+            env_var=${entry#*|}
+            value=$(printf '%s' "$iac_json" | jq -r --arg f "$field" '.data.data[$f] // empty')
+            if [ -n "$value" ]; then
+                export "$env_var=$value"
+                loaded=$((loaded + 1))
+            else
+                echo "homelab-env: warning — field '$field' missing from $__frigg_iac_env_path" >&2
+            fi
+        done
+    else
+        echo "homelab-env: warning — could not read $__frigg_iac_env_path from Vault" >&2
+    fi
 
     # ---- kubeconfig ----
     mkdir -p "$(dirname "$__frigg_kubeconfig_out")"
