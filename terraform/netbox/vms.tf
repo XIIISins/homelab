@@ -38,6 +38,7 @@ locals {
     "game-server"       = "gameserver"
     "db"                = "postgres"
     "service-frontend"  = "haproxy-etcd"
+    "control-node"      = "frigg"
   }
 
   vms = {
@@ -88,6 +89,11 @@ locals {
     hlin   = { vmid = "1133", role = "service-frontend", device = "urd", cpu = 2, memory = 2048, primary_iface = "eth0" }
     eir    = { vmid = "1134", role = "service-frontend", device = "verd", cpu = 2, memory = 2048, primary_iface = "eth0" }
     snotra = { vmid = "1135", role = "service-frontend", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
+
+    # ── Frigg — control-node watchtower (VM 2900, Phase 6 Stage 2) ──
+    # Non-K3s standalone VM (terraform/proxmox/asgard-vms), HA-on-NFS.
+    # No import_id — created fresh on first apply.
+    frigg = { vmid = "2900", role = "control-node", device = "verd", cpu = 2, memory = 6144, primary_iface = "eth0" }
   }
 
   # Flat interface map keyed by "<vm>.<iface>". Workers + HAProxy/etcd
@@ -129,6 +135,9 @@ locals {
     "eir.eth1"    = { vm = "eir", name = "eth1", ip = "10.0.10.234/24" }
     "snotra.eth0" = { vm = "snotra", name = "eth0", ip = "10.0.11.235/24" }
     "snotra.eth1" = { vm = "snotra", name = "eth1", ip = "10.0.10.235/24" }
+
+    # Frigg — control-node watchtower (single-homed VLAN 11)
+    "frigg.eth0" = { vm = "frigg", name = "eth0", ip = "10.0.11.30/24" }
   }
 
   # Import IDs sourced from /api/virtualization/virtual-machines/ +
