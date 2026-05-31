@@ -18,12 +18,12 @@ The recovery chain has four legs, **none of which depend on the homelab**:
    - `[Bootstrap] - Manual - AWS - KMS unseal access key` + `[Bootstrap] - Manual - Vault - KMS unseal config` — auto-unseal (region `eu-west-1` + key ARN; the ARN embeds the AWS account ID, kept in 1P not git)
    - `[Bootstrap] - Manual - Sealed Secrets - Master keys` — decrypts every SealedSecret; **apply BEFORE the sealed-secrets controller starts** (§3.4)
    - `[Bootstrap] - Manual - Flux - Deploy key` — reuse so `flux bootstrap` doesn't orphan the GitHub deploy key (§3.3)
-   - `[Asgard] - Ansible - Vault - AppRole (ansible-local)` — Ansible→Vault runtime creds (item `Ansible - Vault - k3s`: `username`=RoleID, `password`=SecretID)
+   - `[Asgard] - Ansible - Vault - AppRole (ansible-local)` — Ansible→Vault runtime creds (`username`=RoleID, `password`=SecretID)
    - `[Asgard] - Manual - Ansible - Vault password` — decrypts `group_vars/all/vault.yml`
    - `[Infra] - ansible - SSH - Private key` + `[Infra] - recovery - SSH - Private key` — node + break-glass access
    - `[Infra] - Terraform - Proxmox - API token` (+ `Root password` for ticket-auth LXCs — `terraform/proxmox/asgard-lxcs-root/`)
    - `[Asgard] - Terraform - AWS - State access key` (+ `Bootstrap access key` for the `aws/` module — see §2)
-   - `[Infra] - Manual - Synology - admin` + `[Infra] - Manual - UCG-Ultra` + `[Infra] - Manual - KPN` — foundation config (§1)
+   - `[Infra] - Manual - Synology - Admin login` + `[Infra] - Manual - Synology - kubernetes user` + `[Infra] - Manual - UCG-Ultra - Admin login` — foundation config (§1). (KPN has no 1P item — it's consumer hardware with no useful API; its config lives in [`../architecture/network.md`](../architecture/network.md).)
    - `[Asgard] - Manual - K3s - Kubeconfig (asgard)` — cluster access once it's up
 3. **This runbook** — the procedure below.
 4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `flux`, `kubeseal`, `jq`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`, or `homelab-env` in fish); AppRole bootstrap in [`../architecture/identity-secrets.md`](../architecture/identity-secrets.md).
@@ -126,12 +126,12 @@ pipx inject ansible hvac           # if Ansible is pipx-installed
 set -Ux OBJC_DISABLE_INITIALIZE_FORK_SAFETY YES   # macOS fork-safety, one-time
 
 # SSH keys for node access (ansible + recovery break-glass) from 1P
-op read 'op://Homelab 2.0/<Infra - ansible - SSH - Private key UUID>/private key' > ~/.ssh/homelab_ansible
-op read 'op://Homelab 2.0/<Infra - recovery - SSH - Private key UUID>/private key' > ~/.ssh/homelab_recovery
+op read 'op://Homelab 2.0/e5mkz32pdzde7ouxq62w3hajx4/private key' > ~/.ssh/homelab_ansible   # [Infra] - ansible - SSH - Private key
+op read 'op://Homelab 2.0/zekpfaskgxceks32yqitamzzqe/private key' > ~/.ssh/homelab_recovery  # [Infra] - recovery - SSH - Private key
 chmod 600 ~/.ssh/homelab_*
 
 # Ansible Vault password file (decrypts group_vars/all/vault.yml)
-op read 'op://Homelab 2.0/<Asgard - Manual - Ansible - Vault password UUID>/password' > ~/.config/ansible/vault-pass
+op read 'op://Homelab 2.0/wte7tqcuwh5b32ljrh4jnmbcpy/password' > ~/.config/ansible/vault-pass  # [Asgard] - Manual - Ansible - Vault password
 chmod 600 ~/.config/ansible/vault-pass
 ```
 
@@ -254,7 +254,7 @@ kubectl get installation default -o jsonpath='{.spec.calicoNetwork.nodeAddressAu
 
 ```fish
 kubectl create namespace flux-system
-op read 'op://Homelab 2.0/<Flux deploy key UUID>/notesPlain' | kubectl apply -f -
+op read 'op://Homelab 2.0/v4swe4y3i55oawjlsc3rcatmvu/notesPlain' | kubectl apply -f -   # [Bootstrap] - Manual - Flux - Deploy key
 
 flux bootstrap github \
     --owner=XIIISins --repository=homelab --branch=main \
@@ -267,7 +267,7 @@ flux bootstrap github \
 **Must happen between Flux bootstrap and the sealed-secrets controller's first reconcile.** If the controller starts first it generates a *new* keypair and every SealedSecret in Git (`vault-unseal`, `synology-csi`, …) becomes undecryptable.
 
 ```fish
-op read 'op://Homelab 2.0/<Sealed Secrets master keys UUID>/notesPlain' | kubectl apply -f -
+op read 'op://Homelab 2.0/mv4u6dyzjkzx6aogvxbmxz3vcm/notesPlain' | kubectl apply -f -   # [Bootstrap] - Manual - Sealed Secrets - Master keys
 kubectl get secret -n sealed-secrets -l sealedsecrets.bitnami.com/sealed-secrets-key=active
 # expect ≥1 Secret listed
 ```
@@ -297,7 +297,7 @@ kubectl exec -n vault vault-0 -- vault status     # Sealed:false (KMS auto-unsea
 # token revert to the ORIGINAL snapshot's — i.e. the 1P bootstrap values).
 kubectl cp ~/homelab-backups/vault/<latest>.snap vault/vault-0:/tmp/vault.snap
 kubectl exec -n vault vault-0 -- env \
-    VAULT_TOKEN=(op read 'op://Homelab 2.0/<Vault root token UUID>/password') \
+    VAULT_TOKEN=(op read 'op://Homelab 2.0/7g4grolyien2yqkm7me2jficmy/password') \
     vault operator raft snapshot restore /tmp/vault.snap
 kubectl exec -n vault vault-0 -- rm /tmp/vault.snap
 ```
@@ -394,7 +394,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/asgard-adguard.yml
 # seeds rewrites from terraform/adguard/ in §7.
 
 # Tailscale LXCs (Bifrost/Heimdall/Gjallarbru) — device_passthrough needs the root-pam module
-cd terraform/proxmox/asgard-lxcs-root && PROXMOX_VE_PASSWORD=(op read 'op://Homelab 2.0/<Infra - Terraform - Proxmox - Root password UUID>/password') terraform apply
+cd terraform/proxmox/asgard-lxcs-root && PROXMOX_VE_PASSWORD=(op read 'op://Homelab 2.0/6vv32uzlahikgmkvkiqfnkgshy/password') terraform apply  # [Infra] - Terraform - Proxmox - Root password
 cd ~/Dev/xiiisins/homelab/ansible
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-tailscale.yml
 ```
