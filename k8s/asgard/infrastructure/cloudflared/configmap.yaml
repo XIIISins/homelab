@@ -80,6 +80,18 @@ data:
           httpHostHeader: hugin.xiiisins.com
           noTLSVerify: true
 
+      # Startpage — public personal homepage. Same Traefik backchannel
+      # pattern as Authentik/Outline/Zabbix above; the midgard Gateway's
+      # apex-wildcard listener routes home.xiiisins.com via the startpage
+      # HTTPRoute (k8s/asgard/apps/startpage/httproute.yaml) to the Caddy
+      # pod. Cloudflare DNS record: cloudflare_dns_record.startpage in
+      # terraform/cloudflare/main.tf. External-only — no LAN bypass.
+      - hostname: home.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: home.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

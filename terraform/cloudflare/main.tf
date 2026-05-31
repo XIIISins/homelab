@@ -90,6 +90,19 @@ resource "cloudflare_dns_record" "hugin" {
   ttl     = 1
 }
 
+# Startpage — public personal homepage tunnelled through cloudflared.
+# Cloudflared ingress rule lives in k8s/asgard/infrastructure/cloudflared/
+# configmap.yaml (home.xiiisins.com → Traefik backchannel). External-only:
+# no AGH rewrite / LAN bypass, by operator choice.
+resource "cloudflare_dns_record" "startpage" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "home.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1 # 1 = automatic, required when proxied = true
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #

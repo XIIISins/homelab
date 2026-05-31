@@ -38,3 +38,10 @@ resources:
   # oidc.tf). Additive — vault-ui stays a LoadBalancer (.11) until the
   # operator-gated VAULT_ADDR cutover; see open-questions.md Phase 6 6.c.
   - vault-ingress
+  # Personal startpage — public, external-only at home.xiiisins.com via
+  # cloudflared. Caddy pod serving a git-clone of the private
+  # XIIISins/startpage repo (branch tokyonight_colors); deploy key in Vault.
+  # Separate from apex-static so a clone failure can't take down the
+  # OIDC-critical WebFinger pod, and a content update (rollout restart)
+  # only bounces the startpage. 3 replicas, one per worker.
+  - startpage
