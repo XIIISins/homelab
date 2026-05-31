@@ -1,8 +1,33 @@
 <!-- docs/procedures/teardown-rebuild.md -->
 
-# Teardown & rebuild — must-run K3s → asgard
+# Disaster recovery & rebuild — asgard K3s
 
-*Last updated: 2026-05-17 — validated end-to-end this same day*
+> Originally the 2026-05-17 `must-run → asgard` rename+rebuild runbook; now the canonical DR procedure. **Mirrored as a PDF in 1Password (+ iCloud/Dropbox)** so it's reachable when the homelab — including Munin and the wiki — is down. Contains **no secrets, only pointers.**
+
+## Disaster-recovery entry point — start here if everything is down
+
+The recovery chain has four legs, **none of which depend on the homelab**:
+
+1. **The IaC** — `git@github.com:XIIISins/homelab.git` (private). Clone to `~/Dev/xiiisins/homelab`. Complete declarative spec: Terraform + Ansible + Flux.
+2. **The bootstrap secrets** — 1Password **"Homelab 2.0"** vault. To rebuild from zero you need:
+   - `[Bootstrap] - Manual - Vault - Root token` + `[Bootstrap] - Manual - Vault - Recovery keys` — Vault root + unseal
+   - `[Bootstrap] - Manual - AWS - KMS unseal access key` + `[Bootstrap] - Manual - Vault - KMS unseal config` — auto-unseal (region + key ARN)
+   - `[Bootstrap] - Manual - Sealed Secrets - Master keys` — decrypts every SealedSecret; **apply BEFORE the sealed-secrets controller starts** (Section 5)
+   - `[Bootstrap] - Manual - Flux - Deploy key` — reuse so `flux bootstrap` doesn't orphan the GitHub deploy key (Section 5)
+   - `[Asgard] - Ansible - Vault - AppRole (ansible-local)` — Ansible→Vault runtime creds
+   - `[Asgard] - Manual - Ansible - Vault password` — decrypts `group_vars/all/vault.yml`
+   - `[Infra] - ansible - SSH - Private key` + `[Infra] - recovery - SSH - Private key` — node + break-glass access
+   - `[Infra] - Terraform - Proxmox - API token` (+ `Root password` for ticket-auth LXCs) — Proxmox provider
+   - `[Asgard] - Terraform - AWS - State access key` (+ `Bootstrap access key` for the `aws/` module) — Terraform S3 state
+   - `[Asgard] - Manual - K3s - Kubeconfig (asgard)` — cluster access once it's up
+3. **This runbook** — the procedure below.
+4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`); AppRole bootstrap in [`docs/architecture/identity-secrets.md`](../architecture/identity-secrets.md).
+
+**Which sections apply:** Section 2 (the one-time `must-run → asgard` rename) is **historical** — the cluster is already `asgard`. For a rebuild, run **§1 (capture) → §3 (checks) → §4 (teardown) → §5 (rebuild) → §6 (verify)** and **skip §2**.
+
+---
+
+*Last updated: 2026-05-17 (rebuild validated) — DR entry point added 2026-05-31. Restore path validated 2026-05-31 (PBS CT backup→destroy→restore, sentinel intact).*
 
 The first deliberate end-to-end rebuild of the production K3s cluster. Combines a directory/naming rename (`must-run` → `asgard`, `can-run` → `jotunheim`) with a clean teardown and rebuild from IaC. Validates that the IaC is complete and the rebuild path actually works.
 
