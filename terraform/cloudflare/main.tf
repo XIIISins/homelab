@@ -103,6 +103,20 @@ resource "cloudflare_dns_record" "startpage" {
   ttl     = 1 # 1 = automatic, required when proxied = true
 }
 
+# MicroBin — public pastebin/file-share tunnelled through cloudflared.
+# Cloudflared ingress rule in k8s/asgard/infrastructure/cloudflared/
+# configmap.yaml (paste.xiiisins.com → Traefik backchannel). Anonymous
+# create/view; /pastalist + /admin gated by Authentik (terraform/authentik/
+# microbin.tf). External-only.
+resource "cloudflare_dns_record" "microbin" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "paste.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1 # 1 = automatic, required when proxied = true
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #

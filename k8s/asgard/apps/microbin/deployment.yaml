@@ -1,0 +1,85 @@
+# k8s/asgard/apps/microbin/deployment.yaml
+#
+# MicroBin — public pastebin/file-share at paste.xiiisins.com. Single
+# replica (JSON DB is single-writer), Recreate strategy so the NFS RWO
+# volume hands off cleanly on rollout.
+#
+# Storage perms: the NFS export allows root, so a root init container
+# chowns /data to the non-root runtime UID (1000), then MicroBin runs as
+# 1000 — same proven pattern as Garage (the other nfs-client consumer).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: microbin
+  namespace: microbin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: microbin
+  template:
+    metadata:
+      labels:
+        app: microbin
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: data-chown
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+            - chown -R 1000:1000 /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: true
+      containers:
+        - name: microbin
+          image: danielszabo99/microbin:2.1.4
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: microbin-config
+            - secretRef:
+                name: microbin-admin
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              # Headroom for multipart upload buffering up to the 256MB cap.
+              memory: 512Mi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: microbin-data

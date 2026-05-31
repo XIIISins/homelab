@@ -1,0 +1,40 @@
+# k8s/asgard/apps/microbin/configmap.yaml
+#
+# Non-secret MicroBin config (env vars). Admin credentials come separately
+# from Vault via ESO (externalsecret.yaml). Full var reference:
+# https://microbin.eu/docs/installation-and-configuration/configuration/
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microbin-config
+  namespace: microbin
+data:
+  MICROBIN_BIND: "0.0.0.0"
+  MICROBIN_PORT: "8080"
+  # JSON store (NOT SQLite) — sidesteps the SQLite-on-NFS mmap/locking
+  # footgun. Attachments are plain files alongside it under /data.
+  MICROBIN_JSON_DB: "true"
+  MICROBIN_DATA_DIR: "/data"
+  # Public URL so generated links + QR codes are correct behind the tunnel.
+  MICROBIN_PUBLIC_PATH: "https://paste.xiiisins.com"
+  # Per-paste "private" checkbox (hidden from /pastalist; URL still works).
+  MICROBIN_PRIVATE: "true"
+  # No URL-based deletion: all deletion flows through the Authentik-gated
+  # /admin interface. Makes "delete" a trusted-janitor-only capability.
+  MICROBIN_EDITABLE: "false"
+  # Burn-after-reading available (good for the password-share use case).
+  MICROBIN_ENABLE_BURN_AFTER: "true"
+  # Unguessable URLs instead of animal-names — matters for the privacy of
+  # unlisted/private pastes on a public service.
+  MICROBIN_HASH_IDS: "true"
+  MICROBIN_QR: "true"
+  # Abuse controls for the anonymous internet-public surface: cap upload
+  # size; default casual pastes to a 24h expiry. MAX_EXPIRY=never still
+  # lets a paste be kept deliberately (the persistent ones are what the
+  # janitor crew prunes).
+  MICROBIN_MAX_FILE_SIZE_UNENCRYPTED_MB: "256"
+  MICROBIN_MAX_FILE_SIZE_ENCRYPTED_MB: "256"
+  MICROBIN_DEFAULT_EXPIRY: "24hour"
+  MICROBIN_MAX_EXPIRY: "never"
+  MICROBIN_DISABLE_TELEMETRY: "true"
+  MICROBIN_DISABLE_UPDATE_CHECKING: "true"

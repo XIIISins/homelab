@@ -88,6 +88,17 @@ semaphore-admins:
   # a second human operator joins. is_superuser=false (no Authentik-
   # side privileges); gating is the per-app policy binding only.
 
+paste-janitors:
+  is_superuser: false
+  # Members can reach MicroBin's gated routes (/pastalist + /admin at
+  # paste.xiiisins.com) via Authentik ForwardAuth through Traefik — the
+  # trusted "janitor" crew who browse the paste list and prune crap.
+  # Anonymous create/view/upload is NOT gated by this group (those paths
+  # bypass the Middleware). MicroBin has no internal user model, so this
+  # group == "can browse + delete any paste"; treat as trusted-only.
+  # is_superuser=false (no Authentik-side privileges); gating is the
+  # per-app policy binding only (see microbin.tf).
+
 vault-admins:
   is_superuser: false
   # Members can authenticate to the HashiCorp Vault UI

@@ -92,6 +92,17 @@ data:
           httpHostHeader: home.xiiisins.com
           noTLSVerify: true
 
+      # MicroBin — public pastebin/file-share. Same Traefik backchannel
+      # pattern; the midgard Gateway's apex-wildcard listener routes
+      # paste.xiiisins.com via the microbin HTTPRoute (which gates
+      # /pastalist + /admin behind Authentik, rest open). CF DNS record:
+      # cloudflare_dns_record.microbin in terraform/cloudflare/main.tf.
+      - hostname: paste.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: paste.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

@@ -740,3 +740,25 @@ resource "vault_kv_secret_v2" "semaphore_app" {
     cookie_encryption     = random_password.semaphore_cookie_encryption.result
   })
 }
+
+# -----------------------------------------------------------------------------
+# MicroBin admin credentials (Services — pastebin/file-share)
+# -----------------------------------------------------------------------------
+# MicroBin's /admin interface (additionally gated by Authentik ForwardAuth
+# at Traefik) is the trusted-janitor cleanup tool — it needs an admin
+# username/password to function. Username is a fixed literal; password is
+# TF-minted. Consumed by k8s/asgard/apps/microbin via ESO
+# (externalsecret.yaml → MICROBIN_ADMIN_USERNAME / _PASSWORD).
+resource "random_password" "microbin_admin" {
+  length  = 32
+  special = false # avoid shell/URL-escaping pain; alphanumeric is plenty
+}
+
+resource "vault_kv_secret_v2" "microbin_admin" {
+  mount = vault_mount.kv.path
+  name  = "k8s/microbin/admin"
+  data_json = jsonencode({
+    username = "janitor"
+    password = random_password.microbin_admin.result
+  })
+}

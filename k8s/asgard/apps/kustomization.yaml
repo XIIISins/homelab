@@ -45,3 +45,9 @@ resources:
   # OIDC-critical WebFinger pod, and a content update (rollout restart)
   # only bounces the startpage. 3 replicas, one per worker.
   - startpage
+  # MicroBin — public pastebin/file-share at paste.xiiisins.com (external
+  # via cloudflared). Anonymous create/view; /pastalist + /admin gated by
+  # Authentik ForwardAuth (paste-janitors group) for trusted cleanup.
+  # JSON DB + attachments on NFS. terraform/authentik/microbin.tf +
+  # terraform/vault (admin creds) + terraform/cloudflare (CNAME).
+  - microbin

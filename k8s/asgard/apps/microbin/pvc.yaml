@@ -1,0 +1,23 @@
+# k8s/asgard/apps/microbin/pvc.yaml
+#
+# MicroBin persists its JSON DB + file attachments under MICROBIN_DATA_DIR
+# (/data). NFS (`nfs-client`) is the right tier: file-class data, no LUN
+# limit, Retain reclaim, and — unlike local-path — not pinned to one node,
+# so the single replica can reschedule freely. JSON DB (not SQLite) avoids
+# the SQLite-on-NFS mmap/locking footgun.
+#
+# RWO is intentional: MicroBin is single-writer (one replica, Recreate
+# strategy). NFS still lets the PV re-attach on a different node after the
+# old pod terminates.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: microbin-data
+  namespace: microbin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 20Gi
