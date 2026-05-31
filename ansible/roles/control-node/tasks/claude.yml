@@ -1,0 +1,80 @@
+# ansible/roles/control-node/tasks/claude.yml
+---
+# Claude Code remote-control: the OAuth token (from Vault) in a root:ghost
+# EnvironmentFile, a tuned ~ghost/.claude/settings.json allow-list, and a
+# systemd service running `claude remote-control --spawn worktree` as ghost.
+# The service is enabled but only started when the token file is present —
+# so a provision run that hasn't been given the token doesn't crash-loop.
+
+- name: Resolve Claude OAuth token from Vault
+  ansible.builtin.set_fact:
+    control_node_claude_token: "{{ lookup('community.hashi_vault.vault_kv2_get', control_node_vault_claude_token_path).secret.value }}"
+  no_log: true
+  tags: [control-node, control-node:claude]
+
+- name: Write Claude OAuth EnvironmentFile
+  ansible.builtin.copy:
+    content: "CLAUDE_CODE_OAUTH_TOKEN={{ control_node_claude_token }}\n"
+    dest: "{{ control_node_claude_env_path }}"
+    owner: root
+    group: "{{ control_node_operator_group }}"
+    mode: "0640"
+  no_log: true
+  notify: restart claude-remote-control
+  tags: [control-node, control-node:claude]
+
+- name: Ensure operator ~/.claude dir exists
+  ansible.builtin.file:
+    path: "{{ control_node_claude_settings_dir }}"
+    state: directory
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0755"
+  tags: [control-node, control-node:claude]
+
+# Conservative allow-list so a mobile remote-control session isn't
+# prompt-stormed on routine read-only ops. Anything mutating (apply, push,
+# kubectl apply, rm, etc.) deliberately still prompts.
+- name: Render operator Claude settings.json
+  ansible.builtin.template:
+    src: claude-settings.json.j2
+    dest: "{{ control_node_claude_settings_dir }}/settings.json"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  tags: [control-node, control-node:claude]
+
+- name: Render claude-remote-control systemd unit
+  ansible.builtin.template:
+    src: claude-remote-control.service.j2
+    dest: "/etc/systemd/system/{{ control_node_claude_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart claude-remote-control
+  tags: [control-node, control-node:claude]
+
+# Probe whether the token file is actually present before deciding to start.
+- name: Check for Claude OAuth EnvironmentFile
+  ansible.builtin.stat:
+    path: "{{ control_node_claude_env_path }}"
+  register: control_node_claude_env_stat
+  tags: [control-node, control-node:claude]
+
+# Always enable (so it comes up on boot once the token exists); only start
+# now if the token file is present.
+- name: Enable claude-remote-control service
+  ansible.builtin.systemd:
+    name: "{{ control_node_claude_service_name }}"
+    enabled: true
+    daemon_reload: true
+  tags: [control-node, control-node:claude]
+
+- name: Start claude-remote-control service (token present only)
+  ansible.builtin.systemd:
+    name: "{{ control_node_claude_service_name }}"
+    state: started
+  when: control_node_claude_env_stat.stat.exists
+  tags: [control-node, control-node:claude]

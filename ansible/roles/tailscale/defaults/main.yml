@@ -20,6 +20,10 @@ tailscale_authkey_vault_path: "ansible/tailscale/authkeys/{{ inventory_hostname 
 # Per-host vars — optional:
 #   tailscale_advertise_routes     CSV of CIDRs, e.g. "10.0.0.0/16"
 #   tailscale_advertise_exit_node  boolean
+#   tailscale_ssh                  boolean — pass --ssh to `tailscale up`,
+#                                  enabling Tailscale SSH (tailnet-ACL-gated
+#                                  inbound SSH that bypasses the host sshd).
+#                                  Backward-compatible: unset → not passed.
 
 # Pass --reset on every `tailscale up` invocation so any flag not
 # explicitly passed reverts to default. Keeps state in sync with

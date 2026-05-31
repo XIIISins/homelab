@@ -1,0 +1,35 @@
+{# ansible/roles/control-node/templates/claude-remote-control.service.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/control-node/templates/claude-remote-control.service.j2
+
+[Unit]
+Description=Claude Code remote-control (Frigg watchtower)
+Documentation=https://docs.claude.com/en/docs/claude-code
+After=network-online.target
+Wants=network-online.target
+# Don't crash-loop forever if claude exits non-zero repeatedly.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User={{ control_node_operator_user }}
+Group={{ control_node_operator_group }}
+WorkingDirectory={{ control_node_claude_workdir }}
+
+# CLAUDE_CODE_OAUTH_TOKEN comes from the Vault-sourced EnvironmentFile.
+# The unit is enabled at provision time but only started once this file
+# exists (claude.yml gates the start) — so a tokenless provision run
+# doesn't crash-loop.
+EnvironmentFile={{ control_node_claude_env_path }}
+
+# /usr/bin/env so claude resolves via PATH (npm global under the NodeSource
+# prefix). --spawn worktree: each remote session lands in an isolated git
+# worktree rather than mutating the shared checkout.
+ExecStart=/usr/bin/env claude remote-control --spawn worktree
+
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

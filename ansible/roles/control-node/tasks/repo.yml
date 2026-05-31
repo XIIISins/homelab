@@ -1,0 +1,78 @@
+# ansible/roles/control-node/tasks/repo.yml
+---
+# GitHub deploy key + homelab repo checkout for ghost. The deploy key comes
+# from Vault (ansible/frigg/github-deploy-key); the repo is cloned once and
+# then left alone (no force-pull — the operator/claude drive git from here).
+
+- name: Resolve GitHub deploy key from Vault
+  ansible.builtin.set_fact:
+    control_node_github_key: "{{ lookup('community.hashi_vault.vault_kv2_get', control_node_vault_github_key_path).secret }}"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Install GitHub deploy private key
+  ansible.builtin.copy:
+    content: "{{ control_node_github_key.private_key }}{{ '' if control_node_github_key.private_key.endswith('\n') else '\n' }}"
+    dest: "{{ control_node_operator_home }}/.ssh/id_ed25519"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0600"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Install GitHub deploy public key
+  ansible.builtin.copy:
+    content: "{{ control_node_github_key.public_key }}{{ '' if control_node_github_key.public_key.endswith('\n') else '\n' }}"
+    dest: "{{ control_node_operator_home }}/.ssh/id_ed25519.pub"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Add github.com to operator known_hosts
+  ansible.builtin.copy:
+    content: "{{ control_node_github_known_hosts }}"
+    dest: "{{ control_node_operator_home }}/.ssh/known_hosts"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  tags: [control-node, control-node:repo]
+
+- name: Add SSH config entry pinning the deploy key for github.com
+  ansible.builtin.blockinfile:
+    path: "{{ control_node_operator_home }}/.ssh/config"
+    create: true
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0600"
+    marker: "# {mark} ANSIBLE MANAGED — github deploy key"
+    block: |
+      Host github.com
+          HostName github.com
+          User git
+          IdentityFile {{ control_node_operator_home }}/.ssh/id_ed25519
+          IdentitiesOnly yes
+  tags: [control-node, control-node:repo]
+
+# Clone idempotently: clone if the dir is absent, otherwise leave it. We do
+# NOT force-pull — the working tree is the operator's / claude's; a forced
+# update would clobber in-flight work + worktrees.
+- name: Check for existing repo checkout
+  ansible.builtin.stat:
+    path: "{{ control_node_repo_dest }}/.git"
+  register: control_node_repo_stat
+  tags: [control-node, control-node:repo]
+
+- name: Clone homelab repo (first time only)
+  ansible.builtin.git:
+    repo: "{{ control_node_repo_url }}"
+    dest: "{{ control_node_repo_dest }}"
+    accept_newhostkey: false   # known_hosts pre-seeded above
+    update: false
+    version: main
+  become_user: "{{ control_node_operator_user }}"
+  when:
+    - not control_node_repo_stat.stat.exists
+    - not ansible_check_mode
+  tags: [control-node, control-node:repo]

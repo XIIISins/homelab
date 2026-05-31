@@ -1,0 +1,253 @@
+# ansible/roles/control-node/tasks/toolchain.yml
+---
+# IaC toolchain, concrete-pinned. Apt repos use the modern signed-by
+# keyring pattern (apt-key is deprecated). helm + flux ship as upstream
+# release tarballs (no apt repo); node ships from NodeSource; Claude Code
+# is an npm global. All pins live in defaults/main.yml — bump there.
+
+# ---------------------------------------------------------------------------
+# HashiCorp apt repo → terraform + vault
+# ---------------------------------------------------------------------------
+- name: Download HashiCorp apt keyring
+  ansible.builtin.get_url:
+    url: "{{ control_node_hashicorp_gpg_url }}"
+    dest: "{{ control_node_hashicorp_keyring }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Dearmor HashiCorp keyring
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ control_node_hashicorp_keyring }} {{ control_node_hashicorp_keyring }}.asc"
+    creates: "{{ control_node_hashicorp_keyring }}"
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Install HashiCorp apt source
+  ansible.builtin.copy:
+    dest: "{{ control_node_hashicorp_sources_path }}"
+    content: |
+      # Managed by ansible/roles/control-node
+      deb [signed-by={{ control_node_hashicorp_keyring }}] {{ control_node_hashicorp_repo_base }} {{ ansible_distribution_release }} main
+    owner: root
+    group: root
+    mode: "0644"
+  register: control_node_hashicorp_repo
+  tags: [control-node, control-node:toolchain]
+
+# ---------------------------------------------------------------------------
+# Kubernetes apt repo (pkgs.k8s.io) → kubectl
+# ---------------------------------------------------------------------------
+- name: Download Kubernetes apt keyring
+  ansible.builtin.get_url:
+    url: "{{ control_node_k8s_repo_base }}Release.key"
+    dest: "{{ control_node_k8s_keyring }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Dearmor Kubernetes keyring
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ control_node_k8s_keyring }} {{ control_node_k8s_keyring }}.asc"
+    creates: "{{ control_node_k8s_keyring }}"
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Install Kubernetes apt source
+  ansible.builtin.copy:
+    dest: "{{ control_node_k8s_sources_path }}"
+    content: |
+      # Managed by ansible/roles/control-node — channel v{{ control_node_kubectl_minor }}
+      deb [signed-by={{ control_node_k8s_keyring }}] {{ control_node_k8s_repo_base }} /
+    owner: root
+    group: root
+    mode: "0644"
+  register: control_node_k8s_repo
+  tags: [control-node, control-node:toolchain]
+
+# ---------------------------------------------------------------------------
+# NodeSource apt repo → Node.js LTS (for Claude Code via npm)
+# ---------------------------------------------------------------------------
+- name: Download NodeSource apt keyring
+  ansible.builtin.get_url:
+    url: "{{ control_node_nodesource_gpg_url }}"
+    dest: "{{ control_node_nodesource_keyring }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Dearmor NodeSource keyring
+  ansible.builtin.command:
+    cmd: "gpg --batch --yes --dearmor -o {{ control_node_nodesource_keyring }} {{ control_node_nodesource_keyring }}.asc"
+    creates: "{{ control_node_nodesource_keyring }}"
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]
+
+- name: Install NodeSource apt source
+  ansible.builtin.copy:
+    dest: "{{ control_node_nodesource_sources_path }}"
+    content: |
+      # Managed by ansible/roles/control-node — Node {{ control_node_node_major }}.x LTS
+      deb [signed-by={{ control_node_nodesource_keyring }}] {{ control_node_nodesource_repo_base }} nodistro main
+    owner: root
+    group: root
+    mode: "0644"
+  register: control_node_nodesource_repo
+  tags: [control-node, control-node:toolchain]
+
+# ---------------------------------------------------------------------------
+# Refresh apt once after all repos land, then install pinned packages
+# ---------------------------------------------------------------------------
+- name: Refresh apt cache after adding repos
+  ansible.builtin.apt:
+    update_cache: true
+  when:
+    - not ansible_check_mode
+    - control_node_hashicorp_repo.changed or control_node_k8s_repo.changed or control_node_nodesource_repo.changed
+  tags: [control-node, control-node:toolchain]
+
+- name: Install terraform (pinned)
+  ansible.builtin.apt:
+    name: "terraform={{ control_node_terraform_version }}"
+    state: present
+    allow_downgrade: true
+  tags: [control-node, control-node:toolchain]
+
+- name: Install vault CLI (pinned)
+  ansible.builtin.apt:
+    name: "vault={{ control_node_vault_version }}"
+    state: present
+    allow_downgrade: true
+  tags: [control-node, control-node:toolchain]
+
+- name: Install kubectl (pinned)
+  ansible.builtin.apt:
+    name: "kubectl={{ control_node_kubectl_version }}"
+    state: present
+    allow_downgrade: true
+  tags: [control-node, control-node:toolchain]
+
+- name: Install Node.js (NodeSource)
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+  tags: [control-node, control-node:toolchain]
+
+# Ansible itself + hvac (for community.hashi_vault lookups when ansible runs
+# ON Frigg). Installed from Debian apt — system-wide, no venv. ansible-lint
+# is handy for the operator's own dev loop on the control node.
+- name: Install ansible + lookup deps
+  ansible.builtin.apt:
+    name:
+      - ansible
+      - python3-hvac
+    state: present
+  tags: [control-node, control-node:toolchain]
+
+# ---------------------------------------------------------------------------
+# helm + flux — upstream release tarballs (no apt repo). Idempotent via a
+# version-stamped marker so re-runs don't re-download. The single binary is
+# extracted to /usr/local/bin.
+# ---------------------------------------------------------------------------
+- name: Check installed helm version
+  ansible.builtin.command: "{{ control_node_local_bin }}/helm version --short --template '{{ '{{' }}.Version{{ '}}' }}'"
+  register: control_node_helm_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [control-node, control-node:toolchain]
+
+- name: Install helm (pinned tarball)
+  when:
+    - not ansible_check_mode
+    - control_node_helm_version not in (control_node_helm_installed.stdout | default(''))
+  tags: [control-node, control-node:toolchain]
+  block:
+    - name: Create helm download tempdir
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: helm
+      register: control_node_helm_tmp
+
+    - name: Download + extract helm
+      ansible.builtin.unarchive:
+        src: "{{ control_node_helm_download_url }}"
+        dest: "{{ control_node_helm_tmp.path }}"
+        remote_src: true
+
+    - name: Install helm binary
+      ansible.builtin.copy:
+        src: "{{ control_node_helm_tmp.path }}/linux-amd64/helm"
+        dest: "{{ control_node_local_bin }}/helm"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Clean up helm tempdir
+      ansible.builtin.file:
+        path: "{{ control_node_helm_tmp.path }}"
+        state: absent
+
+- name: Check installed flux version
+  ansible.builtin.command: "{{ control_node_local_bin }}/flux version --client --short"
+  register: control_node_flux_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [control-node, control-node:toolchain]
+
+- name: Install flux CLI (pinned tarball)
+  when:
+    - not ansible_check_mode
+    - control_node_flux_version not in (control_node_flux_installed.stdout | default(''))
+  tags: [control-node, control-node:toolchain]
+  block:
+    - name: Create flux download tempdir
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: flux
+      register: control_node_flux_tmp
+
+    - name: Download + extract flux
+      ansible.builtin.unarchive:
+        src: "{{ control_node_flux_download_url }}"
+        dest: "{{ control_node_flux_tmp.path }}"
+        remote_src: true
+
+    - name: Install flux binary
+      ansible.builtin.copy:
+        src: "{{ control_node_flux_tmp.path }}/flux"
+        dest: "{{ control_node_local_bin }}/flux"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Clean up flux tempdir
+      ansible.builtin.file:
+        path: "{{ control_node_flux_tmp.path }}"
+        state: absent
+
+# ---------------------------------------------------------------------------
+# Claude Code — npm global. Installed via npm (vs the curl|bash installer)
+# so it lands system-wide under the NodeSource prefix + is upgradable with
+# the rest of the toolchain. Pin via control_node_claude_code_version.
+# ---------------------------------------------------------------------------
+- name: Install Claude Code (npm global, pinned)
+  community.general.npm:
+    name: "@anthropic-ai/claude-code"
+    version: "{{ control_node_claude_code_version if control_node_claude_code_version != 'latest' else omit }}"
+    global: true
+    state: "{{ 'latest' if control_node_claude_code_version == 'latest' else 'present' }}"
+  when: not ansible_check_mode
+  tags: [control-node, control-node:toolchain]

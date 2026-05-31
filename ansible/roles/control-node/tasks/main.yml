@@ -1,0 +1,34 @@
+# ansible/roles/control-node/tasks/main.yml
+---
+# Frigg control-node persona. Split into focused includes so --tags can
+# drive a single concern (packages / toolchain / user / vault-env / repo /
+# claude) during iteration. Order matters:
+#   packages  → base OS deps (qemu-guest-agent, git, jq, repo prereqs)
+#   toolchain → terraform / vault / kubectl / helm / flux / node / claude
+#   user      → operator `ghost` (must exist before its home dirs are seeded)
+#   vault-env → AppRole secret-zero + homelab-env shim
+#   repo      → GitHub deploy key + clone (needs ghost + ssh dir)
+#   claude    → OAuth token EnvironmentFile + remote-control systemd service
+- name: Install base packages
+  ansible.builtin.include_tasks: packages.yml
+  tags: [control-node, control-node:packages]
+
+- name: Install IaC toolchain
+  ansible.builtin.include_tasks: toolchain.yml
+  tags: [control-node, control-node:toolchain]
+
+- name: Create operator user
+  ansible.builtin.include_tasks: user.yml
+  tags: [control-node, control-node:user]
+
+- name: Seed Vault AppRole + env shim
+  ansible.builtin.include_tasks: vault-env.yml
+  tags: [control-node, control-node:vault-env]
+
+- name: Deploy GitHub key + clone repo
+  ansible.builtin.include_tasks: repo.yml
+  tags: [control-node, control-node:repo]
+
+- name: Configure Claude Code remote-control
+  ansible.builtin.include_tasks: claude.yml
+  tags: [control-node, control-node:claude]

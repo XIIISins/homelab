@@ -1,0 +1,18 @@
+# ansible/roles/control-node/meta/main.yml
+---
+galaxy_info:
+  role_name: control_node
+  author: XIIISins
+  description: >
+    Turns a Debian 13 VM into the homelab control node "Frigg" — the
+    always-on watchtower. Installs the IaC toolchain (terraform / vault /
+    kubectl / helm / flux / node / Claude Code), the operator user `ghost`,
+    a Vault-backed env shim (homelab-env, AppRole-authenticated), a GitHub
+    deploy key + repo checkout, and a claude-remote-control systemd service.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

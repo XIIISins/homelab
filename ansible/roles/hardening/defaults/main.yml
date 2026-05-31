@@ -7,6 +7,14 @@ ssh_permit_root_login: "prohibit-password"
 ssh_password_authentication: "no"
 ssh_pubkey_authentication: "yes"
 
+# Extra (non-default) interactive users permitted by sshd AllowUsers,
+# beyond the always-present `ansible` runtime user + the break-glass
+# `{{ breakglass_user }}` (recovery). Backward-compatible: empty on every
+# existing host, so the rendered AllowUsers line is unchanged. The
+# control-node (Frigg) sets this to ["ghost"] so the operator can SSH in
+# to drive Claude. See group_vars/control.yml.
+ssh_extra_allow_users: []
+
 # SELinux
 selinux_state: enforcing
 selinux_policy: targeted

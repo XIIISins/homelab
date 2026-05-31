@@ -1,0 +1,148 @@
+{# ansible/roles/control-node/templates/homelab-env.sh.j2 #}
+# /usr/local/bin/homelab-env — Vault-backed control-node env shim (Frigg).
+#
+# The MacBook's .config/scripts/homelab.sh sources secrets from 1Password;
+# this Frigg equivalent sources them from HashiCorp Vault via the
+# `ansible-frigg` AppRole. Same public surface (`homelab-env`), different
+# secret backend.
+#
+# MUST be sourced (not executed) — env vars set in a child process don't
+# reach the parent shell:
+#     . /usr/local/bin/homelab-env
+# /etc/profile.d/homelab-env.sh sources it automatically for ghost's login
+# shells.
+#
+# What it does, on source:
+#   1. reads RoleID + SecretID from {{ control_node_approle_env_path }}
+#      (root-only file; ghost reads it via sudo -n cat — NOPASSWD)
+#   2. AppRole-logs-in to Vault, gets a token (never printed)
+#   3. exports VAULT_ADDR + VAULT_TOKEN
+#   4. pulls {{ control_node_vault_iac_env_path }} and exports each field as
+#      its UPPERCASE env var (proxmox_api_token → TF_VAR_proxmox_api_token)
+#   5. writes the kubeconfig to {{ control_node_kubeconfig_path }} + exports
+#      KUBECONFIG
+#   6. writes the ansible-vault password to {{ control_node_ansible_vault_pw_file }}
+#      + exports ANSIBLE_VAULT_PASSWORD_FILE
+#   7. exports ANSIBLE_HASHI_VAULT_ADDR + _AUTH_METHOD=approle + _ROLE_ID +
+#      _SECRET_ID so ansible runs ON Frigg can do Vault lookups
+#
+# Secrets are never echoed: values flow through `vault kv get -field=` into
+# shell vars / files, never into stdout.
+
+# === Config (rendered from role defaults) ===
+__frigg_approle_env="{{ control_node_approle_env_path }}"
+__frigg_iac_env_path="secret/{{ control_node_vault_iac_env_path }}"
+__frigg_kubeconfig_vault_path="secret/{{ control_node_vault_kubeconfig_path }}"
+__frigg_ansible_vault_pw_vault_path="secret/{{ control_node_vault_ansible_vault_pw_path }}"
+__frigg_kubeconfig_out="{{ control_node_kubeconfig_path }}"
+__frigg_ansible_vault_pw_out="{{ control_node_ansible_vault_pw_file }}"
+
+# iac-env field → exported env var (kept in lockstep with
+# control_node_iac_env_fields in roles/control-node/defaults/main.yml).
+__frigg_iac_env_map=(
+{% for m in control_node_iac_env_fields %}
+    "{{ m.field }}|{{ m.env }}"
+{% endfor %}
+)
+
+# === Helpers ===
+
+# Read a field from the root-only approle env file. ghost has NOPASSWD sudo,
+# so `sudo -n` is non-interactive; root reads it directly.
+__frigg_read_approle() {
+    # $1 = var name in the env file (VAULT_ADDR|FRIGG_ROLE_ID|FRIGG_SECRET_ID)
+    if [ -r "$__frigg_approle_env" ]; then
+        # shellcheck disable=SC2002
+        grep -E "^$1=" "$__frigg_approle_env" | head -n1 | cut -d= -f2-
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -n grep -E "^$1=" "$__frigg_approle_env" 2>/dev/null | head -n1 | cut -d= -f2-
+    fi
+}
+
+# === Public ===
+
+homelab-env() {
+    case "${1:-}" in
+        -h|--help)
+            echo "Usage: . homelab-env        Load Frigg env from Vault (AppRole)."
+            echo "Reads RoleID/SecretID from $__frigg_approle_env, logs in to"
+            echo "Vault, exports the IaC env + KUBECONFIG + ANSIBLE_VAULT_PASSWORD_FILE"
+            echo "+ ANSIBLE_HASHI_VAULT_* approle vars. Source it (don't execute)."
+            return 0
+            ;;
+    esac
+
+    local role_id secret_id vault_token loaded=0
+    local vault_addr entry field env_var value
+
+    vault_addr=$(__frigg_read_approle VAULT_ADDR)
+    role_id=$(__frigg_read_approle FRIGG_ROLE_ID)
+    secret_id=$(__frigg_read_approle FRIGG_SECRET_ID)
+
+    if [ -z "$role_id" ] || [ -z "$secret_id" ]; then
+        echo "homelab-env: cannot read AppRole creds from $__frigg_approle_env" >&2
+        echo "  (file missing, unreadable, or SecretID not yet seeded)" >&2
+        return 1
+    fi
+    [ -n "$vault_addr" ] && export VAULT_ADDR="$vault_addr"
+    : "${VAULT_ADDR:={{ control_node_vault_addr }}}"
+    export VAULT_ADDR
+
+    if ! command -v vault >/dev/null 2>&1; then
+        echo "homelab-env: vault CLI not found on PATH" >&2
+        return 1
+    fi
+
+    # AppRole login → token. -field=token emits only the raw token (no table
+    # formatting), so the secret never lands in a human-readable dump.
+    vault_token=$(vault write -field=token auth/approle/login \
+        role_id="$role_id" secret_id="$secret_id" 2>/dev/null)
+    if [ -z "$vault_token" ]; then
+        echo "homelab-env: Vault AppRole login failed (check SecretID validity)" >&2
+        return 1
+    fi
+    export VAULT_TOKEN="$vault_token"
+
+    # ---- IaC env fields → exported env vars ----
+    for entry in "${__frigg_iac_env_map[@]}"; do
+        field=${entry%%|*}
+        env_var=${entry#*|}
+        if value=$(vault kv get -field="$field" "$__frigg_iac_env_path" 2>/dev/null); then
+            export "$env_var=$value"
+            loaded=$((loaded + 1))
+        else
+            echo "homelab-env: warning — field '$field' missing from $__frigg_iac_env_path" >&2
+        fi
+    done
+
+    # ---- kubeconfig ----
+    mkdir -p "$(dirname "$__frigg_kubeconfig_out")"
+    if value=$(vault kv get -field=config "$__frigg_kubeconfig_vault_path" 2>/dev/null); then
+        ( umask 077; printf '%s' "$value" > "$__frigg_kubeconfig_out" )
+        chmod 600 "$__frigg_kubeconfig_out"
+        export KUBECONFIG="$__frigg_kubeconfig_out"
+    else
+        echo "homelab-env: warning — kubeconfig not found at $__frigg_kubeconfig_vault_path" >&2
+    fi
+
+    # ---- ansible-vault password ----
+    if value=$(vault kv get -field=value "$__frigg_ansible_vault_pw_vault_path" 2>/dev/null); then
+        ( umask 077; printf '%s' "$value" > "$__frigg_ansible_vault_pw_out" )
+        chmod 600 "$__frigg_ansible_vault_pw_out"
+        export ANSIBLE_VAULT_PASSWORD_FILE="$__frigg_ansible_vault_pw_out"
+    else
+        echo "homelab-env: warning — ansible-vault password not found" >&2
+    fi
+
+    # ---- ansible community.hashi_vault AppRole auth (for ansible ON Frigg) ----
+    export ANSIBLE_HASHI_VAULT_ADDR="$VAULT_ADDR"
+    export ANSIBLE_HASHI_VAULT_AUTH_METHOD="approle"
+    export ANSIBLE_HASHI_VAULT_ROLE_ID="$role_id"
+    export ANSIBLE_HASHI_VAULT_SECRET_ID="$secret_id"
+
+    echo "Loaded Frigg homelab env from Vault ($loaded iac-env var(s), kubeconfig, ansible-vault, hashi_vault approle)."
+}
+
+# When sourced interactively from /etc/profile.d, load immediately.
+# When sourced manually the caller invokes `homelab-env` themselves; do not
+# auto-run here to keep `. homelab-env && some-cmd` predictable.

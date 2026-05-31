@@ -1,0 +1,70 @@
+# ansible/playbooks/asgard-control.yml
+---
+# Provisions the control node "Frigg" (always-on Debian 13 watchtower VM,
+# 10.0.11.30). The node from which Terraform / Ansible / kubectl / flux are
+# driven, and where Claude Code runs remote-control so the operator can drive
+# the homelab from a mobile session.
+#
+# End state:
+#   - Debian 13 VM, baseline-converged (ansible + recovery users, resolv.conf,
+#     qemu-guest-agent, timezone/locale)
+#   - IaC toolchain (terraform / vault / kubectl / helm / flux / node / claude)
+#   - operator user `ghost` (bash + NOPASSWD sudo) — SSH-permitted alongside
+#     ansible + recovery (hardening ssh_extra_allow_users, set in group_vars)
+#   - Vault-backed homelab-env shim + AppRole secret-zero
+#   - GitHub deploy key + ~ghost/homelab checkout
+#   - claude-remote-control systemd service (runs as ghost)
+#   - Tailscale joined with --ssh (tailnet-ACL-gated inbound SSH) + server tag
+#   - vlagent + zabbix-agent for observability
+#   - Hardened SSH posture
+#
+# Bootstrap (first run — VM has only root SSH, no ansible user yet):
+#     ansible-playbook -e 'ansible_user=root' --tags baseline playbooks/asgard-control.yml
+#
+# Subsequent runs (ansible_user: ansible from group_vars):
+#     ansible-playbook playbooks/asgard-control.yml
+#
+# Secret-zero (the Vault AppRole SecretID) is supplied out-of-band — either
+# pre-placed at /etc/frigg/vault-approle.env, or passed once:
+#     ansible-playbook playbooks/asgard-control.yml \
+#       --tags control-node \
+#       -e control_node_frigg_secret_id=<minted-secret-id>
+#
+# Provision-time Vault lookups (github key, claude token, etc.) authenticate
+# via the operator's env (VAULT_ADDR + ANSIBLE_HASHI_VAULT_*) set BEFORE the
+# run — same pattern as the tailscale role.
+
+- name: Configure control node (Frigg watchtower)
+  hosts: control
+  gather_facts: true
+  become: true
+
+  # Single host today. serial: 1 kept explicit so a future HA pair (if one
+  # ever lands) defaults to one-at-a-time.
+  serial: 1
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # The control-node persona: toolchain + operator user + Vault env shim +
+    # repo checkout + Claude remote-control.
+    - role: control-node
+      tags: [control-node]
+
+    # Tailnet membership with Tailscale SSH on — the primary inbound path for
+    # the operator's mobile sessions (ACL-gated, bypasses host sshd). server
+    # tag + auto-renewing key (terraform/tailscale/).
+    - role: tailscale
+      tags: [tailscale]
+
+    # Ship journald + toolchain logs to VictoriaLogs.
+    - role: vlagent
+      tags: [vlagent]
+
+    # Local agent for self-monitoring (process/disk/load).
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

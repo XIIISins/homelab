@@ -30,6 +30,7 @@
       --advertise-tags=tag:{{ tailscale_tag }}
       {% if tailscale_advertise_routes is defined and tailscale_advertise_routes %}--advertise-routes={{ tailscale_advertise_routes }}{% endif %}
       {% if tailscale_advertise_exit_node | default(false) %}--advertise-exit-node{% endif %}
+      {% if tailscale_ssh | default(false) %}--ssh{% endif %}
       {% if tailscale_up_reset %}--reset{% endif %}
   no_log: true
   changed_when: ts_pre_state != 'Running'

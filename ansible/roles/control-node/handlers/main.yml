@@ -1,0 +1,15 @@
+# ansible/roles/control-node/handlers/main.yml
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart claude-remote-control
+  ansible.builtin.systemd:
+    name: "{{ control_node_claude_service_name }}"
+    state: restarted
+    daemon_reload: true
+  # Only meaningful once the token EnvironmentFile exists; a restart without
+  # it would just crash-loop. The enable/start gating lives in claude.yml;
+  # this handler runs on config change, guarded the same way.
+  when: control_node_claude_env_stat.stat.exists | default(false)
