@@ -25,11 +25,18 @@ data:
   MICROBIN_DATA_DIR: "/app/pasta_data"
   # Public URL so generated links + QR codes are correct behind the tunnel.
   MICROBIN_PUBLIC_PATH: "https://paste.xiiisins.com"
-  # Per-paste "private" checkbox (hidden from /pastalist; URL still works).
+  # Per-paste "private" checkbox (hidden from /list; URL still works).
   MICROBIN_PRIVATE: "true"
-  # No URL-based deletion: all deletion flows through the Authentik-gated
-  # /admin interface. Makes "delete" a trusted-janitor-only capability.
-  MICROBIN_EDITABLE: "false"
+  # Editable pastas. This is what lets the janitor crew DELETE via the
+  # gated /list "Remove" links with NO MicroBin admin password: GET
+  # /remove/{id} deletes an editable pasta directly (remove.rs), only
+  # redirecting to the admin-password prompt for readonly/server-encrypted
+  # pastas. /list, /edit and /remove are all Authentik-gated (see
+  # httproute.yaml), so editing/deleting is trusted-janitor-only and the
+  # MicroBin /admin login is NOT needed for normal cleanup — Authentik is
+  # the only gate. (/admin stays as a password fallback for the rare
+  # readonly/encrypted pasta.)
+  MICROBIN_EDITABLE: "true"
   # Burn-after-reading available (good for the password-share use case).
   MICROBIN_ENABLE_BURN_AFTER: "true"
   # Unguessable URLs instead of animal-names — matters for the privacy of

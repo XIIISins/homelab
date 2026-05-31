@@ -63,6 +63,14 @@ spec:
         - path:
             type: PathPrefix
             value: /remove
+        # /edit gated too: EDITABLE=true makes pastas editable, so without
+        # this anyone could vandalize a public paste via /edit/{id}. Gating
+        # it keeps edit (like remove) a trusted-janitor-only action. The
+        # /edit_private + /auth_* paths self-authorize (need the paste's own
+        # password), so they stay open.
+        - path:
+            type: PathPrefix
+            value: /edit
         - path:
             type: PathPrefix
             value: /outpost.goauthentik.io
