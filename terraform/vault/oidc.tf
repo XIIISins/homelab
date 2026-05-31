@@ -59,9 +59,15 @@ resource "vault_jwt_auth_backend" "oidc" {
 
   # Surface the OIDC method on the unauthenticated Vault UI login dropdown
   # so the operator gets a "Sign in with OIDC" option without typing the
-  # mount path.
+  # mount path. The TTL/token_type fields are pinned to Vault's mount
+  # defaults explicitly — omitting them lets Vault populate them on read,
+  # which produced a perpetual `tune` diff on every plan (the role's own
+  # token_ttl=1h governs issued tokens regardless of the mount default).
   tune {
     listing_visibility = "unauth"
+    default_lease_ttl  = "768h"
+    max_lease_ttl      = "768h"
+    token_type         = "default-service"
   }
 }
 
