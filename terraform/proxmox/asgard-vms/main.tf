@@ -52,16 +52,18 @@ resource "proxmox_virtual_environment_vm" "this" {
     dedicated = each.value.memory
   }
 
-  # Disk on the shared NFS datastore (the HA prerequisite). qcow2 (thin +
-  # snapshots) on the file-backed NFS store; HDD-backed (DS223J RAID1) so
-  # ssd=false. discard=on for thin reclaim.
+  # Disk on the shared NFS datastore (the HA prerequisite). raw, not
+  # qcow2: bpg's full-clone from the raw LVM-thin template base produces a
+  # raw image on the NFS store regardless of file_format, so we declare raw
+  # to match reality (declaring qcow2 forces a data-destroying recreate).
+  # HDD-backed (DS223J RAID1) so ssd=false; discard=on for thin reclaim.
   disk {
     datastore_id = "munin-nfs"
     size         = each.value.disk_size
     interface    = "scsi0"
     discard      = "on"
     ssd          = false
-    file_format  = "qcow2"
+    file_format  = "raw"
   }
 
   network_device {
@@ -102,7 +104,7 @@ resource "proxmox_haresource" "this" {
 
   resource_id = "vm:${each.value.vmid}"
   state       = "started"
-  comment     = "Terraform (asgard-vms) — ${each.key} watchtower"
+  comment     = "Terraform (asgard-vms) - ${each.key} watchtower"
 
   depends_on = [proxmox_virtual_environment_vm.this]
 }
