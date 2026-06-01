@@ -23,7 +23,10 @@
 #      KUBECONFIG
 #   6. writes the ansible-vault password to {{ control_node_ansible_vault_pw_file }}
 #      + exports ANSIBLE_VAULT_PASSWORD_FILE
-#   7. exports ANSIBLE_HASHI_VAULT_ADDR + _AUTH_METHOD=approle + _ROLE_ID +
+#   7. writes the ansible SSH private key to {{ control_node_ansible_ssh_key_file }}
+#      + exports ANSIBLE_PRIVATE_KEY_FILE so ansible-playbook ON Frigg can SSH
+#      to the fleet (the `ansible` user's pubkey is already in their authorized_keys)
+#   8. exports ANSIBLE_HASHI_VAULT_ADDR + _AUTH_METHOD=approle + _ROLE_ID +
 #      _SECRET_ID so ansible runs ON Frigg can do Vault lookups
 #
 # Secrets are never echoed: values flow through `vault kv get -field=` into
@@ -34,8 +37,10 @@ __frigg_approle_env="{{ control_node_approle_env_path }}"
 __frigg_iac_env_path="secret/{{ control_node_vault_iac_env_path }}"
 __frigg_kubeconfig_vault_path="secret/{{ control_node_vault_kubeconfig_path }}"
 __frigg_ansible_vault_pw_vault_path="secret/{{ control_node_vault_ansible_vault_pw_path }}"
+__frigg_ssh_key_vault_path="secret/{{ control_node_vault_ssh_key_path }}"
 __frigg_kubeconfig_out="{{ control_node_kubeconfig_path }}"
 __frigg_ansible_vault_pw_out="{{ control_node_ansible_vault_pw_file }}"
+__frigg_ssh_key_out="{{ control_node_ansible_ssh_key_file }}"
 
 # iac-env field → exported env var (kept in lockstep with
 # control_node_iac_env_fields in roles/control-node/defaults/main.yml).
@@ -144,13 +149,31 @@ homelab-env() {
         echo "homelab-env: warning — ansible-vault password not found" >&2
     fi
 
+    # ---- ansible SSH private key (to reach managed hosts over SSH) ----
+    # Materialize the `ansible` user's private key so `ansible-playbook` ON
+    # Frigg can connect to the fleet (the public half is already in every
+    # host's authorized_keys). ANSIBLE_PRIVATE_KEY_FILE is what ansible.cfg
+    # deliberately leaves unset (so it comes from the env, same as the
+    # MacBook). NOTE: command substitution strips the trailing newline, so
+    # re-add it with `printf '%s\n'` — OpenSSH rejects a key file with no
+    # final newline ("invalid format").
+    mkdir -p "$(dirname "$__frigg_ssh_key_out")"
+    chmod 700 "$(dirname "$__frigg_ssh_key_out")" 2>/dev/null || true
+    if value=$(vault kv get -field=value "$__frigg_ssh_key_vault_path" 2>/dev/null); then
+        ( umask 077; printf '%s\n' "$value" > "$__frigg_ssh_key_out" )
+        chmod 600 "$__frigg_ssh_key_out"
+        export ANSIBLE_PRIVATE_KEY_FILE="$__frigg_ssh_key_out"
+    else
+        echo "homelab-env: warning — ansible SSH key not found at $__frigg_ssh_key_vault_path" >&2
+    fi
+
     # ---- ansible community.hashi_vault AppRole auth (for ansible ON Frigg) ----
     export ANSIBLE_HASHI_VAULT_ADDR="$VAULT_ADDR"
     export ANSIBLE_HASHI_VAULT_AUTH_METHOD="approle"
     export ANSIBLE_HASHI_VAULT_ROLE_ID="$role_id"
     export ANSIBLE_HASHI_VAULT_SECRET_ID="$secret_id"
 
-    echo "Loaded Frigg homelab env from Vault ($loaded iac-env var(s), kubeconfig, ansible-vault, hashi_vault approle)."
+    echo "Loaded Frigg homelab env from Vault ($loaded iac-env var(s), kubeconfig, ansible-vault, ssh-key, hashi_vault approle)."
 }
 
 # When sourced interactively from /etc/profile.d, load immediately.

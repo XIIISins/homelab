@@ -99,6 +99,15 @@ control_node_vault_kubeconfig_path: "ansible/frigg/kubeconfig"
 control_node_vault_ansible_vault_pw_path: "ansible/frigg/ansible-vault-password"
 control_node_vault_github_key_path: "ansible/frigg/github-deploy-key"
 control_node_vault_claude_token_path: "ansible/frigg/claude-oauth-token"
+# Ansible SSH private key for reaching managed hosts (the `ansible` user on
+# every LXC/VM). OPERATOR-PLACED (not TF-minted): it must match the public
+# key already in the fleet's authorized_keys, so it can't be a `random`/
+# `tls_private_key` resource. Currently the shared `ansible_niflheim` key —
+# stored once via `vault kv put secret/ansible/frigg/ssh-private-key
+# value=@~/.ssh/ansible_niflheim`. The shim materializes it on source +
+# exports ANSIBLE_PRIVATE_KEY_FILE so `ansible-playbook` ON Frigg can SSH to
+# the fleet. (Documented as operator-placed in terraform/vault/frigg.tf.)
+control_node_vault_ssh_key_path: "ansible/frigg/ssh-private-key"
 
 # ---- Env shim ----
 # Installed to /usr/local/bin/homelab-env (sourced, not executed). Pulls
@@ -132,6 +141,7 @@ control_node_iac_env_fields:
 # Per-user runtime file locations (written by the shim on source).
 control_node_kubeconfig_path: "{{ control_node_operator_home }}/.kube/config"
 control_node_ansible_vault_pw_file: "{{ control_node_operator_home }}/.vault-pass"
+control_node_ansible_ssh_key_file: "{{ control_node_operator_home }}/.ssh/ansible_homelab"
 
 # ---- GitHub deploy key + repo checkout ----
 control_node_repo_url: "git@github.com:XIIISins/homelab.git"

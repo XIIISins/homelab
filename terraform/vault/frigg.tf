@@ -26,6 +26,20 @@
 #     on Frigg pull + push, mirroring the MacBook GitOps flow). Minting it
 #     here (not on the box) makes it rebuild-safe — a rebuilt Frigg reuses
 #     the same key from Vault, no re-add to GitHub.
+#
+#   - ansible SSH private key (secret/ansible/frigg/ssh-private-key):
+#     OPERATOR-PLACED, deliberately NOT a TF resource. It's the fleet's
+#     existing `ansible_niflheim` key — its public half is already in every
+#     host's `ansible` authorized_keys, so it can't be a fresh tls_private_key
+#     (that wouldn't be authorized anywhere). Stored once with:
+#       vault kv put secret/ansible/frigg/ssh-private-key \
+#         value=@~/.ssh/ansible_niflheim
+#     The control-node `homelab-env` shim materializes it to ~ghost/.ssh +
+#     exports ANSIBLE_PRIVATE_KEY_FILE so ansible-playbook ON Frigg reaches
+#     the fleet. Covered by the homelab-frigg `secret/data/*` read above —
+#     no policy change needed. (A future Frigg-specific keypair distributed
+#     via the baseline role would supersede this; deferred — it needs a
+#     fleet-wide baseline run, which needs a working controller = chicken/egg.)
 
 resource "vault_policy" "homelab_frigg" {
   name = "homelab-frigg"
