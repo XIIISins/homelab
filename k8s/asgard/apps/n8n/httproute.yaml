@@ -1,0 +1,96 @@
+# k8s/asgard/apps/n8n/httproute.yaml
+#
+# Two HTTPRoutes with deliberately ASYMMETRIC exposure:
+#
+#   n8n-niflheim (internal) — serves the FULL app (editor UI + REST API +
+#     webhooks) at n8n.niflheim.xiiisins.com, entirely behind the Authentik
+#     ForwardAuth Middleware. This is how the operator uses n8n. n8n keeps
+#     its own owner login behind the gate (defence-in-depth). Because the
+#     whole route is gated, the /outpost.goauthentik.io callback rides the
+#     gated `/` catchall automatically (no separate rule needed — contrast
+#     MicroBin, whose `/` is open).
+#
+#   n8n-midgard (external + LAN-fast-path) — serves ONLY the public trigger
+#     endpoints (/webhook/*, /webhook-test/*, /webhook-waiting/* and the form
+#     equivalents) at n8n.xiiisins.com (public via cloudflared) and
+#     n8n.midgard.xiiisins.com (LAN bypass of the Cloudflare hop). NO
+#     ForwardAuth — third-party services must POST without an Authentik
+#     round-trip; n8n authenticates webhooks per-workflow. The editor UI is
+#     NOT routed here, so any non-trigger path 404s at Traefik — the public
+#     attack surface is just the webhook handler, not the editor.
+#
+# To widen external exposure to the full UI later, add a `/` catchall rule
+# to n8n-midgard with the ForwardAuth filter (and route /outpost.goauthentik.io
+# through a gated rule, MicroBin-style).
+
+# Internal-only listener (niflheim Gateway) — full app, fully gated.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: n8n-niflheim
+  namespace: n8n
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - n8n.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authentik-forward-auth
+      backendRefs:
+        - name: n8n
+          port: 80
+---
+# External-reachable listeners (midgard Gateway) — webhook/form triggers ONLY,
+# no auth. Two attachments: midgard internal alias + apex wildcard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: n8n-midgard
+  namespace: n8n
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-midgard
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - n8n.midgard.xiiisins.com
+    - n8n.xiiisins.com
+  rules:
+    # Public trigger endpoints only — no ForwardAuth filter. Anything not
+    # matched here is not routed at this hostname (404 from Traefik).
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /webhook/
+        - path:
+            type: PathPrefix
+            value: /webhook-test/
+        - path:
+            type: PathPrefix
+            value: /webhook-waiting/
+        - path:
+            type: PathPrefix
+            value: /form/
+        - path:
+            type: PathPrefix
+            value: /form-test/
+        - path:
+            type: PathPrefix
+            value: /form-waiting/
+      backendRefs:
+        - name: n8n
+          port: 80

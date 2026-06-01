@@ -117,6 +117,22 @@ resource "cloudflare_dns_record" "microbin" {
   ttl     = 1 # 1 = automatic, required when proxied = true
 }
 
+# n8n — public WEBHOOK endpoint tunnelled through cloudflared. Only the
+# /webhook/* paths are routed at this hostname (k8s/asgard/apps/n8n/
+# httproute.yaml exposes nothing else here) so third-party services can
+# deliver inbound webhooks; the editor UI is internal-only at
+# n8n.niflheim.xiiisins.com (Authentik ForwardAuth). Cloudflared ingress
+# rule lives in k8s/asgard/infrastructure/cloudflared/configmap.yaml. LAN
+# clients use the n8n.midgard.xiiisins.com AGH rewrite to skip the tunnel.
+resource "cloudflare_dns_record" "n8n" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "n8n.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1 # 1 = automatic, required when proxied = true
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #

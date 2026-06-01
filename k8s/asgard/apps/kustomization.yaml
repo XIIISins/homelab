@@ -51,3 +51,10 @@ resources:
   # JSON DB + attachments on NFS. terraform/authentik/microbin.tf +
   # terraform/vault (admin creds) + terraform/cloudflare (CNAME).
   - microbin
+  # n8n — workflow automation. Editor UI internal-only at
+  # n8n.niflheim.xiiisins.com behind Authentik ForwardAuth (community n8n
+  # has no native OIDC); public webhook endpoints at n8n.xiiisins.com via
+  # cloudflared (/webhook/* + /form/* only, ungated). Postgres via Patroni
+  # VIP, encryption key from Vault, NO PVC (stateless-on-disk). See
+  # terraform/{vault,authentik,cloudflare,adguard}/ + docs/services/n8n.md.
+  - n8n

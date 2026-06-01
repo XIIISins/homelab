@@ -41,3 +41,4 @@ ghost:
     - semaphore-admins
     - vault-admins
     - paste-janitors
+    - n8n-admins

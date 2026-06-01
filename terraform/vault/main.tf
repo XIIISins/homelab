@@ -762,3 +762,58 @@ resource "vault_kv_secret_v2" "microbin_admin" {
     password = random_password.microbin_admin.result
   })
 }
+
+# -----------------------------------------------------------------------------
+# n8n — workflow automation (Services, asgard K3s, k8s/asgard/apps/n8n/)
+# -----------------------------------------------------------------------------
+# Two secrets:
+#
+#   k8s/n8n/app  — the N8N_ENCRYPTION_KEY. THIS IS the single load-bearing
+#     secret for n8n: it encrypts every stored credential in Postgres.
+#     Lose/regenerate it and EVERY saved credential becomes permanently
+#     undecryptable ("Credentials could not be decrypted"). It is therefore
+#     minted ONCE here and held stable across rebuilds — the whole point of
+#     injecting it via env instead of letting n8n auto-mint into an
+#     ephemeral ~/.n8n/config. random_id → 64-char hex, matching n8n's
+#     documented `openssl rand -hex 32` recommendation. Operator MUST mirror
+#     this to 1P ("[Asgard] - n8n - Encryption key") as the offline backup
+#     (CLAUDE.md secrets discipline). It also makes the committed (encrypted)
+#     credential DR exports re-importable on a clean rebuild.
+#
+#   ansible/postgres/n8n-password + k8s/n8n/postgres-password — the PG role
+#     password, dual-pathed exactly like outline/teamspeak/semaphore: the
+#     ansible/ path is consumed by postgres-common (CREATE ROLE on the
+#     Patroni leader), the k8s/ path by ESO in the n8n namespace. n8n runs
+#     its own TypeORM migrations on container start (no separate Job).
+resource "random_id" "n8n_encryption_key" {
+  byte_length = 32 # → 64-char hex
+}
+
+resource "vault_kv_secret_v2" "n8n_app" {
+  mount = vault_mount.kv.path
+  name  = "k8s/n8n/app"
+  data_json = jsonencode({
+    encryption_key = random_id.n8n_encryption_key.hex
+  })
+}
+
+resource "random_password" "n8n_postgres" {
+  length  = 32
+  special = false # plain alphanumeric — no connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "n8n_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/n8n-password"
+  data_json = jsonencode({
+    value = random_password.n8n_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "n8n_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/n8n/postgres-password"
+  data_json = jsonencode({
+    value = random_password.n8n_postgres.result
+  })
+}

@@ -1,0 +1,91 @@
+# k8s/asgard/apps/n8n/deployment.yaml
+#
+# Single-replica Deployment. n8n in "regular" execution mode (one process
+# serves UI + webhooks + executions) — correct for homelab scale (queue
+# mode + Redis + worker pods is only worth it at ~1k+ executions/day; it's
+# an env flip + extra Deployment to add later).
+#
+# NO PVC by design. With external Patroni Postgres + the env-injected
+# N8N_ENCRYPTION_KEY (from Vault/ESO) + default binary-data mode (binary
+# data, if any workflow ever produces it, lands inline in Postgres), the
+# ~/.n8n directory holds nothing that must survive a restart — so the pod
+# is stateless-on-disk. n8n's own image pre-creates /home/node/.n8n owned
+# by uid 1000, so we deliberately do NOT mount a volume there (an emptyDir
+# would shadow it root-owned and break n8n's writes — same class as the
+# emptyDir-perms gotcha). UI-installed community nodes would NOT survive a
+# restart this way; if those are ever wanted, bake them into a pinned image
+# layer (GitOps-clean) rather than reintroducing a PVC. S3 external storage
+# for binary data is Enterprise-licensed (community can't write to it), so
+# it is not an option here — see docs/services/n8n.md.
+#
+# Recreate strategy: n8n runs TypeORM DB migrations on container start.
+# Recreate (old pod fully gone before new starts) keeps migrations serial,
+# same rationale as outline.
+#
+# Image: docker.n8n.io/n8nio/n8n (== Docker Hub n8nio/n8n). n8n moved to a
+# 2.x line; 2.23.1 is the current `stable`/`latest` (2026-05-28). Verify the
+# newest stable at https://hub.docker.com/r/n8nio/n8n/tags before bumping —
+# do NOT use `latest`/`stable`/`nightly` floating tags (concrete-pin rule).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: n8n
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: n8n
+    spec:
+      containers:
+        - name: n8n
+          image: docker.n8n.io/n8nio/n8n:2.23.1
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: n8n-app
+          ports:
+            - name: http
+              containerPort: 5678
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            # /healthz/readiness returns 200 only once the DB connection is
+            # up + migrations are done — keeps the pod out of Service
+            # rotation during the first-boot migration window.
+            httpGet:
+              path: /healthz/readiness
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            # n8n's image USER is `node` (a NAME) — runAsNonRoot can't
+            # verify a named user, so pin the numeric UID explicitly
+            # (CLAUDE.md "runAsNonRoot fails against non-numeric image user").
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]

@@ -76,6 +76,14 @@ postgres_databases:
   - name: semaphore
     owner: semaphore
     password_vault_path: ansible/postgres/semaphore-password
+  # n8n workflow automation, asgard K3s (k8s/asgard/apps/n8n/). Standard
+  # CREATE DATABASE n8n OWNER n8n — n8n runs its own TypeORM migrations on
+  # container startup (no separate Job). Password minted by terraform/vault/
+  # as random_password.n8n_postgres, dual-pathed to ansible/postgres/n8n-password
+  # (this role) and k8s/n8n/postgres-password (ESO in the n8n namespace).
+  - name: n8n
+    owner: n8n
+    password_vault_path: ansible/postgres/n8n-password
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

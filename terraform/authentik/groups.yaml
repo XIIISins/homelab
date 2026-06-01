@@ -110,3 +110,15 @@ vault-admins:
   # == Vault human-lookup access. is_superuser=false (no Authentik-side
   # privileges). Single-tier day-1; add vault-readers when a read-narrower
   # tier is needed.
+
+n8n-admins:
+  is_superuser: false
+  # Members can reach the n8n editor UI (n8n.niflheim.xiiisins.com) via
+  # Authentik ForwardAuth through Traefik (terraform/authentik/n8n.tf).
+  # This gates the INTERNAL editor only — the external webhook host
+  # (n8n.xiiisins.com) is deliberately ungated so third-party services can
+  # POST to /webhook/* (n8n authenticates webhooks per-workflow). Behind
+  # this gate, n8n keeps its OWN owner/email-password login as defence-in-
+  # depth — so membership here == "can reach the n8n login screen", not
+  # automatic n8n access. is_superuser=false (no Authentik-side privileges);
+  # gating is the per-app policy binding only.

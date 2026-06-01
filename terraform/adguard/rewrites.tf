@@ -131,9 +131,23 @@ locals {
     # directly, never this FQDN — so no pod→VIP tromboning to avoid.
     "vault.niflheim.xiiisins.com" = "10.0.20.10"
 
+    # n8n workflow automation — K8s-fronted, behind Traefik. The niflheim
+    # FQDN serves the EDITOR UI (Authentik ForwardAuth, k8s/asgard/apps/n8n/).
+    # No CoreDNS rewrite needed: nothing in-cluster resolves the n8n FQDN
+    # (n8n is the caller, not the callee; ForwardAuth is Traefik→authentik-
+    # server via Service DNS). External webhook host is n8n.xiiisins.com
+    # (apex, Cloudflare-resolved); n8n.midgard below is the LAN-fast-path for
+    # webhook calls originating inside the LAN (skips the Cloudflare hop).
+    "n8n.niflheim.xiiisins.com" = "10.0.20.10"
+
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
     "wiki.midgard.xiiisins.com"      = "10.0.20.10"
+    # n8n webhook LAN-fast-path. The midgard HTTPRoute (like the apex one)
+    # exposes ONLY the /webhook/* paths — NOT the editor — so a LAN client
+    # hitting n8n.midgard reaches the webhook handler without the Cloudflare
+    # hairpin. Editor access stays on n8n.niflheim (Authentik-gated).
+    "n8n.midgard.xiiisins.com" = "10.0.20.10"
     # Hugin (Zabbix) — LAN clients hitting hugin.midgard.* land on
     # Traefik VIP → midgard Gateway → zabbix-ingress Service →
     # EndpointSlice → LXC 10.0.11.21:80. Same shape as wiki.midgard.
