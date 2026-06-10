@@ -1,0 +1,7 @@
+# ansible/inventory/host_vars/gjallarbru.yml
+#
+# Tailscale exit-node config. In host_vars/ (not inline in hosts.yml) so both
+# the static and NetBox dynamic inventories resolve it — see bifrost.yml.
+---
+tailscale_tag: exit-node
+tailscale_advertise_exit_node: true

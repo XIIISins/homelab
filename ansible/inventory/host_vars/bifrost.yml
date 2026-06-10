@@ -1,0 +1,11 @@
+# ansible/inventory/host_vars/bifrost.yml
+#
+# Tailscale subnet-router config. Lives in host_vars/ — NOT inline in hosts.yml
+# — so BOTH inventories resolve it: the static hosts.yml AND the NetBox dynamic
+# inventory (`-i inventory/netbox.yml`, which Semaphore uses). host_vars/ is
+# loaded adjacent to the inventory directory regardless of the active inventory
+# source; inline hosts.yml host-vars are invisible to the NetBox inventory
+# (the gap that broke `tailscale up` from Semaphore — see CLAUDE.md gotcha).
+---
+tailscale_tag: subnet-router
+tailscale_advertise_routes: 10.0.0.0/16

@@ -1,0 +1,7 @@
+# ansible/inventory/host_vars/heimdall.yml
+#
+# Tailscale subnet-router config. In host_vars/ (not inline in hosts.yml) so
+# both the static and NetBox dynamic inventories resolve it — see bifrost.yml.
+---
+tailscale_tag: subnet-router
+tailscale_advertise_routes: 10.0.0.0/16
