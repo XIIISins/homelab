@@ -21,6 +21,11 @@
       vault kv get -format=json "secret/{{ control_node_vault_github_key_path }}"
   register: control_node_github_key_raw
   changed_when: false
+  # Read-only vault fetch; MUST run in --check or the "Parse" set_fact below
+  # (which DOES execute in check mode) dereferences an empty .stdout and the
+  # play fails under drift-check (`from_json` on ""). Same read-only-probe
+  # pattern as the k3s/zabbix detect-state tasks.
+  check_mode: false
   no_log: true
   tags: [control-node, control-node:repo]
 
