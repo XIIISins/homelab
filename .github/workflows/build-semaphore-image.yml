@@ -32,7 +32,7 @@ on:
 
 env:
   IMAGE: ghcr.io/xiiisins/semaphore-homelab
-  IMAGE_TAG: v2.18.5-ansible2.16.5-r1
+  IMAGE_TAG: v2.18.5-ansible2.16.5-r2
 
 jobs:
   build:

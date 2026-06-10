@@ -10,19 +10,20 @@
 # the pinned 4.2.0, community.postgresql 3.4.0 vs 4.2.0, community.crypto
 # 2.18.0 vs 3.2.1. Semaphore never runs `ansible-galaxy collection install`,
 # so the pins in ansible/requirements.yml never reached the Semaphore runtime
-# — every play silently ran on the bundled versions. The 2.x->4.x
-# community.zabbix auth-model break (httpapi connection + token) surfaced it:
-# the zabbix-agent register-host task passed from the MacBook/Frigg
-# controllers (4.x galaxy-installed) but FAILED from Semaphore (2.3.1
-# bundled). This image makes Semaphore honor the SAME pins as every other
-# controller, by construction.
+# — every play silently ran on the bundle. The 2.x->4.x community.zabbix
+# auth-model change surfaced it: the zabbix-agent register-host task passed
+# from the MacBook/Frigg controllers (4.x) but FAILED from Semaphore (2.3.1).
 #
-# Collections install to /usr/share/ansible/collections; the StatefulSet sets
-# ANSIBLE_COLLECTIONS_PATH to that dir so the pinned set resolves over BOTH
-# the image bundle AND the repo checkout's `collections_path = collections`
-# ansible.cfg (env beats cfg in Ansible's config precedence). Collections NOT
-# pinned here still resolve from the image's site-packages bundle via
-# Ansible's import-based finder, so nothing else regresses.
+# HOW THE FIX WORKS: Semaphore runs tasks with the repo's
+# `collections_path = collections` ansible.cfg (an EMPTY vendored dir) and
+# builds its own task env (it does NOT carry container env vars like
+# ANSIBLE_COLLECTIONS_PATH). So the ONLY collections a task can find are the
+# ones Ansible's import-based finder discovers on sys.path — i.e. whatever
+# lives in the ansible venv's site-packages/ansible_collections. That's also
+# exactly how the MacBook/Frigg resolve 4.2.0. We therefore install the pinned
+# collections straight INTO that site-packages dir with `--force`, overwriting
+# the stock image's older bundled copies. No ansible.cfg change, no env var —
+# the image just matches every other controller by construction.
 #
 # Bump BASE_IMAGE in lockstep with the image tag in
 # k8s/asgard/apps/semaphore/statefulset.yaml AND the IMAGE_TAG revision in
@@ -38,17 +39,17 @@ USER root
 
 COPY ansible/requirements.yml /tmp/requirements.yml
 
-# The image's ansible toolchain lives in a versioned app venv
-# (/opt/semaphore/apps/ansible/<ver>/venv/bin), which is first on PATH — so
-# bare `ansible-galaxy`/`pip3` resolve to it. Install collections to a fixed,
-# non-versioned path on Ansible's default search path, world-readable for the
-# UID-1001 runtime user. `--force` overwrites the older bundled copies that
-# ansible-galaxy pulls in as dependencies.
+# The image's ansible toolchain is a versioned app venv
+# (/opt/semaphore/apps/ansible/<ver>/venv/bin), first on PATH — so bare
+# `ansible-galaxy`/`pip3`/`python3` resolve to it. Resolve that venv's
+# site-packages (the dir holding the bundled ansible_collections) dynamically,
+# then install the pinned collections there with `--force` so they overwrite
+# the older bundled copies that Ansible's import finder would otherwise pick.
 RUN set -eux; \
-    ansible-galaxy collection install -r /tmp/requirements.yml --force \
-        -p /usr/share/ansible/collections; \
+    SITEPKG="$(python3 -c 'import ansible_collections, os; print(os.path.dirname(ansible_collections.__path__[0]))')"; \
+    ansible-galaxy collection install -r /tmp/requirements.yml --force -p "$SITEPKG"; \
+    chmod -R a+rX "$SITEPKG/ansible_collections"; \
     pip3 install --no-cache-dir hvac psycopg2-binary pytz; \
-    chmod -R a+rX /usr/share/ansible/collections; \
     rm -f /tmp/requirements.yml
 
 USER 1001
