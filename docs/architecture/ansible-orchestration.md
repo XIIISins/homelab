@@ -75,7 +75,7 @@ In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres bac
 | Piece | Setup |
 |-------|-------|
 | Workload | StatefulSet `semaphore/semaphore`, 1 replica |
-| Image | `semaphoreui/semaphore:v2.18.5-ansible2.16.5` (ansible-bundled variant) |
+| Image | `ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r1` — custom (stock `semaphoreui` ansible-bundled base + pinned Galaxy collections + runtime pip deps baked; see "Custom image" below) |
 | Application state | PG on Patroni VIP `10.0.10.210:5432/semaphore` (per-service DB declared in `postgres_databases`, postgres-common provisions on leader) |
 | Inventory cache | PVC `inventory-cache-semaphore-0`, `synology-csi-iscsi-retain`, 1 Gi. Cache survives pod restart — saves a ~30s NetBox round-trip every restart |
 | Internal DNS | `semaphore.niflheim.xiiisins.com` via Traefik HTTPRoute on niflheim Gateway (internal-only — no midgard / apex alias, no CF tunnel) |
@@ -87,6 +87,10 @@ In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres bac
 ### Repo wiring
 
 Semaphore project pointed at the homelab repo, branch `main`, working dir `ansible/`. Inventory and playbook paths resolved relative to that. The repo's `ansible/ansible.cfg` is the authoritative config (Semaphore inherits it).
+
+### Custom image (collection pins)
+
+Semaphore runs a **custom image** (`docker/semaphore/Dockerfile` → `ghcr.io/xiiisins/semaphore-homelab`, built by `.github/workflows/build-semaphore-image.yml`), not the stock `semaphoreui` image. The stock image bundles its own Galaxy collection set and Semaphore never runs `ansible-galaxy collection install` — so the pins in `ansible/requirements.yml` (which the MacBook/Frigg controllers galaxy-install and honor) **never reached the Semaphore runtime**; every play silently ran on the older bundled collections. This surfaced when the `zabbix-agent` `register-host` task (4.x `community.zabbix` httpapi auth) passed from Frigg but failed from Semaphore, which had bundled 2.3.1. The custom image bakes the pinned collections into `/usr/share/ansible/collections` + the runtime pip deps (`hvac`/`psycopg2-binary`/`pytz`, formerly a pod-start `pip install`), and the StatefulSet sets `ANSIBLE_COLLECTIONS_PATH` to that dir so the pins win over both the bundle and the checkout's `collections_path = collections`. **Bump discipline:** changing `ansible/requirements.yml` (or the base image) means bumping `BASE_IMAGE` (Dockerfile) + `IMAGE_TAG` rN (workflow) + the StatefulSet image tag in one commit. First GHCR-hosted custom image in the homelab — the Dockerfile + workflow pattern is reusable for any future one. Full gotcha + diagnostic in CLAUDE.md "Known gotchas → Semaphore".
 
 ### Templates
 
