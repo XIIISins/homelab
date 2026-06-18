@@ -1,0 +1,12 @@
+# ansible/roles/proxmox-host/meta/main.yml
+---
+galaxy_info:
+  author: xiiisins
+  description: PVE hypervisor host config-idempotency (apt repo posture). Patching is NOT here — see proxmox-host-patching.yml.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+
+dependencies: []

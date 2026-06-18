@@ -1,0 +1,485 @@
+# ansible/playbooks/proxmox-host-patching.yml
+---
+# Rolling, discovery-driven OS patching for the PVE hypervisor hosts
+# (urd/verd/skuld). This is the high-blast-radius operation that
+# os-updates.yml deliberately EXCLUDES — a host reboot takes every VM/LXC
+# on it down, so it gets its own deliberately-triggered, health-gated
+# playbook instead of riding the converge/drift loop.
+#
+# ── Why it's safe ──────────────────────────────────────────────────────
+# The cluster topology is symmetric: every host carries exactly one
+# member of every quorum (one K3s CP, one worker, one Patroni node, one
+# etcd/HAProxy, one AdGuard, one Tailscale). So losing ONE host = N-1 on
+# every quorum simultaneously → tolerated. Losing TWO at once = quorum
+# loss across the board → catastrophic. This playbook is therefore
+# STRICTLY serial (serial: 1) and will not advance to the next host until
+# the one just rebooted has fully reconverged (3/3 on every quorum).
+#
+# ── Discover, don't hardcode ───────────────────────────────────────────
+# Nothing about the symmetric placement is encoded. Each host's work is
+# computed live from `pvesh get /cluster/resources` (guests + HA state),
+# `kubectl get nodes` (which K3s nodes live here), and the Patroni REST
+# /cluster (where the leader is). If a guest ever moves, the plan moves
+# with it. The per-host PLAN debug prints exactly what will be switched
+# over / migrated / cordoned before any mutation.
+#
+# ── Per-host sequence ──────────────────────────────────────────────────
+#   discover → (switchover Patroni if leader here) → (migrate HA guests
+#   off, e.g. Frigg) → (cordon K3s nodes here) → apt dist-upgrade →
+#   reboot → wait-online → reconvergence GATE → uncordon → next host.
+#
+# ── WHERE TO RUN IT ────────────────────────────────────────────────────
+# Run from the MacBook control node. An orchestrator cannot live on a
+# host it's about to reboot: the Semaphore pod reschedules (killing the
+# job) and Frigg HA-cold-restarts when Verd reboots (killing the job).
+# The MacBook is outside the blast radius and this playbook needs no
+# community.hashi_vault runtime lookup (switchover is Patroni REST, K3s is
+# kubectl, migrate is ha-manager over SSH), so the Mac's Python-3.14 fork
+# crash doesn't apply. Hands-off scheduling from Frigg/Semaphore is a
+# phase-2 follow-up that needs a resumable-checkpoint design — see
+# docs/procedures/proxmox-host-patching.md.
+#
+# ── How to run ─────────────────────────────────────────────────────────
+#   Dry run (plan only, NOTHING changes — gathers real state, prints
+#   the per-host plan, skips every mutation and the reboot gate):
+#     ansible-playbook playbooks/proxmox-host-patching.yml --check
+#
+#   Canary one host (full orchestration, single host):
+#     ansible-playbook playbooks/proxmox-host-patching.yml --limit urd
+#
+#   Full rolling patch (all three, serial):
+#     ansible-playbook playbooks/proxmox-host-patching.yml
+#
+#   Apply packages without rebooting (testing the apt path only — does
+#   NOT activate a new kernel and skips the disruptive drain/switchover;
+#   not a kernel-activation path):
+#     ansible-playbook playbooks/proxmox-host-patching.yml -e pve_patch_reboot=false
+#
+# Requires (on the controller): kubectl + KUBECONFIG, LAN reach to the
+# Patroni REST (10.0.11.x:8008) and etcd (:2379). `homelab-env` provides
+# all of it.
+
+# ═══ Play 1 — connectivity pre-flight ══════════════════════════════════
+# Fail fast if any PVE host is unreachable before we start mutating.
+- name: Pre-flight — all PVE hosts reachable
+  hosts: proxmox
+  gather_facts: false
+  tasks:
+    - name: Ping each PVE host
+      ansible.builtin.ping:
+
+# ═══ Play 2 — cluster-health gate (refuse to start if degraded) ════════
+# Don't begin a rolling reboot against an already-sick cluster — that's
+# how you turn N-1 into N-2. hosts: proxmox + run_once (NOT hosts:
+# localhost) so the gate isn't filtered out by `--limit <pvehost>` on a
+# canary/single-host run — the probes still delegate to the controller.
+- name: Pre-flight — cluster must be fully healthy before we start
+  hosts: proxmox
+  run_once: true
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Probe Patroni REST /cluster (first responding node)
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[item].ansible_host | default(item) }}:8008/cluster"
+        method: GET
+        return_content: true
+        status_code: [200]
+      loop: "{{ groups['postgres'] | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _pf_patroni
+      failed_when: false
+      check_mode: false
+      delegate_to: localhost
+
+    - name: Probe etcd /health per DCS node
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[item].ansible_host | default(item) }}:2379/health"
+        method: GET
+        return_content: true
+        status_code: [200, 503]
+      loop: "{{ groups['haproxy_etcd'] | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _pf_etcd
+      failed_when: false
+      check_mode: false
+      delegate_to: localhost
+
+    - name: Read K3s node readiness
+      # jsonpath emits "name=<ReadyStatus>;" per node (e.g. "gondul=True;").
+      # argv form keeps the space-containing jsonpath as one argument.
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - nodes
+          - -o
+          - 'jsonpath={range .items[*]}{.metadata.name}={range .status.conditions[?(@.type=="Ready")]}{.status}{end};{end}'
+      register: _pf_nodes
+      changed_when: false
+      check_mode: false
+      delegate_to: localhost
+
+    - name: Assert cluster is fully healthy
+      ansible.builtin.assert:
+        that:
+          - _pf_ok | length > 0
+          - _pf_leader_present
+          - _pf_pg_running | int >= 3
+          - _pf_etcd_healthy | int >= 3
+          - _pf_nodes_notready | length == 0
+        fail_msg: >-
+          Cluster not fully healthy — refusing to start a rolling reboot.
+          Patroni: leader_present={{ _pf_leader_present }}
+          running={{ _pf_pg_running }}/3.
+          etcd healthy={{ _pf_etcd_healthy }}/3.
+          K3s NotReady nodes={{ _pf_nodes_notready }}.
+          Fix the degraded quorum first, then re-run.
+        success_msg: >-
+          Cluster healthy: Patroni {{ _pf_pg_running }}/3 + leader,
+          etcd {{ _pf_etcd_healthy }}/3, all K3s nodes Ready. Proceeding.
+      vars:
+        _pf_ok: "{{ _pf_patroni.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
+        _pf_members: "{{ (_pf_ok[0].json.members | default([])) if (_pf_ok | length > 0) else [] }}"
+        _pf_pg_running: "{{ _pf_members | selectattr('state', 'in', ['running', 'streaming']) | list | length }}"
+        _pf_leader_present: "{{ (_pf_members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | length) > 0 }}"
+        _pf_etcd_healthy: >-
+          {{ _pf_etcd.results
+             | selectattr('status', 'defined') | selectattr('status', 'equalto', 200)
+             | selectattr('content', 'defined') | map(attribute='content')
+             | map('from_json') | selectattr('health', 'in', ['true', true])
+             | list | length }}
+        # "name=True;" pairs → keep the ones NOT ending "=True" (drops the
+        # trailing empty split too) = the NotReady nodes.
+        _pf_nodes_notready: >-
+          {{ _pf_nodes.stdout.split(';') | reject('search', '=True$') | reject('equalto', '') | list }}
+
+# ═══ Play 3 — rolling per-host orchestration ═══════════════════════════
+- name: Rolling PVE host patch
+  hosts: proxmox
+  serial: 1
+  become: true
+  gather_facts: true
+
+  vars:
+    # Reboot after a package change. false = apt only (testing the apt
+    # path; skips the disruptive drain/switchover + the reboot gate).
+    pve_patch_reboot: true
+    # Reboot even when apt reported no change (activate a kernel staged
+    # by an earlier reboot:false run).
+    pve_patch_force_reboot: false
+    # Cordon-only by default (the reboot takes the pods anyway, and
+    # node-pinned local-path pods can't reschedule regardless). Set true
+    # to also `kubectl drain` the stateless pods first.
+    pve_patch_drain: false
+    pve_patch_reboot_timeout: 900
+    # HA guests are migrated to the first OTHER online PVE host. Global
+    # pre-flight already proved all three reachable.
+    _migrate_target: "{{ groups['proxmox'] | difference([inventory_hostname]) | list | first }}"
+
+  tasks:
+    # ── Discovery (read-only; runs even under --check) ─────────────────
+    - name: Discover guests + HA state
+      ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+      register: _res_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Read K3s nodes
+      ansible.builtin.command: kubectl get nodes -o json
+      register: _k8s_raw
+      changed_when: false
+      check_mode: false
+      delegate_to: localhost
+      become: false
+
+    - name: Probe Patroni REST /cluster
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[item].ansible_host | default(item) }}:8008/cluster"
+        method: GET
+        return_content: true
+        status_code: [200]
+      loop: "{{ groups['postgres'] | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _patroni_raw
+      failed_when: false
+      check_mode: false
+      delegate_to: localhost
+      become: false
+
+    - name: Compute per-host plan
+      ansible.builtin.set_fact:
+        # Every guest currently on this host (qemu + lxc).
+        _resources_here: "{{ _res_raw.stdout | from_json | selectattr('node', 'defined') | selectattr('node', 'equalto', inventory_hostname) | list }}"
+      check_mode: false
+
+    - name: Compute derived plan facts
+      ansible.builtin.set_fact:
+        _guest_names_here: "{{ _resources_here | map(attribute='name') | map('lower') | list }}"
+        _running_here: "{{ _resources_here | selectattr('status', 'equalto', 'running') | list }}"
+        # HA-managed guests on this host (hastate present + non-empty).
+        _ha_here: "{{ _resources_here | selectattr('hastate', 'defined') | rejectattr('hastate', 'equalto', '') | list }}"
+        # K3s nodes that ARE guests on this host. NOTE ['items'] subscript,
+        # not .items (which resolves to the dict's items() METHOD in Jinja).
+        _k3s_nodes_here: "{{ (_k8s_raw.stdout | from_json)['items'] | map(attribute='metadata.name') | select('in', (_resources_here | map(attribute='name') | map('lower') | list)) | list }}"
+        # First responding Patroni view + leader.
+        _pg_members: "{{ ((_patroni_raw.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list | first).json.members) | default([]) }}"
+      check_mode: false
+
+    - name: Compute Patroni + HA action facts
+      ansible.builtin.set_fact:
+        _pg_leader: "{{ (_pg_members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | first) | default({}) }}"
+        # HA sid = "vm:<id>" for qemu, "ct:<id>" for lxc. No Jinja list
+        # comprehension (unsupported) — split by type, prefix each.
+        _ha_sids_here: >-
+          {{ (_ha_here | selectattr('type', 'equalto', 'qemu') | map(attribute='vmid') | map('string') | map('regex_replace', '^', 'vm:') | list)
+             + (_ha_here | rejectattr('type', 'equalto', 'qemu') | map(attribute='vmid') | map('string') | map('regex_replace', '^', 'ct:') | list) }}
+        _migrated_vmids: "{{ _ha_here | map(attribute='vmid') | list }}"
+      check_mode: false
+
+    - name: Compute switchover need + candidate + expected-back set
+      ansible.builtin.set_fact:
+        _leader_on_host: "{{ (_pg_leader.name | default('') | lower) in _guest_names_here }}"
+        # A running/streaming replica that is NOT on this host.
+        _pg_candidate: "{{ (_pg_members | selectattr('state', 'in', ['running', 'streaming']) | rejectattr('role', 'in', ['leader', 'master', 'primary']) | map(attribute='name') | map('lower') | reject('in', _guest_names_here) | list | first) | default('') }}"
+        # Guests that must be `running` again after reboot = everything
+        # running now, minus the HA guests we migrate off.
+        _expected_back_vmids: "{{ _running_here | rejectattr('vmid', 'in', _migrated_vmids) | map(attribute='vmid') | list }}"
+      check_mode: false
+
+    - name: Print per-host action plan
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}  (HA migrate target: {{ _migrate_target }})"
+          - "Guests here: {{ _resources_here | map(attribute='name') | list }}"
+          - "Running here: {{ _running_here | map(attribute='name') | list }}"
+          - "Patroni leader: {{ _pg_leader.name | default('?') }} — on this host? {{ _leader_on_host }}{{ ('  → switchover to ' ~ _pg_candidate) if _leader_on_host else '' }}"
+          - "HA guests to migrate off: {{ _ha_sids_here }}"
+          - "K3s nodes to cordon: {{ _k3s_nodes_here }}"
+          - "Expected running again after reboot: {{ _expected_back_vmids }}"
+          - "Will reboot: {{ pve_patch_reboot | bool }}  (drain: {{ pve_patch_drain | bool }})"
+
+    - name: Abort — Patroni leader is here but no off-host candidate found
+      ansible.builtin.fail:
+        msg: >-
+          Leader {{ _pg_leader.name | default('?') }} is on {{ inventory_hostname }}
+          but no running replica off-host to switch to. Cluster may be degraded —
+          aborting before any disruption.
+      when:
+        - pve_patch_reboot | bool
+        - _leader_on_host
+        - _pg_candidate | length == 0
+
+    # ── Drain prep (only when we're actually going to reboot) ──────────
+    - name: Switch Patroni leader off this host
+      when:
+        - pve_patch_reboot | bool
+        - _leader_on_host
+        - _pg_candidate | length > 0
+        - not ansible_check_mode
+      block:
+        - name: Trigger patronictl switchover off this host
+          # patronictl reads the local patroni.yml (incl. restapi auth) —
+          # the REST /switchover endpoint needs auth the raw uri POST can't
+          # supply. Run on the current leader node (become root).
+          ansible.builtin.command: >-
+            patronictl -c /etc/patroni/patroni.yml switchover
+            --leader {{ _pg_leader.name }} --candidate {{ _pg_candidate }} --force
+          delegate_to: "{{ _pg_leader.name }}"
+          become: true
+          changed_when: true
+
+        - name: Wait for the leader to move off this host
+          ansible.builtin.uri:
+            url: "http://{{ _pg_leader.host }}:8008/cluster"
+            method: GET
+            return_content: true
+            status_code: [200]
+          register: _sw_poll
+          until: >-
+            (_sw_poll.json.members
+              | selectattr('role', 'in', ['leader', 'master', 'primary'])
+              | map(attribute='name') | map('lower')
+              | reject('in', _guest_names_here) | list | length) > 0
+          retries: 30
+          delay: 5
+          delegate_to: localhost
+          become: false
+
+    - name: Migrate HA-managed guests off this host
+      ansible.builtin.command: "ha-manager migrate {{ item }} {{ _migrate_target }}"
+      loop: "{{ _ha_sids_here }}"
+      changed_when: true
+      when:
+        - pve_patch_reboot | bool
+        - _ha_sids_here | length > 0
+        - not ansible_check_mode
+
+    - name: Wait for HA guests to leave this host
+      ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+      register: _ha_recheck
+      changed_when: false
+      until: >-
+        (_ha_recheck.stdout | from_json
+          | selectattr('node', 'equalto', inventory_hostname)
+          | selectattr('vmid', 'in', _migrated_vmids) | list | length) == 0
+      retries: 60
+      delay: 5
+      when:
+        - pve_patch_reboot | bool
+        - _ha_sids_here | length > 0
+        - not ansible_check_mode
+
+    - name: Cordon K3s nodes
+      ansible.builtin.command: "kubectl cordon {{ item }}"
+      loop: "{{ _k3s_nodes_here }}"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+      when:
+        - pve_patch_reboot | bool
+        - _k3s_nodes_here | length > 0
+        - not ansible_check_mode
+
+    - name: Drain K3s nodes
+      ansible.builtin.command: >-
+        kubectl drain {{ item }} --ignore-daemonsets --delete-emptydir-data
+        --force --timeout=120s
+      loop: "{{ _k3s_nodes_here }}"
+      changed_when: true
+      failed_when: false # local-path pods can't evict; reboot takes them anyway
+      delegate_to: localhost
+      become: false
+      when:
+        - pve_patch_reboot | bool
+        - pve_patch_drain | bool
+        - _k3s_nodes_here | length > 0
+        - not ansible_check_mode
+
+    # ── Patch + reboot ────────────────────────────────────────────────
+    - name: Apt update + dist-upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+      register: _apt_result
+
+    - name: Reboot host
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ pve_patch_reboot_timeout | int }}"
+        msg: "Rolling PVE patch reboot (proxmox-host-patching.yml)"
+      register: _reboot_result
+      when:
+        - pve_patch_reboot | bool
+        - _apt_result.changed | default(false) or (pve_patch_force_reboot | bool)
+
+    - name: Record whether we rebooted
+      # Under --check the reboot module reports changed without actually
+      # rebooting; the post-reboot gates are meaningless then (nothing
+      # rebooted, and their pvesh/kubectl reads are check-skipped → empty
+      # stdout), so force _rebooted false in check mode to skip them.
+      ansible.builtin.set_fact:
+        _rebooted: "{{ (_reboot_result is defined) and (_reboot_result.changed | default(false)) and (not ansible_check_mode) }}"
+
+    # ── Reconvergence gate (blocks progression to the next host) ───────
+    - name: Wait for all expected guests to be running again
+      ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+      register: _res_after
+      changed_when: false
+      until: >-
+        (_res_after.stdout | from_json
+          | selectattr('node', 'equalto', inventory_hostname)
+          | selectattr('vmid', 'in', _expected_back_vmids)
+          | selectattr('status', 'equalto', 'running')
+          | list | length) == (_expected_back_vmids | length)
+      retries: 60
+      delay: 10
+      when: _rebooted | bool
+
+    - name: Assert PVE cluster is quorate
+      ansible.builtin.command: pvecm status
+      register: _pvecm
+      changed_when: false
+      # `pvecm status` prints "Quorate:   Yes" with variable whitespace —
+      # match with a regex, not a literal substring.
+      failed_when: not (_pvecm.stdout is search('Quorate:\s+Yes'))
+      when: _rebooted | bool
+
+    - name: Reconvergence — Patroni + etcd + K3s back to 3/3
+      delegate_to: localhost
+      become: false
+      when: _rebooted | bool
+      block:
+        - name: Wait for Patroni 3/3 (leader + this host's member streaming)
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[groups['postgres'][0]].ansible_host | default(groups['postgres'][0]) }}:8008/cluster"
+            method: GET
+            return_content: true
+            status_code: [200]
+          register: _gate_patroni
+          until: >-
+            ((_gate_patroni.json.members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | length) > 0)
+            and ((_gate_patroni.json.members | selectattr('state', 'in', ['running', 'streaming']) | list | length) >= 3)
+            and ((_gate_patroni.json.members | selectattr('name', 'in', _guest_names_here) | selectattr('state', 'in', ['running', 'streaming']) | list | length) >= 1)
+          retries: 60
+          delay: 10
+
+        - name: Wait for every etcd node healthy (3/3)
+          # until + loop retries EACH node independently — the loop can't
+          # complete until every member returns health=true (or a node
+          # exhausts retries → fails → play halts before the next host).
+          # status_code allows 503 so a not-yet-healthy node doesn't error
+          # the module; `until` is what actually gates success.
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[item].ansible_host | default(item) }}:2379/health"
+            method: GET
+            return_content: true
+            status_code: [200, 503]
+          register: _gate_etcd_node
+          until: >-
+            (_gate_etcd_node.status == 200)
+            and ((_gate_etcd_node.content | from_json).health in ['true', true])
+          retries: 60
+          delay: 10
+          loop: "{{ groups['haproxy_etcd'] | default([]) }}"
+          loop_control:
+            label: "{{ item }}"
+
+        - name: Wait for this host's K3s node(s) Ready
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - get
+              - nodes
+              - -o
+              - 'jsonpath={range .items[*]}{.metadata.name}={range .status.conditions[?(@.type=="Ready")]}{.status}{end};{end}'
+          register: _gate_nodes
+          changed_when: false
+          # Ready when every node in _k3s_nodes_here appears as "name=True".
+          until: >-
+            (_k3s_nodes_here | reject('in',
+              (_gate_nodes.stdout.split(';') | select('search', '=True$') | map('regex_replace', '=True$', '') | list)
+            ) | list | length) == 0
+          retries: 60
+          delay: 10
+          when: _k3s_nodes_here | length > 0
+
+    - name: Uncordon K3s nodes
+      ansible.builtin.command: "kubectl uncordon {{ item }}"
+      loop: "{{ _k3s_nodes_here }}"
+      changed_when: true
+      delegate_to: localhost
+      become: false
+      when:
+        - pve_patch_reboot | bool
+        - _k3s_nodes_here | length > 0
+        - not ansible_check_mode
+
+    - name: Reconvergence complete
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} patched{{ ' + rebooted' if (_rebooted | bool) else ' (no reboot)' }}.
+          Guests back, quorums 3/3, K3s node(s) {{ _k3s_nodes_here }} Ready + uncordoned.
+          {{ 'Advancing to next host.' if (groups['proxmox'] | difference([inventory_hostname]) | length > 0) else 'All hosts done.' }}

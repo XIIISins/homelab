@@ -13,6 +13,11 @@
 # target `all` (so they cover proxmox + pbs alongside everything
 # else for the daily fleet-agents reconverge) — this playbook is
 # the per-host-group equivalent so drift-check has coverage too.
+#
+# The proxmox-host role is config-only (apt repo posture) — it does
+# NOT patch or reboot, so it's safe in this converge/drift play. OS
+# patching is the separate, deliberately-triggered, health-gated
+# proxmox-host-patching.yml (see docs/procedures/proxmox-host-patching.md).
 
 - name: Configure Proxmox PVE agents
   hosts: proxmox
@@ -20,6 +25,8 @@
   gather_facts: true
 
   roles:
+    - role: proxmox-host
+      tags: [proxmox-host]
     - role: vlagent
       tags: [vlagent]
     - role: zabbix-agent

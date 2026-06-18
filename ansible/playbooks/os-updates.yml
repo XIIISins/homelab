@@ -12,9 +12,13 @@
 #   - Standalone-service LXCs (Factorio, Zabbix, Hermod, PBS) batch
 #     into one play — no peer to wait for.
 #   - Proxmox PVE hosts are NOT in this playbook. Host reboots take
-#     every VM/LXC on the node with them, so they belong in a separate
-#     manual procedure (`docs/procedures/proxmox-host-patching.md`,
-#     not yet written) that drains workloads first.
+#     every VM/LXC on the node with them, so they get their own
+#     deliberately-triggered, discovery-driven, health-gated playbook:
+#     `proxmox-host-patching.yml` (runbook: docs/procedures/
+#     proxmox-host-patching.md). That playbook drains each host (Patroni
+#     switchover, HA-migrate, K3s cordon) and gates on full quorum
+#     reconvergence before advancing — orchestration this flat per-group
+#     `serial: 1` shape can't express.
 #
 # Override the upgrade-without-reboot path:
 #   ansible-playbook playbooks/os-updates.yml -e os_updates_reboot=false
