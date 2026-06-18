@@ -24,6 +24,7 @@ Step-by-step operational runbooks. Where **Troubleshooting** is reactive ("this 
 | **Vault recovery** | Vault is sealed, a follower won't rejoin, or a token expired mid-deploy | The secrets layer |
 | **K3s node rebuild** | A single control-plane or worker node needs rebuilding | One node; cluster stays up |
 | **NetBox initial data import** | First-time (or post-wipe) NetBox population | NetBox data only |
+| **Proxmox host patching** | Rolling OS patch + reboot of the PVE hypervisor hosts | Each host's guests, one host at a time |
 | **Teardown & rebuild** | The whole asgard cluster needs reconstructing from scratch | Everything in asgard K3s |
 
 Ordered above by increasing blast radius. Reach for the smallest procedure that solves the problem.

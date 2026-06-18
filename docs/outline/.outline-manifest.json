@@ -1,192 +1,197 @@
 {
   "components-and-interactions.md": {
     "id": "2a53c3d0-8e4f-4286-884a-9932feb19983",
-    "sha": "07a21801d99646bfc67b0fc79f740493c38309e90190659c95c7d81602c81c9c",
+    "sha": "72e229bfc1b2c22291cb154cadb5bba79cfc4c668ca2699338d054d81dc5fc01",
     "title": "Components & interactions"
   },
   "components-and-interactions/compute-and-hypervisors.md": {
     "id": "d9f3ac26-27bd-4e0d-92d3-6e859c598bea",
-    "sha": "ecd22e54d3016fa123b3d49c804b0cc1fd23a3a7095a97317eef797a14aea9ec",
+    "sha": "b893160613d420c5ea04b7f48e62ed5de23da0b577de5da35f8b169bbc2b3af8",
     "title": "Compute & hypervisors"
   },
   "components-and-interactions/edge.md": {
     "id": "a417290a-c511-4f4d-8152-2837f5c70de0",
-    "sha": "139804e20b7811bc6c5da14935065e15dce50637ac450118f3946161d2eb2f06",
+    "sha": "6b16e5fecc210b53b5afbea4e197b76078f07726a4c65f34f554c07d27dc6c2a",
     "title": "Edge"
   },
   "components-and-interactions/gitops-and-automation.md": {
     "id": "23456f50-9e7c-4169-83a8-9001aa39bd49",
-    "sha": "e2058ae13269e0155f6431bcd80fcc8c1cb0a226f2cfe083e8c3bbaec4d6af6e",
+    "sha": "dd5089ddb64e127c4847176206c935af0a3a9bdef0210500ed529a1d72910803",
     "title": "GitOps & automation"
   },
   "components-and-interactions/identity-and-secrets.md": {
     "id": "c152aa2a-c3fd-4e06-9546-3cc29f0df6b0",
-    "sha": "4a63687166174c930f2d675fa76d0781194c450c14bc1f0e9ed4ed5ea1436633",
+    "sha": "3f88172b1724d118204b5320501c1981c29c91854cfda231af3dca09503505fc",
     "title": "Identity & secrets"
   },
   "components-and-interactions/network.md": {
     "id": "28237fe0-c16a-4074-aa5b-65c7e22ea7bc",
-    "sha": "c0ded8d905306743af5588ddbeb6b31971c32489ab103de7a04b6144c5ee57e8",
+    "sha": "f340fe37a207baaa09d706007551b1d4c2d93e58e6e30bf4f39345e77a9af6fb",
     "title": "Network"
   },
   "components-and-interactions/observability.md": {
     "id": "6e88801f-1d80-49e7-86cb-9d090f1bb726",
-    "sha": "4a212186f3cd6d046ca06873f7ef6c474419b742831cdd61019963c9d437b5b2",
+    "sha": "98f89b3ea1488e0896c3c88a102cd284c242cd092b912670447fb9178a401be8",
     "title": "Observability"
   },
   "components-and-interactions/storage-and-data.md": {
     "id": "e4641703-0fc7-4dea-abdd-45172de3060a",
-    "sha": "569066a6c7ebfd7bb8ed5fbf5c92bae3a4fd1b70c027010da0a8004bdb217059",
+    "sha": "6d4f4c578b7f99cf2ecb307cf299c3590d04e59698d444fafd8358fe30d3c754",
     "title": "Storage & data"
   },
   "hardware.md": {
     "id": "70339e00-10a0-4861-a1a4-3325f208e528",
-    "sha": "77b829ca32ab685826e3279935459388beeab41ea1b72b91f3ee67d72fa7e1aa",
+    "sha": "2d7bd154be7e60973f78766b5d29f7fbbd9bee403e2421f26c1a05bf84a09ad3",
     "title": "Hardware"
   },
   "hardware/hypervisors.md": {
     "id": "60cbadc3-de2d-4676-bbfa-c814c8cd7b17",
-    "sha": "45febfc7c407dcbb0427436688af5669c384c25feb75a4fedaf6a1070a337a48",
+    "sha": "40061a96c044db9c0bfdd79dc47107f9944a72beec61a4afe54b615b6f5028e9",
     "title": "Hypervisors"
   },
   "hardware/networking.md": {
     "id": "6e6dadbe-6cc7-4513-89e6-3369600cfe49",
-    "sha": "75bb01ff736d1345fd8aa4f1f1fec07b70ef5dcadbbc2c54ebad92da586dfde5",
+    "sha": "010324dcfbf6d3190eca674b43a8327919ebb34cdf480f1b0920cde9ef922b6b",
     "title": "Networking"
   },
   "hardware/storage.md": {
     "id": "4874838b-3f13-4a3c-ba5c-2c97e95f0b9b",
-    "sha": "44c90d605426586eb56e6a6596b324b6ccbf9077b8008785f23c54a46762485e",
+    "sha": "ffbf671524b5ff10ec9a3204a589039a8614cb1162d5381ead384ffb85bfbc02",
     "title": "Storage"
   },
   "overview.md": {
     "id": "d83bd4c9-1bd1-4613-960f-2e2ef3ab7bcf",
-    "sha": "042d37d2c214c0989d9ae0bdea15c04585dae730e7cd99151d71e41ae4c14b4c",
+    "sha": "1051ff5b4c7c886cc1af34b619f9e1982938f17df3686d3b8ecbbd1f988dc97e",
     "title": "Homelab \u2014 overview & design"
   },
   "procedures.md": {
     "id": "878d1c97-d5b7-4442-9b1c-e96e7d46f860",
-    "sha": "91bedea42803cff102de54786b0b4d259541c33dde4aaf5b08ef5d7d58de7ed0",
+    "sha": "8fdbf8aa6065d81a922630a2073f7293d52915913faedc3f06a4e66e7685f20b",
     "title": "Procedures"
   },
   "procedures/approle-rotation.md": {
     "id": "52240cd4-bf89-4286-adbe-85e7eaa6ae48",
-    "sha": "99e6e18a1c4092ed63576053cc706880f06ed6036e8123586c89b5e7f4028353",
+    "sha": "b8e90ad16e91c4a46c583bdfd62034afcf2a278354dc017d52dcf73bf038b40b",
     "title": "AppRole rotation"
   },
   "procedures/k3s-node-rebuild.md": {
     "id": "a04bfe1c-05cf-4cb9-8dab-dd0f8a560492",
-    "sha": "7492385bc740583eb586db1c2ac256b036e9f54cba8aeea3ae786c2979a56659",
+    "sha": "81e8288fc6b95282a05a805d2741a7988014551997879cf20b0261bf646cea72",
     "title": "K3s node rebuild"
   },
   "procedures/netbox-initial-data-import.md": {
     "id": "063d3377-e8df-4932-bca1-4e7e2889bf9b",
-    "sha": "3cee9b1dca8c01fbbbd5236fa285ebae3a37ed92583df1d141f2ae3c0e88ec7b",
+    "sha": "15fb11c0e3942c823f2dad1c534c4ee311517b052730ec413e38e47a9fc44342",
     "title": "NetBox initial data import"
+  },
+  "procedures/proxmox-host-patching.md": {
+    "id": "3099a9f4-f63c-4d19-8f7f-5b05c597489d",
+    "sha": "f4c91ede97a2236d4de51f0e95a6662e54258aa37fffd5c6c9ba2b30b3f31d7b",
+    "title": "Proxmox host patching"
   },
   "procedures/teardown-rebuild.md": {
     "id": "bdcbb8cc-c189-4da2-afbf-a96bbb2276bf",
-    "sha": "9cebe24f4629c2e7d3f1d46ec2d486f07943bb832c5acab23a96d9339ec1e021",
+    "sha": "a0d8ecb8ebf70ff73bd65bdf647070a206e6d5db525ba770c9309c80f9087d50",
     "title": "Teardown & rebuild"
   },
   "procedures/vault-recovery.md": {
     "id": "8ca1c7e6-30b0-456c-a5bb-f705fe339be3",
-    "sha": "58e1ee47e49fa4d040942005d404492bf777751883e5f30f5dcf30a10a02a0a8",
+    "sha": "8cf191587f9bb0958c2d973f434d5383bd11a36283eb7737fd93bddd2d3004aa",
     "title": "Vault recovery"
   },
   "services-and-purpose.md": {
     "id": "501a9e67-2307-4049-bee1-39504e67c1e4",
-    "sha": "5abe452abe5933e555852e48a001e679cdf75182fefda6126c237a94c909f9d1",
+    "sha": "f72ebb398ddac4ecea56859c65550557c0697fd1439287d869076b3a4eef944b",
     "title": "Services and purpose"
   },
   "services-and-purpose/factorio.md": {
     "id": "99e054cf-cfba-4768-9ede-8a669aee7cbf",
-    "sha": "5a901e686d25fa4d8fb772bf3b1db6bee799b57bbf0e9dc1561668308fca84a8",
+    "sha": "9b4b72d44f17edeebda033ec43880f6c9504d249b822e9c7edb05583e3b4d79f",
     "title": "Factorio"
   },
   "services-and-purpose/hermod.md": {
     "id": "81558101-a852-4b2a-ac7d-1d2f36b4b7f9",
-    "sha": "b179565645a2da23a71d1835b2600cdd783ad324643f0290d8f6d35e749f24b3",
+    "sha": "d80f2ea6597068697f4f41b65d9eef8d3a9fb49e3f55699ee378b9284471d2b6",
     "title": "Hermod"
   },
   "services-and-purpose/jellyfin.md": {
     "id": "c24d4c00-6328-41f5-90a2-8a100e99abd6",
-    "sha": "d5b92695bca058fb883a504f6db2001a8a65f3aa0316163ed17f3288481eb4de",
+    "sha": "030214c0facc9a636a35f6ddb4eac7d6cb3b1547bb4812bf2c29c614dc19bf88",
     "title": "Jellyfin"
   },
   "services-and-purpose/microbin.md": {
     "id": "76a2616d-fec7-43b1-ad5e-0f4a96bd6b9c",
-    "sha": "cbddce210ff112dbd9f67e8f7ac852eb451081095aea888d1caeafd657bbc3b5",
+    "sha": "5bb385468ed4855d9580fdb189cd805ce63ed83d0a046bef389be453cb0767e1",
     "title": "MicroBin"
   },
   "services-and-purpose/n8n.md": {
     "id": "34dea17c-bfce-4c16-86a6-76991cb2ec74",
-    "sha": "4d7cc73b2a684dc3fc6daea480059f638ef601e530ef58c31247bc1e66417166",
+    "sha": "485bb912fe88c2d94be1e8a2de188c288166bafb039b53697629b6718d31d615",
     "title": "n8n"
   },
   "services-and-purpose/netbox.md": {
     "id": "c3d3a7d1-7d94-4a12-b6e5-e8a8969f0f39",
-    "sha": "c4c8f887628ed41141178b8c83d2ed98dfd5dd8cf45539c4208fc2f76da178a2",
+    "sha": "f0ee140f14ac23e3740921ee31e8cb0bb9381da01beee646c1d39646d4e6a590",
     "title": "NetBox"
   },
   "services-and-purpose/outline.md": {
     "id": "bd30f669-c9d3-4ff5-964f-90e5b12c5ffc",
-    "sha": "3ada4d677ffde1b96b649d353ce750f44f8db4a587345ea249a2059667895ebc",
+    "sha": "dd9d574fea0f8a4a8608d7d1eb44e5019543650cf042b4f853c8d96492dc18e1",
     "title": "Outline"
   },
   "services-and-purpose/semaphore.md": {
     "id": "b697d3e3-730d-49a1-8448-7cc09a7d01aa",
-    "sha": "cff37557ecc785571b301061d972a8c2e4547c524170f5d2e6a7e9a9d12e7947",
+    "sha": "85429977d0c5fa2aafcc04c443cad35d67121de864a185202634dc8b8f3c4005",
     "title": "Semaphore"
   },
   "services-and-purpose/startpage.md": {
     "id": "9452dbb4-3d7a-4441-adab-50347e12c1ad",
-    "sha": "b453c90973ffd06304de09d661e7d803b489f8bf0a74cc90b4b315809c44a3ff",
+    "sha": "085276017bde2225524df5c4201d158f0ad9d0bd1f1bcfeacfcc233dbbffdf76",
     "title": "Startpage"
   },
   "services-and-purpose/teamspeak.md": {
     "id": "ed83eb69-0ae7-4942-a8b6-1f12206d640c",
-    "sha": "3ba04bd1387d846faa2017dd644e7439419d1e04bb8ce1f4a0ff372a4b63b752",
+    "sha": "0dff3cd70acf2161e1a7e183c0dbffc320c0fbb0a3b8089c0ba1cd6f7fa955fb",
     "title": "TeamSpeak"
   },
   "services-and-purpose/zabbix.md": {
     "id": "c008f640-46f9-4041-8de3-1ec3ad49ad78",
-    "sha": "97497a0b36db2ca9cc36b32db26731c5b5719d64e86bc979b8cde2f37fac0856",
+    "sha": "69e361567307ae8aaa637cb8fb7e0a77d4190c8e536a66a45d97475e67a0aaa5",
     "title": "Zabbix (Hugin)"
   },
   "troubleshooting.md": {
     "id": "b3a74db1-c85c-45c5-9cda-d76b2e9599ee",
-    "sha": "c380386c1eb2c141c5bf5ebcce142294b30fb354ff4c24d29dddec7036f303f7",
+    "sha": "a9a2c12ab186b3ddd5de65434003f1fe4b7e21095874cc56213a97826f0c4b28",
     "title": "Troubleshooting"
   },
   "troubleshooting/dns-and-networking.md": {
     "id": "101d904c-3e6f-4ca5-85ad-cae88f43f704",
-    "sha": "95e5e730de0c6a14537b44f12769fb7af205cd628356cf40fb1dec7d3f8c54b2",
+    "sha": "2df8c5e5c9b1861acc4f8ff671d4fcbed4861fc086ac90fc59e0702fc031cdcc",
     "title": "DNS & networking"
   },
   "troubleshooting/identity-and-edge.md": {
     "id": "f3e6049a-b9df-434a-8f3d-5af9520a5701",
-    "sha": "1c8e3e0805c0caccad0fcd629f4d625eccd695538e41915dc2e4b86bb8f742ad",
+    "sha": "a6f55a8a9a4306d0a83ccc7d4d2d50ffd2bb92f4393e594eee5c07dcaa0fd075",
     "title": "Identity & edge"
   },
   "troubleshooting/kubernetes-and-flux.md": {
     "id": "6a0f4bb6-7e0a-4a24-ba08-39eef13df70e",
-    "sha": "b5acfec69f929061d5217b6a6a24f1288951c940ff642025590a80d158f48a95",
+    "sha": "13d35f7cfd52a02018385821d1e2788f05c5028e666366a1b23a8b43d25c4f5e",
     "title": "Kubernetes & Flux"
   },
   "troubleshooting/storage-and-iscsi.md": {
     "id": "22d95f48-7bf7-41a9-a4aa-ddd15d63d110",
-    "sha": "b882f51214b4d310f9ca09b1bd97ae61aa74bffa364ecca08728f0a5a9bfa39a",
+    "sha": "1e3284314ee85889f24ba521ae4248b684d3137485487f22a728b3fceecb1bcf",
     "title": "Storage & iSCSI"
   },
   "troubleshooting/vault-and-postgres.md": {
     "id": "0a1ccd78-fd58-4fd9-b932-134790e95f89",
-    "sha": "c1017d0f86086d8428f220bb0fd356b30b9b91f64cd5be295f16ca90fb35f895",
+    "sha": "288c4c145e56e493f0c2e8326c98afdb7f8037cc8a67e4514c91f6611406052f",
     "title": "Vault & Postgres"
   },
   "urls.md": {
     "id": "3b93d359-1f50-425a-beef-96096432ce89",
-    "sha": "e275d91c201d61c37496d14893b984454c50b9e023dc1c127155865d02e0a287",
+    "sha": "dc58e045c88559c70fc8834e46605f5c4a2781264f503c8f7fb841b4b39412cd",
     "title": "URLs"
   }
 }
