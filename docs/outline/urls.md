@@ -21,6 +21,9 @@ Reachable from anywhere, through the Cloudflare tunnel.
 | `wiki.xiiisins.com` | Outline (this wiki) | Authentik OIDC (`outline-users`) |
 | `authentik.xiiisins.com` | Authentik | Authentik (it *is* the IdP) |
 | `hugin.xiiisins.com` | Zabbix | Authentik SAML (`zabbix-admins`) |
+| `n8n.xiiisins.com` | n8n (workflow automation) | Authentik ForwardAuth |
+| `paste.xiiisins.com` | MicroBin (pastebin / file-share) | Authentik ForwardAuth |
+| `home.xiiisins.com` | Startpage (landing dashboard) | None — public landing page |
 
 ---
 
@@ -32,6 +35,7 @@ LAN / tailnet only. The `midgard` aliases mirror the apex services; the `niflhei
 |---|---|---|
 | `wiki.midgard.xiiisins.com` | Outline | Authentik OIDC |
 | `authentik.midgard.xiiisins.com` | Authentik | Authentik |
+| `n8n.midgard.xiiisins.com` / `n8n.niflheim.xiiisins.com` | n8n | Authentik ForwardAuth |
 | `hugin.midgard.xiiisins.com` | Zabbix | Authentik SAML |
 | `jellyfin.midgard.xiiisins.com` | Jellyfin *(planned)* | Local Jellyfin account |
 | `vault.niflheim.xiiisins.com` | Vault UI | Authentik OIDC |

@@ -52,7 +52,7 @@ The split exists because Flux's Kustomization dry-run runs *before* the chart in
 3. Affected Kustomizations reconcile. Flux applies via server-side apply.
 4. Pods restart or new RS/StatefulSet revisions roll out under whatever update strategy the workload declares.
 
-Push *is* the deploy. There's no CI gate, no merge queue, no separate release step. Single-operator repo + private; reverting is a commit, not a rollback.
+Push *is* the deploy. There's no CI gate, no merge queue, no separate release step. Single-operator, public repo (secrets never land in Git regardless); reverting is a commit, not a rollback.
 
 ---
 

@@ -16,7 +16,7 @@ The flagship disaster-recovery procedure: destroy the entire asgard K3s cluster 
      -l sealedsecrets.bitnami.com/sealed-secrets-key=active -o yaml > backup.yaml
    ```
 2. **Confirm the Vault root token and recovery keys are in 1Password.** The rebuild re-unseals Vault via AWS KMS, but the root token is needed to verify and operate.
-3. **Note any stateful PVC data that must survive.** Cluster rebuild does not preserve iSCSI LUN data unless you've captured it.
+3. **Note any stateful PVC data that must survive.** Cluster rebuild does not preserve PVC data unless you've captured it. Vault is the main concern and is restored from a Raft snapshot — its store is the node-local `local-path` tier (backed by PBS), not iSCSI. Other workloads' iSCSI LUN data must be captured separately.
 
 ---
 

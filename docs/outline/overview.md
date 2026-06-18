@@ -170,7 +170,7 @@ Three named paths. Nothing legitimate happens outside them.
 
 ## Phase posture
 
-The build is sequenced as numbered phases (1 through 8) tracked in the build sequence doc. Asgard K3s and its core services are live; Jotunheim K3s is planned for Phase 7. The current focus is the 1.0 stabilization waves — validation, recovery hardening, role debt, observability depth — before laying further workloads on top.
+The build is sequenced as numbered phases (1 through 8) tracked in the build sequence doc. Asgard K3s and its core services are live; Jotunheim K3s is planned for Phase 7. The 1.0 stabilization waves (validation, recovery hardening, role debt, observability depth) completed in May 2026. The current focus is Phase 6 — Vault as the human secret-lookup point via Authentik OIDC, plus the Frigg control-node watchtower — alongside the last application rollouts (Immich is the remaining service).
 
 ---
 

@@ -4,14 +4,20 @@
 
 Working tracker for converting `docs/` content into reader-shaped Outline pages. Not itself a wiki page — this file stays in the repo as the meta record of what's been authored, what's pending, and the conventions established along the way.
 
-*Last updated: 2026-05-29.*
+*Last updated: 2026-06-18.*
 
 ---
 
 ## Status snapshot
 
 - **Drafted:** 35 pages — all planned sections complete (Components & Interactions, Hardware, Services and purpose, Procedures, Troubleshooting) plus the standalone URLs page.
-- **Pending:** none. Remaining work is review, the publish step (Outline import + link rewriting), and per-service build-out as new services land.
+- **Drift review (2026-06-18):** all 35 pages re-checked against current `main`. Fixed: worker VM specs (16 GB / 30 GB + `/data`), Phase-6/Frigg posture (overview + identity), secrets-rule header + public-repo posture + vault-backed shim (identity), private→public repo (gitops), three now-live services (Startpage / MicroBin / n8n) added to URLs + services catalog, storage troubleshooting lede + LUN diagnostic, Vault-recovery + teardown iSCSI→local-path. Storage pages and the Hermod page were *not* changed — they're correct and actually ahead of the stale canonical docs (see below).
+- **Publish tooling:** `sync_outline.py` reconciles `docs/outline/` → live `Homelab` collection. Dry-run against live (2026-06-18): **34 UPDATE + 1 CREATE (`overview.md`) + 0 SKIP** — every page already exists; the sync brings their drifted content current. `--apply` not yet run (awaiting go-ahead — it rewrites 34 live pages).
+- **Pending:** run `--apply`; write the API token to Vault `secret/ansible/outline/api-token` (blocked on a write-capable token); cross-reference link rewriting; per-service subpages for Startpage/MicroBin/n8n.
+
+> **Canonical-doc drift surfaced during review (out of scope for this branch — flag for a separate `docs(...)` commit on `main`):**
+> - `CLAUDE.md` storage invariant still says "Synology CSI … iSCSI only", but `csi-driver-nfs` + `local-path` are live tiers and the iSCSI StorageClass is `synology-csi-iscsi-retain-vol2`. The wiki storage pages reflect the live tiered model.
+> - `docs/services/notifications.md` says AppriseAPI runs under **uvicorn**; the live `hermod-api` role runs **gunicorn**. The wiki Hermod page (gunicorn) is correct.
 
 ---
 
@@ -113,8 +119,9 @@ If the order shifts again, update the parent + this file + the "See also" refere
 
 ## Next
 
-All planned sections are drafted. What remains:
+All sections are drafted, published, and (2026-06-18) drift-reviewed. What remains:
 
-- **Review pass** — read the full set end-to-end for voice consistency, dead cross-references, and any current-truth drift.
-- **Publish step** — import into Outline and rewrite the bold canonical-name cross-references (`**Hardware** section`, etc.) to real Outline doc IDs.
-- **Ongoing build-out** — add a per-service subpage when a new service lands (Immich, n8n, Privatebin, Startpage); add troubleshooting playbooks as new failure modes surface. The structure is in place; these are append operations.
+- **Run the sync `--apply`** — pushes the drift-reviewed content to the 34 live pages and creates the one missing page (`overview.md`). See `README.md` for usage. Outward-facing write; run deliberately.
+- **Write the API token to Vault** — `secret/ansible/outline/api-token` (field `token`). The 1P mirror (`[Asgard] - Mirror - Outline - admin API token`) exists; the Vault write needs a write-capable token (the cached AppRole was expired; root is bootstrap-only).
+- **Cross-reference link rewriting** — the bold canonical-name placeholders (`**Hardware** section`, etc.) → real Outline `/doc/<id>` links. Separate reviewed pass once the manifest is populated; needs a curated name→doc alias map. Not automated by `sync_outline.py` by design.
+- **Per-service subpages** for Startpage / MicroBin / n8n (now live) and Immich (when it lands). Parent catalog covers them today; these are append-only build-out.

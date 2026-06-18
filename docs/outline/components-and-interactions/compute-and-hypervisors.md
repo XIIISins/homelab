@@ -46,7 +46,7 @@ Two K3s clusters, both production. Separation is failure-domain risk management,
 ### asgard — production-stable
 
 - **Three control planes** (Göndul / Hlökk / Sigrún), one per Proxmox node. 2 vCPU / 4 GB / 10 GB disk each. Tainted `node-role.kubernetes.io/control-plane:NoSchedule` so workload pods can't land on them.
-- **Three workers** (Einherjar-urd / verd / skuld), one per Proxmox node. 2 vCPU / 8 GB / 15 GB disk each. Multi-homed: `eth0` on VLAN 21 (cluster-internal), `eth1` on VLAN 20 (MetalLB L2 announcement).
+- **Three workers** (Einherjar-urd / verd / skuld), one per Proxmox node. 2 vCPU / 16 GB RAM / 30 GB OS disk plus a separate 50 GB `scsi1` xfs disk at `/data` (the node-local `local-path` tier) each. Multi-homed: `eth0` on VLAN 21 (cluster-internal), `eth1` on VLAN 20 (MetalLB L2 announcement).
 - **RHEL 9** on every node (Red Hat developer subscription). SELinux enforcing.
 - **CNI:** Calico, installed via a K3s addon manifest (not via Flux — bootstrapping a CNI through GitOps is a chicken-and-egg problem).
 - **What runs here:** identity (Authentik), secrets (Vault), DNS-fronting (Traefik, Cloudflared), the in-cluster observability stack, the operator's own tooling (NetBox, Semaphore, Outline), and the production workloads that families rely on.
@@ -94,7 +94,7 @@ Resource IDs and last IP octets are loosely correlated for at-a-glance recogniti
 
 ### K3s workers
 
-- **2 vCPU / 8 GB RAM / 15 GB disk.** Memory bumped from the original 4 GB after cumulative workload pressure during the NetBox + Valkey rolling-restart cascade in May 2026.
+- **2 vCPU / 16 GB RAM / 30 GB OS disk (`scsi0`) + a separate 50 GB `scsi1` xfs disk at `/data`.** The `/data` disk backs the node-local `local-path` storage tier and survives a VM rebuild (separate from the OS disk). Memory was bumped up from the original 4 GB after cumulative workload pressure during the NetBox + Valkey rolling-restart cascade in May 2026.
 - **Multi-homed:** `eth0` on VLAN 21 carries cluster-internal traffic; `eth1` on VLAN 20 is where MetalLB L2 announces service VIPs.
 - **Multi-homing requires four landmine fixes** in the K3s Ansible role — Calico autodetection pinned to the right CIDR, loose `rp_filter`, `route_localnet=1`, and source-based policy routing for VLAN 20. The **Network** subpage covers these in detail.
 

@@ -33,7 +33,7 @@ When init left the StatefulSet in a half-configured state that won't recover:
 2. Delete the data PVCs: `kubectl delete pvc -n vault data-vault-{0,1,2}`
 3. Force-delete the pods: `kubectl delete pod -n vault vault-{0,1,2} --force --grace-period=0`
 4. Re-reconcile: `flux reconcile helmrelease vault -n vault --force`
-5. Clean up the now-orphaned iSCSI LUNs on the Synology afterward.
+5. Sweep the orphaned `local-path` data dirs on the affected workers afterward. Vault's store is the node-local `local-path` tier since the storage redesign, so there are no iSCSI LUNs in DSM to clean up for Vault — a wiped node re-syncs from its Raft peers and KMS-auto-unseals.
 
 ---
 

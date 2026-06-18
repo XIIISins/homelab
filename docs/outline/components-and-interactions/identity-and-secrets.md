@@ -25,7 +25,7 @@ Users and groups are declared in `terraform/authentik/users.yaml` and `groups.ya
 
 ## The secrets architecture: three stores, one rule
 
-**The rule:** *Human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
+**The rule:** *Homelab human lookup → Vault UI (Authentik-gated), with 1Password as the offline mirror. Bootstrap and non-homelab human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
 
 | Store | Consumer | What lives here |
 |---|---|---|
@@ -44,6 +44,8 @@ Vault's UI is austere — daily human credential use needs better UX (mobile, au
 
 The discoverability concern that one-store would solve is handled instead by the rule + a discipline: every Vault-stored secret is also mirrored offline into the 1Password Homelab vault. If Vault is down, the operator opens 1Password.
 
+**Public-repo posture.** The repository is public. Secrets never live in Git regardless, but two things now rest on discipline rather than repo-privacy: the `ansible-vault`-encrypted `group_vars/all/vault.yml` is publicly downloadable, so its security is entirely the strength of the vault passphrase (keep it strong, rotate if ever weakened); and SealedSecrets are safe by design (encrypted to the cluster's public key). Internal IPs, Vault paths, and 1Password item IDs are now public recon surface — identifiers, not values, an accepted portfolio tradeoff. The never-commit-secrets discipline is load-bearing, not best-effort.
+
 ---
 
 ## Vault — runtime store
@@ -52,7 +54,7 @@ Three-node Raft HA in asgard K3s. AWS KMS auto-unseal (eu-west-1 single-key acco
 
 - **Listener TLS is disabled.** `tls_disable = 1` on the Vault listener is deliberate — Traefik terminates TLS at the niflheim Gateway in front of Vault's UI; cluster traffic to Vault is plaintext over the in-cluster network.
 - **Vault config is Terraform-managed.** Auth methods, policies, roles, and KV mounts all live in `terraform/vault/`. SecretIDs are never in state — they're minted manually and stored externally.
-- **UI is Authentik-gated** at `vault.niflheim.xiiisins.com` (Traefik-fronted, niflheim Gateway). Phase 6 lands the OIDC SSO + group binding (`vault-admins` group → `homelab-admin` policy). 1Password remains the offline mirror.
+- **UI is Authentik-gated** at `vault.niflheim.xiiisins.com` (Traefik-fronted, niflheim Gateway). Phase 6 Stage 1 is live: OIDC SSO + the `vault-admins` group → read-only `homelab-admin` policy binding, with `VAULT_ADDR` cut over to the HTTPS FQDN. The Vault UI is now the primary lookup point for homelab-scoped human secrets; 1Password remains the offline mirror.
 
 ### Path convention
 
@@ -99,6 +101,8 @@ The control node (MacBook running fish) and Semaphore (scheduled playbooks in K3
 RoleID + SecretID for `ansible-local` live in the 1Password Homelab vault. The repo-tracked fish file `<repo>/.config/fish/conf.d/homelab.fish` exposes a `homelab-env` function that reads 1Password and exports `VAULT_ADDR` + `ANSIBLE_HASHI_VAULT_*` into the shell. Ansible's `community.hashi_vault` collection reads those env vars and authenticates with Vault on every lookup.
 
 `homelab-env` caches into `~/.cache/homelab/env.sh` and `.fish` with a 24h TTL so multi-command flows don't re-fetch from 1Password on every invocation. The cache holds derived env vars only — no Vault token by default.
+
+For **non-interactive** control-node use — the Frigg watchtower VM, and headless automation where 1Password can't prompt for biometric auth — a parallel **Vault-backed shim** (`vault-homelab-env`) AppRole-logs-in to Vault with an on-disk secret-zero and exports the same IaC env vars (cache `~/.cache/homelab/vault-env.{sh,fish}`, 3h TTL). The 1Password-backed `homelab-env` stays the path for the operator's interactive MacBook; `vault-homelab-env` is the path that needs no human.
 
 `rotate-approle ansible-local` mints a new SecretID, prompts the operator to paste it into 1Password, then revokes the old one. The accessor is snapshotted *before* the mint so the revoke step targets the correct SecretID even after 1P is updated. Rotation cadence: 90 days (the longest TTL Vault permits).
 

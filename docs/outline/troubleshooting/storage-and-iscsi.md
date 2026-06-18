@@ -2,7 +2,7 @@
 
 # Storage & iSCSI
 
-The homelab's persistent volumes are Synology iSCSI LUNs, one per PVC. Most storage incidents are session or attachment state that's out of sync between the cluster, the worker, and the NAS.
+Storage is tiered — iSCSI block, node-local `local-path`, NFS file, and `emptyDir` cache. This page covers the **iSCSI tier**: Synology LUNs, one per PVC. Most iSCSI incidents are session or attachment state that's out of sync between the cluster, the worker, and the NAS.
 
 ---
 
@@ -35,9 +35,9 @@ Then check DSM → SAN Manager → Target → Connected Initiators and disconnec
 
 **Cause:** the DS223J caps iSCSI LUNs at **~10 DSM-wide** — *not* per-Volume (adding volumes does not add slots), a hard limit on the 1 GB-RAM ARM model. One LUN per PVC means you can hit the wall well before the disk is full.
 
-**Diagnose:** confirm you're at the cap — the count of PVs should equal the count of discoverable IQNs:
+**Diagnose:** confirm you're at the cap — the count of Synology-backed PVs should equal the count of discoverable IQNs (`local-path` and NFS PVs don't consume LUNs, so count only the iSCSI ones):
 ```
-kubectl get pv | wc -l
+kubectl get pv | grep -c synology
 iscsiadm -m discovery -t st -p 10.0.254.20:3260 | wc -l
 ```
 If they're equal and all PVs are legitimately in use, there are no orphans to reclaim — you're at the ceiling.

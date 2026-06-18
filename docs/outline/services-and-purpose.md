@@ -18,6 +18,8 @@ The point of the whole thing. Services that exist so people other than the opera
 | **TeamSpeak** | Voice chat for gaming and hanging out | asgard K3s | `ts3.xiiisins.com` (SRV) |
 | **Factorio** | Multiplayer game server | LXC 1120 | UDP game port + SFTP for admins |
 | **Outline** | Shared wiki / knowledge base | asgard K3s | `wiki.xiiisins.com` |
+| **Startpage** | Landing / dashboard page | asgard K3s | `home.xiiisins.com` |
+| **MicroBin** | Pastebin / quick file-share | asgard K3s | `paste.xiiisins.com` |
 | **Immich** *(planned)* | Photo and video library | asgard K3s | — |
 
 ---
@@ -30,6 +32,7 @@ Services the operator uses to run, observe, and reason about the homelab. Not se
 |---|---|---|---|
 | **NetBox** | IPAM / DCIM — source of truth for IPs, VLANs, devices, VMs | asgard K3s | `netbox.niflheim.xiiisins.com` |
 | **Semaphore** | Ansible orchestration + fleet drift-check | asgard K3s | `semaphore.niflheim.xiiisins.com` |
+| **n8n** | Workflow automation | asgard K3s | `n8n.xiiisins.com` |
 | **Zabbix** (Hugin) | Host- and LXC-level monitoring | LXC 1102 (Hugin) on Urd | `hugin.xiiisins.com` |
 | **Hermod** | Notification hub — fans alerts to Discord | LXC 1103 on Verd | internal POST endpoint |
 | **Vault** | Machine secrets + human secret lookup | asgard K3s | `vault.niflheim.xiiisins.com` → **Identity & secrets** |
@@ -58,9 +61,8 @@ Services that are decided but not yet deployed. Listed here so the catalog refle
 
 - **Jellyfin** — designed (privileged LXC on Urd, QuickSync passthrough); deployment pending. Has its own page already.
 - **Immich** — self-hosted photo/video library for the household. Will reuse Garage (S3) + Postgres, same shape as Outline.
-- **n8n** — workflow automation.
-- **Privatebin** — encrypted pastebin.
-- **Startpage** — a personal landing/dashboard page.
+
+Startpage, MicroBin (which took the slot the originally-planned Privatebin would have), and n8n have since gone live and moved into the catalog above. Dedicated subpages for them are a follow-up; the parent catalog rows cover them for now.
 
 ---
 
