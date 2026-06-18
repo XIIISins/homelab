@@ -64,6 +64,24 @@ python3 docs/outline/sync_outline.py
 
 Pure stdlib — no `pip install`.
 
+## Gotchas
+
+- **Links don't render even though the stored markdown has them.** Seen on pages
+  that were originally hand-imported into Outline and then updated via the API many
+  times: Outline keeps the `[text](url)` in the document's markdown but never
+  materializes it as a link mark, so it renders as plain text (in *read* mode — edit
+  mode shows everything as a link, which masks the problem). `documents.update` does
+  not repair it. **Fix: recreate the doc fresh** — `documents.create` always renders
+  links. The whole-collection recreate that fixed this (2026-06-18): soft-delete the
+  managed docs (IDs from the manifest), `rm .outline-manifest.json`, then run
+  `--apply` **twice** (pass 1 creates all; pass 2 wires cross-links to the new IDs,
+  since URLs aren't known until the docs exist). Recreating changes every doc's
+  ID/URL. Deleted docs sit in Trash (recoverable); the unmanaged "Storage redesign"
+  page has to be restored from Trash by hand (no source file).
+- **Outline rate-limits writes (HTTP 429).** A bulk recreate (~80 write calls) trips
+  it. The sync throttles writes to 1.2s apart and retries 429 with backoff
+  (`api()` + `WRITE_OPS`), so a full recreate takes a few minutes — let it run.
+
 ## Cross-reference links
 
 The sync rewrites the **bold canonical-name** cross-references into Outline doc

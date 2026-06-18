@@ -42,6 +42,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -83,7 +84,13 @@ def get_token() -> str:
              "at secret/ansible/outline/api-token (field `token`).")
 
 
+WRITE_OPS = {"documents.create", "documents.update", "documents.delete"}
+
+
 def api(method: str, payload: dict, token: str) -> dict:
+    # Throttle writes — Outline rate-limits create/update/delete per operation.
+    if method in WRITE_OPS:
+        time.sleep(1.2)
     req = urllib.request.Request(
         f"{API_URL}/{method}",
         data=json.dumps(payload).encode(),
@@ -92,14 +99,21 @@ def api(method: str, payload: dict, token: str) -> dict:
                  "Accept": "application/json"},
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")
-        raise SystemExit(f"API {method} -> HTTP {e.code}: {body}")
-    except urllib.error.URLError as e:
-        raise SystemExit(f"API {method} unreachable: {e.reason}")
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")
+            if e.code == 429 and attempt < 5:
+                time.sleep(10 * (attempt + 1))   # 10,20,30,40,50s backoff
+                continue
+            raise SystemExit(f"API {method} -> HTTP {e.code}: {body}")
+        except urllib.error.URLError as e:
+            if attempt < 5:
+                time.sleep(5)
+                continue
+            raise SystemExit(f"API {method} unreachable: {e.reason}")
 
 
 def api_paginated(method: str, payload: dict, token: str) -> list:
