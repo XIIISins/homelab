@@ -1,0 +1,47 @@
+# ansible/roles/iscsi-orphan-prune/tasks/main.yml
+---
+- name: Ensure the iSCSI orphan-prune state directory exists
+  ansible.builtin.file:
+    path: "{{ iscsi_prune_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+# Plain file (not a template) so bash's ${#arr[@]} doesn't collide with
+# Jinja's {# comment #} delimiter. Runtime config is injected via the
+# systemd unit's Environment= (set from role vars), not Jinja.
+- name: Install the iSCSI orphan-prune script
+  ansible.builtin.copy:
+    src: iscsi-orphan-prune.sh
+    dest: /usr/local/sbin/iscsi-orphan-prune.sh
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Install the iSCSI orphan-prune systemd service
+  ansible.builtin.template:
+    src: iscsi-orphan-prune.service.j2
+    dest: /etc/systemd/system/iscsi-orphan-prune.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install the iSCSI orphan-prune systemd timer
+  ansible.builtin.template:
+    src: iscsi-orphan-prune.timer.j2
+    dest: /etc/systemd/system/iscsi-orphan-prune.timer
+    owner: root
+    group: root
+    mode: '0644'
+
+# daemon_reload here (rather than a notified handler) re-reads the unit
+# files on every converge — cheap, idempotent, and notify-independent, so
+# a unit-file edit can never strand an un-reloaded daemon (same lesson as
+# the haproxy reload self-heal).
+- name: Enable and start the iSCSI orphan-prune timer
+  ansible.builtin.systemd:
+    name: iscsi-orphan-prune.timer
+    enabled: true
+    state: started
+    daemon_reload: true

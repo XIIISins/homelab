@@ -1,0 +1,29 @@
+# ansible/roles/iscsi-orphan-prune/defaults/main.yml
+---
+# Stale iSCSI node-record pruner for K3s workers. After a pod using an
+# iSCSI PV migrates off a worker, Synology CSI logs the session out but
+# leaves the persistent node record in /var/lib/iscsi/nodes/ — harmless
+# until iscsid restarts and tries to log into every stale record. This
+# role deploys a debounced systemd timer that prunes records with no
+# active session.
+
+# State dir holding per-orphan first-seen timestamps (sha256-named files,
+# each containing "<first-seen-epoch> <target-iqn>").
+iscsi_prune_state_dir: /var/lib/iscsi-orphan-prune
+
+# A node record must be session-less for at least this long before it is
+# deleted — guards against deleting a record for a LUN that is only
+# momentarily disconnected (iscsid restart, transient network blip, the
+# CSI re-stage window). Default 1h: well past any reconnect window.
+iscsi_prune_grace_seconds: 3600
+
+# Timer cadence (systemd OnCalendar). Every 30 min → an orphan is pruned
+# ~1–1.5h after its session drops.
+iscsi_prune_oncalendar: "*:0/30"
+
+# When true, log what WOULD be deleted but never delete. Useful for a
+# first observation pass before trusting the pruner. All three knobs are
+# also overridable at runtime via ISCSI_PRUNE_{STATE_DIR,GRACE_SECONDS,
+# DRY_RUN} env vars (the deployed defaults below are the env fallbacks),
+# which is how the role is validated without waiting out the grace period.
+iscsi_prune_dry_run: false

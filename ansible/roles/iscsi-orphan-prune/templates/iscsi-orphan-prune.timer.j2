@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Periodic prune of stale iSCSI node records
+
+[Timer]
+OnCalendar={{ iscsi_prune_oncalendar }}
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

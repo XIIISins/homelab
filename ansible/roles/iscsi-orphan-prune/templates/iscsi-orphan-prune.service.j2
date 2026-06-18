@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Prune stale iSCSI node records left by CSI pod migrations
+Documentation=https://github.com/XIIISins/homelab ansible/roles/iscsi-orphan-prune
+After=iscsid.service
+Wants=iscsid.service
+
+[Service]
+Type=oneshot
+Environment=ISCSI_PRUNE_STATE_DIR={{ iscsi_prune_state_dir }}
+Environment=ISCSI_PRUNE_GRACE_SECONDS={{ iscsi_prune_grace_seconds }}
+Environment=ISCSI_PRUNE_DRY_RUN={{ 'true' if iscsi_prune_dry_run else 'false' }}
+ExecStart=/usr/local/sbin/iscsi-orphan-prune.sh
+# Light sandboxing only — iscsiadm's iscsid/kernel (netlink) interactions
+# are finicky under ProtectSystem=strict, so that is deliberately omitted.
+ProtectHome=true
+NoNewPrivileges=true

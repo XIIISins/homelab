@@ -21,6 +21,13 @@
       tags: local-path-disk
       when: "'k3s_worker' in group_names"
 
+    # Prune stale iSCSI node records left behind by CSI pod migrations
+    # (debounced systemd timer). Workers only — CPs are CSI-evicted, so
+    # they hold no iSCSI sessions. See roles/iscsi-orphan-prune.
+    - role: iscsi-orphan-prune
+      tags: iscsi-orphan-prune
+      when: "'k3s_worker' in group_names"
+
     # Agents live in the per-host-group playbook so drift-check covers
     # them in this group's converge without re-iterating via the
     # cluster-wide standalones. K3s VMs ship host journald/syslog only —
