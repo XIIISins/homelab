@@ -20,19 +20,11 @@
     masked: true
   failed_when: false # OK if it wasn't installed
 
-# After masking systemd-resolved, /etc/resolv.conf may be a dangling
-# symlink to /run/systemd/resolve/stub-resolv.conf. Replace with a
-# static file pointing at the local AdGuard instance (with one external
-# fallback for the bootstrap window before AdGuard is up).
-- name: Replace /etc/resolv.conf with static file (AdGuard local + bootstrap fallback)
-  ansible.builtin.copy:
-    dest: /etc/resolv.conf
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      # Managed by ansible/roles/adguard. Do NOT edit by hand.
-      # Local AdGuard answers via DNS port on the loopback.
-      nameserver 127.0.0.1
-      # Bootstrap fallback used while AdGuardHome is down for upgrades.
-      nameserver {{ adguard_bootstrap_dns | first }}
+# /etc/resolv.conf is owned by PVE, NOT ansible. The AGH LXC's `dns {}` block
+# in terraform/proxmox/asgard-lxcs/lxcs.tf (servers = 127.0.0.1 + Quad9
+# 9.9.9.10 bootstrap fallback, domain niflheim.xiiisins.com) makes PVE write
+# the local-resolver-plus-fallback config at every container start. Ansible
+# managing it here only fought that on reboot (perpetual drift) — see
+# docs/known-issues/lxc-proxmox.md. systemd-resolved is still masked above to
+# free port 53; PVE writes a regular /etc/resolv.conf regardless of the
+# dangling stub symlink, so no ansible task is needed.

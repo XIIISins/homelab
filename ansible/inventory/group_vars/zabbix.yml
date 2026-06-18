@@ -1,5 +1,11 @@
 # ansible/inventory/group_vars/zabbix.yml
 ---
+# resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/
+# asgard-lxcs/lxcs.tf writes the AdGuard VIP + UCG fallback at every container
+# start). Ansible stops managing it so the two don't fight on reboot. See
+# docs/known-issues/lxc-proxmox.md.
+baseline_manage_resolv_conf: false
+
 # Zabbix server host group vars. Composes with role defaults from
 # baseline, zabbix-server, zabbix-agent, hardening.
 #

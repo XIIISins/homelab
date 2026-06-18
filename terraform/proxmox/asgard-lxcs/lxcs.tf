@@ -62,6 +62,16 @@ resource "proxmox_virtual_environment_container" "factorio" {
       }
     }
 
+    # PVE writes /etc/resolv.conf from this block at every container start;
+    # without it the container inherits the Proxmox host's resolv.conf. Mirrors
+    # the old baseline_nameservers (AdGuard VIP + UCG fallback) so the ansible
+    # baseline can stop managing resolv.conf (baseline_manage_resolv_conf=false)
+    # — ending the per-reboot PVE-vs-ansible clobber. See known-issues/lxc-proxmox.md.
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
+    }
+
     user_account {
       keys     = [trimspace(var.ssh_public_key)]
       password = random_password.factorio_root.result
@@ -168,6 +178,13 @@ resource "proxmox_virtual_environment_container" "postgres" {
         address = "${each.value.ip}/24"
         gateway = "10.0.11.1"
       }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block (VIP + UCG fallback);
+    # ansible baseline stops managing it (baseline_manage_resolv_conf=false).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
     }
 
     user_account {
@@ -315,6 +332,13 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
       ipv4 {
         address = "${each.value.vlan10_ip}/24"
       }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block (VIP + UCG fallback);
+    # ansible baseline stops managing it (baseline_manage_resolv_conf=false).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
     }
 
     user_account {
@@ -484,6 +508,17 @@ resource "proxmox_virtual_environment_container" "adguard" {
       }
     }
 
+    # PVE rewrites the container's /etc/resolv.conf from this block at every
+    # start. Without it the container inherits the Proxmox host's resolv.conf
+    # (the AdGuard VIP), which clobbers the local-resolver + bootstrap-fallback
+    # config the adguard role wants — surfacing as perpetual reboot drift.
+    # 127.0.0.1 = local AdGuardHome; 9.9.9.10 = Quad9 bootstrap fallback for
+    # the window when all AGH nodes are down (e.g. a fleet-wide host reboot).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["127.0.0.1", "9.9.9.10"]
+    }
+
     user_account {
       keys     = [trimspace(var.ssh_public_key)]
       password = random_password.adguard_root[each.key].result
@@ -600,6 +635,13 @@ resource "proxmox_virtual_environment_container" "hugin" {
         address = "10.0.11.21/24"
         gateway = "10.0.11.1"
       }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block (VIP + UCG fallback);
+    # ansible baseline stops managing it (baseline_manage_resolv_conf=false).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
     }
 
     user_account {
@@ -723,6 +765,13 @@ resource "proxmox_virtual_environment_container" "hermod" {
         address = "10.0.11.22/24"
         gateway = "10.0.11.1"
       }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block (VIP + UCG fallback);
+    # ansible baseline stops managing it (baseline_manage_resolv_conf=false).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
     }
 
     user_account {
