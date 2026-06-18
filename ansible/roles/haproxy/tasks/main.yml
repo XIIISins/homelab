@@ -19,6 +19,13 @@
 # parses without starting; if it fails the template task errors and
 # the in-place haproxy.cfg is untouched. Prevents a typo from taking
 # the listener down on `systemctl reload`.
+#
+# Note: this task deliberately does NOT `notify` a reload handler. Handlers
+# only flush at the end of a play, so a failure or interrupt between this
+# render and the flush strands the reload — the new config sits on disk
+# while the old one keeps running, and since the file is now unchanged it
+# never re-notifies on later runs. The checksum-driven self-heal block
+# below owns the reload instead (see its comment).
 - name: Render HAProxy config
   ansible.builtin.template:
     src: haproxy.cfg.j2
@@ -27,7 +34,6 @@
     group: root
     mode: '0644'
     validate: 'haproxy -c -f %s'
-  notify: reload haproxy
 
 - name: Enable and start HAProxy
   ansible.builtin.systemd:
@@ -35,3 +41,42 @@
     enabled: true
     state: started
     daemon_reload: true
+
+# Notify-independent reload self-heal. Drive the reload from a checksum
+# marker rather than a handler: reload iff the live haproxy.cfg differs from
+# the one last successfully reloaded. This converges on the SAME run as a
+# render, recovers a stranded reload on the next run regardless of why the
+# handler was missed, and is failure-safe — the marker only advances AFTER a
+# successful reload (the reload task is ordered before the marker write), so
+# a failed reload simply retries on the next converge.
+- name: Checksum the on-disk HAProxy config
+  ansible.builtin.stat:
+    path: "{{ haproxy_config_path }}"
+    checksum_algorithm: sha256
+  register: haproxy_cfg_stat
+  check_mode: false
+
+- name: Read the last-reloaded config marker
+  ansible.builtin.slurp:
+    src: "{{ haproxy_reload_marker_path }}"
+  register: haproxy_reload_marker
+  failed_when: false
+  check_mode: false
+
+- name: Reload HAProxy if the running config is stale (stranded-reload self-heal)
+  ansible.builtin.systemd:
+    name: "{{ haproxy_service }}"
+    state: reloaded
+  when:
+    - haproxy_cfg_stat.stat.exists
+    - (haproxy_reload_marker.content | default('') | b64decode | trim)
+      != haproxy_cfg_stat.stat.checksum
+
+- name: Record the reloaded config checksum
+  ansible.builtin.copy:
+    content: "{{ haproxy_cfg_stat.stat.checksum }}"
+    dest: "{{ haproxy_reload_marker_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: haproxy_cfg_stat.stat.exists

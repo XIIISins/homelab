@@ -12,6 +12,13 @@ haproxy_config_path: /etc/haproxy/haproxy.cfg
 haproxy_user: haproxy
 haproxy_group: haproxy
 
+# Marker holding the sha256 of the haproxy.cfg that was last successfully
+# reloaded into the running process. The reload self-heal task compares the
+# live config's checksum against this marker to decide whether a reload is
+# owed — making the reload notify-INDEPENDENT, so a stranded handler can no
+# longer leave a rendered-but-unreloaded config running indefinitely.
+haproxy_reload_marker_path: /var/lib/haproxy/.ansible-reloaded-cfg-sha256
+
 # Raw lines appended to the `global` section. Use for tuning knobs
 # the role doesn't model (maxconn, tune.*, ssl-default-bind-*).
 haproxy_global_extra: []

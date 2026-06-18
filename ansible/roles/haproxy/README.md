@@ -12,10 +12,21 @@ TCP/HTTP frontends by supplying a different list per inventory group.
 2. Renders `/etc/haproxy/haproxy.cfg` from `templates/haproxy.cfg.j2`,
    using `haproxy -c -f` to validate the rendered file before swapping
    it in.
-3. Enables + starts the `haproxy` systemd unit. Notifies a graceful
-   `reload haproxy` on config change (existing sessions drain; new
-   connections hit the new config). `restart haproxy` exists for
-   callers who need a hard reset.
+3. Enables + starts the `haproxy` systemd unit.
+4. Reloads gracefully (existing sessions drain on the old worker; new
+   connections hit the new config) **only when the running config is
+   actually stale** — driven by a sha256 marker
+   (`haproxy_reload_marker_path`) rather than a handler notify. The
+   render task is intentionally `notify`-free: a handler only flushes at
+   play end, so a failure between render and flush would strand the
+   reload (new `haproxy.cfg` on disk, old config still running, file no
+   longer "changed" so it never re-notifies). The marker compares the
+   live config's checksum against the one last successfully reloaded, so
+   a reload converges on the same run as a render and a strand self-heals
+   on the next converge regardless of cause. The marker advances only
+   *after* a successful reload, so a failed reload retries next run. The
+   `reload haproxy` / `restart haproxy` handlers remain defined for
+   callers who need to notify a hard reset out-of-band.
 
 ## Variables
 
