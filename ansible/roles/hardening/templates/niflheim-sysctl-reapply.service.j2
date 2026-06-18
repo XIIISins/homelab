@@ -1,0 +1,18 @@
+{# ansible/roles/hardening/templates/niflheim-sysctl-reapply.service.j2 #}
+[Unit]
+Description=Re-apply niflheim hardened sysctls after network is online (LXC interface-reset workaround)
+Documentation=docs/known-issues/lxc-proxmox.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Re-apply ONLY our drop-in. Every key in it is net.ipv4.conf.* — settable
+# inside the container netns — so this reliably exits 0 (unlike
+# `sysctl --system`, which would fail on read-only kernel.*/vm.* keys in an
+# unprivileged LXC and turn this unit into a drift signal of its own).
+ExecStart=/usr/sbin/sysctl -p {{ hardening_sysctl_file }}
+
+[Install]
+WantedBy=multi-user.target

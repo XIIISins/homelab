@@ -29,9 +29,17 @@
     name: "{{ baseline_locale }}"
     state: present
 
+# Manage /etc/locale.conf, NOT /etc/default/locale. systemd-tmpfiles ships
+# `L+ /etc/default/locale - - - - ../locale.conf` (/usr/lib/tmpfiles.d/
+# debian.conf), which force-recreates /etc/default/locale as a symlink to
+# /etc/locale.conf at every boot. Writing a regular file there loses the
+# race on every reboot (the symlink, mode 777, shows as perpetual drift).
+# /etc/locale.conf is the symlink target AND the canonical systemd locale
+# file (also native on RHEL), so managing it satisfies both and survives
+# reboot. See docs/known-issues/lxc-proxmox.md.
 - name: Set default system locale
   ansible.builtin.copy:
-    dest: /etc/default/locale
+    dest: /etc/locale.conf
     content: "LANG={{ baseline_locale }}\n"
     mode: "0644"
 

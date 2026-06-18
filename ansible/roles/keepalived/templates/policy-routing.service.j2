@@ -7,6 +7,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# In an LXC, network-online.target can be reached before {{ item.interface }}
+# has its address/route, so `ip route ... via {{ item.gateway }}` would fail
+# (status 2, "Network is unreachable") and — being a no-Restart oneshot —
+# stay failed until the next manual apply. Poll until the gateway is routable
+# (interface up + addressed) before touching the routing table.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/sbin/ip route get {{ item.gateway }} >/dev/null 2>&1 && exit 0; sleep 1; done; echo "policy-routing[{{ item.name }}]: gateway {{ item.gateway }} unreachable after 30s" >&2; exit 1'
 ExecStartPre=-/usr/sbin/ip rule del from {{ item.from }} table {{ item.name }}
 ExecStart=/usr/sbin/ip route replace default via {{ item.gateway }} dev {{ item.interface }} table {{ item.name }}
 ExecStart=/usr/sbin/ip rule add from {{ item.from }} table {{ item.name }}

@@ -18,3 +18,10 @@ ssh_extra_allow_users: []
 # SELinux
 selinux_state: enforcing
 selinux_policy: targeted
+
+# Hardened sysctls are written to a dedicated drop-in (not /etc/sysctl.conf)
+# so the LXC reboot-persistence oneshot can re-apply ONLY these net.* keys —
+# all settable inside the container netns, so `sysctl -p <file>` reliably
+# exits 0 and never becomes a failed-service drift signal of its own.
+# See docs/known-issues/lxc-proxmox.md (sysctl reboot persistence).
+hardening_sysctl_file: /etc/sysctl.d/60-niflheim-hardening.conf

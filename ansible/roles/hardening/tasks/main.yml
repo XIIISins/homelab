@@ -55,6 +55,7 @@
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
+    sysctl_file: "{{ hardening_sysctl_file }}"
     sysctl_set: true
     reload: true
   loop:
@@ -66,6 +67,39 @@
     - { name: "net.ipv4.conf.default.accept_source_route", value: "0" }
     # Log suspicious packets
     - { name: "net.ipv4.conf.all.log_martians", value: "1" }
+
+# LXC reboot-persistence: inside a container the netns + veth are
+# re-initialised at every start, and interface bring-up resets
+# net.ipv4.conf.{all,default}.accept_redirects (->1) and .all.log_martians
+# (->0) AFTER systemd-sysctl has applied the on-disk values. A oneshot
+# ordered After=network-online.target re-applies our drop-in once the
+# interface is up, so the hardened values stick. VMs/bare-metal don't hit
+# this race (sysctl ordering works there) — gate to LXC to avoid adding a
+# needless unit. See docs/known-issues/lxc-proxmox.md.
+- name: Install sysctl reboot-persistence oneshot (LXC)
+  ansible.builtin.template:
+    src: niflheim-sysctl-reapply.service.j2
+    dest: /etc/systemd/system/niflheim-sysctl-reapply.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_virtualization_type == 'lxc'
+  notify: reload niflheim-sysctl-reapply
+
+- name: Enable + start sysctl reboot-persistence oneshot (LXC)
+  ansible.builtin.systemd:
+    name: niflheim-sysctl-reapply.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  # not ansible_check_mode: in a check-mode drift run before the first real
+  # apply, the unit file doesn't exist yet (the template task above doesn't
+  # write in check mode), and systemd enable/start would error "unit not
+  # found". File-drift is still detected by the template task; service
+  # enablement is enforced on every real apply.
+  when:
+    - ansible_virtualization_type == 'lxc'
+    - not ansible_check_mode
 
 - name: Configure login banner
   ansible.builtin.copy:
