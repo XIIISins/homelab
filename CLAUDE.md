@@ -139,22 +139,14 @@ ADGUARD_PASSWORD='hunter2' terraform apply
 
 For the **operator's** own interactive use, the 1P-backed `homelab-env` shim loads from 1P + caches without ever echoing the values — that's the right path to recommend in *user-facing* instructions (the operator can `op signin`).
 
-**For Claude's OWN machine commands, prefer the Vault-backed shim (`vault-homelab-env`), NOT the 1P one.** Claude runs non-interactively — and increasingly via `claude remote-control` on a control node — where `op` can't prompt for biometric/signin, so the 1P cache (`env.sh`) only works if the operator happened to run `homelab-env` by hand recently. `vault-homelab-env` needs no human: it AppRole-logs-in to Vault with the on-disk secret-zero (`~/.config/ansible/vault-approle.env`) and pulls the same IaC creds from `secret/ansible/frigg/*`. Self-healing one-liner for any multi-var command — re-fetches from Vault when the 3h cache is stale, fast cache-read when warm:
+**For Claude's OWN machine commands, prefer the Vault-backed shim (`vault-homelab-env`), NOT the 1P one** — Claude runs non-interactively (incl. via `claude remote-control`), where `op` can't prompt for biometric/signin. `vault-homelab-env` AppRole-logs-in to Vault with an on-disk secret-zero and needs no human. Self-healing one-liner for any multi-var command (source the shim first — `vault-homelab-env` isn't on PATH; calling it exports every IaC var into THIS shell so the chained command inherits them):
 
 ```bash
-# Preferred for Claude's multi-var commands — Vault-backed, no 1Password.
-# `vault-homelab-env` isn't on PATH; it's defined in the repo shim, so source
-# that first. Calling it exports every IaC var into THIS shell → the chained
-# command inherits them.
 source "$(git rev-parse --show-toplevel)/.config/scripts/homelab.sh" \
   && vault-homelab-env >/dev/null && terraform apply
 ```
 
-(The refresh path needs `vault` + `jq` on PATH — prefix `PATH="/opt/homebrew/bin:$PATH"` per the "Bash tool calls don't inherit … PATH" gotcha. The known-warm form `. ~/.cache/homelab/vault-env.sh && <cmd>` needs neither, but does NOT self-heal a stale cache.)
-
-`~/.cache/homelab/vault-env.sh` (POSIX) + `vault-env.fish` (fish) are written by `vault-homelab-env` (**3h TTL**, SEPARATE from the 1P `env.{sh,fish}`) and hold the same IaC set: `KUBECONFIG`, `VAULT_ADDR`/`VAULT_TOKEN`, `ADGUARD_*`, `CLOUDFLARE_API_TOKEN`, `AUTHENTIK_*`, `NETBOX_*`, `AWS_*`, `TF_VAR_proxmox_api_token`, `SEMAPHOREUI_*`, the `ANSIBLE_HASHI_VAULT_*` AppRole vars + `ANSIBLE_VAULT_PASSWORD_FILE`. The cached `VAULT_TOKEN` is a ~30 min AppRole token — `vault-homelab-env --refresh` re-mints it. Adding a new IaC field means appending to `__vault_homelab_iac_map` in BOTH shim files (and `control_node_iac_env_fields` in `roles/control-node` if Frigg should get it) + `vault-homelab-env --refresh`. The on-disk secret-zero is re-synced after a `rotate-approle` via `homelab-env` (1P) then `seed-vault-approle`.
-
-> The 1P-backed `. ~/.cache/homelab/env.sh` / `homelab-env` still works at home and stays the operator's interactive path — it's just no longer Claude's default. On **Frigg** the distinction is moot: its `homelab-env`/`env.sh` is *already* Vault-backed (no `op` on the box), so there `. ~/.cache/homelab/env.sh` IS the Vault path.
+(Refresh path needs `vault`+`jq` on PATH — prefix `PATH="/opt/homebrew/bin:$PATH"`. Cache `~/.cache/homelab/vault-env.{sh,fish}`, 3h TTL.) **Shim internals** — full IaC field set, cache mechanics, how to add a field, the Frigg-vs-MacBook distinction — in [`docs/architecture/identity-secrets.md`](docs/architecture/identity-secrets.md) ("Vault-backed shim").
 
 For Vault: `$(vault kv get -field=<f> secret/<path>)` follows the same pattern. For Ansible Vault: `--vault-password-file` or `ansible-vault view | grep` piped into the consumer, never copy-paste-in-prompt.
 
@@ -229,40 +221,16 @@ NOT for: implementation gotchas (batch to post-flight), findings not affecting a
 
 ### Parallel agents — fan out for independent work
 
-The Agent tool can run multiple sub-agents in parallel. Use this aggressively for any work where the sub-tasks are independent:
+Fan out `Agent` calls (all in one message → concurrent) for independent sub-tasks: research (one agent per source class), repo-wide investigation, read-only state/reality pulls across hosts, cross-source reconciliation (spec vs live). For **mutating** work on disjoint scopes, pass `isolation: "worktree"` on every agent that may write (prevents the "3 agents all commit to `main`" failure) — and brief each on a NON-overlapping slice, because worktrees isolate git state, NOT shared external systems (same TF module / K8s namespace / Vault path still race — sequence those).
 
-- **Research** — upstream docs, GitHub issues, release notes, benchmarks. One agent per source class, run concurrently, each capped at a tight word budget. Beats serial fetching by ~Nx the agent count.
-- **Investigation** — "find every reference to X across the repo", "audit which manifests use storage class Y", "list all open-questions older than 30 days". Pure read, independent shards.
-- **State / reality pulls** — read-only SSH sweeps across multiple hosts (e.g. "what's installed on each AGH node?"), read-only kubectl across namespaces, parallel `qm list` against multiple Proxmox hosts. Fan out per host.
-- **Cross-source reconciliation** — agent A reads the IaC spec, agent B reads the live state, then Claude diffs the two reports.
-- **Mutating work on disjoint scopes** — e.g. one agent edits `terraform/netbox/`, another edits `k8s/asgard/apps/foo/`, a third writes an Ansible role. **Requires worktree isolation** (see below) — otherwise they race on the working tree and every commit lands on `main`.
-
-**Worktree isolation is the default for any agent that may edit files.** Pass `isolation: "worktree"` on every Agent call where the agent might write — every research/investigation call without writes can skip it. The harness creates a temp git worktree on a fresh branch; the agent commits there; if it made no changes the worktree auto-cleans, otherwise the harness returns the branch + path so the parent agent can merge or discard deliberately. This prevents the "3 agents all committing to `main`" failure mode entirely.
-
-**Disjoint scope is the parent agent's job, not the harness's.** Worktrees isolate git state, NOT shared external systems. Two agents both `terraform apply`ing the same module serialize at the S3 lock (the second errors with "Error acquiring the state lock"); two agents `kubectl apply`ing to the same namespace race on the live cluster regardless of worktree; same for Vault writes, NetBox writes, Cloudflare zone edits. When fanning out mutating work, brief each agent on a non-overlapping slice (different TF module, different K8s namespace, different Ansible role) — and call out the shared-state surfaces in the prompt so the agent knows what NOT to touch.
-
-**When NOT to parallelize:**
-- When the second agent's task depends on the first's output (serial-by-design).
-- When the work mutates the same external system (same TF module, same K8s namespace, same Vault path) — worktrees don't help; sequence them instead.
-- When the cost of context-switching between sub-agent reports exceeds the parallelism gain (small jobs where one agent's full report fits in a single Read).
-
-**Briefing:** each agent gets a self-contained prompt — context, what to do, what NOT to do, a strict word budget, and the format of the expected return. Sub-agents can't see your conversation, so prompt them like a smart colleague who just walked in. Mutating agents also need: the branch name convention (`feat/<slug>`, `fix/<slug>`, etc.), the commit message style (conventional commits, no `Co-Authored-By` per repo norm), and an explicit "do NOT push, do NOT merge to main — return the branch + summary, the parent agent decides."
-
-**Merging back:** when an agent returns with a branch, the parent agent (or operator) reviews the diff and either `git merge --ff-only <branch>` / `git rebase main <branch> && git merge --ff-only` / discards via `git branch -D <branch> && git worktree remove <path>`. Never auto-merge multi-agent output without a diff review — that's the polluting-main failure mode in a different costume.
-
-Pattern: when launching parallel agents, put all the Agent tool calls in a single message. The harness fans them out concurrently; results return in parallel.
+Don't parallelize when: the second task needs the first's output; the work mutates the same external system; or report-juggling costs more than the parallelism buys. **Brief** each agent self-contained (it can't see this conversation): context, do / do-NOT, word budget, return format; mutating agents also get the branch convention (`feat/<slug>`), conventional-commits style (no `Co-Authored-By`), and "do NOT push or merge to main — return the branch, the parent decides." **Never auto-merge sub-agent output without a diff review.**
 
 ### Mutating operations — what runs where
 
-Rules for keeping multi-agent + multi-worktree work coherent against shared infra. Established 2026-05-25.
-
-**Worktree → local main: ff-merge on completion.** When work in an `EnterWorktree`-isolated branch is clean AND has been tested, ff-merge into the operator's local `main` (`git -C /Users/ghost/Dev/xiiisins/homelab merge --ff-only <branch>`) and `ExitWorktree`. Do NOT `git push` — pushing remains an explicit operator action; this avoids the operator having to `git pull --rebase` to absorb agent commits after the fact. If `--ff-only` refuses (main diverged), flag it rather than force-merging or rebasing without permission. Skip the auto-merge if the change couldn't be tested (UI work without browser test, persistent OS config without reboot validation) — leave the branch + explain why. Sub-agent fanouts still require parent-agent diff review before merge (see "Merging back" above) — this auto-merge default applies only to a top-level agent's own worktree work.
-
-**`terraform apply` runs only from the main checkout, never from a worktree.** `terraform plan` and HCL editing from worktrees are fine. S3 state locking prevents corruption; this rule prevents *intentionality loss* — multiple agents applying different modules in parallel produces outcomes the operator can't reason about post-hoc. Sequence: edit/plan in worktree → ff-merge per above → apply from main checkout. Unconditional.
-
-**`kubectl apply` is never used directly — Flux reconciles state.** Manifests land in `k8s/` via the normal git path; `flux reconcile kustomization …` is the explicit nudge when needed. No `kubectl apply -f` against the cluster from any agent.
-
-**`ansible-playbook` may run from a worktree, but only one at a time across all agents.** Worktrees isolate git state, not the live infra Ansible targets — concurrent playbooks race on SSH (MaxAuthTries from the hardening role), package locks, and notify-handler restarts (e.g. `restart-k3s` firing twice across nodes is catastrophic). Currently coordinated manually via the conversation. Planned mechanization: `flock(2)`-based Python wrapper at `~/.cache/homelab/ansible-playbook.lock` (machine-wide path so every worktree sees it; auto-releases on process death) — deferred until parallel-agent ansible work becomes a recurring pattern. Until the wrapper exists: ask before running `ansible-playbook` if there's any chance another agent is mid-playbook.
+- **Worktree → local `main`: ff-merge when clean AND tested**, then `ExitWorktree`. Never `git push` (operator's call). If `--ff-only` refuses, flag it — don't force/rebase without permission. Skip the auto-merge if untested (UI without browser test, OS config without reboot validation) — leave the branch + say why. Sub-agent fanouts still need parent diff-review first.
+- **`terraform apply` only from the main checkout, never a worktree** (plan/HCL-edit from worktrees is fine). Prevents intentionality-loss across parallel agents.
+- **`kubectl apply` is never used directly — Flux reconciles** (`flux reconcile …` is the nudge); manifests land via the git path. Pushing `main` IS the K8s deploy.
+- **`ansible-playbook`: one at a time across all agents** (concurrent runs race on SSH MaxAuthTries, package locks, notify-handler restarts). Coordinated manually; ask before running if another agent might be mid-playbook.
 
 ---
 
@@ -349,7 +317,7 @@ All 1 GbE. No 2.5 GbE planned.
 
 **Storage tier — etcd fsync consistency: Verd ≈ Skuld > Urd.** Urd's NVMe is DRAM-less HMB Gen 4 (slowest under sustained sync); Verd + Skuld DRAM-equipped Gen 3. All three well within etcd's tolerance, massive improvement over the old Urd mSATA.
 
-All three nodes are now identical hardware (MSI Cubi i3-1215u / 32GB) — Skuld was refreshed off the Beelink N100/16GB (confirmed live 2026-05-31: `PRO ADL-U Cubi 5`, i3-1215U, 31 GiB; kept its 512GB SK Hynix PC300 NVMe). No more single-node resource pressure. Urd long-term plan: dedicated Jellyfin LXC with Intel QuickSync passthrough (i3-1215u UHD Graphics). *(The Skuld refresh predates this note — narrative/date not yet captured in build-sequence; flag for a hardware-doc sweep.)*
+All three nodes are now identical hardware (MSI Cubi i3-1215u / 32GB / NVMe; Skuld refreshed off the old Beelink N100/16GB, confirmed live 2026-05-31). No single-node resource pressure. Urd long-term: dedicated Jellyfin LXC with QuickSync passthrough. Refresh narratives + storage-tier verification in [`docs/architecture/hardware.md`](docs/architecture/hardware.md).
 
 Migration narratives + storage-tier verification + phase history: [`docs/architecture/hardware.md`](docs/architecture/hardware.md) + [`docs/operations/build-sequence.md`](docs/operations/build-sequence.md) (Phases 4a/4b/4c) + [`docs/incidents/`](docs/incidents/).
 
@@ -423,37 +391,15 @@ Norse mythology throughout. **Meta-principle:** primary defines the theme; repli
 
 ```
 homelab/
-├── CLAUDE.md
-├── docs/                                  # See docs/homelab-design.md for the index
-├── .github/workflows/                     # CI — GHCR custom-image builds (build-semaphore-image.yml)
-├── docker/                                # Custom container image build contexts (semaphore/ → ghcr.io/xiiisins/*)
-├── terraform/
-│   ├── proxmox/
-│   │   ├── asgard-k3s/                    # K3s VM definitions (bpg/proxmox, API token)
-│   │   ├── asgard-lxcs/                   # Normal LXCs (API token — Factorio/PG/HAProxy/AGH/Zabbix)
-│   │   └── asgard-lxcs-root/              # Root-pam LXCs (PROXMOX_VE_PASSWORD — Tailscale, future device_passthrough)
-│   ├── vault/                             # Vault config (KV, auth methods, policies, roles)
-│   ├── cloudflare/                        # Tunnel + DNS records + Vault KV writes
-│   ├── authentik/                         # OIDC providers + identity-as-data (users.yaml + groups.yaml)
-│   ├── tailscale/                         # Tailnet ACL (policy.hujson) + auth keys
-│   ├── netbox/                            # TF→NetBox writes (sites, VMs, IPs, tags) via e-breuninger/netbox
-│   ├── adguard/                           # TF→AGH rewrites (gmichels/adguard, write-to-origin Saga)
-│   ├── aws/                               # S3 state bucket + IAM (bootstrap; local-state by chicken-egg)
-│   └── {dns,k3s}/                         # Scaffolding (empty)
-├── ansible/
-│   ├── inventory/                         # hosts.yml + group_vars/ (auto-discovered adjacent)
-│   ├── playbooks/                         # asgard-k3s, factorio-host, postgres-host, etc.
-│   └── roles/                             # baseline / k3s / hardening / postgres / factorio / sftpgo / tailscale
-└── k8s/
-    ├── asgard/
-    │   ├── flux-system/                   # Flux Kustomizations: infrastructure, apps, *-config
-    │   ├── infrastructure/                # HelmReleases + CRD-independent resources
-    │   ├── <component>-config/            # CRD-dependent resources, dependsOn: infrastructure
-    │   └── apps/                          # Leaf consumer workloads
-    └── jotunheim/                         # Mirror structure (not yet deployed)
+├── CLAUDE.md          docs/ (→ docs/homelab-design.md index)   .github/workflows/   docker/
+├── terraform/         proxmox/{asgard-k3s,asgard-lxcs,asgard-lxcs-root,asgard-vms} · vault · cloudflare ·
+│                       authentik · tailscale · netbox · adguard · garage · semaphore · aws (bootstrap)
+├── ansible/           inventory/ (hosts.yml + group_vars/, NetBox dyn-inv) · playbooks/ · roles/
+└── k8s/asgard/        flux-system/ · infrastructure/ (HelmReleases) · <component>-config/ (CRD-dependent,
+                        dependsOn: infrastructure) · apps/ (leaf workloads)   |   k8s/jotunheim/ (not yet deployed)
 ```
 
-Phase-history annotations + per-directory contents: [`docs/services/asgard-k3s.md`](docs/services/asgard-k3s.md) + [`docs/services/jotunheim-k3s.md`](docs/services/jotunheim-k3s.md).
+Per-module purpose, per-directory contents + phase-history: [`docs/services/asgard-k3s.md`](docs/services/asgard-k3s.md) + [`docs/services/jotunheim-k3s.md`](docs/services/jotunheim-k3s.md). Module-auth + placement rules are in the Architectural invariants above.
 
 ---
 
