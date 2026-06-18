@@ -68,11 +68,10 @@ Pure stdlib — no `pip install`.
 
 The sync rewrites the **bold canonical-name** cross-references into Outline doc
 links at publish time (`rewrite_links`). Source files keep the readable bold names;
-only Outline gets the links. Links are **absolute** (`https://<wiki>/doc/<slug-id>`,
-origin derived from `OUTLINE_API_URL`) — Outline's editor does **not** render
-*relative* `/doc/...` links: they survive in the stored markdown but flatten back to
-plain text the next time the page is saved in the editor, so the full origin is
-required. The transform is high-precision — a bold
+only Outline gets the links. Links are **relative** (`/doc/<slug-id>`) — Outline
+renders these as internal links and they're portable across a hostname change.
+(Absolute `https://<wiki>/doc/...` also works if you ever prefer it; switch the
+`urlmap` construction.) The transform is high-precision — a bold
 span is linked **only** if its text resolves (normalized) to a real page title, so
 emphasis bold (`**The rule:**`, `**tiered by access pattern**`) is never touched.
 Two contexts are linked:

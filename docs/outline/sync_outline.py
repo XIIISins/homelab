@@ -262,11 +262,11 @@ def main():
     by_norm = {}
     for d in live.values():
         by_norm.setdefault(normtitle(d["title"]), []).append(d)
-    # Absolute URLs — Outline's editor does NOT render relative `/doc/...` links
-    # as clickable links (they survive in the markdown but flatten to plain text
-    # on the next editor save), so cross-references must use the full origin.
-    base = API_URL[:-4] if API_URL.endswith("/api") else API_URL
-    urlmap = {normtitle(d["title"]): base + (d.get("url") or f"/doc/{d['id']}")
+    # Relative `/doc/<slug-id>` links — Outline renders these as internal links
+    # (verified). Preferred over absolute URLs: portable across a hostname change.
+    # (An earlier "links don't render" symptom turned out to be a bulk-apply that
+    # dropped links entirely, not the link form.)
+    urlmap = {normtitle(d["title"]): (d.get("url") or f"/doc/{d['id']}")
               for d in live.values()}
 
     plan = {"create": [], "update": [], "skip": []}
