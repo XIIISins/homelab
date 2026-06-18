@@ -181,6 +181,34 @@ def normtitle(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def rewrite_links(text: str, urlmap: dict) -> str:
+    """Publish-time transform: turn bold canonical-name cross-references into
+    Outline doc links, leaving emphasis bold alone. Source files keep the
+    readable bold names; only Outline gets the links. A bold span whose text
+    doesn't resolve to a page title is ALWAYS left untouched, so this only ever
+    links real cross-references. Two contexts:
+      - inside a nav section (See also / Where to go deeper / Where to go next),
+        every page-name bold is linked (these sections are pure cross-refs;
+        non-page bold like a '**I'm on call**' lead-in is left alone);
+      - elsewhere, only bold immediately followed by a section qualifier
+        ('(Components)', 'section', 'subpage', ...) is linked."""
+    qual = (r'(?=\s*\((?:Components|Hardware|Procedures|Troubleshooting|this section)\)'
+            r'|\s+section\b|\s+subpage\b)')
+    nav = re.compile(r'^#{1,6}\s+(?:See also|Where to go deeper|Where to go next)\b', re.I)
+
+    def link(m):
+        key = normtitle(m.group(1))
+        return f"[{m.group(1)}]({urlmap[key]})" if key in urlmap else m.group(0)
+
+    out, in_nav = [], False
+    for ln in text.split("\n"):
+        if re.match(r'^#{1,6}\s', ln):
+            in_nav = bool(nav.match(ln))
+        pat = r'\*\*([^*]+?)\*\*' + ('' if in_nav else qual)
+        out.append(re.sub(pat, link, ln))
+    return "\n".join(out)
+
+
 # --------------------------------------------------------------------------- #
 # Reconcile
 # --------------------------------------------------------------------------- #
@@ -234,6 +262,8 @@ def main():
     by_norm = {}
     for d in live.values():
         by_norm.setdefault(normtitle(d["title"]), []).append(d)
+    urlmap = {normtitle(d["title"]): (d.get("url") or f"/doc/{d['id']}")
+              for d in live.values()}
 
     plan = {"create": [], "update": [], "skip": []}
     rel_to_id = {}  # resolved this run, for parent lookup
@@ -261,13 +291,14 @@ def main():
         elif by_norm.get(nt):
             existing = by_norm[nt][0]
 
-        sha = text_sha(pg.text)
+        out_text = rewrite_links(pg.text, urlmap)
+        sha = text_sha(out_text)
         if existing is None:
             plan["create"].append(pg.rel)
             doc_id = f"<new:{pg.rel}>"
             if args.apply:
                 res = api("documents.create", {
-                    "title": pg.title, "text": pg.text,
+                    "title": pg.title, "text": out_text,
                     "collectionId": collection_id,
                     **({"parentDocumentId": parent_id} if parent_id else {}),
                     "publish": True,
@@ -292,7 +323,7 @@ def main():
                 if args.apply:
                     api("documents.update", {
                         "id": existing["id"], "title": pg.title,
-                        "text": pg.text, "publish": True,
+                        "text": out_text, "publish": True,
                     }, token)
                     manifest[pg.rel] = {"id": existing["id"], "title": pg.title, "sha": sha}
                     print(f"  UPDATE  {pg.rel}  -> {existing['id']}")

@@ -64,13 +64,21 @@ python3 docs/outline/sync_outline.py
 
 Pure stdlib — no `pip install`.
 
-## Not done by the sync (follow-ups)
+## Cross-reference links
 
-- **Cross-reference link rewriting.** Pages use **bold canonical names**
-  (`**Hardware** section`, `**Edge** (this section)`) as placeholders for real
-  Outline doc links. Rewriting those to `/doc/<id>` links is a deliberate separate
-  step — it needs a curated *canonical-name → doc-id* alias map (the bold names
-  aren't always exact titles) and is easy to get wrong, so it is **not** automated
-  here. Do it as a reviewed second pass once the manifest is populated.
-- **Per-service subpages** for Startpage, MicroBin, and n8n (now live) — the parent
-  catalog covers them; dedicated pages are append-only build-out.
+The sync rewrites the **bold canonical-name** cross-references into real Outline
+`/doc/` links at publish time (`rewrite_links`). Source files keep the readable
+bold names; only Outline gets the links. The transform is high-precision — a bold
+span is linked **only** if its text resolves (normalized) to a real page title, so
+emphasis bold (`**The rule:**`, `**tiered by access pattern**`) is never touched.
+Two contexts are linked:
+
+- inside a nav section (**See also** / **Where to go deeper** / **Where to go
+  next**), every page-name bold;
+- elsewhere, bold immediately followed by a section qualifier (`(Components)`,
+  `section`, `subpage`, …).
+
+The link map is built from the live collection each run, so a page must already
+exist for others to link to it: a brand-new page's **inbound** links land on the
+*next* sync (its own outbound links work on the first). Bold names inside tables
+(the parent catalogs' "Deep page" column) are intentionally left as-is.
