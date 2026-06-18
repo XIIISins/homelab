@@ -9,7 +9,7 @@ Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rat
 ## What it is
 
 - **One LXC**, `hermod` (1103, 10.0.11.22), on Verd. Norse god of messengers — Odin's emissary who rode to Hel to retrieve Baldr. (1101 = PBS, 1102 = Hugin/Zabbix per Phase 8c.)
-- **AppriseAPI** — open-source notification gateway with 80+ delivery backends. **Installed natively via pip into a venv + uvicorn + systemd unit**, matching the homelab's "all LXC services are native + systemd" pattern (Postgres, Factorio, SFTPGo, Zabbix, AdGuard). Docker deliberately not used — adds an alien moving part to one LXC and Apprise's non-Docker path is well-trodden.
+- **AppriseAPI** — open-source notification gateway with 80+ delivery backends. **Installed natively via pip into a venv + gunicorn + systemd unit**, matching the homelab's "all LXC services are native + systemd" pattern (Postgres, Factorio, SFTPGo, Zabbix, AdGuard). Docker deliberately not used — adds an alien moving part to one LXC and Apprise's non-Docker path is well-trodden.
 - **Caddy reverse proxy on the same LXC**, AppriseAPI bound to `127.0.0.1:8000`. Caddy listens on `:80` and gates inbound POSTs via a `remote_ip` allowlist matcher — non-matches → 403. JSON access logs to `/var/log/caddy/access.log` ship to VictoriaLogs via the existing vlagent role. TLS-ready path preserved for future internal-CA wiring.
 - **Stateless** — config on the LXC root disk (PBS-backed), no DB, no PVC.
 - **Internal-only** — exposed on VLAN 11, no Tailscale, no Cloudflare. Sources reach it within the homelab.
@@ -172,7 +172,7 @@ The Caddy IP-allowlist is the *primary* access gate; the config-key is *addition
 
 ## Access control — Caddy IP allowlist
 
-Caddy is the only thing bound to `:80` on the Hermod LXC. AppriseAPI listens only on `127.0.0.1:8000` (uvicorn `--host 127.0.0.1`). Caddy's `remote_ip` matcher gates accepted producers; everything else gets 403 with a JSON access-log line for VL.
+Caddy is the only thing bound to `:80` on the Hermod LXC. AppriseAPI listens only on `127.0.0.1:8000` (gunicorn `bind` in `gunicorn.conf.py`). Caddy's `remote_ip` matcher gates accepted producers; everything else gets 403 with a JSON access-log line for VL.
 
 Caddyfile shape (rendered by `roles/caddy-reverse-proxy` — generic, reusable):
 
@@ -226,7 +226,7 @@ Allowlist lives in `ansible/inventory/group_vars/hermod_hosts.yml` as `caddy_all
 | Privileged | No |
 | Nesting | Yes (Debian 13 systemd) |
 
-Sized small — AppriseAPI is stateless Python/uvicorn, single-digit RSS. Bumps later if needed.
+Sized small — AppriseAPI is stateless Python/gunicorn, single-digit RSS. Bumps later if needed.
 
 ## Implementation outline (Phase 5h.2)
 
@@ -241,9 +241,9 @@ Slotted **after** Phase 8c (Zabbix LXC). Until Zabbix exists, this phase has not
    - `python3 -m venv /opt/apprise-api`
    - `pip install apprise-api[all]==<pin>` (concrete-pin per IaC policy; capture latest stable at role-write time)
    - Render `/etc/apprise/config/{{ hermod_config_key }}.yml` from Jinja template; Discord webhook `url` field per tag via `community.hashi_vault.vault_kv2_get` (template strips the `https://discord.com/api/webhooks/` prefix + prepends `discord://`); config-key via the same Vault lookup
-   - systemd unit `apprise-api.service` invoking `/opt/apprise-api/bin/uvicorn AppriseAPI.asgi:application --host 127.0.0.1 --port 8000`
+   - systemd unit `apprise-api.service` (`Type=notify`) invoking `<venv>/bin/gunicorn --config gunicorn.conf.py core.wsgi:application` (the Django WSGI entrypoint; `bind = 127.0.0.1:8000` in the gunicorn config)
    - `APPRISE_CONFIG_DIR=/etc/apprise/config` env var so the API auto-loads on startup
-   - Config render task notifies a `reload apprise-api` handler (`systemctl reload apprise-api` — uvicorn handles SIGHUP for config reload; if not, fall back to restart)
+   - Config render task notifies a `reload apprise-api` handler (`systemctl reload apprise-api` → `ExecReload=/bin/kill -HUP $MAINPID`; gunicorn reloads gracefully on SIGHUP)
 6. **5h.2.f** — `ansible/playbooks/asgard-hermod.yml` — baseline + caddy-reverse-proxy + hermod-api + hardening. Add `hermod_hosts` group to `ansible/inventory/hosts.yml` with `hermod` host entry; group_vars in `group_vars/hermod_hosts.yml` for `caddy_allowed_cidrs` + `caddy_sites` config. vlagent log-input override for `/var/log/caddy/access.log` (JSON-structured field hints).
 7. **5h.2.g** — Operator: Discord UI channel creation (`#infra-critical`, `#infra-alerts`, `#media`, `#hermod-untagged`); mint four webhooks (named Hrist / Mist / Ölrún / Hel respectively, though display names are also enforced via Apprise `?username=` override — the webhook name is informational); `vault kv put secret/ansible/hermod/discord/<tag> url=https://discord.com/api/webhooks/...` for each of `critical,alert,media,untagged`. 1P "Homelab" recovery copy per webhook (`Hermod - Discord webhook - <tag>`, fields = `url`). Then re-run `asgard-hermod.yml` to re-render config now that Vault is populated.
 8. **5h.2.h** — `terraform/adguard/rewrites.tf` entry for `hermod.niflheim.xiiisins.com → 10.0.11.22`. Apply from main.
@@ -278,7 +278,7 @@ Slotted **after** Phase 8c (Zabbix LXC). Until Zabbix exists, this phase has not
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| AppriseAPI install path | **pip into venv + uvicorn + systemd** (Option A) | Matches every other LXC role's "native + systemd" pattern. Docker rejected — alien moving part for one LXC, and Apprise's non-Docker path is well-trodden. Detailed install steps in 5h.2.e above. |
+| AppriseAPI install path | **pip into venv + gunicorn + systemd** (Option A) | Matches every other LXC role's "native + systemd" pattern. Docker rejected — alien moving part for one LXC, and Apprise's non-Docker path is well-trodden. Detailed install steps in 5h.2.e above. |
 | Access control | **Caddy reverse proxy on same LXC with `remote_ip` allowlist matcher** (Option A) | Producers are a small concrete set (Zabbix, PG, K3s, etc.) — explicit allowlist audits well in git. Caddy gives JSON-structured access logs to VL for free + preserves a trivial TLS path for later. Generic `caddy-reverse-proxy` role is reusable. |
 | Untagged-notification policy | **Quarantine channel `#hermod-untagged`** via Apprise yaml URL with `tag:` omitted | Producer bugs surface in a dedicated Discord channel rather than silent fanout or `@everyone` pings. Natural backlog of producers to fix. Four Discord webhooks total (critical/alert/media/untagged). |
 | Zabbix media-type management | **`community.zabbix.zabbix_mediatype` + `zabbix_action` declarative** | Reuses the httpapi-connection pattern from 8c.8 host registration. No click-ops in Zabbix UI. Lives in `roles/zabbix-server/`. |
