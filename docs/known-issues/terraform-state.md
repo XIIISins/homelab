@@ -1,0 +1,12 @@
+<!-- docs/known-issues/terraform-state.md -->
+
+# Known gotchas — Terraform / state
+
+*Migrated from `CLAUDE.md`. Recovery commands + rules. Incident retros in [`../incidents/`](../incidents/).*
+
+## Terraform / state
+
+- **`terraform init -migrate-state` is incompatible with `-input=false`.** Migration confirmation is interactive ("Do you want to copy existing state to the new backend?" → "yes"); `-input=false` makes it abort with "Can't ask approval for state migration when interactive input is disabled." Fix: drop `-input=false` for the migration init only (`echo yes | terraform init -migrate-state` works as a one-liner). Restore `-input=false` for subsequent plan/apply where there's no migration prompt. Same applies to any other interactive init prompt (provider-version-mismatch confirmation, etc.).
+- **Multi-module state migration pattern.** Per module: (1) add `backend "s3" { bucket = ...; key = "<module-path>/terraform.tfstate"; region = "eu-west-1"; encrypt = true; use_lockfile = true }` to `versions.tf`; (2) bump `required_version >= 1.10.0` (`use_lockfile` is 1.10+); (3) `terraform init -migrate-state` + confirm `yes`; (4) `terraform plan` to verify state still resolves the same resources; (5) move the local `terraform.tfstate` + `.backup` files to a stash dir (`~/tmp/stale/tfstate/<module>/`) rather than deleting — recoverable for ~30d. `terraform/aws/` deliberately stays local-state (chicken-egg with the bucket it creates). Surfaced 2026-05-25.
+- **`terraform/aws/` must be planned/applied with the Bootstrap AWS identity, NOT the env-cached `terraform-state` user.** The module manages the S3 state bucket + its policy + IAM; refreshing the `aws_s3_bucket_policy` resource needs `s3:GetBucketPolicy`, which the narrow `terraform-state` runtime identity (what `homelab-env` loads into `AWS_*` by default) lacks → plan fails `AccessDenied: ... not authorized to perform: s3:GetBucketPolicy`. Swap to the Bootstrap identity first: `set-aws-creds bootstrap` (fish shim), then plan/apply. Every other module uses the `terraform-state` identity; `aws/` is the lone exception. Surfaced 2026-05-30 Wave S1.
+
