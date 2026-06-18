@@ -8,7 +8,7 @@
 #   - K3s VMs: terraform/proxmox/asgard-k3s/main.tf locals.{control_planes,workers}
 #   - IaC LXCs: terraform/proxmox/asgard-lxcs/lxcs.tf locals.{postgres,haproxy_etcd,tailscale}_nodes + factorio
 #   - PBS LXC: no IaC, hand-managed on Skuld
-#   - AGH LXCs (Saga/Mimir/Kvasir): no IaC yet (Phase 5b.2 pending)
+#   - AGH LXCs (Saga/Mimir/Kvasir): terraform/proxmox/asgard-lxcs/lxcs.tf (TF-managed since Phase 5b.2, vmids 1110/1111/1112)
 #
 # Three NetBox-side placement corrections land with this commit (the
 # manual 5i.e UI import had them wrong vs IaC reality):
@@ -236,10 +236,10 @@ resource "netbox_virtual_machine" "this" {
   vcpus      = each.value.cpu
   memory_mb  = each.value.memory
 
-  # VMID cross-reference to the Proxmox vmid. Empty string for the
-  # AGH trio (Saga/Mimir/Kvasir — no IaC vmid until Phase 5b.2).
-  # Field is type=text (see custom_fields.tf) so the provider's
-  # Map(String) serialization works without coercion drama.
+  # VMID cross-reference to the Proxmox vmid. Populated for every VM
+  # including the AGH trio (Saga/Mimir/Kvasir at 1110/1111/1112, TF-managed
+  # since Phase 5b.2). Field is type=text (see custom_fields.tf) so the
+  # provider's Map(String) serialization works without coercion drama.
   custom_fields = {
     VMID = each.value.vmid
   }
