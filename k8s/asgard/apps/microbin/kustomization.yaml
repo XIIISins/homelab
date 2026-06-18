@@ -1,0 +1,13 @@
+# k8s/asgard/apps/microbin/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - configmap.yaml
+  - externalsecret.yaml
+  - service.yaml
+  - deployment.yaml
+  - middleware-authentik-forward-auth.yaml
+  - httproute.yaml

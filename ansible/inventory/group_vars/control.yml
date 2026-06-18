@@ -1,0 +1,62 @@
+# ansible/inventory/group_vars/control.yml
+---
+# Control node "Frigg" — the always-on Debian 13 watchtower VM (10.0.11.30).
+# Provisioned by playbooks/asgard-control.yml with the role chain:
+#   baseline, control-node, tailscale, vlagent, zabbix-agent, hardening.
+#
+# Architecture: the node Terraform / Ansible / kubectl / flux are driven from,
+# and where Claude Code runs remote-control for mobile operator sessions.
+
+# -----------------------------------------------------------------------------
+# Operator SSH access (hardening role)
+# -----------------------------------------------------------------------------
+# Permit the operator user `ghost` to SSH alongside ansible + recovery. The
+# host sshd is the fallback path; the primary inbound path is Tailscale SSH
+# (ACL-gated, set below). control_node_operator_ssh_public_key (in
+# group_vars/all/vault.yml) seeds ghost's authorized_keys for the host-sshd
+# path.
+ssh_extra_allow_users:
+  - ghost
+
+# Operator's personal SSH public key (the 1Password-agent key "ghost@Luxuria",
+# the same one root accepts on the AGH LXCs). Seeds ghost's authorized_keys so
+# `ssh ghost@frigg` works over host-sshd with the 1P agent. A public key is not
+# secret, so it lives here in plaintext rather than group_vars/all/vault.yml.
+control_node_operator_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFmQmERjJi2CcKSBiVYbBUnHguBRUintOJiI0tKaZxkv ghost@Luxuria"
+
+# -----------------------------------------------------------------------------
+# Tailscale (tailscale role)
+# -----------------------------------------------------------------------------
+# server tag — Frigg is infrastructure, not a user device. --ssh enables
+# Tailscale SSH so the operator can `ssh ghost@frigg` over the tailnet from a
+# phone without managing host SSH keys. Auth key minted by terraform/tailscale/
+# at secret/ansible/tailscale/authkeys/frigg (per the tailscale role default).
+tailscale_tag: server
+tailscale_ssh: true
+
+# Do NOT accept MagicDNS. Frigg is a LAN control node whose /etc/resolv.conf
+# is baseline-owned (AdGuard VIP 10.0.10.200 direct, baseline_manage_resolv_conf
+# defaults true). With the upstream-default accept-dns=true, tailscaled
+# overwrites resolv.conf with MagicDNS — and a post-reboot tailnet split-DNS
+# hiccup ("server misbehaving" reaching AdGuard) then leaves Frigg unable to
+# resolve vault.niflheim.xiiisins.com, killing homelab-env + the whole IaC
+# toolchain. accept-dns=false keeps DNS on the direct LAN AdGuard path,
+# independent of tailscaled. (The tailnet LXCs deliberately do the opposite —
+# they set baseline_manage_resolv_conf=false and live on MagicDNS.)
+tailscale_accept_dns: false
+
+# -----------------------------------------------------------------------------
+# vlagent (log shipping)
+# -----------------------------------------------------------------------------
+# Frigg is a Debian VM on VLAN 11 (not host-network on a K3s node), so it
+# reaches VictoriaLogs via the niflheim Gateway HTTPRoute using the role
+# defaults — no override needed here.
+
+# -----------------------------------------------------------------------------
+# zabbix-agent (self-monitoring)
+# -----------------------------------------------------------------------------
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/Control"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

@@ -1,0 +1,54 @@
+# ansible/roles/control-node/tasks/user.yml
+---
+# Operator user `ghost` — who runs claude + SSHes in to drive a mobile
+# session. The `ansible` + `recovery` users are baseline's job; this is
+# the human-facing operator account on the control node only.
+
+- name: Create operator group
+  ansible.builtin.group:
+    name: "{{ control_node_operator_group }}"
+    state: present
+  tags: [control-node, control-node:user]
+
+- name: Create operator user
+  ansible.builtin.user:
+    name: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    shell: "{{ control_node_operator_shell }}"
+    home: "{{ control_node_operator_home }}"
+    create_home: true
+    # No usable password — key-auth (host sshd) + Tailscale SSH only.
+    # '*' (not '!') so PAM doesn't account-lock pubkey logins under
+    # UsePAM yes. See CLAUDE.md "ansible.builtin.user default password '!'".
+    password: "*"
+    state: present
+  tags: [control-node, control-node:user]
+
+- name: Grant operator NOPASSWD sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ control_node_operator_user }}"
+    content: "{{ control_node_operator_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+  tags: [control-node, control-node:user]
+
+- name: Ensure operator .ssh dir exists
+  ansible.builtin.file:
+    path: "{{ control_node_operator_home }}/.ssh"
+    state: directory
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0700"
+  tags: [control-node, control-node:user]
+
+- name: Add operator SSH public key (inbound ssh ghost@frigg)
+  ansible.posix.authorized_key:
+    user: "{{ control_node_operator_user }}"
+    key: "{{ control_node_operator_ssh_public_key }}"
+    path: "{{ control_node_operator_home }}/.ssh/authorized_keys"
+    manage_dir: true
+    state: present
+  when: control_node_operator_ssh_public_key | length > 0
+  tags: [control-node, control-node:user]

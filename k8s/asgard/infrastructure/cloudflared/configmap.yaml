@@ -80,6 +80,42 @@ data:
           httpHostHeader: hugin.xiiisins.com
           noTLSVerify: true
 
+      # Startpage — public personal homepage. Same Traefik backchannel
+      # pattern as Authentik/Outline/Zabbix above; the midgard Gateway's
+      # apex-wildcard listener routes home.xiiisins.com via the startpage
+      # HTTPRoute (k8s/asgard/apps/startpage/httproute.yaml) to the Caddy
+      # pod. Cloudflare DNS record: cloudflare_dns_record.startpage in
+      # terraform/cloudflare/main.tf. External-only — no LAN bypass.
+      - hostname: home.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: home.xiiisins.com
+          noTLSVerify: true
+
+      # MicroBin — public pastebin/file-share. Same Traefik backchannel
+      # pattern; the midgard Gateway's apex-wildcard listener routes
+      # paste.xiiisins.com via the microbin HTTPRoute (which gates
+      # /pastalist + /admin behind Authentik, rest open). CF DNS record:
+      # cloudflare_dns_record.microbin in terraform/cloudflare/main.tf.
+      - hostname: paste.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: paste.xiiisins.com
+          noTLSVerify: true
+
+      # n8n — public WEBHOOK endpoint. Same Traefik backchannel pattern;
+      # the midgard Gateway's apex-wildcard listener routes n8n.xiiisins.com
+      # via the n8n HTTPRoute, which only exposes /webhook/*, /webhook-test/*
+      # and /webhook-waiting/* at this hostname (everything else 404s — the
+      # editor lives internal-only at n8n.niflheim.xiiisins.com behind
+      # Authentik ForwardAuth). CF DNS record: cloudflare_dns_record.n8n in
+      # terraform/cloudflare/main.tf.
+      - hostname: n8n.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: n8n.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

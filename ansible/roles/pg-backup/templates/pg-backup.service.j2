@@ -1,0 +1,15 @@
+{# ansible/roles/pg-backup/templates/pg-backup.service.j2 #}
+[Unit]
+Description=Postgres daily logical backup (pg_dumpall globals + per-DB pg_dump -Fc)
+After=patroni.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ pg_backup_user }}
+Group={{ pg_backup_user }}
+ExecStart={{ pg_backup_script_path }}
+TimeoutStartSec={{ pg_backup_timeout }}
+# Stay out of the way of live PG traffic.
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,19 @@
+# ansible/roles/proxmox-host/tasks/repos.yml
+---
+# apt repo posture for PVE hosts. Idempotent, no upgrade, no reboot.
+- name: Remove enterprise apt source(s) + legacy cruft
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ proxmox_host_enterprise_sources_absent }}"
+  notify: proxmox-host apt update
+
+- name: Ensure canonical pve-no-subscription source (deb822)
+  ansible.builtin.template:
+    src: pve-no-subscription.sources.j2
+    dest: /etc/apt/sources.list.d/pve-no-subscription.sources
+    owner: root
+    group: root
+    mode: "0644"
+  when: proxmox_host_manage_no_subscription | bool
+  notify: proxmox-host apt update

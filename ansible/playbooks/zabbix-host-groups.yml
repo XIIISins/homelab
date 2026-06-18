@@ -54,3 +54,34 @@
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
       tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap]
+
+    # Wave S4 — fleet-wide disk-usage (and inode) thresholds as explicit
+    # global macros, so triggers don't depend on per-version stock
+    # defaults. Per-host-class overrides live in each group's
+    # zabbix_agent_host_macros (e.g. tighter on postgres).
+    - name: Ensure fleet-wide Zabbix global macros
+      when: not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
+      community.zabbix.zabbix_globalmacro:
+        macro_name: "{{ item.name }}"
+        macro_value: "{{ item.value }}"
+        macro_type: text  # community.zabbix 4.x wants the string, NOT the int 0
+        state: present
+      loop: "{{ zabbix_global_macros | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:macros]

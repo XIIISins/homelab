@@ -17,14 +17,14 @@
 # existing vlan20-policy-routing.service on workers (CLAUDE.md "VLAN 20
 # source-based policy routing"), the reply would exit via eth0 → UCG
 # stateful firewall would drop the asymmetric flow.
-# NOTE on IP choice: Vault UI's LB Service in infrastructure/vault/ uses
-# `serviceType: LoadBalancer` WITHOUT a static loadBalancerIP — MetalLB
-# auto-allocates (currently 10.0.20.11). Claiming .12 statically sits
-# adjacent without colliding. If the Vault Service is ever recreated and
-# MetalLB tries to re-assign it, MetalLB's static-beats-dynamic precedence
-# protects this allocation. Long-term: pin Vault's UI to a static IP +
-# carve the IPAddressPool into static (.10-.49) and dynamic (.50-.99)
-# bands; deferred until more LB Services land.
+# NOTE on IP choice: every MetalLB LB Service in the low band now pins its
+# IP statically — Traefik .10, Vault UI .11 (loadBalancerIP, pinned
+# 2026-05-31 Phase 6 Stage 1), and this Service .12 — so there's no dynamic
+# allocation racing for the pool bottom any more (closes the old
+# static/dynamic collision gotcha). Long-term tidy (still deferred, not
+# needed while every LB Service pins): carve the IPAddressPool into static
+# (.10-.49) and dynamic (.50-.99) bands so a future chart-default LB Service
+# with no loadBalancerIP can't land on a pinned address.
 apiVersion: v1
 kind: Service
 metadata:

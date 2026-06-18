@@ -1,0 +1,157 @@
+# ansible/roles/control-node/defaults/main.yml
+---
+# ============================================================================
+# control-node role defaults — "Frigg", the always-on watchtower VM
+# ============================================================================
+# Turns a fresh Debian 13 genericcloud VM into the homelab control node:
+#   - qemu-guest-agent (graceful Proxmox shutdown — genericcloud lacks it)
+#   - IaC toolchain (terraform, vault, kubectl, helm, flux, ansible, node +
+#     Claude Code), concrete-pinned, via official apt repos where possible
+#   - operator user `ghost` (bash + NOPASSWD sudo) who runs claude + SSHes in
+#   - Vault-backed env shim (`homelab-env`) — the Frigg analogue of the
+#     MacBook's 1Password-backed .config/scripts/homelab.sh, sourcing secrets
+#     from Vault via the `ansible-frigg` AppRole instead of 1P
+#   - GitHub deploy key + checkout of the homelab repo to ~ghost/homelab
+#   - Claude Code remote-control systemd service (runs as ghost)
+#
+# baseline already owns: sudo/acl/tzdata/gnupg/ca-certificates/locales,
+# /etc/resolv.conf, the `ansible` + `recovery` users, qemu-guest-agent for
+# VMs. This role does NOT duplicate that — it layers the control-node
+# persona on top. (The qemu-guest-agent task here is a guarded no-op when
+# baseline has already installed it; kept so the role stands alone.)
+# ============================================================================
+
+# ---- Operator user ----
+# Who runs `claude` + SSHes in to drive a mobile session. bash login shell,
+# NOPASSWD sudo via a dedicated sudoers.d drop-in, real home dir.
+control_node_operator_user: ghost
+control_node_operator_group: ghost
+control_node_operator_home: "/home/{{ control_node_operator_user }}"
+control_node_operator_shell: /bin/bash
+# Operator's SSH public key (for inbound `ssh ghost@frigg`). Set in
+# group_vars/all/vault.yml (mirrors ansible_user_ssh_public_key); empty
+# default means the authorized_keys task is skipped (Tailscale SSH still
+# works as the primary inbound path — see group_vars/control.yml).
+control_node_operator_ssh_public_key: ""
+
+# ---- IaC toolchain version pins ----
+# Concrete-pinned per repo policy (no floats). Bump explicitly; check
+# upstream release pages before moving any of these.
+#
+# Versions track the operator's MacBook (Frigg should behave identically) —
+# verified 2026-05-31: terraform 1.15.5, vault 2.0.0, kubectl 1.34, helm
+# 4.2.0, flux 2.8.8, node 24. terraform + vault ship from HashiCorp's apt
+# repo (which keeps all versions, so an exact "-1" pin is safe). kubectl
+# ships from pkgs.k8s.io, channel-scoped to the minor (v1.34) with the
+# latest in-channel patch installed (NOT exact-patch-pinned — pkgs.k8s.io
+# prunes old patches, so a fixed patch can vanish; the channel is the
+# stable contract). helm + flux ship as upstream release tarballs. Node
+# ships from NodeSource; Claude Code is an npm global.
+control_node_terraform_version: "1.15.5-1"         # HashiCorp apt pkg version (modules require >=1.10)
+control_node_vault_version: "2.0.0-1"              # HashiCorp apt pkg version
+control_node_kubectl_minor: "1.34"                 # pkgs.k8s.io repo channel — latest patch installed in-channel
+control_node_helm_version: "v4.2.0"                # upstream release tarball tag
+control_node_flux_version: "2.8.8"                 # upstream release (no leading v in asset name)
+control_node_node_major: "24"                      # NodeSource line (Node 24)
+control_node_claude_code_version: "latest"         # npm tag — "latest" or a pinned x.y.z
+
+# ---- HashiCorp apt repo ----
+control_node_hashicorp_keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+control_node_hashicorp_gpg_url: "https://apt.releases.hashicorp.com/gpg"
+control_node_hashicorp_repo_base: "https://apt.releases.hashicorp.com"
+control_node_hashicorp_sources_path: /etc/apt/sources.list.d/hashicorp.list
+
+# ---- Kubernetes apt repo (pkgs.k8s.io) ----
+control_node_k8s_keyring: /usr/share/keyrings/kubernetes-apt-keyring.gpg
+control_node_k8s_repo_base: "https://pkgs.k8s.io/core:/stable:/v{{ control_node_kubectl_minor }}/deb/"
+control_node_k8s_sources_path: /etc/apt/sources.list.d/kubernetes.list
+
+# ---- NodeSource apt repo ----
+control_node_nodesource_keyring: /usr/share/keyrings/nodesource.gpg
+control_node_nodesource_gpg_url: "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
+control_node_nodesource_repo_base: "https://deb.nodesource.com/node_{{ control_node_node_major }}.x"
+control_node_nodesource_sources_path: /etc/apt/sources.list.d/nodesource.list
+
+# ---- helm / flux release download ----
+control_node_helm_download_url: "https://get.helm.sh/helm-{{ control_node_helm_version }}-linux-amd64.tar.gz"
+control_node_flux_download_url: "https://github.com/fluxcd/flux2/releases/download/v{{ control_node_flux_version }}/flux_{{ control_node_flux_version }}_linux_amd64.tar.gz"
+control_node_local_bin: /usr/local/bin
+
+# ---- Vault AppRole (secret-zero) ----
+# RoleID is stable + non-secret (lives in the on-disk approle env file in
+# clear). SecretID is the secret half — supplied to the role via
+# control_node_frigg_secret_id (operator/parent mints + passes it; the role
+# never mints it). If the env file already exists and the var is empty, the
+# role leaves it untouched (idempotent — does NOT clobber a good SecretID).
+control_node_vault_addr: "https://vault.niflheim.xiiisins.com"
+control_node_frigg_role_id: "abfd98dd-fe18-8134-ad6f-3b11245fca8a"
+control_node_frigg_secret_id: ""   # set via -e / Semaphore at provision time
+control_node_approle_env_path: /etc/frigg/vault-approle.env
+control_node_frigg_etc_dir: /etc/frigg
+
+# ---- Vault KV paths (mount `secret`, kv2) ----
+# Provision-time reads via community.hashi_vault.vault_kv2_get — auth is the
+# operator's env (VAULT_ADDR + ANSIBLE_HASHI_VAULT_*) set BEFORE the run,
+# same as the tailscale role. (The on-disk approle env file is for the
+# runtime homelab-env shim, NOT for these provision-time lookups.)
+control_node_vault_iac_env_path: "ansible/frigg/iac-env"
+control_node_vault_kubeconfig_path: "ansible/frigg/kubeconfig"
+control_node_vault_ansible_vault_pw_path: "ansible/frigg/ansible-vault-password"
+control_node_vault_github_key_path: "ansible/frigg/github-deploy-key"
+control_node_vault_claude_token_path: "ansible/frigg/claude-oauth-token"
+# Ansible SSH private key for reaching managed hosts (the `ansible` user on
+# every LXC/VM). OPERATOR-PLACED (not TF-minted): it must match the public
+# key already in the fleet's authorized_keys, so it can't be a `random`/
+# `tls_private_key` resource. Currently the shared `ansible_niflheim` key —
+# stored once via `vault kv put secret/ansible/frigg/ssh-private-key
+# value=@~/.ssh/ansible_niflheim`. The shim materializes it on source +
+# exports ANSIBLE_PRIVATE_KEY_FILE so `ansible-playbook` ON Frigg can SSH to
+# the fleet. (Documented as operator-placed in terraform/vault/frigg.tf.)
+control_node_vault_ssh_key_path: "ansible/frigg/ssh-private-key"
+
+# ---- Env shim ----
+# Installed to /usr/local/bin/homelab-env (sourced, not executed). Pulls
+# secret/ansible/frigg/iac-env at runtime via the AppRole and exports each
+# field as its UPPERCASE env var. Writes kubeconfig + ansible-vault password
+# to per-user files.
+control_node_env_shim_path: "{{ control_node_local_bin }}/homelab-env"
+
+# iac-env field → exported env var name. proxmox_api_token is exported as
+# TF_VAR_proxmox_api_token (the proxmox TF modules read var.proxmox_api_token
+# from tfvars / TF_VAR_). Everything else maps field→UPPERCASE(field).
+# The shim builds these mappings itself; this map documents the contract +
+# is consumed by the shim template so the two never drift.
+control_node_iac_env_fields:
+  - { field: aws_access_key_id, env: AWS_ACCESS_KEY_ID }
+  - { field: aws_secret_access_key, env: AWS_SECRET_ACCESS_KEY }
+  - { field: aws_default_region, env: AWS_DEFAULT_REGION }
+  - { field: netbox_api_token, env: NETBOX_API_TOKEN }
+  - { field: netbox_server_url, env: NETBOX_SERVER_URL }
+  - { field: authentik_token, env: AUTHENTIK_TOKEN }
+  - { field: authentik_url, env: AUTHENTIK_URL }
+  - { field: adguard_host, env: ADGUARD_HOST }
+  - { field: adguard_scheme, env: ADGUARD_SCHEME }
+  - { field: adguard_username, env: ADGUARD_USERNAME }
+  - { field: adguard_password, env: ADGUARD_PASSWORD }
+  - { field: cloudflare_api_token, env: CLOUDFLARE_API_TOKEN }
+  - { field: proxmox_api_token, env: TF_VAR_proxmox_api_token }
+  - { field: semaphore_api_token, env: SEMAPHOREUI_API_TOKEN }
+  - { field: semaphore_api_base_url, env: SEMAPHOREUI_API_BASE_URL }
+
+# Per-user runtime file locations (written by the shim on source).
+control_node_kubeconfig_path: "{{ control_node_operator_home }}/.kube/config"
+control_node_ansible_vault_pw_file: "{{ control_node_operator_home }}/.vault-pass"
+control_node_ansible_ssh_key_file: "{{ control_node_operator_home }}/.ssh/ansible_homelab"
+
+# ---- GitHub deploy key + repo checkout ----
+control_node_repo_url: "git@github.com:XIIISins/homelab.git"
+control_node_repo_dest: "{{ control_node_operator_home }}/homelab"
+control_node_github_known_hosts: |
+  github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+
+# ---- Claude Code remote-control service ----
+control_node_claude_env_path: "{{ control_node_frigg_etc_dir }}/claude.env"
+control_node_claude_service_name: claude-remote-control
+# `claude remote-control --spawn worktree` runs from the repo checkout.
+control_node_claude_workdir: "{{ control_node_repo_dest }}"
+control_node_claude_settings_dir: "{{ control_node_operator_home }}/.claude"

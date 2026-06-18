@@ -53,7 +53,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`incidents/`](incidents/) — per-incident retrospectives. See [`incidents/README.md`](incidents/README.md) for the date-indexed table.
 
 ### Procedures — operational runbooks
-- [`procedures/teardown-rebuild.md`](procedures/teardown-rebuild.md) — full cluster teardown + rebuild runbook (validated 2026-05-17). Multi-day sequence.
+- [`procedures/teardown-rebuild.md`](procedures/teardown-rebuild.md) — full homelab disaster-recovery + rebuild runbook (foundation → LXCs → K3s → all services, dependency-ordered, two-day). The asgard-K3s-cluster-only path is validated (2026-05-17); the executed predecessor is archived at [`procedures/archive/2026-05-17-asgard-rename-rebuild.md`](procedures/archive/2026-05-17-asgard-rename-rebuild.md).
 
 ### Known issues — Claude-runtime gotchas
 - [`../CLAUDE.md`](../CLAUDE.md) "Known gotchas" — currently canonical home. Migration to [`known-issues/`](known-issues/README.md) planned (see README there).

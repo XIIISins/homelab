@@ -1,0 +1,6 @@
+# ansible/roles/pg-backup/handlers/main.yml
+---
+- name: systemd daemon-reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: reload systemd

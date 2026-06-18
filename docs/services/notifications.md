@@ -146,6 +146,9 @@ The policy artifact. Every alert producer in the homelab maps its native severit
 | **Semaphore** (or AWX) | Task success | _(none — only logs)_ |
 | **Patroni** | Leader change | `alert` (degraded; cluster still up) |
 | **Patroni** | All replicas lost | `critical` |
+| **infra-health-check** (S4 prober) | CF token invalid · cert <3d · Patroni/etcd quorum lost · PBS task failed/auth-fail · prober errored | `critical` |
+| **infra-health-check** (S4 prober) | cert <14d | `alert` |
+| **infra-health-check** (S4 prober) | all checks clean | _(none — silent; debug line logged to VL)_ |
 | **Ansible** (custom playbook) | `failed_when` trigger | author picks; documented in role README |
 | **Sonarr / Radarr** (future) | All releases | `media` |
 

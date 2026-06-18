@@ -1,0 +1,42 @@
+# ansible/roles/proxmox-host/defaults/main.yml
+---
+# proxmox-host — config-idempotency for the PVE hypervisor hosts
+# (urd/verd/skuld). DELIBERATELY narrow: this role only manages the apt
+# repo posture so a node can `apt update` without a paid subscription.
+# It does NOT upgrade packages and NEVER reboots — OS patching is a
+# high-blast-radius rolling operation that lives in its own deliberately
+# triggered playbook (ansible/playbooks/proxmox-host-patching.yml), not
+# in any converge/drift loop. Keeping this role pure-config means it's
+# safe to run under site.yml / drift-check.
+
+# --- apt repo posture ---------------------------------------------------
+# Enterprise repos require a paid subscription; without one every
+# `apt update` 401s. Same remediation shape as pbs-repo-fix.yml: remove
+# the enterprise source(s) + any legacy single-line cruft, then ensure a
+# canonical no-subscription source exists.
+proxmox_host_enterprise_sources_absent:
+  - /etc/apt/sources.list.d/pve-enterprise.sources # deb822 — PVE installer drop
+  - /etc/apt/sources.list.d/pve-enterprise.list # legacy single-line format
+  - /etc/apt/sources.list.d/ceph.sources # PVE ships this pointing at the enterprise ceph repo
+  - /etc/apt/sources.list.d/pve-no-subscription.list # legacy single-line; superseded by the .sources below
+
+# Whether to lay down a pve-no-subscription deb822 .sources file.
+# Default OFF: the existing fleet already has a hand-rolled no-sub repo at
+# /etc/apt/sources.list.d/proxmox.sources, and creating a second file here
+# would duplicate it (apt "configured multiple times" warning). The role's
+# real job on the existing fleet is just removing the enterprise sources.
+#
+# Flip to true ONLY for a fresh/rebuilt node that has no no-sub repo yet
+# (the PVE installer adds enterprise, never no-subscription). If you flip
+# it, also remove proxmox.sources from the absent list / reconcile names
+# so the two don't collide.
+proxmox_host_manage_no_subscription: false
+
+# deb822 .sources contents. Codename + keyring resolved dynamically so
+# this works across PVE 8 (bookworm) and PVE 9 (trixie).
+proxmox_host_no_subscription_uri: "http://download.proxmox.com/debian/pve"
+proxmox_host_no_subscription_component: "pve-no-subscription"
+# PVE 9 ships /usr/share/keyrings/proxmox-archive-keyring.gpg. PVE 8 used
+# /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg — override per node
+# group if you're still on 8.
+proxmox_host_archive_keyring: "/usr/share/keyrings/proxmox-archive-keyring.gpg"

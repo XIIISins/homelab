@@ -54,6 +54,10 @@ locals {
     bifrost    = { tag = "subnet-router" }
     heimdall   = { tag = "subnet-router" }
     gjallarbru = { tag = "exit-node" }
+    # Frigg (control-node watchtower VM, Phase 6 Stage 2) — not a router;
+    # joins tagged tag:server purely so the operator can Tailscale-SSH in
+    # from anywhere (ssh rule in policy.hujson). Same authkey mechanism.
+    frigg = { tag = "server" }
   }
 }
 

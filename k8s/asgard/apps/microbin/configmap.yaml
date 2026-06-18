@@ -1,0 +1,55 @@
+# k8s/asgard/apps/microbin/configmap.yaml
+#
+# Non-secret MicroBin config (env vars). Admin credentials come separately
+# from Vault via ESO (externalsecret.yaml). Full var reference:
+# https://microbin.eu/docs/installation-and-configuration/configuration/
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: microbin-config
+  namespace: microbin
+data:
+  MICROBIN_BIND: "0.0.0.0"
+  MICROBIN_PORT: "8080"
+  # JSON store (NOT SQLite) — sidesteps the SQLite-on-NFS mmap/locking
+  # footgun; its write is tmp-file-then-atomic-rename, which is NFS-safe.
+  #
+  # GOTCHA: with JSON_DB, MicroBin HARDCODES the DB path to
+  # `pasta_data/database.json` relative to WORKDIR /app
+  # (src/util/db_json.rs: `static DATABASE_PATH = "pasta_data/database.json"`)
+  # and IGNORES MICROBIN_DATA_DIR for the DB. MICROBIN_DATA_DIR only moves
+  # *attachments*. So the NFS volume is mounted at /app/pasta_data (the
+  # hardcoded DB dir) and DATA_DIR points there too, co-locating the DB +
+  # attachments on the one persistent volume.
+  MICROBIN_JSON_DB: "true"
+  MICROBIN_DATA_DIR: "/app/pasta_data"
+  # Public URL so generated links + QR codes are correct behind the tunnel.
+  MICROBIN_PUBLIC_PATH: "https://paste.xiiisins.com"
+  # Per-paste "private" checkbox (hidden from /list; URL still works).
+  MICROBIN_PRIVATE: "true"
+  # Editable pastas. This is what lets the janitor crew DELETE via the
+  # gated /list "Remove" links with NO MicroBin admin password: GET
+  # /remove/{id} deletes an editable pasta directly (remove.rs), only
+  # redirecting to the admin-password prompt for readonly/server-encrypted
+  # pastas. /list, /edit and /remove are all Authentik-gated (see
+  # httproute.yaml), so editing/deleting is trusted-janitor-only and the
+  # MicroBin /admin login is NOT needed for normal cleanup — Authentik is
+  # the only gate. (/admin stays as a password fallback for the rare
+  # readonly/encrypted pasta.)
+  MICROBIN_EDITABLE: "true"
+  # Burn-after-reading available (good for the password-share use case).
+  MICROBIN_ENABLE_BURN_AFTER: "true"
+  # Unguessable URLs instead of animal-names — matters for the privacy of
+  # unlisted/private pastes on a public service.
+  MICROBIN_HASH_IDS: "true"
+  MICROBIN_QR: "true"
+  # Abuse controls for the anonymous internet-public surface: cap upload
+  # size; default casual pastes to a 24h expiry. MAX_EXPIRY=never still
+  # lets a paste be kept deliberately (the persistent ones are what the
+  # janitor crew prunes).
+  MICROBIN_MAX_FILE_SIZE_UNENCRYPTED_MB: "256"
+  MICROBIN_MAX_FILE_SIZE_ENCRYPTED_MB: "256"
+  MICROBIN_DEFAULT_EXPIRY: "24hour"
+  MICROBIN_MAX_EXPIRY: "never"
+  MICROBIN_DISABLE_TELEMETRY: "true"
+  MICROBIN_DISABLE_UPDATE_CHECKING: "true"

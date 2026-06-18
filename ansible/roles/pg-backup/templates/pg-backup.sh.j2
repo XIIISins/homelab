@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# {{ pg_backup_script_path }}  (rendered from ansible/roles/pg-backup/templates/pg-backup.sh.j2)
+# Daily logical backup of the LOCAL Postgres node:
+#   - pg_dumpall --globals-only  -> globals.sql   (roles/grants/tablespaces;
+#                                                   restore this FIRST)
+#   - pg_dump -Fc per database   -> <db>.dump     (custom format: selective +
+#                                                   compressed + parallel restore)
+# Runs as {{ pg_backup_user }} over the local unix socket (peer auth, no
+# password). Only runs on the current Patroni LEADER — replicas self-skip
+# because a long pg_dump of a busy table on a hot standby gets cancelled
+# ("conflict with recovery"). Each file is written to a .tmp then atomically
+# renamed, so PBS — which snapshots this LXC nightly — can never capture a
+# half-written dump. Only the latest set is kept on disk (overwrite = 1-day
+# local retention); PBS holds 7 days. Managed by Ansible — edits get overwritten.
+set -euo pipefail
+umask 077  # dumps contain all DB data — keep them 0600
+
+BIN="{{ pg_backup_bindir }}"
+DIR="{{ pg_backup_dir }}"
+SOCK="{{ pg_backup_socket }}"
+LOG="{{ pg_backup_log }}"
+PATRONI="{{ pg_backup_patroni_url }}"
+
+log() { echo "$(date -Is) $*" >>"$LOG"; }
+
+# --- leader gate (replicas would hit "conflict with recovery" on large DBs) ---
+code="$(curl -s -o /dev/null -w '%{http_code}' "$PATRONI/primary" || true)"
+if [ "$code" != "200" ]; then
+  log "skip: not Patroni leader (/primary HTTP ${code:-none}) — leader handles the dump"
+  exit 0
+fi
+
+mkdir -p "$DIR"
+chmod 0700 "$DIR"
+log "pg-backup start (leader $(hostname -s))"
+
+# --- globals (cluster-wide roles/grants) ---
+if "$BIN/pg_dumpall" -h "$SOCK" --globals-only >"$DIR/globals.sql.tmp" 2>>"$LOG"; then
+  mv -f "$DIR/globals.sql.tmp" "$DIR/globals.sql"
+  log "globals OK"
+else
+  rc=$?; rm -f "$DIR/globals.sql.tmp"; log "globals FAILED rc=$rc"; exit "$rc"
+fi
+
+# --- per-database custom-format dumps (DBs discovered dynamically so new app
+#     databases are picked up automatically) ---
+dbs="$("$BIN/psql" -h "$SOCK" -At -d postgres \
+  -c "SELECT datname FROM pg_database WHERE datistemplate = false AND datallowconn;")"
+
+rc_any=0
+for db in $dbs; do
+{% for x in pg_backup_exclude_dbs %}
+  [ "$db" = "{{ x }}" ] && continue
+{% endfor %}
+  if "$BIN/pg_dump" -h "$SOCK" -Fc -d "$db" -f "$DIR/${db}.dump.tmp" 2>>"$LOG"; then
+    mv -f "$DIR/${db}.dump.tmp" "$DIR/${db}.dump"
+    log "db ${db} OK ($(du -h "$DIR/${db}.dump" | cut -f1))"
+  else
+    rc=$?; rm -f "$DIR/${db}.dump.tmp"; log "db ${db} FAILED rc=$rc"; rc_any="$rc"
+  fi
+done
+
+log "pg-backup done rc_any=${rc_any}"
+exit "$rc_any"

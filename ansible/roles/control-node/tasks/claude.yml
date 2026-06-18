@@ -1,0 +1,104 @@
+# ansible/roles/control-node/tasks/claude.yml
+---
+# Claude Code remote-control: a tuned ~ghost/.claude/settings.json allow-list
+# + a systemd service running `claude remote-control --spawn worktree` as ghost.
+#
+# AUTH (important): Remote Control requires a FULL-SCOPE INTERACTIVE login —
+# `claude auth login` as ghost on the box (device-code/browser flow), which
+# writes creds to ~ghost/.claude/.credentials.json. It CANNOT use a
+# `claude setup-token` / CLAUDE_CODE_OAUTH_TOKEN: those are inference-only and
+# RC rejects them ("Remote Control requires a full-scope login"). So this role
+# injects NO token; the service is enabled always but only STARTED once the
+# operator has completed `claude auth login` (gated on .credentials.json
+# below), so a pre-login provision run doesn't crash-loop.
+
+- name: Ensure operator ~/.claude dir exists
+  ansible.builtin.file:
+    path: "{{ control_node_claude_settings_dir }}"
+    state: directory
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0755"
+  tags: [control-node, control-node:claude]
+
+# Conservative allow-list so a mobile remote-control session isn't
+# prompt-stormed on routine read-only ops. Anything mutating (apply, push,
+# kubectl apply, rm, etc.) deliberately still prompts.
+- name: Render operator Claude settings.json
+  ansible.builtin.template:
+    src: claude-settings.json.j2
+    dest: "{{ control_node_claude_settings_dir }}/settings.json"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  tags: [control-node, control-node:claude]
+
+- name: Render claude-remote-control systemd unit
+  ansible.builtin.template:
+    src: claude-remote-control.service.j2
+    dest: "/etc/systemd/system/{{ control_node_claude_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart claude-remote-control
+  tags: [control-node, control-node:claude]
+
+# Workspace trust + the one-time Remote Control consent are normally
+# interactive one-time prompts that a headless systemd service can't answer
+# ("Workspace not trusted"; "Enable Remote Control? (y/n)"). Once the
+# operator has logged in (~/.claude.json exists), seed both flags so the
+# service runs clean — making a rebuild hands-off apart from the login
+# itself. Idempotent JSON patch, run AS ghost (preserves ownership).
+- name: Check for ghost's ~/.claude.json (created by `claude auth login`)
+  ansible.builtin.stat:
+    path: "{{ control_node_operator_home }}/.claude.json"
+  register: control_node_claude_json_stat
+  tags: [control-node, control-node:claude]
+
+- name: Seed workspace trust + remote-control consent in ~/.claude.json
+  ansible.builtin.shell:
+    cmd: |
+      python3 - "{{ control_node_operator_home }}/.claude.json" "{{ control_node_repo_dest }}" <<'PY'
+      import json, sys
+      path, repo = sys.argv[1], sys.argv[2]
+      d = json.load(open(path))
+      changed = False
+      if not d.get("remoteDialogSeen"):
+          d["remoteDialogSeen"] = True; changed = True
+      proj = d.setdefault("projects", {}).setdefault(repo, {})
+      if not proj.get("hasTrustDialogAccepted"):
+          proj["hasTrustDialogAccepted"] = True; changed = True
+      if changed:
+          json.dump(d, open(path, "w"), indent=2)
+      print("CHANGED" if changed else "OK")
+      PY
+  become_user: "{{ control_node_operator_user }}"
+  register: control_node_claude_seed
+  changed_when: "'CHANGED' in control_node_claude_seed.stdout"
+  when: control_node_claude_json_stat.stat.exists
+  notify: restart claude-remote-control
+  tags: [control-node, control-node:claude]
+
+# Gate the start on the operator's full-scope login having happened
+# (claude auth login → ~ghost/.claude/.credentials.json).
+- name: Check for ghost's full-scope Claude credentials
+  ansible.builtin.stat:
+    path: "{{ control_node_claude_settings_dir }}/.credentials.json"
+  register: control_node_claude_creds_stat
+  tags: [control-node, control-node:claude]
+
+- name: Enable claude-remote-control service
+  ansible.builtin.systemd:
+    name: "{{ control_node_claude_service_name }}"
+    enabled: true
+    daemon_reload: true
+  tags: [control-node, control-node:claude]
+
+- name: Start claude-remote-control service (only once the full-scope login exists)
+  ansible.builtin.systemd:
+    name: "{{ control_node_claude_service_name }}"
+    state: started
+  when: control_node_claude_creds_stat.stat.exists
+  tags: [control-node, control-node:claude]

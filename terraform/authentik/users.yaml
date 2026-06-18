@@ -39,3 +39,6 @@ ghost:
     - outline-users
     - zabbix-admins
     - semaphore-admins
+    - vault-admins
+    - paste-janitors
+    - n8n-admins

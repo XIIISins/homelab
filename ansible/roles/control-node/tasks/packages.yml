@@ -1,0 +1,52 @@
+# ansible/roles/control-node/tasks/packages.yml
+---
+# Base OS packages for the control node. Toolchain (terraform/vault/kubectl/
+# helm/flux/node) lives in toolchain.yml; this is just the OS-level prereqs
+# + qemu-guest-agent.
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: not ansible_check_mode
+  tags: [control-node, control-node:packages]
+
+# qemu-guest-agent: Debian genericcloud images ship without it, and Proxmox
+# needs it for graceful shutdown / IP reporting. baseline already installs +
+# enables it for VMs (ansible_virtualization_type != 'lxc'); this is a guarded
+# no-op there, kept so the role stands alone if run without baseline.
+- name: Install qemu-guest-agent
+  ansible.builtin.apt:
+    name: qemu-guest-agent
+    state: present
+  register: control_node_qemu_agent
+  when: ansible_virtualization_type != 'lxc'
+  tags: [control-node, control-node:packages]
+
+- name: Enable and start qemu-guest-agent
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+    enabled: true
+    state: started
+  when: ansible_virtualization_type != 'lxc'
+  tags: [control-node, control-node:packages]
+
+# Common deps: git + jq are explicit role deliverables; gnupg + apt-transport
+# bits are needed to add the third-party apt repos in toolchain.yml; curl/tar
+# for the helm/flux tarball installs; python3-* for ansible (pip-free system
+# ansible comes via apt below, but the venv-less hashi_vault lookups still
+# want hvac — handled in toolchain.yml).
+- name: Install common base packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - jq
+      - curl
+      - tar
+      - gnupg
+      - ca-certificates
+      - apt-transport-https
+      - unzip
+      - openssh-client
+    state: present
+  tags: [control-node, control-node:packages]

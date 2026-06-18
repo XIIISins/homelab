@@ -94,7 +94,7 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 - **VictoriaMetrics retention** is set to `6` months. Bump if disk allows.
 - **VictoriaLogs retention** is 30d initially. Measure week-of-data baseline, then resize the LUN + bump to 6mo target.
 - **vm-operator** is NOT installed. Phase 8b refactors the Helm charts to CRD-based deploys (`VLSingle`, `VMSingle`, `VMAgent` CRDs + `VMServiceScrape` for ServiceMonitor-emitting charts). Deferred until ServiceMonitor-emitting charts land or alerting becomes a need.
-- **Alerts** — vmalert NOT enabled. Zabbix watches infra (host up/down, disk full, etc.); vmalert would watch application metrics. Enable when a specific alert use case lands.
+- **Alerts** — vmalert NOT enabled. Zabbix watches infra (host up/down, disk full, etc.); vmalert would watch application metrics. Enable when a specific alert use case lands. **Active edge/app checks** that no metric-scrape covers (Cloudflare-token validity, served-cert expiry per wildcard zone, Patroni/etcd quorum, PBS backup-failure) are handled by the Wave-S4 **`infra-health-check` Semaphore prober** (`ansible/playbooks/infra-health-check.yml`, every 12h → Hermod), not vmalert — see [`docs/architecture/ansible-orchestration.md`](../architecture/ansible-orchestration.md) "Templates".
 - **vmagent + kube-state-metrics** scrape every 30s. Tune via the HelmRelease `staticScrapeConfig` if cardinality grows past comfort.
 
 ## Pending follow-ups

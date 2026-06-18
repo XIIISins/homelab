@@ -1,0 +1,57 @@
+# ansible/roles/pg-backup/tasks/main.yml
+---
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ pg_backup_dir }}"
+    state: directory
+    owner: "{{ pg_backup_user }}"
+    group: "{{ pg_backup_user }}"
+    mode: "0700"
+
+# /var/log is root:root 0755, so the postgres-run service can't create its own
+# log file there — pre-create it owned by postgres. force=no keeps it
+# idempotent (never truncates an existing log).
+- name: Ensure backup log file exists (postgres-owned)
+  ansible.builtin.copy:
+    dest: "{{ pg_backup_log }}"
+    content: ""
+    force: false
+    owner: "{{ pg_backup_user }}"
+    group: "{{ pg_backup_user }}"
+    mode: "0640"
+
+- name: Install pg-backup script
+  ansible.builtin.template:
+    src: pg-backup.sh.j2
+    dest: "{{ pg_backup_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install pg-backup.service unit
+  ansible.builtin.template:
+    src: pg-backup.service.j2
+    dest: /etc/systemd/system/pg-backup.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Install pg-backup.timer unit
+  ansible.builtin.template:
+    src: pg-backup.timer.j2
+    dest: /etc/systemd/system/pg-backup.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+# daemon-reload must land before we enable/start the timer.
+- name: Apply systemd unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable + start pg-backup.timer
+  ansible.builtin.systemd:
+    name: pg-backup.timer
+    enabled: true
+    state: started

@@ -71,3 +71,6 @@
 - import_playbook: asgard-zabbix.yml
 - import_playbook: asgard-proxmox.yml
 - import_playbook: asgard-pbs.yml
+# Control node last — Frigg consumes the whole stack (Vault / NetBox /
+# kubeconfig / git) but nothing in the converge depends on it.
+- import_playbook: asgard-control.yml

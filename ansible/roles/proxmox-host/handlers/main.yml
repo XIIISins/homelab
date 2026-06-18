@@ -1,0 +1,8 @@
+# ansible/roles/proxmox-host/handlers/main.yml
+---
+# Distinct handler name (role-prefixed) so it can't collide with the
+# os-updates / baseline reboot handlers. Refreshes the apt cache after a
+# repo change so the next consumer (or a human) sees the corrected index.
+- name: proxmox-host apt update
+  ansible.builtin.apt:
+    update_cache: true

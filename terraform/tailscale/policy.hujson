@@ -24,6 +24,10 @@
         "tag:terraform-tag-owner": [],
         "tag:subnet-router":       ["tag:terraform-tag-owner", "autogroup:admin"],
         "tag:exit-node":           ["tag:terraform-tag-owner"],
+        // tag:server — Frigg (control-node watchtower VM). Joins only so
+        // the operator can Tailscale-SSH in (ssh block below); advertises
+        // nothing. autogroup:admin owner lets the operator re-tag if needed.
+        "tag:server":              ["tag:terraform-tag-owner", "autogroup:admin"],
     },
 
     // ---------------------------------------------------------------
@@ -74,20 +78,23 @@
     },
 
     // ---------------------------------------------------------------
-    // SSH (Tailscale SSH) — deferred until SSSD-on-Linux-hosts phase
-    // lands (ssh-users group already defined in Authentik). When
-    // enabled, the rule shape is (under grants/legacy ssh block —
-    // Tailscale SSH still uses its own `ssh` section regardless of
-    // ACL vs grants syntax):
-    //
-    //   "ssh": [{
-    //       "action": "check",       // or "accept" for no-prompt
-    //       "src":    ["autogroup:member"],
-    //       "dst":    ["tag:subnet-router", "tag:exit-node"],
-    //       "users":  ["root", "ghost"],
-    //   }],
-    //
-    // Adding it now without the consumers (Tailscale SSH daemon
-    // running on the LXCs) is harmless but premature; bundle with the
-    // SSSD phase.
+    // SSH (Tailscale SSH)
+    // ---------------------------------------------------------------
+    // Frigg (tag:server, Phase 6 Stage 2) accepts Tailscale SSH from any
+    // tailnet member (single-admin tailnet today) as the local `ghost`
+    // operator user — identity-based, no SSH-key management, reachable
+    // from anywhere. `action: check` periodically re-verifies the
+    // operator's tailnet identity (a god-tier control node warrants the
+    // re-auth; flip to "accept" if the prompts become friction). `ghost`
+    // has NOPASSWD sudo, so root is reachable without a direct root-SSH
+    // rule. Broader host SSH (subnet-routers / exit-node, multi-user via
+    // the ssh-users group) still lands with the future SSSD phase.
+    "ssh": [
+        {
+            "action": "check",
+            "src":    ["autogroup:member"],
+            "dst":    ["tag:server"],
+            "users":  ["ghost"],
+        },
+    ],
 }

@@ -1,0 +1,93 @@
+# k8s/asgard/apps/microbin/httproute.yaml
+#
+# Routes paste.xiiisins.com to MicroBin, with PARTIAL auth. Gateway API
+# longest-prefix matching means the specific gated rules win over the /
+# catchall, so only those carry the Authentik ForwardAuth middleware —
+# everything else (create, view-by-URL, upload, /static) is open/anonymous.
+# (This is the inverse of the VictoriaLogs route, which exempts /insert
+# from an otherwise-gated app.)
+#
+# GATED endpoints (verified against MicroBin source, NOT the docs — the
+# docs call the list "/pastalist" but the real route is "/list"):
+#   /list        — endpoints/list.rs  #[get("/list")]   the paste index
+#   /admin       — endpoints/admin.rs #[get/post("/admin")]  admin actions
+#   /auth_admin  — endpoints/auth_admin.rs  the admin login form /admin
+#                  redirects to (must be gated too or it's an open backdoor
+#                  to the admin login)
+#   /remove      — endpoints/remove.rs #[get/post("/remove/{id}")]  delete
+# Paste viewing is /{id} (getpasta), which falls through to the open
+# catchall — PathPrefix matches by path segment, so /list etc. don't shadow
+# hash-id paste URLs.
+#
+# External-only: apex zone is Cloudflare-resolved. Public path is
+#   client → Cloudflare edge → tunnel → cloudflared → Traefik → here.
+# CF CNAME: cloudflare_dns_record.microbin (terraform/cloudflare/main.tf).
+# cloudflared rule: k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: microbin
+  namespace: microbin
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - "paste.xiiisins.com"
+  rules:
+    # Gated: list + admin surface, PLUS the Authentik outpost path. Multiple
+    # matches = OR, one ForwardAuth filter.
+    #
+    # /outpost.goauthentik.io MUST run through ForwardAuth here. After login,
+    # Authentik redirects the browser to
+    # /outpost.goauthentik.io/callback?code=…; the embedded outpost only
+    # processes that callback when the request passes through the ForwardAuth
+    # middleware (the outpost's /auth/traefik endpoint inspects X-Forwarded-Uri,
+    # exchanges the code, sets the session cookie, and 302s back to the
+    # original URL). For a FULLY-gated app (VL/VM) the callback rides the
+    # gated `/` catchall automatically — but MicroBin's `/` catchall is OPEN,
+    # so the callback would fall through to the MicroBin backend and 404.
+    # Routing the outpost path through this gated rule fixes that without any
+    # cross-namespace route to authentik-server.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /list
+        - path:
+            type: PathPrefix
+            value: /admin
+        - path:
+            type: PathPrefix
+            value: /auth_admin
+        - path:
+            type: PathPrefix
+            value: /remove
+        # /edit gated too: EDITABLE=true makes pastas editable, so without
+        # this anyone could vandalize a public paste via /edit/{id}. Gating
+        # it keeps edit (like remove) a trusted-janitor-only action. The
+        # /edit_private + /auth_* paths self-authorize (need the paste's own
+        # password), so they stay open.
+        - path:
+            type: PathPrefix
+            value: /edit
+        - path:
+            type: PathPrefix
+            value: /outpost.goauthentik.io
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authentik-forward-auth
+      backendRefs:
+        - name: microbin
+          port: 80
+    # Open: everything else — anonymous create/view/upload + static assets.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: microbin
+          port: 80

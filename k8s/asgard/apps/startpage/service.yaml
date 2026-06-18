@@ -1,0 +1,15 @@
+# k8s/asgard/apps/startpage/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: startpage
+  namespace: startpage
+spec:
+  type: ClusterIP
+  selector:
+    app: startpage
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

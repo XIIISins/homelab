@@ -53,6 +53,16 @@ resource "vault_kubernetes_auth_backend_role" "eso" {
 resource "vault_auth_backend" "approle" {
   type = "approle"
   path = "approle"
+
+  # The mount's max_lease_ttl is the ceiling for each role's secret_id_ttl.
+  # Vault's system default (768h = 32d) was silently clamping the 90d
+  # secret_id_ttl on the roles below — a minted SecretID expired 32d after
+  # creation despite the 90d request, forcing a monthly re-mint treadmill.
+  # Raise the mount ceiling to 90d so secret_id_ttl takes full effect.
+  # (Surfaced 2026-05-31 Wave S7.)
+  tune {
+    max_lease_ttl = "2160h" # 90 days — matches secret_id_ttl on the roles below
+  }
 }
 
 # ansible policy: read on secret/data/ansible/*
@@ -170,6 +180,16 @@ resource "vault_kv_secret_v2" "hermod_config_key" {
     value = random_password.hermod_config_key.result
   })
 }
+
+# NOTE (Wave S3): the SFTPGo admin password (secret/ansible/sftpgo/admin-password)
+# and the Factorio operator password (secret/ansible/factorio/operator-password)
+# are NOT TF-managed. Both were *preserved* existing values lifted into Vault
+# (admin pw off the role's on-disk /etc/sftpgo/admin-password.txt; operator pw
+# off Ansible-Vault) rather than freshly minted — the operator pw is already
+# distributed to humans, and the admin pw was preserved to avoid an SFTPGo-side
+# reconcile. They're operator-minted Vault secrets (same model as the Hermod
+# Discord URLs). To convert either to TF-managed random + rotation later, add a
+# random_password + vault_kv_secret_v2 here and run the rotation reconcile.
 
 # -----------------------------------------------------------------------------
 # Per-service PG passwords — single mint, dual path
@@ -298,6 +318,69 @@ resource "vault_kv_secret_v2" "netbox_superuser" {
 resource "vault_kv_secret_v2" "netbox_inventory_token" {
   mount = vault_mount.kv.path
   name  = "ansible/netbox/inventory-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-operator-mint"
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Cloudflare API token mirror (Wave S4 — infra-health-check)
+# -----------------------------------------------------------------------------
+# The Cloudflare API token is a bootstrap/operator credential that lives
+# primarily in 1Password (read at TF runtime by homelab-env into
+# CLOUDFLARE_API_TOKEN). The Semaphore-scheduled infra-health-check
+# playbook needs the SAME token at runtime to hit /user/tokens/verify
+# (the verify endpoint validates the token used to call it), and Semaphore
+# auths to Vault via AppRole — so the token has to be reachable in Vault.
+#
+# This is a deliberate exception to "the CF token stays 1P-only": once a
+# machine consumer (Semaphore) needs it at runtime, the secrets rule puts
+# it in Vault (machine-at-runtime -> Vault), with 1P as the offline mirror.
+# Scope it to a read-only verify-capable token if you mint a dedicated one;
+# the existing terraform-cloudflare token also self-verifies fine.
+#
+# Operator: mirror the 1P value in once —
+#   vault kv put secret/ansible/cloudflare/api-token \
+#     value=$(op read "op://Homelab 2.0/<cloudflare-token-item>/credential")
+resource "vault_kv_secret_v2" "cloudflare_api_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/cloudflare/api-token"
+  data_json = jsonencode({
+    value = "placeholder-pending-operator-mint"
+  })
+
+  lifecycle {
+    ignore_changes = [data_json]
+  }
+}
+
+# -----------------------------------------------------------------------------
+# PBS API token (Wave S4 — infra-health-check PBS backup-failure probe)
+# -----------------------------------------------------------------------------
+# PBS has its own API/token system (proxmox-backup-manager), NOT the
+# Proxmox VE API — so bpg/proxmox can't mint this, and terraform/proxmox/
+# zabbix-access/ (which mints the PVE monitoring token) doesn't cover it.
+# The official "Proxmox Backup Server by HTTP" Zabbix template needs Zabbix
+# 7.2+ and we run 7.0 LTS, so PBS backup-failure detection rides the
+# infra-health-check.yml prober instead (GET /api2/json/.../tasks?errors=1).
+# It reads this token's `value` (the token secret) via AppRole; the
+# non-secret token-id 'zabbix@pbs!monitoring' lives in the playbook vars.
+#
+# Operator (on the PBS LXC, as root):
+#   proxmox-backup-manager user create zabbix@pbs
+#   proxmox-backup-manager user generate-token zabbix@pbs monitoring
+#   proxmox-backup-manager acl update / Audit \
+#     --auth-id 'zabbix@pbs!monitoring'
+#   # then store the printed token secret (the `value` field) in Vault:
+#   vault kv put secret/ansible/zabbix/pbs-token value='<token-secret>'
+# The token-id is 'zabbix@pbs!monitoring' (not secret; lives in group_vars).
+resource "vault_kv_secret_v2" "zabbix_pbs_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/zabbix/pbs-token"
   data_json = jsonencode({
     value = "placeholder-pending-operator-mint"
   })
@@ -655,5 +738,82 @@ resource "vault_kv_secret_v2" "semaphore_app" {
     access_key_encryption = random_password.semaphore_access_key_encryption.result
     cookie_hash           = random_password.semaphore_cookie_hash.result
     cookie_encryption     = random_password.semaphore_cookie_encryption.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# MicroBin admin credentials (Services — pastebin/file-share)
+# -----------------------------------------------------------------------------
+# MicroBin's /admin interface (additionally gated by Authentik ForwardAuth
+# at Traefik) is the trusted-janitor cleanup tool — it needs an admin
+# username/password to function. Username is a fixed literal; password is
+# TF-minted. Consumed by k8s/asgard/apps/microbin via ESO
+# (externalsecret.yaml → MICROBIN_ADMIN_USERNAME / _PASSWORD).
+resource "random_password" "microbin_admin" {
+  length  = 32
+  special = false # avoid shell/URL-escaping pain; alphanumeric is plenty
+}
+
+resource "vault_kv_secret_v2" "microbin_admin" {
+  mount = vault_mount.kv.path
+  name  = "k8s/microbin/admin"
+  data_json = jsonencode({
+    username = "janitor"
+    password = random_password.microbin_admin.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# n8n — workflow automation (Services, asgard K3s, k8s/asgard/apps/n8n/)
+# -----------------------------------------------------------------------------
+# Two secrets:
+#
+#   k8s/n8n/app  — the N8N_ENCRYPTION_KEY. THIS IS the single load-bearing
+#     secret for n8n: it encrypts every stored credential in Postgres.
+#     Lose/regenerate it and EVERY saved credential becomes permanently
+#     undecryptable ("Credentials could not be decrypted"). It is therefore
+#     minted ONCE here and held stable across rebuilds — the whole point of
+#     injecting it via env instead of letting n8n auto-mint into an
+#     ephemeral ~/.n8n/config. random_id → 64-char hex, matching n8n's
+#     documented `openssl rand -hex 32` recommendation. Operator MUST mirror
+#     this to 1P ("[Asgard] - n8n - Encryption key") as the offline backup
+#     (CLAUDE.md secrets discipline). It also makes the committed (encrypted)
+#     credential DR exports re-importable on a clean rebuild.
+#
+#   ansible/postgres/n8n-password + k8s/n8n/postgres-password — the PG role
+#     password, dual-pathed exactly like outline/teamspeak/semaphore: the
+#     ansible/ path is consumed by postgres-common (CREATE ROLE on the
+#     Patroni leader), the k8s/ path by ESO in the n8n namespace. n8n runs
+#     its own TypeORM migrations on container start (no separate Job).
+resource "random_id" "n8n_encryption_key" {
+  byte_length = 32 # → 64-char hex
+}
+
+resource "vault_kv_secret_v2" "n8n_app" {
+  mount = vault_mount.kv.path
+  name  = "k8s/n8n/app"
+  data_json = jsonencode({
+    encryption_key = random_id.n8n_encryption_key.hex
+  })
+}
+
+resource "random_password" "n8n_postgres" {
+  length  = 32
+  special = false # plain alphanumeric — no connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "n8n_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/n8n-password"
+  data_json = jsonencode({
+    value = random_password.n8n_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "n8n_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/n8n/postgres-password"
+  data_json = jsonencode({
+    value = random_password.n8n_postgres.result
   })
 }

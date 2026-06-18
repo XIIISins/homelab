@@ -1,0 +1,35 @@
+# k8s/asgard/apps/startpage/configmap.yaml
+#
+# Caddy config for the personal startpage. The page content itself is NOT
+# here — it's git-cloned into a shared emptyDir at /srv/www by the init
+# container (see deployment.yaml). This ConfigMap is just the web server
+# config.
+#
+# Pod is internal-cluster only — no TLS here. Traefik terminates TLS at the
+# midgard Gateway upstream; Caddy serves plain HTTP on :80 inside the pod
+# (same posture as apex-static).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: startpage-config
+  namespace: startpage
+data:
+  Caddyfile: |
+    # Plain HTTP on :80. TLS happens at Traefik upstream.
+    :80 {
+        encode gzip zstd
+
+        # Health endpoint for K8s probes — must resolve even before/without
+        # the cloned content, so it's its own handler above the file server.
+        handle /healthz {
+            respond "ok" 200
+        }
+
+        # Everything else: serve the published files. No `hide` rules needed
+        # — the init container copies only the required page assets into
+        # /srv/www (whitelist), so there's no VCS/dev metadata to serve.
+        handle {
+            root * /srv/www
+            file_server
+        }
+    }

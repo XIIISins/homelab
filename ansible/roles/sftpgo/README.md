@@ -64,7 +64,8 @@ Each entry in `sftpgo_users` maps directly to SFTPGo's user model:
 sftpgo_users:
   - username: factorio-operator
     description: "Buddy who manages the Factorio server."
-    password: "{{ vault_factorio_operator_password }}"
+    # Read at runtime from HashiCorp Vault (the standard rail for runtime secrets):
+    password: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/factorio/operator-password').secret.value }}"
     # Optionally also accept SSH key auth (either method works):
     public_keys:
       - "ssh-ed25519 AAAA... operator@laptop"
@@ -109,11 +110,12 @@ Valid permission strings:
     - role: sftpgo
       vars:
         sftpgo_extra_groups: [factorio]
-        sftpgo_admin_password: "{{ vault_sftpgo_admin_password }}"
+        # sftpgo_admin_password defaults to a HashiCorp Vault lookup
+        # (secret/ansible/sftpgo/admin-password); override only for a custom bootstrap.
         sftpgo_users:
-          - username: "{{ vault_factorio_operator_username }}"
+          - username: operator
             description: "Factorio server operator"
-            password: "{{ vault_factorio_operator_password }}"
+            password: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/factorio/operator-password').secret.value }}"
             home_dir: /factorio
             permissions:
               "/":        ["list", "download"]

@@ -2,6 +2,12 @@
 - name: Configure asgard K3s nodes
   hosts: k3s
   become: true
+  # One node at a time across the whole cluster. A config change that notifies
+  # `restart-k3s` must never fire simultaneously on all 6 nodes — staggering
+  # keeps etcd quorum (3 CPs: lose 1, keep 2/3) and avoids a cluster-wide
+  # control-plane bounce. Slower converge is the deliberate tradeoff.
+  # (CLAUDE.md "Default Ansible playbook execution is parallel" gotcha.)
+  serial: 1
 
   roles:
     - { role: baseline, tags: baseline }

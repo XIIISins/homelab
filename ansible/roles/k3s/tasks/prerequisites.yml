@@ -29,12 +29,20 @@
     enabled: true
     state: started
 
-- name: Disable firewalld
+# firewalld isn't in the package list above + isn't on the minimal RHEL image,
+# so the disable below would error ("Could not find the requested service") —
+# previously swallowed with ignore_errors, which prints a noisy "ignored" fatal
+# every run (incl. drift-check). Gate on actual package presence instead.
+# package_facts is read-only + runs natively under --check (no check_mode dance).
+- name: Gather installed package facts (to gate firewalld)
+  ansible.builtin.package_facts:
+
+- name: Disable firewalld (K3s manages its own iptables/Calico; only if present)
   ansible.builtin.systemd:
     name: firewalld
     state: stopped
     enabled: false
-  ignore_errors: true # might not be installed on minimal image
+  when: "'firewalld' in ansible_facts.packages"
 
 - name: Load br_netfilter kernel module
   # Bridge netfilter module — needed for iptables to see bridged traffic

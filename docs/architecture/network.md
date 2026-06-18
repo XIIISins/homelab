@@ -46,7 +46,7 @@
 | Address | LXC ID | Node | Role |
 |---------|--------|------|------|
 | `10.0.11.20` | 1101 | Skuld | PBS ✅ |
-| `10.0.11.21` | 1102 | Skuld | Zabbix |
+| `10.0.11.21` | 1102 | Urd | Zabbix — Hugin ✅ |
 | `10.0.11.201` | 1110 | Urd | AdGuard Home — Saga ✅ |
 | `10.0.11.202` | 1111 | Verd | AdGuard Home — Mimir ✅ |
 | `10.0.11.203` | 1112 | Skuld | AdGuard Home — Kvasir ✅ |
@@ -54,7 +54,6 @@
 | `10.0.11.214` | 1114 | Verd | Tailscale 2 |
 | `10.0.11.215` | 1115 | Skuld | Tailscale 3 |
 | `10.0.11.220` | 1120 | Urd | Factorio + SFTPGo |
-| `10.0.11.221` | 1121 | Verd | Teamspeak |
 | `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
 | `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
 | `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |
@@ -75,14 +74,14 @@
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
-| `10.0.21.11` | 2001 | Verd | K3s CP | Göndul |
+| `10.0.21.11` | 2001 | Urd | K3s CP | Göndul |
 | `10.0.21.12` | 2002 | Verd | K3s CP | Hlökk |
 | `10.0.21.13` | 2003 | Skuld | K3s CP | Sigrún |
 | `10.0.21.21` | 2101 | Urd | K3s Worker | Einherjar-urd |
 | `10.0.21.22` | 2102 | Verd | K3s Worker | Einherjar-verd |
 | `10.0.21.23` | 2103 | Skuld | K3s Worker | Einherjar-skuld |
 
-Göndul moved from Urd → Verd on 2026-05-17 (was the deferred backlog item from the 2026-05-14 incident).
+Göndul moved Urd → Verd on 2026-05-17 (the deferred backlog item from the 2026-05-14 incident), then back Verd → Urd in Phase 4b (2026-05-22). Current placement is **Urd** (Hlökk on Verd, Sigrún on Skuld).
 
 **Jotunheim K3s MetalLB VLAN 30 (10.0.30.0/24):**
 `10.0.30.11–.99` — LoadBalancer pool
@@ -126,7 +125,7 @@ NFS traffic only — no static assignments needed.
 |-------|-------|
 | 1101–1109 | Backup & monitoring (PBS, Zabbix) |
 | 1110–1119 | Network infrastructure (AdGuard ×3, Tailscale ×3) |
-| 1120–1129 | Services (Factorio, Teamspeak) |
+| 1120–1129 | Services (Factorio; Teamspeak pivoted to a K3s app — no longer an LXC) |
 | 1130–1139 | Database (PostgreSQL ×3, HAProxy ×3) |
 
 ## DNS naming

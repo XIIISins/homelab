@@ -1,0 +1,320 @@
+# ansible/playbooks/infra-health-check.yml
+---
+# Wave S4 — active infra-health prober. Runs from the Semaphore pod
+# (hosts: localhost) on a schedule and ACTIVELY checks things that are
+# otherwise only passively/callback-monitored, POSTing any finding to
+# Hermod. This is the "synthetic failure -> expected alert" backstop the
+# 1.0-stabilization S4 wave asks for, expressed as deterministic,
+# testable playbook logic rather than blind community.zabbix triggers.
+#
+# Checks (each isolated; one probe failing never masks the others):
+#   1. Cloudflare API token validity  (/user/tokens/verify -> status)
+#   2. Served TLS cert expiry, per zone (catches a stuck cert-manager
+#      renewal AND any path that would serve a stale cert)
+#   3. Patroni cluster health          (REST /cluster: leader present +
+#      >= 2 running members) — defence-in-depth for the on_role_change
+#      Hermod callback, which can't fire if the node holding it is dead
+#   4. etcd quorum                      (/health on each DCS node)
+#
+# Severity -> Hermod tag routing (see docs/services/notifications.md):
+#   critical -> Hrist   alert -> Mist
+# The playbook collects findings, then POSTs at most one message per
+# severity so routing stays clean and Discord isn't spammed.
+#
+# Reachability notes (Semaphore pod = K3s pod):
+#   - Cloudflare: egress to api.cloudflare.com (HTTPS) — fine.
+#   - Cert probes target FQDNs that have a CoreDNS rewrite to Traefik's
+#     ClusterIP (netbox.niflheim / authentik.midgard / wiki apex), so the
+#     pod reaches Traefik directly (NOT via the MetalLB VIP, which a K3s
+#     pod can't reach — the tromboning gotcha). Traefik serves the
+#     matching wildcard cert by SNI.
+#   - Patroni REST + etcd: LXC IPs on VLAN 11, reachable from pods.
+#
+# Secrets: the Cloudflare token is read from Vault via the AppRole env
+# Semaphore already injects (ANSIBLE_HASHI_VAULT_*). HERMOD_URL (with the
+# embedded config-key) is injected by the Semaphore project environment.
+#
+# The hermod_summary callback no-ops for any wrapper that isn't
+# drift/apply, so it will NOT double-post for this playbook — the
+# explicit POSTs below are the only Hermod traffic. A play-level rescue
+# POSTs a critical if the job itself errors (e.g. Vault unreachable),
+# so a broken prober is never silent.
+
+- name: Infra health check (active prober -> Hermod)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  # Pure HTTP/Vault prober — needs no privilege escalation. Explicit
+  # because the control-node ansible.cfg (and potentially the Semaphore
+  # pod) default become: true, which makes the localhost uri tasks try to
+  # sudo and fail ("sudo: a password is required").
+  become: false
+
+  vars:
+    hermod_url: "{{ lookup('env', 'HERMOD_URL') }}"
+
+    # Cloudflare token: Vault path scaffolded in terraform/vault/main.tf,
+    # operator mirrors the 1P value in once. Field `value`.
+    cloudflare_token_vault_path: "ansible/cloudflare/api-token"
+
+    # PBS backup-failure check. The official "Proxmox Backup Server by
+    # HTTP" Zabbix template needs Zabbix 7.2+; we're on 7.0 LTS, so this
+    # rides the prober instead (keeps PBS in the observability->Hermod
+    # path, no 7.2 upgrade, no community-template dependency). PBS uses
+    # its own API token (proxmox-backup-manager), separate from PVE.
+    pbs_token_id: "zabbix@pbs!monitoring"
+    pbs_token_vault_path: "ansible/zabbix/pbs-token"
+    pbs_api_port: 8007
+    # Look back this many seconds for failed tasks (> the 12h cron cadence
+    # so nothing falls between runs).
+    pbs_task_lookback_seconds: 90000 # 25h
+
+    # Cert expiry thresholds (days remaining).
+    cert_warn_days: 14
+    cert_crit_days: 3
+
+    # One representative served endpoint per cert-manager wildcard zone.
+    # Each FQDN has a CoreDNS rewrite -> Traefik ClusterIP so the pod can
+    # reach it; SNI selects which wildcard cert Traefik returns.
+    cert_endpoints:
+      - { zone: "niflheim", host: "netbox.niflheim.xiiisins.com" }
+      - { zone: "midgard", host: "authentik.midgard.xiiisins.com" }
+      - { zone: "apex", host: "wiki.xiiisins.com" }
+
+  tasks:
+    - name: Health-check body
+      block:
+
+        # --- 1. Cloudflare API token ----------------------------------
+        - name: Read Cloudflare API token from Vault
+          ansible.builtin.set_fact:
+            _cf_token: >-
+              {{ lookup('community.hashi_vault.vault_kv2_get',
+                        cloudflare_token_vault_path).secret.value }}
+          no_log: true
+
+        - name: Verify Cloudflare API token
+          ansible.builtin.uri:
+            url: "https://api.cloudflare.com/client/v4/user/tokens/verify"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ _cf_token }}"
+            return_content: false
+            status_code: [200, 401, 403]
+          register: cf_verify
+          failed_when: false
+          no_log: true # token in the Authorization header
+
+        - name: Record Cloudflare token finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['Cloudflare API token INVALID — `/user/tokens/verify` status='
+                    ~ (cf_verify.json.result.status | default('unknown'))
+                    ~ ' (HTTP ' ~ (cf_verify.status | default('?')) ~ '). TF applies will 401.']
+                    if (cf_verify.status | default(0) != 200
+                        or (cf_verify.json.result.status | default('')) != 'active')
+                    else []) }}
+
+        # --- 2. Served TLS cert expiry --------------------------------
+        - name: Fetch served certificate per zone
+          community.crypto.get_certificate:
+            host: "{{ item.host }}"
+            port: 443
+            # SNI defaults to host; Traefik routes by it.
+          loop: "{{ cert_endpoints }}"
+          loop_control:
+            label: "{{ item.host }}"
+          register: cert_probe
+          failed_when: false
+
+        - name: Record cert-expiry findings
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['TLS cert for **' ~ item.item.zone ~ '** (`' ~ item.item.host
+                     ~ '`) UNREACHABLE — ' ~ (item.msg | default('probe failed'))]
+                    if item.failed | default(false) or (item.not_after is not defined)
+                    else (['TLS cert for **' ~ item.item.zone ~ '** (`' ~ item.item.host
+                           ~ '`) expires in ' ~ _days ~ 'd (<' ~ cert_crit_days ~ 'd) — renewal stuck?']
+                          if (_days | int) < (cert_crit_days | int) else [])) }}
+            warn_findings: >-
+              {{ warn_findings | default([])
+                 + (['TLS cert for **' ~ item.item.zone ~ '** (`' ~ item.item.host
+                     ~ '`) expires in ' ~ _days ~ 'd (<' ~ cert_warn_days ~ 'd).']
+                    if (not (item.failed | default(false))) and (item.not_after is defined)
+                       and (_days | int) >= (cert_crit_days | int) and (_days | int) < (cert_warn_days | int)
+                    else []) }}
+          vars:
+            _days: >-
+              {{ (((item.not_after | to_datetime('%Y%m%d%H%M%SZ')) - now()).days)
+                 if item.not_after is defined else 9999 }}
+          loop: "{{ cert_probe.results }}"
+          loop_control:
+            label: "{{ item.item.host }}"
+
+        # --- 3. Patroni cluster health --------------------------------
+        # Hit one PG node's REST /cluster; each node reports the whole
+        # cluster view. Fall through the list so a single dead node
+        # doesn't read as cluster failure.
+        - name: Probe Patroni REST /cluster
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[item].ansible_host | default(item) }}:8008/cluster"
+            method: GET
+            return_content: true
+            status_code: [200]
+          loop: "{{ groups['postgres'] | default([]) }}"
+          loop_control:
+            label: "{{ item }}"
+          register: patroni_probe
+          failed_when: false
+
+        - name: Evaluate Patroni cluster health
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + ([_patroni_msg] if _patroni_bad else []) }}
+          vars:
+            # First successful /cluster response, if any.
+            _ok: "{{ patroni_probe.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
+            _members: "{{ (_ok[0].json.members | default([])) if (_ok | length > 0) else [] }}"
+            _running: "{{ _members | selectattr('state', 'in', ['running', 'streaming']) | list | length }}"
+            _has_leader: "{{ (_members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | length) > 0 }}"
+            _patroni_bad: "{{ (_ok | length == 0) or (not _has_leader) or (_running | int < 2) }}"
+            _patroni_msg: >-
+              {{ ('Patroni cluster UNREACHABLE on all ' ~ (groups['postgres'] | default([]) | length) ~ ' nodes — REST /cluster down everywhere.')
+                 if (_ok | length == 0)
+                 else ('Patroni cluster degraded: leader_present=' ~ _has_leader
+                       ~ ' running_members=' ~ _running ~ '/3 (quorum at risk).') }}
+
+        # --- 4. etcd quorum -------------------------------------------
+        - name: Probe etcd /health per DCS node
+          ansible.builtin.uri:
+            url: "http://{{ hostvars[item].ansible_host | default(item) }}:2379/health"
+            method: GET
+            return_content: true
+            status_code: [200, 503]
+          loop: "{{ groups['haproxy_etcd'] | default([]) }}"
+          loop_control:
+            label: "{{ item }}"
+          register: etcd_probe
+          failed_when: false
+
+        - name: Evaluate etcd quorum
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['etcd quorum LOST: only ' ~ _healthy ~ '/' ~ _total
+                     ~ ' DCS nodes report health=true (need >= 2).']
+                    if (_total | int > 0 and _healthy | int < 2) else []) }}
+          vars:
+            _total: "{{ groups['haproxy_etcd'] | default([]) | length }}"
+            # etcd /health returns Content-Type: text/plain, so ansible's
+            # uri does NOT auto-populate `.json` — parse `.content` with
+            # from_json instead (the body IS JSON, just mislabelled).
+            _healthy: >-
+              {{ etcd_probe.results
+                 | selectattr('status', 'defined')
+                 | selectattr('status', 'equalto', 200)
+                 | selectattr('content', 'defined')
+                 | map(attribute='content')
+                 | map('from_json')
+                 | selectattr('health', 'in', ['true', true])
+                 | list | length }}
+
+        # --- 5. PBS backup failures + datastore fullness --------------
+        - name: Read PBS API token from Vault
+          ansible.builtin.set_fact:
+            _pbs_secret: >-
+              {{ lookup('community.hashi_vault.vault_kv2_get',
+                        pbs_token_vault_path).secret.value }}
+          no_log: true
+
+        - name: Probe PBS for recent failed tasks
+          ansible.builtin.uri:
+            url: >-
+              https://{{ hostvars[groups['pbs'][0]].ansible_host | default('10.0.11.20') }}:{{ pbs_api_port }}/api2/json/nodes/localhost/tasks?errors=1&limit=100&since={{ (now().timestamp() | int) - (pbs_task_lookback_seconds | int) }}
+            method: GET
+            headers:
+              Authorization: "PBSAPIToken={{ pbs_token_id }}:{{ _pbs_secret }}"
+            validate_certs: false
+            return_content: true
+            status_code: [200, 401, 403]
+          register: pbs_tasks
+          failed_when: false
+          no_log: true # token in header
+          when: groups['pbs'] | default([]) | length > 0
+
+        - name: Evaluate PBS findings
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['PBS auth FAILED (HTTP ' ~ (pbs_tasks.status | default('?'))
+                     ~ ') — monitoring token invalid; backup status is blind.']
+                    if (pbs_tasks.status | default(0)) in [401, 403]
+                    else ([_pbs_fail_msg] if (_failed_tasks | length > 0) else [])) }}
+          vars:
+            _failed_tasks: "{{ (pbs_tasks.json.data | default([])) if (pbs_tasks.status | default(0) == 200) else [] }}"
+            _pbs_fail_msg: >-
+              {{ 'PBS: ' ~ (_failed_tasks | length) ~ ' failed task(s) in the last '
+                 ~ ((pbs_task_lookback_seconds | int) // 3600) ~ 'h (e.g. `'
+                 ~ (_failed_tasks[0].worker_type | default('task')) ~ '` -> '
+                 ~ (_failed_tasks[0].status | default('error')) ~ ').' }}
+          when: groups['pbs'] | default([]) | length > 0
+
+        # --- POST findings to Hermod ----------------------------------
+        - name: POST critical findings to Hermod
+          ansible.builtin.uri:
+            url: "{{ hermod_url }}"
+            method: POST
+            body_format: json
+            body:
+              title: "Infra health: {{ crit_findings | length }} critical finding(s)"
+              body: "{{ (['**Infra health check — CRITICAL**', ''] + (crit_findings | map('regex_replace', '^', '- ') | list)) | join('\n') }}"
+              tag: "critical"
+              format: "markdown"
+            status_code: [200]
+          when: (crit_findings | default([])) | length > 0
+          no_log: true # HERMOD_URL embeds the config-key
+
+        - name: POST warning findings to Hermod
+          ansible.builtin.uri:
+            url: "{{ hermod_url }}"
+            method: POST
+            body_format: json
+            body:
+              title: "Infra health: {{ warn_findings | length }} warning(s)"
+              body: "{{ (['**Infra health check — WARNING**', ''] + (warn_findings | map('regex_replace', '^', '- ') | list)) | join('\n') }}"
+              tag: "alert"
+              format: "markdown"
+            status_code: [200]
+          when: (warn_findings | default([])) | length > 0
+          no_log: true
+
+        - name: Summary (visible in Semaphore task log)
+          ansible.builtin.debug:
+            msg: >-
+              Infra health: {{ (crit_findings | default([])) | length }} critical,
+              {{ (warn_findings | default([])) | length }} warning. Clean =
+              {{ ((crit_findings | default([])) | length == 0)
+                 and ((warn_findings | default([])) | length == 0) }}
+
+      rescue:
+        # The prober itself broke (Vault down, module error, etc.) — a
+        # silent prober is worse than a noisy one. POST critical so the
+        # operator knows the health check stopped working.
+        - name: POST prober-failure to Hermod
+          ansible.builtin.uri:
+            url: "{{ hermod_url }}"
+            method: POST
+            body_format: json
+            body:
+              title: "Infra health check ERRORED"
+              body: "The infra-health-check playbook failed to complete: `{{ ansible_failed_result.msg | default('unknown error') }}`. Health coverage is currently blind — investigate."
+              tag: "critical"
+              format: "markdown"
+            status_code: [200]
+          no_log: true
+        - name: Re-fail so Semaphore marks the task failed
+          ansible.builtin.fail:
+            msg: "infra-health-check errored — see Hermod critical + task log above."

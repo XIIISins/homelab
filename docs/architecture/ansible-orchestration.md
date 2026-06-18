@@ -75,7 +75,7 @@ In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres bac
 | Piece | Setup |
 |-------|-------|
 | Workload | StatefulSet `semaphore/semaphore`, 1 replica |
-| Image | `semaphoreui/semaphore:v2.18.5-ansible2.16.5` (ansible-bundled variant) |
+| Image | `ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r1` — custom (stock `semaphoreui` ansible-bundled base + pinned Galaxy collections + runtime pip deps baked; see "Custom image" below) |
 | Application state | PG on Patroni VIP `10.0.10.210:5432/semaphore` (per-service DB declared in `postgres_databases`, postgres-common provisions on leader) |
 | Inventory cache | PVC `inventory-cache-semaphore-0`, `synology-csi-iscsi-retain`, 1 Gi. Cache survives pod restart — saves a ~30s NetBox round-trip every restart |
 | Internal DNS | `semaphore.niflheim.xiiisins.com` via Traefik HTTPRoute on niflheim Gateway (internal-only — no midgard / apex alias, no CF tunnel) |
@@ -88,17 +88,25 @@ In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres bac
 
 Semaphore project pointed at the homelab repo, branch `main`, working dir `ansible/`. Inventory and playbook paths resolved relative to that. The repo's `ansible/ansible.cfg` is the authoritative config (Semaphore inherits it).
 
+### Custom image (collection pins)
+
+Semaphore runs a **custom image** (`docker/semaphore/Dockerfile` → `ghcr.io/xiiisins/semaphore-homelab`, built by `.github/workflows/build-semaphore-image.yml`), not the stock `semaphoreui` image. The stock image bundles its own Galaxy collection set and Semaphore never runs `ansible-galaxy collection install` — so the pins in `ansible/requirements.yml` (which the MacBook/Frigg controllers galaxy-install and honor) **never reached the Semaphore runtime**; every play silently ran on the older bundled collections. This surfaced when the `zabbix-agent` `register-host` task (4.x `community.zabbix` httpapi auth) passed from Frigg but failed from Semaphore, which had bundled 2.3.1. The custom image installs the pinned collections with `--force` directly into the ansible venv's `site-packages/ansible_collections` (overwriting the bundle) + bakes the runtime pip deps (`hvac`/`psycopg2-binary`/`pytz`, formerly a pod-start `pip install`). Site-packages is the load-bearing target: Semaphore runs tasks with the repo's `collections_path = collections` (empty) ansible.cfg and builds the task env itself, so a pod-spec `ANSIBLE_COLLECTIONS_PATH` never reaches the task — the only channel is Ansible's import finder scanning `sys.path`, which is the venv site-packages (exactly how MacBook/Frigg resolve 4.2.0). **Bump discipline:** changing `ansible/requirements.yml` (or the base image) means bumping `BASE_IMAGE` (Dockerfile) + `IMAGE_TAG` rN (workflow) + the StatefulSet image tag in one commit. First GHCR-hosted custom image in the homelab — the Dockerfile + workflow pattern is reusable for any future one. Full gotcha + diagnostic in CLAUDE.md "Known gotchas → Semaphore".
+
 ### Templates
 
-Three core Semaphore task templates cover the drift loop. Add per-service variants only when a specific service needs different cadence/serial.
+Five Semaphore task templates: three cover the drift loop, plus a daily fleet-wide agent reconverge and (Wave S4) an active infra-health prober. Add per-service variants only when a specific service needs different cadence/serial.
 
 | Template | Cadence | What it runs | Notify on |
 |----------|---------|--------------|-----------|
 | `refresh-netbox-inventory` | Cron `every 4h` | Refreshes the cached NetBox inventory by deleting the cache file and re-querying NetBox once | Failure only (NetBox down or auth broken) |
 | `asgard-drift-check` | Cron `every 6h` | `ansible-playbook -i inventory/ site.yml --check --diff` | **Changes detected** → `tag: alert` to Hermod with the diff summary. Hard failure → `tag: alert`. Clean → no notification (audit trail in VL via vlagent) |
 | `asgard-apply` | Manual | `ansible-playbook -i inventory/ site.yml` | Failure → `tag: critical` (an apply blew up — manual intervention needed). Success → no notification |
+| `asgard-fleet-agents` | Cron `daily` | `fleet-agents.yml` — fleet-wide vlagent + zabbix-agent reconverge (defence-in-depth over the per-group roles in `site.yml`) | Failure → `tag: critical`. Success → no notification |
+| `infra-health-check` | Cron `every 12h` | `infra-health-check.yml` (`hosts: localhost` in the pod) — active prober: Cloudflare-token validity, served-cert expiry ×3 zones, Patroni REST `/cluster` + etcd `/health` quorum, PBS failed-tasks | Finding → `tag: critical`/`alert` POSTed by the playbook itself; clean → no notification. (The `hermod_summary` callback no-ops for non-drift/apply wrappers, so no double-post.) |
 
 Per-service drift-check variants (e.g. `asgard-postgres-drift-check`) added later when a service needs a different cadence or has a known noisy-but-OK diff class that needs filtering before the alert fires.
+
+The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality, the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Deployed + validated in Wave S4 — see [`docs/operations/1.0-stabilization.md`](../operations/1.0-stabilization.md) + [`docs/procedures/s4-observability-validation.md`](../procedures/s4-observability-validation.md).
 
 ## Inventory — NetBox dynamic + static fallback
 

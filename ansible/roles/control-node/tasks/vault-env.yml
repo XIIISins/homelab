@@ -1,0 +1,81 @@
+# ansible/roles/control-node/tasks/vault-env.yml
+---
+# Secret-zero seeding + the Vault-backed env shim (homelab-env).
+#
+# The MacBook's homelab-env sources secrets from 1Password; Frigg's sources
+# them from Vault via the `ansible-frigg` AppRole. The AppRole RoleID is
+# stable + non-secret; the SecretID is the one secret-zero that must be
+# pre-placed (or passed via -e control_node_frigg_secret_id) so the shim can
+# log in. Everything else flows from Vault at runtime.
+
+- name: Create /etc/frigg dir
+  ansible.builtin.file:
+    path: "{{ control_node_frigg_etc_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  tags: [control-node, control-node:vault-env]
+
+# Secret-zero: write the AppRole env file ONLY if a SecretID was supplied.
+# If the file already exists and no SecretID was passed, leave it untouched
+# (idempotent — never clobber a working SecretID with an empty one). Guarded
+# by no_log because the SecretID is secret.
+- name: Check for existing AppRole env file
+  ansible.builtin.stat:
+    path: "{{ control_node_approle_env_path }}"
+  register: control_node_approle_stat
+  tags: [control-node, control-node:vault-env]
+
+- name: Seed Vault AppRole env file (secret-zero)
+  ansible.builtin.template:
+    src: vault-approle.env.j2
+    dest: "{{ control_node_approle_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: control_node_frigg_secret_id | length > 0
+  tags: [control-node, control-node:vault-env]
+
+- name: Warn when AppRole env file is absent and no SecretID supplied
+  ansible.builtin.debug:
+    msg: >-
+      {{ control_node_approle_env_path }} is absent and no
+      control_node_frigg_secret_id was provided — the homelab-env shim will
+      not be able to log in until the SecretID is seeded (re-run with
+      -e control_node_frigg_secret_id=<id>, or pre-place the file).
+  when:
+    - not control_node_approle_stat.stat.exists
+    - control_node_frigg_secret_id | length == 0
+  tags: [control-node, control-node:vault-env]
+
+# The env shim itself — sourced by ghost's shells. Pure template render; no
+# secrets in it (it reads the approle file + talks to Vault at runtime).
+- name: Install homelab-env shim
+  ansible.builtin.template:
+    src: homelab-env.sh.j2
+    dest: "{{ control_node_env_shim_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [control-node, control-node:vault-env]
+
+# Auto-source the shim for the operator's interactive shells so a fresh SSH /
+# Tailscale-SSH session lands with the env loaded.
+- name: Auto-source homelab-env for operator shells
+  ansible.builtin.copy:
+    dest: /etc/profile.d/homelab-env.sh
+    content: |
+      # Managed by ansible/roles/control-node — auto-load homelab env for
+      # interactive login shells. Source the shim (defines homelab-env), then
+      # run it once so the session lands with the env loaded. Failures are
+      # non-fatal (e.g. SecretID not yet seeded) so login isn't blocked.
+      if [ -n "$PS1" ] && [ -r "{{ control_node_env_shim_path }}" ]; then
+          . "{{ control_node_env_shim_path }}"
+          homelab-env >/dev/null 2>&1 || true
+      fi
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [control-node, control-node:vault-env]

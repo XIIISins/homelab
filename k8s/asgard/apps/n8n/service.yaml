@@ -1,0 +1,13 @@
+# k8s/asgard/apps/n8n/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n
+  namespace: n8n
+spec:
+  selector:
+    app.kubernetes.io/name: n8n
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

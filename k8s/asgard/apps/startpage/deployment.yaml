@@ -1,0 +1,142 @@
+# k8s/asgard/apps/startpage/deployment.yaml
+#
+# Personal startpage served by Caddy. Content is git-cloned from the private
+# XIIISins/startpage repo (branch tokyonight_colors) into a shared emptyDir
+# at pod start by the `clone` init container, then served read-only by Caddy.
+#
+# Updating the page: push to the startpage repo, then
+#   kubectl rollout restart deployment/startpage -n startpage
+# Each new pod re-clones HEAD of tokyonight_colors. No image rebuild, no
+# registry — push-and-restart. The rolling restart (maxSurge 0 /
+# maxUnavailable 1) keeps the service up throughout.
+#
+# Why a runtime clone instead of files-in-ConfigMap (the apex-static
+# pattern): the repo is ~47MB (large background.png + GIF banners + icon
+# fonts), well over the 1MB ConfigMap limit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: startpage
+  namespace: startpage
+spec:
+  # 3 replicas, one per worker — anti-affinity below pins them across the
+  # three K3s workers (operator request). Tiny stateless service; each pod
+  # holds its own independent clone.
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # required anti-affinity + 3 replicas across exactly 3 workers means
+      # there's no 4th slot to surge into — maxSurge MUST be 0 or rollouts
+      # deadlock (CLAUDE.md "Required pod anti-affinity + RollingUpdate").
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: startpage
+  template:
+    metadata:
+      labels:
+        app: startpage
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - startpage
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        # Clone the private repo over SSH to a scratch dir, then copy ONLY
+        # the files the page needs into the served emptyDir. The deploy key +
+        # pinned github.com known_hosts come from Vault via ESO
+        # (externalsecret.yaml). The key is copied to a tmp path + chmod 0400
+        # because SSH refuses keys on the symlinked secret mount otherwise.
+        #
+        # Whitelist (not blacklist): /srv/www only ever receives the explicit
+        # PUBLISH set below — the same paths the old nginx Dockerfile COPYed.
+        # Nothing else from the repo (.git/, README.md, LICENSE, Dockerfile,
+        # .eslintrc.json, …) can reach the webroot, now or if the repo grows.
+        - name: clone
+          image: alpine/git:2.52.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              command -v ssh >/dev/null 2>&1 || apk add --no-cache openssh-client
+              install -m 0400 /keys/ssh-privatekey /tmp/id_deploy
+              export GIT_SSH_COMMAND="ssh -i /tmp/id_deploy -o IdentitiesOnly=yes -o UserKnownHostsFile=/keys/known_hosts -o StrictHostKeyChecking=yes"
+              rm -rf /tmp/repo
+              git clone --depth 1 --single-branch --branch tokyonight_colors \
+                git@github.com:XIIISins/startpage.git /tmp/repo
+              # emptyDir is fresh per-pod, but be defensive on any re-run.
+              rm -rf /srv/www/* /srv/www/.[!.]* 2>/dev/null || true
+              # PUBLISH set — required page assets only.
+              for p in index.html userconfig.js src img; do
+                cp -a "/tmp/repo/$p" /srv/www/
+              done
+              echo "startpage: published $(find /srv/www -type f | wc -l) files"
+          volumeMounts:
+            - name: content
+              mountPath: /srv/www
+            - name: deploy-key
+              mountPath: /keys
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      containers:
+        - name: caddy
+          image: caddy:2.11.2-alpine
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: content
+              mountPath: /srv/www
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: startpage-config
+            items:
+              - key: Caddyfile
+                path: Caddyfile
+        - name: deploy-key
+          secret:
+            secretName: startpage-deploy-key
+            defaultMode: 0400
+        # Shared between the clone init container (writes) and Caddy (reads).
+        - name: content
+          emptyDir:
+            sizeLimit: 256Mi

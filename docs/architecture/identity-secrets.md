@@ -55,7 +55,8 @@ The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO
 ## Vault current state
 
 - 3-node Raft HA, AWS KMS auto-unseal (eu-west-1, single-key AWS account, `vault-unseal` IAM user is decrypt-only on that one key)
-- iSCSI storage (5Gi PVC, `synology-csi-iscsi-retain`)
+  - **KMS key recovery pointer** (what to point a rebuilt Vault's `seal "awskms"` at): region `eu-west-1`. The key-id is `VAULT_AWSKMS_SEAL_KEY_ID` in the `vault-unseal` secret (SealedSecret at `k8s/asgard/infrastructure/vault/vault-unseal-secret.yaml`, runtime path SealedSecret → K8s Secret → Vault pod env) with a recovery copy as `aws_kms_key_id` in `group_vars/all/vault.yml`. The **full key ARN + the decrypt-only IAM access key/secret** live in the 1P bootstrap item (outside the Homelab sub-vault per the failure-independent scope rule). The ARN is deliberately **not** committed — it's an identifier, not a credential, but it embeds the AWS account ID; keeping it in 1P preserves "pointers in git, account-specifics in 1P".
+- Storage: 3-node Raft on `local-path` (node-local NVMe, one PV per pod pinned to urd/skuld/verd) — migrated off iSCSI in the 2026-05-30 storage redesign (Class L). HA is app-level (Raft quorum), not storage-level; PBS backs up each worker's `/data`.
 - Listener `tls_disable = 1` — deliberate (see Known gotchas in CLAUDE.md)
 - KV-v2 engine at `secret/`
 - **Kubernetes auth method** at `auth/kubernetes/` (`kubernetes_host=https://kubernetes.default.svc`, Vault's own SA token used as reviewer — Vault SA has `system:auth-delegator` via `vault-server-binding` ClusterRoleBinding)
@@ -224,6 +225,22 @@ Extension points:
 - **New AppRole role for rotation:** append a line to `$__homelab_approle_items` in the form `"role-name|$__op_<name>"`. The 1P item must have fields `username` (RoleID), `password` (SecretID), `secret_id_accessor`, `expires_at`.
 
 The 1P vault name (`Homelab 2.0`) is lifted to `$__homelab_op_vault` at the top of the file — single-point edit if it ever changes.
+
+### Vault-backed shim (`vault-homelab-env`) — the non-interactive / Claude path
+
+The 1P-backed `homelab-env` needs `op` to be signed in (biometric/interactive), so it only works when the operator has run it by hand recently — no good for non-interactive runs (Claude, `claude remote-control`, cron). The **Vault-backed** `vault-homelab-env` needs no human: it AppRole-logs-in to Vault with an on-disk secret-zero and pulls the same IaC creds from `secret/ansible/frigg/*`. This is the preferred path for any of **Claude's own** multi-var machine commands.
+
+- **Secret-zero:** `~/.config/ansible/vault-approle.env` (RoleID + SecretID). Re-synced after a `rotate-approle` via `homelab-env` (1P) then `seed-vault-approle`.
+- **Cache:** `~/.cache/homelab/vault-env.sh` (POSIX) + `vault-env.fish` (fish), written by `vault-homelab-env`, **3h TTL**, SEPARATE from the 1P `env.{sh,fish}`. Holds the IaC set: `KUBECONFIG`, `VAULT_ADDR`/`VAULT_TOKEN`, `ADGUARD_*`, `CLOUDFLARE_API_TOKEN`, `AUTHENTIK_*`, `NETBOX_*`, `AWS_*`, `TF_VAR_proxmox_api_token`, `SEMAPHOREUI_*`, the `ANSIBLE_HASHI_VAULT_*` AppRole vars + `ANSIBLE_VAULT_PASSWORD_FILE`. The cached `VAULT_TOKEN` is a ~30 min AppRole token — `vault-homelab-env --refresh` re-mints it.
+- **Self-healing one-liner** (re-fetches when the 3h cache is stale, fast cache-read when warm). `vault-homelab-env` isn't on PATH — it's defined in the repo shim, so source that first; calling it exports every IaC var into the current shell so the chained command inherits them:
+  ```bash
+  source "$(git rev-parse --show-toplevel)/.config/scripts/homelab.sh" \
+    && vault-homelab-env >/dev/null && terraform apply
+  ```
+  The refresh path needs `vault` + `jq` on PATH (prefix `PATH="/opt/homebrew/bin:$PATH"`). The known-warm form `. ~/.cache/homelab/vault-env.sh && <cmd>` needs neither but does NOT self-heal a stale cache.
+- **Adding a new IaC field:** append to `__vault_homelab_iac_map` in BOTH shim files (`.config/fish/conf.d/homelab.fish` + `.config/scripts/homelab.sh`), and to `control_node_iac_env_fields` in `roles/control-node` if Frigg should get it, then `vault-homelab-env --refresh`.
+
+The 1P-backed `. ~/.cache/homelab/env.sh` / `homelab-env` stays the operator's interactive path at home. On **Frigg** the distinction is moot: its `homelab-env`/`env.sh` is *already* Vault-backed (no `op` on the box), so there `. ~/.cache/homelab/env.sh` IS the Vault path.
 
 ## 1Password vault organisation
 

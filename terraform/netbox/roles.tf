@@ -27,6 +27,9 @@ locals {
     # notifications: added Phase 5h.2. No import_id — role doesn't exist
     # in NetBox yet, will be created on first apply.
     notifications = { vm_role = true, description = "Notification aggregation hub (AppriseAPI, Hermod)" }
+    # control-node: added Phase 6 Stage 2 (Frigg watchtower). No import_id —
+    # role doesn't exist in NetBox yet, created on first apply.
+    control-node = { vm_role = true, description = "Control node / watchtower (claude remote-control, IaC orchestration)" }
   }
 
   # Import IDs sourced from /api/dcim/device-roles/ at retrofit time.

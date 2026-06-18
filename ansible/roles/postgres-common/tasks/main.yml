@@ -18,6 +18,41 @@
 #                 the adoption-time pre-Patroni primary)
 #   - databases — per-service DBs only (rare standalone use)
 
+# Self-discover Patroni leadership when the fact isn't already set. A full
+# converge runs the patroni role first (it sets patroni_is_leader from
+# /cluster), so this block no-ops there. A SURGICAL re-run — e.g.
+# `--tags postgres-common-databases` to add one DB, which skips the patroni
+# role — would otherwise leave patroni_is_leader unset → default(false) →
+# the gates below skip even on the real leader, forcing the operator's manual
+# `patronictl list` + `-e '{"patroni_is_leader": true}'` step. Query /primary
+# here instead (200 on leader, 503 on replica; unauthenticated; listens on the
+# node's own IP, not localhost). Closes open-questions #257.
+- name: Discover Patroni leadership (when not already set by the patroni role)
+  when:
+    - postgres_patroni_managed
+    - patroni_is_leader is not defined
+    - not ansible_check_mode
+  tags: [postgres-common, postgres-common-users, postgres-common-databases]
+  block:
+    - name: Query local Patroni /primary endpoint
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:{{ patroni_restapi_port | default(8008) }}/primary"
+        method: GET
+        status_code: [200, 503] # 200 = leader, 503 = replica — both are valid
+      register: postgres_common_primary
+      changed_when: false
+      check_mode: false
+
+    - name: Set patroni_is_leader from /primary status
+      ansible.builtin.set_fact:
+        patroni_is_leader: "{{ postgres_common_primary.status == 200 }}"
+
+    - name: Report self-discovered Patroni role
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: self-discovered role={{ 'leader' if patroni_is_leader else 'replica' }}
+          (patroni role not run this play)
+
 - name: Create management PG roles (admin, ansible, replicator, zbx_monitor)
   ansible.builtin.include_tasks:
     file: users.yml

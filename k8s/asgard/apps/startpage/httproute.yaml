@@ -1,0 +1,31 @@
+# k8s/asgard/apps/startpage/httproute.yaml
+#
+# Routes home.xiiisins.com to the startpage Caddy pod. External-only: the
+# apex zone is Cloudflare-resolved, so the public path is
+#   client → Cloudflare edge → tunnel → cloudflared pod → Traefik → here.
+#
+# Attaches to the midgard Gateway's apex-wildcard listener (covers
+# *.xiiisins.com subdomains), same listener Outline's apex route uses for
+# wiki.xiiisins.com. The Cloudflare CNAME is terraform/cloudflare/main.tf
+# (cloudflare_dns_record.startpage); the cloudflared ingress rule is in
+# k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: startpage
+  namespace: startpage
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - "home.xiiisins.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: startpage
+          port: 80

@@ -121,3 +121,24 @@ spec:
     ui:
       enabled: true
       serviceType: LoadBalancer
+      # Pin the MetalLB allocation statically. Previously vault-ui had no
+      # loadBalancerIP, so MetalLB dynamically allocated from the pool bottom
+      # (10.0.20.11) — the static/dynamic collision gotcha: a Service recreate
+      # could shift it, and other static claims had to dodge that band.
+      # Pinning .11 makes it a deterministic static claim (MetalLB's
+      # static-beats-dynamic precedence reserves it). Kept deliberately as a
+      # direct, Traefik-independent path to the Vault UI/API alongside the
+      # FQDN HTTPRoute (vault.niflheim.xiiisins.com). Phase 6 Stage 1, 2026-05-31.
+      loadBalancerIP: 10.0.20.11
+      # Lock the plaintext direct path to the homelab supernet. Vault's listener
+      # is tls_disable=1 (deliberate homelab tradeoff — Traefik terminates TLS at
+      # the FQDN); the unencrypted .11 path must therefore never accept off-LAN
+      # traffic. MetalLB (L2) honours loadBalancerSourceRanges → kube-proxy
+      # programs the source filter. Safe: .11 is now break-glass-only (VAULT_ADDR
+      # is the FQDN; in-cluster consumers use the ClusterIP/Service, not the VIP),
+      # so this only constrains direct-VIP clients, all of which are 10.0.0.0/16.
+      # NOT enforced at the Vault layer (token_bound_cidrs) — Vault sees SNAT'd
+      # source IPs through MetalLB/Traefik, so CIDR-binding there rejects valid
+      # logins. Phase 6, 2026-05-31.
+      loadBalancerSourceRanges:
+        - 10.0.0.0/16

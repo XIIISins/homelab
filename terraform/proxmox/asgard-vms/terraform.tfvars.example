@@ -1,0 +1,7 @@
+# terraform/proxmox/asgard-vms/terraform.tfvars.example
+#
+# Copy to terraform.tfvars (gitignored) before plan/apply. Same values as
+# asgard-k3s / asgard-lxcs — the shared Proxmox API token + the ansible
+# SSH public key. Apply ONLY from the main checkout (never a worktree).
+proxmox_api_token = "root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+ssh_public_key    = "ssh-ed25519 AAAA... ansible@control-node"

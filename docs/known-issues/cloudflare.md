@@ -1,0 +1,13 @@
+<!-- docs/known-issues/cloudflare.md -->
+
+# Known gotchas — Cloudflare / Cloudflared
+
+*Migrated from `CLAUDE.md`. Recovery commands + rules. Incident retros in [`../incidents/`](../incidents/).*
+
+## Cloudflare / Cloudflared
+
+- **Cloudflared targets backend Services by ClusterIP DNS, NEVER MetalLB IPs.** Cloudflared runs in-cluster; ClusterIP DNS keeps traffic in pod network. MetalLB-IP targeting creates in-cluster tromboning. **Exception:** to apply Traefik middleware to externally-tunnelled traffic, target Traefik's ClusterIP DNS with `originRequest.httpHostHeader: <fqdn>` + `noTLSVerify: true`. **Generalisation:** the same rule applies to any pod that needs to reach a K8s-fronted internal FQDN — see the CoreDNS rewrite pattern in the DNS section ("In-cluster K8s-fronted FQDNs"), which is the cluster-wide structural answer for workloads that don't have Cloudflared's app-level config flexibility.
+- **Cloudflare Free plan `Bot Management:Edit` is a separate API token scope** — NOT folded under `Zone Settings:Edit`. The `cloudflare_bot_management` TF resource requires its own `Zone:Bot Management:Edit`. Current `terraform-cloudflare` token scopes: `Zone:DNS:Edit + Zone:Zone:Read + Zone:Zone Settings:Edit + Zone:WAF:Edit + Zone:Bot Management:Edit` (all on `xiiisins.com`) + `Account:Cloudflare Tunnel:Edit`.
+- **Cloudflare provider v5 ruleset import requires `zones/` discriminator prefix.** v4 accepted `<zone_id>/<ruleset_id>`; v5 demands `zones/<zone_id>/<ruleset_id>` (or `accounts/<account_id>/<ruleset_id>`). Error is explicit: `invalid discriminator segment`.
+- **CF API token rotations don't notify consumers — verify with `/user/tokens/verify` after any rotation event.** 1Password stores tokens but can't validate them, so a stale value (rotated upstream but never propagated to 1P) returns HTTP 401 on every TF apply without any signal to the operator that the 1P entry itself needs updating. **Diagnostic**: `curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` returns `{"success":true,"result":{"status":"active"}}` for a healthy token. Use this BEFORE running TF after any "CF token might be stale" event (in-session rotation, anniversary alerts, etc.). Recovery sequence after rotation: (a) mint a new token in the CF dashboard with the required scopes, (b) update the 1P item, (c) `homelab-env --refresh` to repopulate `~/.cache/homelab/env.sh`, (d) `/user/tokens/verify` confirms before any TF. Surfaced 2026-05-26 Phase 5j: the 1P value was stale, refresh pulled the same stale value, regenerated value was also invalid (operator-side error replacing the entry) — caused two failed TF planning rounds before discovery.
+

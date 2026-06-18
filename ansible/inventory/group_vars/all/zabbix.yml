@@ -31,3 +31,23 @@ zabbix_agent_api_user: ansible
 # on data_json protects the put from TF clobber.
 zabbix_agent_api_token_vault_path: "ansible/zabbix/api-token"
 zabbix_agent_api_token_vault_field: value
+
+# Fleet-wide Zabbix global macros (Wave S4). Explicit baselines so
+# disk-usage trigger thresholds don't silently depend on per-Zabbix-
+# version stock-template defaults — the macros are the same names the
+# stock "Linux by Zabbix agent[2]" templates read, set globally here and
+# overridable per host class via each group's `zabbix_agent_host_macros`.
+#
+# Severity routing: the stock "disk space is critically low" trigger
+# (fires at PUSED.MAX.CRIT) is Average severity, which routes to Hermod
+# via the media-type bitmask 56 (Average+High+Disaster). The "low"
+# trigger (PUSED.MAX.WARN) is Warning severity — below the Hermod cutoff,
+# so it stays in the Zabbix UI as an early heads-up.
+#
+# Applied by playbooks/zabbix-host-groups.yml (run_once, delegated to the
+# Zabbix server) — the same global-bootstrap play that ensures host groups.
+zabbix_global_macros:
+  - { name: "{$VFS.FS.PUSED.MAX.WARN}", value: "80" }
+  - { name: "{$VFS.FS.PUSED.MAX.CRIT}", value: "90" }
+  - { name: "{$VFS.FS.INODE.PUSED.MAX.WARN}", value: "85" }
+  - { name: "{$VFS.FS.INODE.PUSED.MAX.CRIT}", value: "95" }

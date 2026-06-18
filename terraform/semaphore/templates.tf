@@ -152,6 +152,41 @@ resource "semaphoreui_project_template" "asgard_fleet_agents" {
   suppress_success_alerts = true
 }
 
+# === infra-health-check (Wave S4) ===
+#
+# Active prober (hosts: localhost in the Semaphore pod): Cloudflare token
+# validity, served TLS cert expiry per zone, Patroni cluster health, etcd
+# quorum. POSTs its own findings to Hermod (critical/alert tags) — the
+# hermod_summary callback no-ops for non-drift/apply wrappers, so the
+# only Hermod traffic is the playbook's explicit per-finding POSTs.
+# A clean run is silent.
+resource "semaphoreui_project_template" "infra_health_check" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "infra-health-check"
+  description    = "Active prober: CF token, cert expiry, Patroni + etcd quorum. Alerts to Hermod on finding."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/infra-health-check.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  # No ansible-vault var is loaded by this playbook, but include the same
+  # vaults shape as the other ansible templates so an inventory parse that
+  # touches group_vars/all/vault.yml never trips "no vault secrets found".
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  # The playbook POSTs its own findings to Hermod; Semaphore's own
+  # success/failure alert is redundant noise on a clean run.
+  suppress_success_alerts = true
+}
+
 # === Schedules ===
 
 resource "semaphoreui_project_schedule" "refresh_netbox_inventory" {
@@ -183,5 +218,16 @@ resource "semaphoreui_project_schedule" "asgard_fleet_agents" {
   # inventory-refresh cron at minute 0 + drift-check at minute 15.
   # Use minute 30 to keep crons visually grouped on the hour.
   cron_format = "30 4 * * *"
+  enabled     = true
+}
+
+resource "semaphoreui_project_schedule" "infra_health_check" {
+  project_id  = semaphoreui_project.asgard.id
+  template_id = semaphoreui_project_template.infra_health_check.id
+  name        = "every-12h"
+  # 06:45 + 18:45 UTC — twice daily, well clear of the minute-0/15/30
+  # cron cluster. Cert expiry + token validity don't need finer than 12h
+  # (cert_warn_days=14 gives ~28 chances to alert before expiry).
+  cron_format = "45 6,18 * * *"
   enabled     = true
 }

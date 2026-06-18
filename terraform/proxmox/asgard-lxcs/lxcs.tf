@@ -149,7 +149,7 @@ resource "proxmox_virtual_environment_container" "postgres" {
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 16    # GB — local LVM-thin; NFS unsuitable for PG data
+    size         = 26    # GB — local LVM-thin; NFS unsuitable for PG data
   }
 
   network_interface {

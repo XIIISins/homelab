@@ -99,3 +99,38 @@
     content: "{{ breakglass_user }} ALL=(ALL) NOPASSWD:ALL\n"
     mode: "0440"
     validate: visudo -cf %s
+
+# ----- SSH host key integrity assertion (OS-independent) -----
+# A hard crash mid-write can leave a host key file zero-byte: ext4's journal
+# restores inode metadata but not page-cache data, so the file exists with an
+# old mtime and zero length. sshd keeps serving from in-memory keys until its
+# next restart, then dies "no hostkeys available -- exiting" — surfacing days
+# later when context is lost. Assert integrity here (read-only find + assert,
+# runs fleet-wide in every converge) so a truncated key fails the NEXT play
+# instead of the next reboot. See CLAUDE.md "Hostkey files can be left
+# zero-byte after hard crash mid-write".
+- name: Find SSH host private keys
+  ansible.builtin.find:
+    paths: /etc/ssh
+    patterns: "ssh_host_*_key"
+    file_type: file
+  register: baseline_ssh_hostkeys
+
+- name: Assert at least one SSH host key is present
+  ansible.builtin.assert:
+    that: baseline_ssh_hostkeys.matched | int > 0
+    fail_msg: >-
+      No SSH host private keys found in /etc/ssh — sshd cannot start.
+      Recovery: ssh-keygen -A && systemctl restart sshd.
+    success_msg: "{{ baseline_ssh_hostkeys.matched }} SSH host key(s) present."
+
+- name: Assert no SSH host key is zero-byte
+  ansible.builtin.assert:
+    that: item.size | int > 0
+    fail_msg: >-
+      SSH host key {{ item.path }} is zero-byte — likely truncated by a hard
+      crash. Recovery: rm the empty key file(s), ssh-keygen -A (skips existing),
+      systemctl restart sshd; then ssh-keygen -R on control nodes.
+  loop: "{{ baseline_ssh_hostkeys.files }}"
+  loop_control:
+    label: "{{ item.path }}"

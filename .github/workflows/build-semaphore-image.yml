@@ -1,0 +1,66 @@
+# .github/workflows/build-semaphore-image.yml
+#
+# Builds the custom Semaphore image (docker/semaphore/Dockerfile) and pushes
+# it to GHCR. The image bakes the pinned Ansible Galaxy collections + runtime
+# Python deps so Semaphore honors ansible/requirements.yml — the stock image
+# bundles older collections (see the Dockerfile header for the full why).
+#
+# Triggers on changes to the Dockerfile, the pinned requirements, or this
+# workflow. Pushes two tags:
+#   - a stable revision tag (IMAGE_TAG) that the StatefulSet pins
+#   - an immutable sha-<gitsha> tag for traceability / rollback
+#
+# BUMP IMAGE_TAG (the rN suffix) whenever the base image OR
+# ansible/requirements.yml changes, and update the matching tag in
+# k8s/asgard/apps/semaphore/statefulset.yaml in the same commit. Concrete-
+# pinned (no :latest float) per the repo IaC pin policy.
+#
+# The owner is hardcoded lowercase: GHCR refs MUST be lowercase, and
+# ${{ github.repository_owner }} preserves the `XIIISins` casing, which docker
+# rejects as an invalid (non-lowercase) repository name.
+
+name: build-semaphore-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/semaphore/Dockerfile
+      - ansible/requirements.yml
+      - .github/workflows/build-semaphore-image.yml
+  workflow_dispatch: {}
+
+env:
+  IMAGE: ghcr.io/xiiisins/semaphore-homelab
+  IMAGE_TAG: v2.18.5-ansible2.16.5-r2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/semaphore/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}

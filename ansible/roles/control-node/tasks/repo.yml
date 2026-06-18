@@ -1,0 +1,103 @@
+# ansible/roles/control-node/tasks/repo.yml
+---
+# GitHub deploy key + homelab repo checkout for ghost. The deploy key comes
+# from Vault (ansible/frigg/github-deploy-key); the repo is cloned once and
+# then left alone (no force-pull — the operator/claude drive git from here).
+
+# Fetch ON the target (frigg) via its own AppRole + the vault CLI, NOT a
+# controller-side community.hashi_vault lookup: that lookup runs in an
+# ansible worker fork, which crashes on a macOS controller running Python
+# 3.14 (fork-after-thread; the OBJC_DISABLE/no_proxy workaround doesn't
+# cover 3.14). Fetching on frigg (Linux) sidesteps it AND uses frigg's own
+# homelab-frigg AppRole — no controller-side secret handling. Runs after
+# toolchain (vault CLI) + vault-env (secret-zero file) in main.yml.
+- name: Fetch GitHub deploy key from Vault (on frigg, via its AppRole)
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      . {{ control_node_approle_env_path }}
+      export VAULT_ADDR="${VAULT_ADDR:-{{ control_node_vault_addr }}}"
+      export VAULT_TOKEN="$(vault write -field=token auth/approle/login role_id="$FRIGG_ROLE_ID" secret_id="$FRIGG_SECRET_ID")"
+      vault kv get -format=json "secret/{{ control_node_vault_github_key_path }}"
+  register: control_node_github_key_raw
+  changed_when: false
+  # Read-only vault fetch; MUST run in --check or the "Parse" set_fact below
+  # (which DOES execute in check mode) dereferences an empty .stdout and the
+  # play fails under drift-check (`from_json` on ""). Same read-only-probe
+  # pattern as the k3s/zabbix detect-state tasks.
+  check_mode: false
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Parse GitHub deploy key fields
+  ansible.builtin.set_fact:
+    control_node_github_key: "{{ (control_node_github_key_raw.stdout | from_json).data.data }}"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Install GitHub deploy private key
+  ansible.builtin.copy:
+    content: "{{ control_node_github_key.private_key }}{{ '' if control_node_github_key.private_key.endswith('\n') else '\n' }}"
+    dest: "{{ control_node_operator_home }}/.ssh/id_ed25519"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0600"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Install GitHub deploy public key
+  ansible.builtin.copy:
+    content: "{{ control_node_github_key.public_key }}{{ '' if control_node_github_key.public_key.endswith('\n') else '\n' }}"
+    dest: "{{ control_node_operator_home }}/.ssh/id_ed25519.pub"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  no_log: true
+  tags: [control-node, control-node:repo]
+
+- name: Add github.com to operator known_hosts
+  ansible.builtin.copy:
+    content: "{{ control_node_github_known_hosts }}"
+    dest: "{{ control_node_operator_home }}/.ssh/known_hosts"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0644"
+  tags: [control-node, control-node:repo]
+
+- name: Add SSH config entry pinning the deploy key for github.com
+  ansible.builtin.blockinfile:
+    path: "{{ control_node_operator_home }}/.ssh/config"
+    create: true
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0600"
+    marker: "# {mark} ANSIBLE MANAGED — github deploy key"
+    block: |
+      Host github.com
+          HostName github.com
+          User git
+          IdentityFile {{ control_node_operator_home }}/.ssh/id_ed25519
+          IdentitiesOnly yes
+  tags: [control-node, control-node:repo]
+
+# Clone idempotently: clone if the dir is absent, otherwise leave it. We do
+# NOT force-pull — the working tree is the operator's / claude's; a forced
+# update would clobber in-flight work + worktrees.
+- name: Check for existing repo checkout
+  ansible.builtin.stat:
+    path: "{{ control_node_repo_dest }}/.git"
+  register: control_node_repo_stat
+  tags: [control-node, control-node:repo]
+
+- name: Clone homelab repo (first time only)
+  ansible.builtin.git:
+    repo: "{{ control_node_repo_url }}"
+    dest: "{{ control_node_repo_dest }}"
+    accept_newhostkey: false   # known_hosts pre-seeded above
+    update: false
+    version: main
+  become_user: "{{ control_node_operator_user }}"
+  when:
+    - not control_node_repo_stat.stat.exists
+    - not ansible_check_mode
+  tags: [control-node, control-node:repo]

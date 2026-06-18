@@ -1,0 +1,8 @@
+# ansible/roles/proxmox-host/tasks/main.yml
+---
+# Pure config-idempotency for PVE hosts. Today: apt repo posture only.
+# Patching/reboots are explicitly NOT here (see proxmox-host-patching.yml)
+# so this role is safe under site.yml / drift-check.
+- name: Configure apt repo posture
+  ansible.builtin.import_tasks: repos.yml
+  tags: [proxmox-host, proxmox-host:repos]

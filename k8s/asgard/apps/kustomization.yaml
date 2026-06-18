@@ -32,3 +32,29 @@ resources:
   # Authentik OIDC. NetBox dynamic inventory consumed via the cached
   # netbox.yml plugin (4h TTL, persisted to inventory-cache PVC).
   - semaphore
+  # Phase 6 Stage 1 — Vault UI ingress shim. HTTPRoute fronting the
+  # vault-ui Service (infrastructure/vault) at vault.niflheim.xiiisins.com
+  # under Authentik OIDC (terraform/authentik/vault.tf + terraform/vault/
+  # oidc.tf). Additive — vault-ui stays a LoadBalancer (.11) until the
+  # operator-gated VAULT_ADDR cutover; see open-questions.md Phase 6 6.c.
+  - vault-ingress
+  # Personal startpage — public, external-only at home.xiiisins.com via
+  # cloudflared. Caddy pod serving a git-clone of the private
+  # XIIISins/startpage repo (branch tokyonight_colors); deploy key in Vault.
+  # Separate from apex-static so a clone failure can't take down the
+  # OIDC-critical WebFinger pod, and a content update (rollout restart)
+  # only bounces the startpage. 3 replicas, one per worker.
+  - startpage
+  # MicroBin — public pastebin/file-share at paste.xiiisins.com (external
+  # via cloudflared). Anonymous create/view; /pastalist + /admin gated by
+  # Authentik ForwardAuth (paste-janitors group) for trusted cleanup.
+  # JSON DB + attachments on NFS. terraform/authentik/microbin.tf +
+  # terraform/vault (admin creds) + terraform/cloudflare (CNAME).
+  - microbin
+  # n8n — workflow automation. Editor UI internal-only at
+  # n8n.niflheim.xiiisins.com behind Authentik ForwardAuth (community n8n
+  # has no native OIDC); public webhook endpoints at n8n.xiiisins.com via
+  # cloudflared (/webhook/* + /form/* only, ungated). Postgres via Patroni
+  # VIP, encryption key from Vault, NO PVC (stateless-on-disk). See
+  # terraform/{vault,authentik,cloudflare,adguard}/ + docs/services/n8n.md.
+  - n8n

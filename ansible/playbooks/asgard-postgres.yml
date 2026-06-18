@@ -50,6 +50,13 @@
     - role: postgres-common
       tags: [postgres-common, postgres-bootstrap]
 
+    # Phase 4: Daily logical backup timer (pg_dumpall globals + per-DB
+    # pg_dump -Fc). Runs on every node (each dumps localhost), PBS captures
+    # the on-disk set nightly + retains 7d. Config-only + idempotent — doesn't
+    # touch PG/Patroni state. Wave S2 (2026-05-31).
+    - role: pg-backup
+      tags: [pg-backup]
+
     - role: hardening
       tags: [hardening]
 

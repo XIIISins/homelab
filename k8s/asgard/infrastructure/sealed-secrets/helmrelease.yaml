@@ -7,7 +7,10 @@ metadata:
   namespace: flux-system
 spec:
   interval: 24h
-  url: https://bitnami-labs.github.io/sealed-secrets
+  # GitHub Pages index moved org bitnami-labs → bitnami (the old
+  # bitnami-labs.github.io/sealed-secrets path now 404s). The chart +
+  # project are unchanged; only the Pages host moved. (audit 2026-06-18)
+  url: https://bitnami.github.io/sealed-secrets
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

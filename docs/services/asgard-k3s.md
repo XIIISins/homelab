@@ -55,12 +55,12 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 | Name | VM ID | Node | IP | Role | Spec |
 |------|-------|------|----|------|------|
-| Göndul | 2001 | Verd | `10.0.21.11` | K3s CP | 2vCPU/4GB/10GB |
+| Göndul | 2001 | Urd | `10.0.21.11` | K3s CP | 2vCPU/4GB/10GB |
 | Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 2vCPU/4GB/10GB |
 | Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 2vCPU/4GB/10GB |
-| Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/4GB/15GB |
-| Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/4GB/15GB |
-| Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/4GB/15GB |
+| Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
+| Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
+| Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
 
 CP cpu/memory parameterized per-node in `locals.control_planes` map (`terraform/proxmox/asgard-k3s/main.tf`). All three CPs sized identically — failover symmetry requires it (same rule as PG nodes). Bumped 1vCPU/2GB → 2vCPU/4GB on 2026-05-17 evening when the Authentik deploy revealed hlokk and sigrun couldn't handle the migration+blueprint burst. **CPs will be tainted `node-role.kubernetes.io/control-plane:NoSchedule` in Phase 4a (scheduled 2026-05-18)** — workload pods cannot land on them under any condition once that lands. The 4 GiB sizing is correct *with* the taint: control-plane working set is ~1.5-2 GiB, the rest is bursty kernel + buff/cache headroom. Without the taint, 4 GiB would be the bare-minimum-and-things-still-break number (tonight proved that). Promote sizing into per-node overrides only when deliberate per-CP tuning is needed.
 

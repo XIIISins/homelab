@@ -1,0 +1,9 @@
+{# ansible/roles/proxmox-host/templates/pve-no-subscription.sources.j2 #}
+{# Canonical PVE no-subscription apt source (deb822). Codename + keyring #}
+{# come from role vars so this works across bookworm (PVE 8) / trixie    #}
+{# (PVE 9). Managed by Ansible — edit roles/proxmox-host/defaults.       #}
+Types: deb
+URIs: {{ proxmox_host_no_subscription_uri }}
+Suites: {{ ansible_distribution_release }}
+Components: {{ proxmox_host_no_subscription_component }}
+Signed-By: {{ proxmox_host_archive_keyring }}

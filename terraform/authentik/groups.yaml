@@ -87,3 +87,38 @@ semaphore-admins:
   # to the admin role on first login. Operator-only today; expand if
   # a second human operator joins. is_superuser=false (no Authentik-
   # side privileges); gating is the per-app policy binding only.
+
+paste-janitors:
+  is_superuser: false
+  # Members can reach MicroBin's gated routes (/pastalist + /admin at
+  # paste.xiiisins.com) via Authentik ForwardAuth through Traefik — the
+  # trusted "janitor" crew who browse the paste list and prune crap.
+  # Anonymous create/view/upload is NOT gated by this group (those paths
+  # bypass the Middleware). MicroBin has no internal user model, so this
+  # group == "can browse + delete any paste"; treat as trusted-only.
+  # is_superuser=false (no Authentik-side privileges); gating is the
+  # per-app policy binding only (see microbin.tf).
+
+vault-admins:
+  is_superuser: false
+  # Members can authenticate to the HashiCorp Vault UI
+  # (vault.niflheim.xiiisins.com, Phase 6 Stage 1) via the native OIDC
+  # Application (see terraform/authentik/vault.tf for the policy binding)
+  # and receive the Vault `homelab-admin` policy (read+list on secret/*).
+  # This per-app binding IS the authoritative access gate — Vault's role
+  # grants its policy to anyone who completes the flow, so membership here
+  # == Vault human-lookup access. is_superuser=false (no Authentik-side
+  # privileges). Single-tier day-1; add vault-readers when a read-narrower
+  # tier is needed.
+
+n8n-admins:
+  is_superuser: false
+  # Members can reach the n8n editor UI (n8n.niflheim.xiiisins.com) via
+  # Authentik ForwardAuth through Traefik (terraform/authentik/n8n.tf).
+  # This gates the INTERNAL editor only — the external webhook host
+  # (n8n.xiiisins.com) is deliberately ungated so third-party services can
+  # POST to /webhook/* (n8n authenticates webhooks per-workflow). Behind
+  # this gate, n8n keeps its OWN owner/email-password login as defence-in-
+  # depth — so membership here == "can reach the n8n login screen", not
+  # automatic n8n access. is_superuser=false (no Authentik-side privileges);
+  # gating is the per-app policy binding only.

@@ -57,27 +57,30 @@ spec:
         fsGroup: 1001
       containers:
         - name: semaphore
-          # The `-ansibleN.N.N` variant bakes ansible-core into the
-          # image (vs the plain tag which would need a sidecar). Pin
-          # the ansible version explicitly — Semaphore's "latest"
-          # ansible tag would float. Bump in lockstep with the Ansible
-          # collections in ansible/requirements.yml.
-          image: semaphoreui/semaphore:v2.18.5-ansible2.16.5
+          # Custom image (docker/semaphore/Dockerfile → GHCR via
+          # .github/workflows/build-semaphore-image.yml). The stock
+          # semaphoreui image bundles OLDER collections than our pins, and
+          # Semaphore never runs `ansible-galaxy install`, so every play
+          # silently ran on the bundle — community.zabbix 2.3.1 vs the pinned
+          # 4.2.0 broke the zabbix-agent register-host task (passed from
+          # Frigg, failed here). The image installs the pinned collections
+          # straight into the ansible venv's site-packages (overwriting the
+          # bundle), which is exactly where Ansible's import finder resolves
+          # them — Semaphore runs tasks with `collections_path = collections`
+          # (empty) and does NOT carry container env vars, so site-packages is
+          # the only channel that reaches the task. Runtime pip deps (hvac /
+          # psycopg2-binary / pytz) are baked too. Bump the tag in lockstep
+          # with IMAGE_TAG in the build workflow + BASE_IMAGE in the Dockerfile
+          # whenever requirements.yml moves.
+          image: ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r2
           imagePullPolicy: IfNotPresent
-          # Wrap the image's stock entrypoint with a pip install of the
-          # Python deps Ansible needs at task runtime:
-          #   - hvac          → community.hashi_vault.vault_kv2_get (38 refs)
-          #   - psycopg2-binary → community.postgresql.* (8 refs)
-          #   - pytz          → netbox.netbox.nb_inventory (dynamic inventory)
-          # jmespath, passlib, requests, cryptography already in the image.
-          # Adds ~15s to pod start; runs on every restart.
-          # Graduate to a custom image (see docs/services/semaphore.md
-          # "When to graduate from in-pod pip install") when the dep
-          # list reaches ~5 entries or pod-restart latency matters.
+          # Deps are baked into the image above, so the old pod-start
+          # `pip3 install ... && exec ...` wrapper (~15s/restart) is gone —
+          # just exec the stock entrypoint.
           command:
             - /bin/sh
             - -c
-            - pip3 install --quiet hvac psycopg2-binary pytz && exec /sbin/tini -- /usr/local/bin/server-wrapper
+            - exec /sbin/tini -- /usr/local/bin/server-wrapper
           # Config lives ENTIRELY in the mounted /etc/semaphore/config.json
           # (rendered by ESO from Vault — see externalsecret.yaml). No
           # envFrom: Semaphore's setup command silently drops fields
