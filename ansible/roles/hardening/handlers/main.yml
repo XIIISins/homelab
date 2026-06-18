@@ -8,8 +8,14 @@
 
 # Re-run the reapply oneshot when its unit changes so the hardened sysctls
 # are re-asserted immediately (not just at next boot).
+# not ansible_check_mode: in a check-mode drift run the template task above
+# reports "would create" on a host that doesn't have the unit yet (e.g. one
+# whose real apply aborted before hardening), which notifies this handler —
+# and `state: restarted` on a not-yet-existent unit errors "Could not find
+# the requested service", turning benign pending-drift into a failed run.
 - name: reload niflheim-sysctl-reapply
   ansible.builtin.systemd:
     name: niflheim-sysctl-reapply.service
     state: restarted
     daemon_reload: true
+  when: not ansible_check_mode
