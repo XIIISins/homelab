@@ -2,8 +2,7 @@
 ---
 # AdGuard Home version pin. Concrete-pin per repo IaC policy. Bump
 # carefully — config schema can change between minor releases.
-# Current Saga state is v0.107.74; this pin is the latest upstream
-# as of Phase 5b.2 draft (2026-05-24). First apply will bump.
+# Live on all three nodes (Saga/Mimir/Kvasir) as of 2026-06-18.
 adguard_version: "v0.107.76"
 adguard_schema_version: 34 # AGH config-schema version, matches v0.107.x
 
