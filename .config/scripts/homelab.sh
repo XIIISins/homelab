@@ -726,6 +726,13 @@ rotate-approle() {
 # --- Config ---
 __vault_homelab_approle_env="$HOME/.config/ansible/vault-approle.env"
 __vault_homelab_default_addr='https://vault.niflheim.xiiisins.com'
+# Vault address for ANSIBLE lookups specifically — the plaintext vault-ui
+# LoadBalancer, NOT the HTTPS FQDN. On macOS the forked ansible worker
+# crashes resolving the FQDN / doing TLS (fork-unsafe macOS framework);
+# plain HTTP to the LB IP avoids it. No security downgrade (Vault listener
+# is tls_disable=1; the FQDN's TLS is Traefik-only). See homelab.fish for
+# the full rationale + CLAUDE.md "Frigg / control-node watchtower" gotchas.
+__vault_homelab_ansible_addr='http://10.0.20.11:8200'
 
 __vault_homelab_iac_path='secret/ansible/frigg/iac-env'
 __vault_homelab_kubeconfig_path='secret/ansible/frigg/kubeconfig'
@@ -966,7 +973,8 @@ vault-homelab-env() {
 
     # ---- static + ansible community.hashi_vault approle vars ----
     export ANSIBLE_PRIVATE_KEY_FILE="$__vault_homelab_ssh_key"
-    export ANSIBLE_HASHI_VAULT_ADDR="$VAULT_ADDR"
+    # HTTP LB, not $VAULT_ADDR (the FQDN) — see __vault_homelab_ansible_addr.
+    export ANSIBLE_HASHI_VAULT_ADDR="$__vault_homelab_ansible_addr"
     export ANSIBLE_HASHI_VAULT_AUTH_METHOD="approle"
     export ANSIBLE_HASHI_VAULT_ROLE_ID="$role_id"
     export ANSIBLE_HASHI_VAULT_SECRET_ID="$secret_id"

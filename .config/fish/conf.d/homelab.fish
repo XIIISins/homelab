@@ -848,6 +848,19 @@ end
 set -g __vault_homelab_approle_env "$HOME/.config/ansible/vault-approle.env"
 # Fallback Vault address when the secret-zero file carries no URL.
 set -g __vault_homelab_default_addr 'https://vault.niflheim.xiiisins.com'
+# Vault address for ANSIBLE lookups specifically — the plaintext vault-ui
+# LoadBalancer, NOT the HTTPS FQDN. On macOS, ansible runs its
+# community.hashi_vault lookup in a forked worker; resolving the FQDN +
+# the TLS handshake touch a fork-unsafe macOS framework that kills the
+# worker ("A worker was found in a dead state") — OBJC_DISABLE_INITIALIZE_
+# FORK_SAFETY + no_proxy can't prevent it. Plain HTTP to the LB IP avoids
+# DNS + TLS in the worker entirely (verified: 3/3 lookups succeed vs the
+# FQDN crashing). No security downgrade — Vault's listener is tls_disable=1
+# by design, so the FQDN's TLS is only Traefik wrapping it for browsers and
+# never protected the API; this is Vault's native plaintext protocol on
+# internal VLAN 20. Linux controllers (Frigg) don't have the fork bug and
+# can use either. See CLAUDE.md "Frigg / control-node watchtower" gotchas.
+set -g __vault_homelab_ansible_addr 'http://10.0.20.11:8200'
 
 # Consolidated IaC bundle in Vault (KV v2, mount `secret`). Same paths Frigg
 # reads; kept in lockstep with ansible/roles/control-node/defaults/main.yml.
@@ -1081,7 +1094,8 @@ function vault-homelab-env --description "Load IaC env from Vault via AppRole, n
 
     # ---- static + ansible community.hashi_vault approle vars ----
     set -gx ANSIBLE_PRIVATE_KEY_FILE $__vault_homelab_ssh_key
-    set -gx ANSIBLE_HASHI_VAULT_ADDR $VAULT_ADDR
+    # HTTP LB, not $VAULT_ADDR (the FQDN) — see __vault_homelab_ansible_addr.
+    set -gx ANSIBLE_HASHI_VAULT_ADDR $__vault_homelab_ansible_addr
     set -gx ANSIBLE_HASHI_VAULT_AUTH_METHOD approle
     set -gx ANSIBLE_HASHI_VAULT_ROLE_ID $role_id
     set -gx ANSIBLE_HASHI_VAULT_SECRET_ID $secret_id
