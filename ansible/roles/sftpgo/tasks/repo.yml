@@ -1,41 +1,39 @@
 ---
-- name: Install APT helpers
-  ansible.builtin.apt:
-    name:
-      - ca-certificates
-      - curl
-      - gnupg
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
+# SFTPGo is installed from the pinned upstream GitHub release .deb, NOT an apt
+# repo. The OSU mirror (ftp.osuosl.org/pub/sftpgo/apt) stopped publishing a
+# signed InRelease for trixie, which broke `apt update` on every play touching
+# this host. See defaults/main.yml + docs/known-issues/sftpgo-factorio.md.
 
-- name: Check if SFTPGo signing key is already installed
-  ansible.builtin.stat:
-    path: "{{ sftpgo_apt_keyring_path }}"
-  register: sftpgo_keyring
-
-- name: Fetch SFTPGo APT signing key
-  ansible.builtin.get_url:
-    url: "{{ sftpgo_apt_gpg_key_url }}"
-    dest: /tmp/sftpgo.gpg.key
-    mode: "0644"
-    timeout: 30
-  when: not sftpgo_keyring.stat.exists
-
-- name: Dearmor SFTPGo signing key
-  ansible.builtin.command:
-    cmd: "gpg --dearmor -o {{ sftpgo_apt_keyring_path }} /tmp/sftpgo.gpg.key"
-    creates: "{{ sftpgo_apt_keyring_path }}"
-  when: not sftpgo_keyring.stat.exists
-
-- name: Remove temporary key file
+# Remove the dead apt source (+ its keyring) so `apt update` works again. On a
+# fresh build these never exist (no-op); on the migrated host this is the fix
+# that unsticks every apt task. update_cache=false here — ca-certificates is a
+# base package, and we must NOT run apt-get update while the broken source may
+# still be on disk under --check (the file removal is simulated, not applied).
+- name: Remove the dead OSU-mirror apt source + keyring
   ansible.builtin.file:
-    path: /tmp/sftpgo.gpg.key
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/apt/sources.list.d/sftpgo.list
+    - /usr/share/keyrings/sftpgo-archive-keyring.gpg
 
-- name: Add SFTPGo APT source
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by={{ sftpgo_apt_keyring_path }}] {{ sftpgo_apt_repo_url }} {{ ansible_distribution_release }} main"
-    filename: sftpgo
+- name: Ensure CA certificates present (HTTPS to github.com)
+  ansible.builtin.apt:
+    name: ca-certificates
     state: present
-    update_cache: true
+    update_cache: false
+
+# Download + install are skipped under --check (the repo's convention for fetch
+# tasks — same as the AdGuard tarball): the deb is unavailable in a dry-run, so
+# verifying it would error. The real apply caches it (get_url verifies the
+# sha256 and is idempotent once cached in /var/cache) and install.yml installs.
+- name: Fetch the pinned SFTPGo .deb from GitHub releases
+  ansible.builtin.get_url:
+    url: "{{ sftpgo_deb_url }}"
+    dest: "{{ sftpgo_deb_dest }}"
+    checksum: "sha256:{{ sftpgo_deb_sha256 }}"
+    mode: "0644"
+    owner: root
+    group: root
+    timeout: 60
+  when: not ansible_check_mode

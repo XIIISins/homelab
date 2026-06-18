@@ -1,9 +1,15 @@
 ---
-- name: Install SFTPGo
+# Install the pinned local .deb fetched in repo.yml. `apt: deb=` resolves
+# dependencies and is idempotent — it compares the .deb's version to what's
+# installed and reports ok when they match (no needless reinstall / drift).
+# Skipped under --check (the .deb isn't fetched in a dry-run); the package is
+# already present in steady state, real applies converge version changes.
+- name: Install SFTPGo from the pinned .deb
   ansible.builtin.apt:
-    name: sftpgo
+    deb: "{{ sftpgo_deb_dest }}"
     state: present
   register: sftpgo_apt_install
+  when: not ansible_check_mode
 
 # Only on FRESH install: the apt postinstall starts sftpgo immediately with
 # default config. Stop it so the admin-create env vars in our managed config

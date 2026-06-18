@@ -1,5 +1,5 @@
 ---
-- name: Add SFTPGo APT repository
+- name: Prepare SFTPGo package source (remove dead apt repo + fetch pinned .deb)
   ansible.builtin.import_tasks: repo.yml
   tags: [sftpgo, sftpgo:repo]
 

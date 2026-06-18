@@ -2,9 +2,9 @@
 # ============================================================================
 # sftpgo role defaults
 # ============================================================================
-# This role installs SFTPGo from the official OSU mirror APT repo, bootstraps
-# an admin account via environment variables, configures the daemon via
-# /etc/sftpgo/sftpgo.env, and provisions virtual users via the REST API.
+# This role installs SFTPGo from the pinned upstream GitHub release .deb,
+# bootstraps an admin account via environment variables, configures the daemon
+# via /etc/sftpgo/sftpgo.env, and provisions virtual users via the REST API.
 #
 # Genericness: pass `sftpgo_users` with home_dir + permissions per user.
 # Cross-service file sharing: pass `sftpgo_extra_groups` to add the sftpgo
@@ -12,10 +12,24 @@
 # in shared paths.
 # ============================================================================
 
-# ---- APT repository ----
-sftpgo_apt_repo_url: "https://ftp.osuosl.org/pub/sftpgo/apt"
-sftpgo_apt_gpg_key_url: "https://ftp.osuosl.org/pub/sftpgo/apt/gpg.key"
-sftpgo_apt_keyring_path: "/usr/share/keyrings/sftpgo-archive-keyring.gpg"
+# ---- Package source: pinned GitHub release .deb ----
+# The official OSU mirror apt repo (ftp.osuosl.org/pub/sftpgo/apt) stopped
+# publishing a signed InRelease for trixie, breaking `apt update` on every play
+# touching the host. Install the pinned upstream .deb from GitHub releases
+# instead — stable, version-pinnable, integrity-checked by sha256 (replacing
+# the apt repo's GPG signing). Version bump: update sftpgo_version AND
+# sftpgo_deb_sha256 together (digest = the release's sftpgo_<ver>-<rev>_<arch>.deb
+# asset; `gh api repos/drakkan/sftpgo/releases/tags/v<ver> --jq '.assets[]|select(.name==...)|.digest'`).
+# See docs/known-issues/sftpgo-factorio.md.
+sftpgo_version: "2.7.1"
+sftpgo_deb_revision: "1"
+# x86_64 -> amd64 etc. amd64 is the only consumer (factorio); the sha256 below
+# is the amd64 asset's — override sftpgo_deb_sha256 for any other arch.
+sftpgo_deb_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64', 'armv7l': 'armhf'}[ansible_architecture] }}"
+sftpgo_deb_sha256: "0870fe9cfd4676fb0db5fa6e724dcb9493f8b0af2ac35047f47e9cc675219b41"
+sftpgo_deb_url: "https://github.com/drakkan/sftpgo/releases/download/v{{ sftpgo_version }}/sftpgo_{{ sftpgo_version }}-{{ sftpgo_deb_revision }}_{{ sftpgo_deb_arch }}.deb"
+# Persistent cache dir (NOT /tmp) so get_url stays idempotent across reboots.
+sftpgo_deb_dest: "/var/cache/sftpgo_{{ sftpgo_version }}-{{ sftpgo_deb_revision }}_{{ sftpgo_deb_arch }}.deb"
 
 # ---- Network bindings ----
 # SFTP service (operator-facing, exposed via UCG port-forward)
