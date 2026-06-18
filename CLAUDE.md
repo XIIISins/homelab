@@ -148,6 +148,8 @@ source "$(git rev-parse --show-toplevel)/.config/scripts/homelab.sh" \
 
 (Refresh path needs `vault`+`jq` on PATH — prefix `PATH="/opt/homebrew/bin:$PATH"`. Cache `~/.cache/homelab/vault-env.{sh,fish}`, 3h TTL.) **Shim internals** — full IaC field set, cache mechanics, how to add a field, the Frigg-vs-MacBook distinction — in [`docs/architecture/identity-secrets.md`](docs/architecture/identity-secrets.md) ("Vault-backed shim").
 
+**Warm-cache fallback (reach for this before hand-setting individual vars):** when `vault-homelab-env` is cold/erroring, the operator-warmed 1P cache `~/.cache/homelab/env.{sh,fish}` can be sourced directly — `. ~/.cache/homelab/env.sh` — it's a plain exports file (no `op`/biometric prompt) carrying the full IaC var set, incl. `KUBECONFIG`, `VAULT_*`, `ANSIBLE_VAULT_PASSWORD_FILE`, and `ANSIBLE_PRIVATE_KEY_FILE`. It refreshes whenever the operator runs `homelab-env`; warm-but-not-fresh still beats hunting for the vault-pass + SSH-key paths by hand. (Never `cat` it — it holds live secret values; source it so they live only in the process env.)
+
 For Vault: `$(vault kv get -field=<f> secret/<path>)` follows the same pattern. For Ansible Vault: `--vault-password-file` or `ansible-vault view | grep` piped into the consumer, never copy-paste-in-prompt.
 
 **Why:** Transcripts persist (Claude bg-session logs, terminal scrollback, `gh pr view` for any pasted command). Even on a private workstation the discipline matters — and now that the repo is PUBLIC it is non-negotiable — because (a) transcripts get shared during debugging, (b) the owner shouldn't have to mentally redact what they're showing someone, and (c) it normalizes a habit that DOES matter in shared/production contexts.
