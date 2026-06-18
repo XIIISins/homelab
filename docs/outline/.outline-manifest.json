@@ -96,7 +96,7 @@
   },
   "services-and-purpose.md": {
     "id": "501a9e67-2307-4049-bee1-39504e67c1e4",
-    "sha": "fef4a3d16e997719b5adb84cbc7cff5d595130c9a3bdbc0db71b7fbbfecf59b4",
+    "sha": "5abe452abe5933e555852e48a001e679cdf75182fefda6126c237a94c909f9d1",
     "title": "Services and purpose"
   },
   "services-and-purpose/factorio.md": {
@@ -114,6 +114,16 @@
     "sha": "d5b92695bca058fb883a504f6db2001a8a65f3aa0316163ed17f3288481eb4de",
     "title": "Jellyfin"
   },
+  "services-and-purpose/microbin.md": {
+    "id": "76a2616d-fec7-43b1-ad5e-0f4a96bd6b9c",
+    "sha": "cbddce210ff112dbd9f67e8f7ac852eb451081095aea888d1caeafd657bbc3b5",
+    "title": "MicroBin"
+  },
+  "services-and-purpose/n8n.md": {
+    "id": "34dea17c-bfce-4c16-86a6-76991cb2ec74",
+    "sha": "4d7cc73b2a684dc3fc6daea480059f638ef601e530ef58c31247bc1e66417166",
+    "title": "n8n"
+  },
   "services-and-purpose/netbox.md": {
     "id": "c3d3a7d1-7d94-4a12-b6e5-e8a8969f0f39",
     "sha": "c4c8f887628ed41141178b8c83d2ed98dfd5dd8cf45539c4208fc2f76da178a2",
@@ -128,6 +138,11 @@
     "id": "b697d3e3-730d-49a1-8448-7cc09a7d01aa",
     "sha": "cff37557ecc785571b301061d972a8c2e4547c524170f5d2e6a7e9a9d12e7947",
     "title": "Semaphore"
+  },
+  "services-and-purpose/startpage.md": {
+    "id": "9452dbb4-3d7a-4441-adab-50347e12c1ad",
+    "sha": "b453c90973ffd06304de09d661e7d803b489f8bf0a74cc90b4b315809c44a3ff",
+    "title": "Startpage"
   },
   "services-and-purpose/teamspeak.md": {
     "id": "ed83eb69-0ae7-4942-a8b6-1f12206d640c",
@@ -171,7 +186,7 @@
   },
   "urls.md": {
     "id": "3b93d359-1f50-425a-beef-96096432ce89",
-    "sha": "b050931fbc589ae85a3e187bf3c3395ee808af420e0ff9413fe3bd436abcc257",
+    "sha": "e275d91c201d61c37496d14893b984454c50b9e023dc1c127155865d02e0a287",
     "title": "URLs"
   }
 }

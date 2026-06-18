@@ -32,7 +32,7 @@ Services the operator uses to run, observe, and reason about the homelab. Not se
 |---|---|---|---|
 | **NetBox** | IPAM / DCIM — source of truth for IPs, VLANs, devices, VMs | asgard K3s | `netbox.niflheim.xiiisins.com` |
 | **Semaphore** | Ansible orchestration + fleet drift-check | asgard K3s | `semaphore.niflheim.xiiisins.com` |
-| **n8n** | Workflow automation | asgard K3s | `n8n.xiiisins.com` |
+| **n8n** | Workflow automation | asgard K3s | `n8n.niflheim.xiiisins.com` (editor) |
 | **Zabbix** (Hugin) | Host- and LXC-level monitoring | LXC 1102 (Hugin) on Urd | `hugin.xiiisins.com` |
 | **Hermod** | Notification hub — fans alerts to Discord | LXC 1103 on Verd | internal POST endpoint |
 | **Vault** | Machine secrets + human secret lookup | asgard K3s | `vault.niflheim.xiiisins.com` → **Identity & secrets** |
@@ -62,7 +62,7 @@ Services that are decided but not yet deployed. Listed here so the catalog refle
 - **Jellyfin** — designed (privileged LXC on Urd, QuickSync passthrough); deployment pending. Has its own page already.
 - **Immich** — self-hosted photo/video library for the household. Will reuse Garage (S3) + Postgres, same shape as Outline.
 
-Startpage, MicroBin (which took the slot the originally-planned Privatebin would have), and n8n have since gone live and moved into the catalog above. Dedicated subpages for them are a follow-up; the parent catalog rows cover them for now.
+Startpage, MicroBin (which took the slot the originally-planned Privatebin would have), and n8n have since gone live — each now has its own subpage under this section.
 
 ---
 
