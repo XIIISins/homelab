@@ -132,6 +132,14 @@ spec:
             - name: ansible-ssh-key
               mountPath: /etc/ssh-keys
               readOnly: true
+            # Homelab internal CA (trust-manager-distributed ConfigMap
+            # vault-ca-bundle). community.hashi_vault reads it via
+            # ANSIBLE_HASHI_VAULT_CA_CERT=/etc/vault-ca/ca.crt (set in the
+            # Semaphore project_environment, terraform/semaphore) to verify
+            # Vault's TLS-only listener.
+            - name: vault-ca
+              mountPath: /etc/vault-ca
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /api/ping
@@ -196,3 +204,9 @@ spec:
           secret:
             secretName: semaphore-ansible-ssh-key
             defaultMode: 0400
+        - name: vault-ca
+          # CA-only ConfigMap written by trust-manager (Bundle
+          # vault-ca-bundle) into every namespace; key ca.crt. Read-only CA
+          # trust anchor for Ansible's Vault lookups over the TLS listener.
+          configMap:
+            name: vault-ca-bundle

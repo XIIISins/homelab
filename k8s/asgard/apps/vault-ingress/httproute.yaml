@@ -5,9 +5,10 @@
 # attaches to the niflheim Gateway's HTTPS listener; no midgard/apex
 # exposure (the Vault UI/API must never be reachable off-LAN).
 #
-# Traefik terminates TLS with the *.niflheim wildcard; Vault's own
-# listener stays tls_disable=1 (plaintext :8200 inside the cluster).
-# Backend is in this (vault) namespace → no ReferenceGrant; the
+# Traefik terminates the client TLS with the *.niflheim wildcard, then
+# re-encrypts to the backend: Vault's listener is TLS-only (internal CA),
+# and backendtlspolicy.yaml tells Traefik to verify it. Backend is in this
+# (vault) namespace → no ReferenceGrant; the
 # cross-namespace parent attachment to traefik/niflheim is allowed by the
 # Gateway's allowedRoutes.namespaces.from: All.
 #
@@ -15,12 +16,9 @@
 # (cluster port 8201) transparently routes to the active node — identical
 # behavior to the prior MetalLB 10.0.20.11 path, just Traefik-fronted.
 #
-# NOTE (Phase 6 Stage 1): vault-ui is still a LoadBalancer (10.0.20.11) —
-# this route is ADDITIVE, both paths serve in parallel. Flipping vault-ui
-# to ClusterIP (to reclaim .11) is deferred to the operator-coordinated
-# VAULT_ADDR cutover (1P "Ansible - Vault - k3s" url field +
-# homelab-env --refresh) because every Terraform/CLI/Ansible consumer
-# resolves Vault through .11 today. See open-questions.md Phase 6 6.c.
+# NOTE: vault-ui is KEPT as a LoadBalancer (10.0.20.11) deliberately (Phase
+# 6 Stage 1 decision) — this route is the primary FQDN path (VAULT_ADDR),
+# .11 is the Traefik-independent break-glass path. Both now serve HTTPS.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

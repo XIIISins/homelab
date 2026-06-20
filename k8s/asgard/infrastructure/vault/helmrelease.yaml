@@ -29,9 +29,35 @@ spec:
   values:
     global:
       enabled: true
+      # TLS on the API listener. Flipping this false makes the chart serve
+      # https: it auto-sets VAULT_ADDR=https://127.0.0.1:8200 in the pods and
+      # switches probe schemes. The listener cert is wired below (server.*).
+      # No plaintext listener survives — the cluster's one Vault endpoint is
+      # TLS. See docs/procedures/vault-tls-migration.md.
+      tlsDisable: false
 
     server:
       replicas: 3
+
+      # cert-manager-issued listener cert (Secret vault-tls in this ns, from
+      # cert-manager-config/certificate-vault.yaml). Mounted at
+      # /vault/userconfig/vault-tls → tls.crt / tls.key / ca.crt.
+      volumes:
+        - name: vault-tls
+          secret:
+            secretName: vault-tls
+      volumeMounts:
+        - name: vault-tls
+          mountPath: /vault/userconfig/vault-tls
+          readOnly: true
+      # VAULT_ADDR is auto-set to https://127.0.0.1:8200 by tlsDisable:false —
+      # do NOT override it. VAULT_CACERT lets the in-pod CLI (and operator
+      # `kubectl exec ... vault ...` calls) verify the internal CA. The
+      # default readiness probe already runs `vault status -tls-skip-verify`,
+      # so it survives the flip without change. extraEnvironmentVars is a map
+      # (distinct from extraSecretEnvironmentVars, the KMS-creds list below).
+      extraEnvironmentVars:
+        VAULT_CACERT: /vault/userconfig/vault-tls/ca.crt
 
       resources:
         requests:
@@ -74,9 +100,10 @@ spec:
             ui = true
 
             listener "tcp" {
-              tls_disable = 1
               address = "[::]:8200"
               cluster_address = "[::]:8201"
+              tls_cert_file = "/vault/userconfig/vault-tls/tls.crt"
+              tls_key_file  = "/vault/userconfig/vault-tls/tls.key"
             }
 
             storage "raft" {
@@ -130,15 +157,16 @@ spec:
       # direct, Traefik-independent path to the Vault UI/API alongside the
       # FQDN HTTPRoute (vault.niflheim.xiiisins.com). Phase 6 Stage 1, 2026-05-31.
       loadBalancerIP: 10.0.20.11
-      # Lock the plaintext direct path to the homelab supernet. Vault's listener
-      # is tls_disable=1 (deliberate homelab tradeoff — Traefik terminates TLS at
-      # the FQDN); the unencrypted .11 path must therefore never accept off-LAN
-      # traffic. MetalLB (L2) honours loadBalancerSourceRanges → kube-proxy
-      # programs the source filter. Safe: .11 is now break-glass-only (VAULT_ADDR
-      # is the FQDN; in-cluster consumers use the ClusterIP/Service, not the VIP),
-      # so this only constrains direct-VIP clients, all of which are 10.0.0.0/16.
-      # NOT enforced at the Vault layer (token_bound_cidrs) — Vault sees SNAT'd
-      # source IPs through MetalLB/Traefik, so CIDR-binding there rejects valid
-      # logins. Phase 6, 2026-05-31.
+      # .11 now serves HTTPS (the listener TLS flip — the cert's IP SAN
+      # covers 10.0.20.11). Break-glass-only: VAULT_ADDR is the FQDN and
+      # in-cluster consumers use the ClusterIP/Service, so .11 is a direct,
+      # Traefik-independent path for when the Gateway is itself being
+      # debugged. CLI against it needs the internal CA (VAULT_CACERT) or
+      # -tls-skip-verify. Source-range stays as defence-in-depth (the path
+      # is encrypted now, but there's still no reason to expose the Vault API
+      # off-LAN). MetalLB (L2) honours loadBalancerSourceRanges → kube-proxy
+      # programs the source filter. NOT enforced at the Vault layer
+      # (token_bound_cidrs) — Vault sees SNAT'd source IPs through MetalLB/
+      # Traefik, so CIDR-binding there rejects valid logins. Phase 6, 2026-06.
       loadBalancerSourceRanges:
         - 10.0.0.0/16

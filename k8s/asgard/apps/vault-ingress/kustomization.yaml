@@ -9,3 +9,6 @@ kind: Kustomization
 namespace: vault
 resources:
   - httproute.yaml
+  # Makes Traefik speak HTTPS to the TLS-only Vault backend (Gateway-API
+  # native; the repo never uses IngressRoute/ServersTransport).
+  - backendtlspolicy.yaml

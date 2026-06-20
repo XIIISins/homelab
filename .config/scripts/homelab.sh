@@ -726,13 +726,14 @@ rotate-approle() {
 # --- Config ---
 __vault_homelab_approle_env="$HOME/.config/ansible/vault-approle.env"
 __vault_homelab_default_addr='https://vault.niflheim.xiiisins.com'
-# Vault address for ANSIBLE lookups specifically — the plaintext vault-ui
-# LoadBalancer, NOT the HTTPS FQDN. On macOS the forked ansible worker
-# crashes resolving the FQDN / doing TLS (fork-unsafe macOS framework);
-# plain HTTP to the LB IP avoids it. No security downgrade (Vault listener
-# is tls_disable=1; the FQDN's TLS is Traefik-only). See homelab.fish for
-# the full rationale + CLAUDE.md "Frigg / control-node watchtower" gotchas.
-__vault_homelab_ansible_addr='http://10.0.20.11:8200'
+# Vault address for ANSIBLE lookups specifically. The Vault listener is now
+# TLS-only (listener-TLS flip — no plaintext path survives), so the old
+# plaintext-vault-ui-LB workaround for the macOS forked-worker crash is gone:
+# MacBook Ansible-with-Vault-lookups must run from Frigg (Linux, no fork
+# bug). Kept pointing at the FQDN (public LE cert at Traefik → no internal-CA
+# trust needed). See homelab.fish for the full rationale + CLAUDE.md "Frigg /
+# control-node watchtower" gotchas + docs/procedures/vault-tls-migration.md.
+__vault_homelab_ansible_addr='https://vault.niflheim.xiiisins.com'
 
 __vault_homelab_iac_path='secret/ansible/frigg/iac-env'
 __vault_homelab_kubeconfig_path='secret/ansible/frigg/kubeconfig'

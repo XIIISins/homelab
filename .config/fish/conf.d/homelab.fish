@@ -848,19 +848,18 @@ end
 set -g __vault_homelab_approle_env "$HOME/.config/ansible/vault-approle.env"
 # Fallback Vault address when the secret-zero file carries no URL.
 set -g __vault_homelab_default_addr 'https://vault.niflheim.xiiisins.com'
-# Vault address for ANSIBLE lookups specifically — the plaintext vault-ui
-# LoadBalancer, NOT the HTTPS FQDN. On macOS, ansible runs its
-# community.hashi_vault lookup in a forked worker; resolving the FQDN +
-# the TLS handshake touch a fork-unsafe macOS framework that kills the
-# worker ("A worker was found in a dead state") — OBJC_DISABLE_INITIALIZE_
-# FORK_SAFETY + no_proxy can't prevent it. Plain HTTP to the LB IP avoids
-# DNS + TLS in the worker entirely (verified: 3/3 lookups succeed vs the
-# FQDN crashing). No security downgrade — Vault's listener is tls_disable=1
-# by design, so the FQDN's TLS is only Traefik wrapping it for browsers and
-# never protected the API; this is Vault's native plaintext protocol on
-# internal VLAN 20. Linux controllers (Frigg) don't have the fork bug and
-# can use either. See CLAUDE.md "Frigg / control-node watchtower" gotchas.
-set -g __vault_homelab_ansible_addr 'http://10.0.20.11:8200'
+# Vault address for ANSIBLE lookups specifically. The Vault listener is now
+# TLS-only (the listener-TLS flip — no plaintext path survives), so the old
+# plaintext-vault-ui-LB workaround for the macOS forked-worker crash is gone.
+# On macOS, ansible's community.hashi_vault runs in a forked worker that hits
+# a fork-unsafe framework on TLS/DNS ("A worker was found in a dead state");
+# OBJC_DISABLE_INITIALIZE_FORK_SAFETY + no_proxy can't prevent it, and there
+# is no longer a plaintext path to dodge it — so MacBook Ansible-with-Vault-
+# lookups must run from Frigg (Linux, no fork bug). This var is kept pointing
+# at the FQDN (public LE cert at Traefik → no internal-CA trust needed,
+# parity with VAULT_ADDR). See CLAUDE.md "Frigg / control-node watchtower"
+# gotchas + docs/procedures/vault-tls-migration.md.
+set -g __vault_homelab_ansible_addr 'https://vault.niflheim.xiiisins.com'
 
 # Consolidated IaC bundle in Vault (KV v2, mount `secret`). Same paths Frigg
 # reads; kept in lockstep with ansible/roles/control-node/defaults/main.yml.

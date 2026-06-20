@@ -1,0 +1,31 @@
+# k8s/asgard/apps/vault-ingress/backendtlspolicy.yaml
+#
+# Tells Traefik to speak HTTPS (not plaintext) to the vault-ui backend now
+# that Vault's listener is TLS-only. Gateway-API-native — the repo never
+# uses Traefik IngressRoute/ServersTransport (see traefik helmrelease).
+#
+# apiVersion v1: in Gateway API v1.5.1 the BackendTLSPolicy v1 is the only
+# SERVED version (v1alpha3 is deprecated + unserved → the apiserver rejects
+# it). Traefik v3.7.x honours BackendTLSPolicy on the standard channel with
+# the kubernetesGateway provider — no experimentalChannel flag needed.
+#
+# CA comes from the trust-manager-distributed vault-ca-bundle ConfigMap
+# (same namespace; caCertificateRefs requires a ConfigMap with key ca.crt).
+# hostname is the SNI Traefik presents AND the name verified against the
+# cert SANs — must be one of certificate-vault.yaml's dnsNames.
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: vault-ui
+  namespace: vault
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: vault-ui
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: vault-ca-bundle
+    hostname: vault-ui.vault.svc.cluster.local

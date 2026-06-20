@@ -120,8 +120,13 @@ resource "semaphoreui_project_environment" "default" {
     # not set"). The operator's MacBook works because VAULT_ADDR is also
     # set via homelab-env (the plugin falls back to that); the pod has
     # no VAULT_ADDR, so the plugin-specific var is the only path.
-    ANSIBLE_HASHI_VAULT_ADDR  = "http://vault.vault.svc.cluster.local:8200"
-    ANSIBLE_CALLBACKS_ENABLED = "hermod_summary"
+    # HTTPS since the listener TLS flip — Vault serves the homelab internal
+    # CA cert, so the lookup must trust it via ANSIBLE_HASHI_VAULT_CA_CERT
+    # (the trust-manager vault-ca-bundle ConfigMap, mounted at /etc/vault-ca
+    # by the StatefulSet). See docs/procedures/vault-tls-migration.md.
+    ANSIBLE_HASHI_VAULT_ADDR    = "https://vault.vault.svc.cluster.local:8200"
+    ANSIBLE_HASHI_VAULT_CA_CERT = "/etc/vault-ca/ca.crt"
+    ANSIBLE_CALLBACKS_ENABLED   = "hermod_summary"
     # SSH key path for managed-host access. Semaphore strips the pod's
     # baseline env on task spawn — variables set on the StatefulSet
     # container don't reach ansible-playbook. Must be set here in the
