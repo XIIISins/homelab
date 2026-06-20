@@ -101,3 +101,22 @@
     - not control_node_repo_stat.stat.exists
     - not ansible_check_mode
   tags: [control-node, control-node:repo]
+
+# Stamp a distinct, repo-LOCAL commit identity so Frigg's commits don't
+# masquerade as the operator's MacBook (which commits as XIIISins). Runs on
+# every play (idempotent) regardless of whether the clone above fired —
+# local scope writes to the checkout's .git/config, overriding the inherited
+# XIIISins identity on Frigg only. Gated on check-mode like the clone (the
+# repo may be absent in a fresh --check run, and git_config needs it present).
+- name: Set Frigg's git commit identity (repo-local)
+  community.general.git_config:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    scope: local
+    repo: "{{ control_node_repo_dest }}"
+  become_user: "{{ control_node_operator_user }}"
+  loop:
+    - { name: user.name, value: "{{ control_node_git_user_name }}" }
+    - { name: user.email, value: "{{ control_node_git_user_email }}" }
+  when: not ansible_check_mode
+  tags: [control-node, control-node:repo]

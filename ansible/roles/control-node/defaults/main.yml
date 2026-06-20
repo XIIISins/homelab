@@ -146,6 +146,17 @@ control_node_ansible_ssh_key_file: "{{ control_node_operator_home }}/.ssh/ansibl
 # ---- GitHub deploy key + repo checkout ----
 control_node_repo_url: "git@github.com:XIIISins/homelab.git"
 control_node_repo_dest: "{{ control_node_operator_home }}/homelab"
+
+# ---- Git commit identity (Frigg) ----
+# Repo-LOCAL identity so Frigg's commits are distinguishable from the
+# operator's MacBook in `git log` / GitHub (the MacBook commits as
+# XIIISins <xiii@xiiisins.com>). Set local-scope on the checkout — NOT
+# global — so it only stamps Frigg's homelab clone and can't bleed onto
+# any other repo the ghost user touches. The email is intentionally a
+# distinct frigg@ address (not registered to the GitHub account) so the
+# author reads as a plain "Frigg" rather than masquerading as the operator.
+control_node_git_user_name: "Frigg"
+control_node_git_user_email: "frigg@niflheim.xiiisins.com"
 control_node_github_known_hosts: |
   github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 
