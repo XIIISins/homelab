@@ -1,0 +1,56 @@
+# k8s/asgard/cert-manager-config/certificate-vault.yaml
+#
+# Vault API listener cert, issued by homelab-internal-ca. Lands as Secret
+# vault-tls in the vault namespace (mounted by the Vault chart at
+# /vault/userconfig/vault-tls). SANs cover every name Vault is reached by
+# over TLS:
+#   - in-cluster Services (vault / vault-ui / vault-active / vault-standby)
+#   - the headless vault-internal (Raft join hits the API port 8200)
+#   - the break-glass MetalLB VIP 10.0.20.11 (direct path) + 127.0.0.1
+#     (in-pod probes + the chart's auto-set VAULT_ADDR=https://127.0.0.1)
+#   - vault.niflheim.xiiisins.com — the Traefik-fronted FQDN terminates on
+#     the public LE wildcard, so this SAN only matters for a future
+#     direct-to-Vault-by-FQDN path; included at zero cost.
+# This Secret's ca.crt holds the internal CA cert — ESO reads it as its
+# trust anchor (caProvider). trust-manager separately distributes the same
+# CA as ConfigMaps for Traefik's BackendTLSPolicy + Semaphore.
+#
+# 1y duration: cert-manager renews vault-tls in place, but Vault does NOT
+# auto-reload listener certs — a rolling restart of the Vault StatefulSet
+# is required to pick up a renewed cert (30d grace via renewBefore). See
+# docs/procedures/vault-tls-migration.md "Cert renewal".
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vault-tls
+  namespace: vault
+spec:
+  secretName: vault-tls
+  duration: 8760h # 1y
+  renewBefore: 720h # 30d
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    kind: ClusterIssuer
+    name: homelab-internal-ca
+  commonName: vault.vault.svc.cluster.local
+  dnsNames:
+    - vault.vault.svc.cluster.local
+    - vault.vault.svc
+    - vault-ui.vault.svc.cluster.local
+    - vault-ui.vault.svc
+    - vault-active.vault.svc.cluster.local
+    - vault-standby.vault.svc.cluster.local
+    - "*.vault-internal"
+    - "*.vault-internal.vault.svc.cluster.local"
+    - vault.niflheim.xiiisins.com
+    - localhost
+  ipAddresses:
+    - 10.0.20.11
+    - 127.0.0.1
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment

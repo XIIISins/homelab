@@ -1,0 +1,41 @@
+# k8s/asgard/cert-manager-config/internal-ca.yaml
+#
+# Homelab internal CA — roots a private PKI for in-cluster TLS where a
+# public Let's Encrypt cert cannot apply (non-public SANs: *.svc.cluster.local,
+# the vault-internal headless DNS, loopback, MetalLB VIPs). First consumer:
+# Vault's API listener (certificate-vault.yaml). Forward consumers (already
+# live, can later drop their stopgaps): the Patroni leader cert (retires
+# Outline's sslmode=no-verify) and future jotunheim in-cluster TLS.
+#
+# Chain: selfsigned-bootstrap (ClusterIssuer) signs this isCA Certificate,
+# whose Secret MUST live in cert-manager (the cluster-resource-namespace,
+# required for a CA ClusterIssuer). That Secret backs the homelab-internal-ca
+# ClusterIssuer which signs leaf certs. The CA cert is distributed to
+# consumers as a trust anchor via trust-manager (trust-bundle-vault-ca.yaml).
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homelab-internal-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: homelab-internal-ca
+  secretName: homelab-internal-ca
+  duration: 87600h # 10y
+  renewBefore: 8760h # 1y
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    kind: ClusterIssuer
+    name: selfsigned-bootstrap
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: homelab-internal-ca
+spec:
+  ca:
+    secretName: homelab-internal-ca

@@ -1,0 +1,11 @@
+# k8s/asgard/cert-manager-config/clusterissuer-selfsigned.yaml
+#
+# Bootstrap issuer for the homelab internal PKI root. A SelfSigned issuer
+# signs a certificate with its own key — used ONLY to mint the long-lived
+# internal CA (internal-ca.yaml). Nothing else should reference this.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}

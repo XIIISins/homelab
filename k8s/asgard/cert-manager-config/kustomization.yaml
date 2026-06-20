@@ -6,3 +6,11 @@ resources:
   - externalsecret-cloudflare.yaml
   - clusterissuer-letsencrypt-staging.yaml
   - clusterissuer-letsencrypt-prod.yaml
+  # Internal PKI (Vault listener TLS, forward: Patroni/Outline/jotunheim).
+  # selfsigned → CA → leaf, plus the trust-manager Bundle that distributes
+  # the CA. CRD-dependent (cert-manager + trust.cert-manager.io) → here,
+  # not in infrastructure. See docs/procedures/vault-tls-migration.md.
+  - clusterissuer-selfsigned.yaml
+  - internal-ca.yaml
+  - certificate-vault.yaml
+  - trust-bundle-vault-ca.yaml

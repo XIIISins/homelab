@@ -1,0 +1,30 @@
+# k8s/asgard/cert-manager-config/trust-bundle-vault-ca.yaml
+#
+# trust-manager Bundle: distributes the homelab internal CA cert (the trust
+# anchor) into a ConfigMap named `vault-ca-bundle` (key ca.crt) in every
+# namespace. Source is the CA Secret in the trust namespace (cert-manager,
+# the trust-manager default) — tls.crt of the isCA cert IS the CA cert.
+#
+# Consumers that must verify Vault's internal cert read it from here:
+#   - Traefik BackendTLSPolicy (apps/vault-ingress/backendtlspolicy.yaml) —
+#     caCertificateRefs requires a ConfigMap with key ca.crt, in the same ns
+#     as the policy (vault).
+#   - the Semaphore pod (mounted as the Ansible CA file).
+# ESO instead reads the CA straight from the vault-tls Secret (caProvider).
+#
+# CRD-dependent (trust.cert-manager.io) → lives here in cert-manager-config
+# (dependsOn infrastructure, where trust-manager installs the CRD).
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: vault-ca-bundle
+spec:
+  sources:
+    - secret:
+        name: homelab-internal-ca
+        key: tls.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchLabels: {}

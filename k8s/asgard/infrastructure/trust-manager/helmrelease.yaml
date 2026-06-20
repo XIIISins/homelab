@@ -1,0 +1,50 @@
+# k8s/asgard/infrastructure/trust-manager/helmrelease.yaml
+#
+# trust-manager — distributes CA trust bundles into ConfigMaps across
+# namespaces (the only clean way to feed Gateway API BackendTLSPolicy, which
+# requires the CA in a ConfigMap and has no skip-verify). Companion to
+# cert-manager; reuses the existing jetstack HelmRepository. Trust namespace
+# is cert-manager (the chart default), which is also where the internal CA
+# Secret lives — so the Bundle (cert-manager-config/trust-bundle-vault-ca.yaml)
+# can source it directly.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trust-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: trust-manager
+      version: "0.23.0"
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+        namespace: cert-manager
+      interval: 12h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # Bundle CRD installed + retained on uninstall (same posture as
+    # cert-manager's crds.keep).
+    crds:
+      enabled: true
+      keep: true
+    # Trust namespace = where Bundle sources are read from. Default is
+    # cert-manager; stated explicitly since the internal CA Secret lives
+    # there and the Bundle sources it.
+    app:
+      trust:
+        namespace: cert-manager
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
