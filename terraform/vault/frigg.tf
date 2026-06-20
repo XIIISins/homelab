@@ -3,11 +3,13 @@
 # Frigg (control-node watchtower, Phase 6 Stage 2) Vault wiring.
 #
 #   - homelab-frigg policy: full CRUD on secret/* (read every secret +
-#     write the paths TF modules mint to) but NO sys/* admin. So Frigg can
-#     run the full TF/Ansible/Flux cycle EXCEPT terraform/vault (Vault
-#     self-config — auth methods/policies/mounts — stays a MacBook+root
-#     operation) and terraform/aws (bootstrap AWS identity). This keeps the
-#     AppRole well short of root: it can read/rotate secrets, not re-wire
+#     write the paths TF modules mint to), plus bounded auth/token/create
+#     (child tokens for the TF Vault provider — see the inline note), but
+#     NO sys/* admin. So Frigg can run the full TF/Ansible/Flux cycle EXCEPT
+#     terraform/vault (Vault self-config — auth methods/policies/mounts —
+#     stays a MacBook+root operation) and terraform/aws (bootstrap AWS
+#     identity). This keeps the AppRole well short of root: it can
+#     read/rotate secrets and mint policy-subset child tokens, not re-wire
 #     Vault's own auth model.
 #
 #   - ansible-frigg AppRole: Frigg's secret-zero. The SecretID is NEVER in
@@ -54,6 +56,20 @@ resource "vault_policy" "homelab_frigg" {
     # destroy of a secret (TF resource destroy).
     path "secret/metadata/*" {
       capabilities = ["read", "list", "delete"]
+    }
+    # Child-token creation for the Terraform Vault provider. By default the
+    # provider mints a short-lived CHILD token per run (lease isolation +
+    # end-of-run revoke) — its documented default mode. Without this, every
+    # `terraform apply` Frigg runs against a Vault-touching module dies at
+    # child-token creation with `permission denied`. This is NOT a step
+    # toward root: a child token inherits a SUBSET of homelab-frigg (cannot
+    # add policies Frigg lacks, cannot reach sys/*), and dies when Frigg's
+    # <=1h parent token expires. Orphan / periodic / long-TTL tokens need
+    # sudo (auth/token/create-orphan, the `period` field) — NOT granted
+    # here. So Frigg + MacBook+root now run the provider identically in its
+    # default mode; the sys/* boundary below is untouched.
+    path "auth/token/create" {
+      capabilities = ["create", "update"]
     }
     # NO sys/* — cannot manage Vault auth methods, policies, or mounts.
     # terraform/vault stays MacBook+root; this AppRole is not near-root.
