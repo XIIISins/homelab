@@ -1,0 +1,69 @@
+# .github/workflows/build-microbin-image.yml
+#
+# Builds the custom MicroBin image (docker/microbin/Dockerfile) and pushes it
+# to GHCR. The image is stock MicroBin with one source patch that fixes the
+# JSON-DB expiry-cleanup panic (see the Dockerfile header for the full why —
+# upstream never fixed it, so there is no release to upgrade to).
+#
+# Triggers on changes to the Dockerfile, the patch, or this workflow. Pushes:
+#   - a stable revision tag (IMAGE_TAG) that the Deployment pins
+#   - an immutable sha-<gitsha> tag for traceability / rollback
+#
+# BUMP IMAGE_TAG (the rN suffix) whenever the Dockerfile, the patch, or the
+# pinned MICROBIN_VERSION changes, and update the matching tag in
+# k8s/asgard/apps/microbin/deployment.yaml in the same commit. Concrete-pinned
+# (no :latest float) per the repo IaC pin policy.
+#
+# NOTE: GHCR creates new packages PRIVATE. After the first successful build,
+# set the `microbin-homelab` package visibility to Public (same as
+# semaphore-homelab) so the cluster can pull it without an imagePullSecret.
+#
+# The owner is hardcoded lowercase: GHCR refs MUST be lowercase, and
+# ${{ github.repository_owner }} preserves the `XIIISins` casing, which docker
+# rejects as an invalid (non-lowercase) repository name.
+
+name: build-microbin-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/microbin/Dockerfile
+      - docker/microbin/0001-fix-remove-expired-json-db-panic.patch
+      - .github/workflows/build-microbin-image.yml
+  workflow_dispatch: {}
+
+env:
+  IMAGE: ghcr.io/xiiisins/microbin-homelab
+  IMAGE_TAG: v2.1.4-r1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/microbin/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}

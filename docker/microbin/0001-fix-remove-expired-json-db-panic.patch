@@ -1,0 +1,49 @@
+--- a/src/util/misc.rs
++++ b/src/util/misc.rs
+@@ -9,7 +9,7 @@
+ 
+ use crate::Pasta;
+ 
+-use super::db::delete;
++use super::db::update_all;
+ 
+ pub fn remove_expired(pastas: &mut Vec<Pasta>) {
+     // get current time - this will be needed to check which pastas have expired
+@@ -21,6 +21,8 @@
+         }
+     } as i64;
+ 
++    let len_before = pastas.len();
++
+     pastas.retain(|p| {
+         // keep if:
+         //  expiration is `never` or not reached
+@@ -35,9 +37,6 @@
+             // keep
+             true
+         } else {
+-            // remove from database
+-            delete(None, Some(p.id));
+-
+             // remove the file itself
+             if let Some(file) = &p.file {
+                 if fs::remove_file(format!(
+@@ -66,6 +65,18 @@
+         }
+     });
+ 
++    // Persist the pruned paste set ONCE, after the retain borrow ends.
++    // Upstream called delete(None, Some(p.id)) INSIDE the retain closure;
++    // under --json-db that panics: db::delete needs the whole Pasta vector
++    // to rewrite the JSON file, but it is mutably borrowed by retain, so
++    // None was passed -> .expect() -> panic while holding the pastas mutex
++    // -> poisoned lock -> every subsequent write 502s. update_all hands the
++    // persistence layer the already-pruned vector and is correct for both
++    // the JSON and SQLite backends.
++    if pastas.len() != len_before {
++        update_all(pastas);
++    }
++
+     // Find and remove and attachment folders that 
+     // don't actually have an upload in the database pointing
+     // at them. Could be a result of an interrupted upload for example.
