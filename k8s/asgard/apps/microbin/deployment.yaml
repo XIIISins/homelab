@@ -24,6 +24,11 @@ spec:
       labels:
         app: microbin
     spec:
+      # The custom image lives in a PRIVATE GHCR package (GitHub has no API to
+      # make a package public). Pull with a read-only token — rendered into a
+      # dockerconfigjson secret by externalsecret-ghcr.yaml.
+      imagePullSecrets:
+        - name: microbin-ghcr
       securityContext:
         fsGroup: 1000
       initContainers:
@@ -42,7 +47,11 @@ spec:
             allowPrivilegeEscalation: true
       containers:
         - name: microbin
-          image: danielszabo99/microbin:2.1.4
+          # Custom patched image — fixes the upstream JSON-DB expiry-cleanup
+          # panic that poisons the paste mutex and 502s every write. Built from
+          # docker/microbin/ (stock v2.1.4 + one source patch); no upstream
+          # release carries the fix. See docs/known-issues/microbin.md.
+          image: ghcr.io/xiiisins/microbin-homelab:v2.1.4-r1
           ports:
             - name: http
               containerPort: 8080
