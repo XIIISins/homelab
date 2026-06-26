@@ -1,0 +1,43 @@
+# k8s/asgard/infrastructure/traefik/middleware-security-headers.yaml
+#
+# Default security-response-header middleware, attached to the `websecure`
+# entrypoint in helmrelease.yaml (ports.websecure.http.middlewares →
+# `traefik-security-headers@kubernetescrd`). Entrypoint middlewares apply
+# to EVERY router on that entrypoint regardless of provider, so this is a
+# single source of truth that covers all current + future HTTPRoutes — no
+# per-route/per-namespace copies (unlike the ForwardAuth pattern, which has
+# to be namespace-local because it's referenced via HTTPRoute extensionRef).
+#
+# Lives in the `traefik` namespace; the @kubernetescrd reference is
+# `<namespace>-<name>` = `traefik-security-headers`.
+#
+# Covers the four findings from the paste.xiiisins.com scan + applies to
+# the whole estate:
+#   - Strict-Transport-Security  → stsSeconds + stsIncludeSubdomains
+#       (no preload — see decisions.md; preload is effectively one-way for
+#        *.xiiisins.com). Traefik only emits STS over TLS, which is the
+#        only thing on websecure anyway.
+#   - X-Content-Type-Options: nosniff
+#   - Referrer-Policy: strict-origin-when-cross-origin (modern browser default)
+#   - Server software disclosure → strip Server + X-Powered-By (empty value
+#     removes the header in Traefik) so backends (actix/nginx/etc.) stop
+#     advertising their stack.
+#
+# Deliberately NOT set globally: X-Frame-Options / CSP frame-ancestors —
+# those break OIDC iframe/embedded-outpost flows on some apps and need
+# per-app testing. Tracked as a follow-up, not a blanket default.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: traefik
+spec:
+  headers:
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    stsPreload: false
+    contentTypeNosniff: true
+    referrerPolicy: strict-origin-when-cross-origin
+    customResponseHeaders:
+      Server: ""
+      X-Powered-By: ""

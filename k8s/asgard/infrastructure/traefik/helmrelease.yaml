@@ -76,6 +76,12 @@ spec:
           default: true
         http:
           tls: {}
+          # Default security-response-header middleware applied to every
+          # router on this entrypoint (all current + future HTTPRoutes).
+          # Single source of truth — see middleware-security-headers.yaml.
+          # Format is <namespace>-<name>@<provider>.
+          middlewares:
+            - traefik-security-headers@kubernetescrd
       traefik:
         expose:
           default: false
