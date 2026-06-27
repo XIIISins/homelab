@@ -26,13 +26,19 @@ spec:
     deployment:
       replicas: 3
       kind: Deployment
-      # required anti-affinity + 1 pod per worker = no room for a surge pod.
-      # maxSurge: 0 prevents the deadlock; maxUnavailable: 1 keeps roll moving.
-      strategy:
-        type: RollingUpdate
-        rollingUpdate:
-          maxSurge: 0
-          maxUnavailable: 1
+
+    # required anti-affinity + 1 pod per worker = no room for a surge pod.
+    # maxSurge: 0 prevents the deadlock; maxUnavailable: 1 keeps roll moving.
+    # CHART KEY IS ROOT-LEVEL `updateStrategy` — `deployment.strategy` is
+    # silently ignored by the chart, so the default (maxSurge:1/maxUnavailable:0)
+    # was live for 33d and deadlocked the first roll (security-headers, 2026-06-27:
+    # surge pod can't schedule — anti-affinity fills all 3 workers, CPs tainted).
+    # See traefik-gateway-api.md.
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
 
     # Providers — only Gateway API for routing; KubernetesCRD stays on
     # because Middleware CRs are managed by it (Gateway API HTTPRoute
