@@ -1,0 +1,253 @@
+# ansible/playbooks/zabbix-proxmox-template-tuning.yml
+---
+# Tune the stock "Proxmox VE by HTTP" template to stop redundant,
+# false-firing per-guest memory monitoring.
+#
+# WHY: every homelab VM/LXC runs its own Zabbix agent, which reports
+# accurate in-guest memory via vm.memory.utilization (MemAvailable-based,
+# i.e. page cache is correctly treated as reclaimable). The Proxmox-side
+# discovery double-monitors the same guests from the hypervisor, where
+# memory is reported as total-MemFree (page cache counts as "used"). On a
+# healthy cache-filling Linux guest that pegs ~90% and false-fires the
+# "high memory usage (over 90%)" trigger. Those PVE triggers have
+# manual_close=0, so a stuck false problem can ONLY be cleared by removing
+# the discovered entity. See docs/known-issues/zabbix.md.
+#
+# WHAT (idempotent, reproducible — re-applied on a Zabbix rebuild):
+#   1. QEMU (VM) discovery: point the LLD filter at nothing + set the
+#      "delete lost resources" lifetime to IMMEDIATE (lifetime_type=2),
+#      force the master cluster-resources poll on each PVE host so every
+#      discovered qemu item/trigger/problem is removed at once, sweep any
+#      stragglers, then DISABLE the rule. VMs are thereafter monitored
+#      ONLY by their own agent.
+#   2. LXC memory: raise {$PVE.LXC.MEMORY.PUSE.MAX.WARN} to 100 so the same
+#      cache-inclusive metric can't false-fire for LXCs (LXC discovery
+#      itself is kept — LXC up/down is useful; LXC memory health is owned
+#      by the in-guest agent).
+#
+# Node / Storage / Cluster discovery are left intact (genuine PVE-only
+# signals — hypervisor RAM, datastores, cluster quorum).
+#
+# Imported by asgard-zabbix.yml so it re-applies on every Zabbix deploy.
+# Runs from the control node against the Zabbix JSON-RPC API via
+# ansible.builtin.uri — community.zabbix has no discovery-rule module.
+# lifetime_type enum (Zabbix 7.0): 0=after period, 1=never, 2=immediately.
+
+- name: Zabbix — disable redundant Proxmox QEMU (VM) discovery + neutralise LXC mem trigger
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    # Sourced from hugin's hostvars — this play runs on localhost, which
+    # doesn't inherit group_vars/all/zabbix.yml (implicit-localhost is not
+    # an inventory group member).
+    zbx_api_url: "http://{{ hostvars['hugin'].ansible_host }}/api_jsonrpc.php"
+    zbx_token: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                hostvars['hugin'].zabbix_agent_api_token_vault_path)
+         .secret[hostvars['hugin'].zabbix_agent_api_token_vault_field] }}
+    zbx_pve_template: "Proxmox VE by HTTP"
+    zbx_lxc_mem_macro: "{$PVE.LXC.MEMORY.PUSE.MAX.WARN}"
+    zbx_lxc_mem_value: "100"
+    # Filter value the QEMU LLD will never match → discovers zero VMs.
+    zbx_qemu_nomatch: "^__pve_qemu_discovery_disabled__$"
+  module_defaults:
+    ansible.builtin.uri:
+      method: POST
+      body_format: json
+      status_code: 200
+      headers:
+        Authorization: "Bearer {{ zbx_token }}"
+  tags: [zabbix-proxmox-tuning]
+
+  tasks:
+    - name: Resolve PVE template (id, linked hosts, LXC mem macro)
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: template.get
+          params:
+            output: [templateid]
+            selectHosts: [hostid, host]
+            selectMacros: [hostmacroid, macro, value]
+            filter: { host: "{{ zbx_pve_template }}" }
+          id: 1
+      register: _tmpl
+      no_log: true
+      failed_when: _tmpl.json.error is defined or (_tmpl.json.result | length) == 0
+
+    - name: Set template facts
+      ansible.builtin.set_fact:
+        _tmpl_id: "{{ _tmpl.json.result[0].templateid }}"
+        _pve_host_ids: "{{ _tmpl.json.result[0].hosts | map(attribute='hostid') | list }}"
+        _lxc_macro: "{{ _tmpl.json.result[0].macros | selectattr('macro', 'equalto', zbx_lxc_mem_macro) | list | first | default({}) }}"
+
+    - name: Get master QEMU discovery rule (template)
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: discoveryrule.get
+          params:
+            output: [itemid, status]
+            hostids: ["{{ _tmpl_id }}"]
+            filter: { key_: "proxmox.qemu.discovery" }
+          id: 1
+      register: _qemu_master
+      no_log: true
+      failed_when: _qemu_master.json.error is defined or (_qemu_master.json.result | length) == 0
+
+    - name: Count currently-discovered qemu items on linked PVE hosts
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: item.get
+          params:
+            countOutput: true
+            hostids: "{{ _pve_host_ids }}"
+            search: { key_: "proxmox.qemu." }
+          id: 1
+      register: _qemu_count0
+      no_log: true
+      failed_when: _qemu_count0.json.error is defined
+
+    # The teardown only runs when there is something to do: the rule is
+    # still enabled, or discovered qemu items still exist. Once converged
+    # (rule disabled + 0 items) the whole block is skipped → clean re-runs.
+    - name: VM discovery teardown
+      when: >-
+        _qemu_master.json.result[0].status | int == 0
+        or (_qemu_count0.json.result | int) > 0
+      block:
+        - name: Neutralise QEMU discovery — filter matches nothing + immediate lost-resource removal
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: discoveryrule.update
+              params:
+                itemid: "{{ _qemu_master.json.result[0].itemid }}"
+                status: 0          # keep enabled for the cleanup run
+                lifetime_type: 2   # delete lost resources immediately
+                filter:
+                  evaltype: 0
+                  conditions:
+                    - { macro: "{#RESOURCE.TYPE}", value: "{{ zbx_qemu_nomatch }}", operator: 8 }
+              id: 1
+          register: _neuter
+          no_log: true
+          failed_when: _neuter.json.error is defined
+
+        - name: Reload Zabbix server config cache (so host-instance rules pick up the new filter)
+          ansible.builtin.command: zabbix_server -R config_cache_reload
+          delegate_to: hugin
+          become: true
+          changed_when: true
+
+        - name: Get master cluster-resources items (one per PVE host)
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: item.get
+              params:
+                output: [itemid]
+                hostids: "{{ _pve_host_ids }}"
+                filter: { key_: "proxmox.cluster.resources" }
+              id: 1
+          register: _masters
+          no_log: true
+          failed_when: _masters.json.error is defined
+
+        - name: Force-run each master (re-polls PVE, cascades the neutered qemu filter)
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: task.create
+              params:
+                - type: 6
+                  request: { itemid: "{{ item }}" }
+              id: 1
+          loop: "{{ _masters.json.result | map(attribute='itemid') | list }}"
+          register: _force
+          no_log: true
+          changed_when: true
+          failed_when: _force.json.error is defined
+
+        - name: Wait for qemu items to drain (lifecycle removal)
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: item.get
+              params:
+                countOutput: true
+                hostids: "{{ _pve_host_ids }}"
+                search: { key_: "proxmox.qemu." }
+              id: 1
+          register: _drain
+          no_log: true
+          until: (_drain.json.result | int) == 0
+          retries: 12
+          delay: 8
+          failed_when: false   # stragglers (e.g. a host whose master never polled) are swept next
+
+        - name: Find any straggler qemu items the lifecycle couldn't remove
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: item.get
+              params:
+                output: [itemid]
+                hostids: "{{ _pve_host_ids }}"
+                search: { key_: "proxmox.qemu." }
+              id: 1
+          register: _stragglers
+          no_log: true
+          failed_when: _stragglers.json.error is defined
+
+        - name: Delete straggler qemu items directly
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: item.delete
+              params: "{{ _stragglers.json.result | map(attribute='itemid') | list }}"
+              id: 1
+          register: _del
+          no_log: true
+          when: (_stragglers.json.result | length) > 0
+          changed_when: true
+          failed_when: _del.json.error is defined
+
+        - name: Disable QEMU discovery rule (final end-state — no future VM discovery)
+          ansible.builtin.uri:
+            url: "{{ zbx_api_url }}"
+            body:
+              jsonrpc: "2.0"
+              method: discoveryrule.update
+              params: { itemid: "{{ _qemu_master.json.result[0].itemid }}", status: 1 }
+              id: 1
+          register: _disable
+          no_log: true
+          failed_when: _disable.json.error is defined
+
+    - name: Raise LXC memory threshold macro so the cache-inclusive trigger can't false-fire
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: usermacro.update
+          params: { hostmacroid: "{{ _lxc_macro.hostmacroid }}", value: "{{ zbx_lxc_mem_value }}" }
+          id: 1
+      register: _lxc
+      no_log: true
+      when:
+        - _lxc_macro.hostmacroid is defined
+        - _lxc_macro.value | default('') != zbx_lxc_mem_value
+      changed_when: true
+      failed_when: _lxc.json.error is defined

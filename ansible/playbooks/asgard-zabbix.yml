@@ -33,3 +33,9 @@
 
     - role: hardening
       tags: [hardening]
+
+# Stop the stock Proxmox VE template from redundantly (and falsely)
+# monitoring guest memory — every VM/LXC is covered by its own agent.
+# Disables QEMU (VM) discovery + neutralises the LXC memory trigger.
+# Idempotent; no-op once converged. See the playbook header + known-issues.
+- import_playbook: zabbix-proxmox-template-tuning.yml
