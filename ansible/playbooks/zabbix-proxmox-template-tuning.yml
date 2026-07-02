@@ -75,6 +75,7 @@
           id: 1
       register: _tmpl
       no_log: true
+      check_mode: false   # read-only template.get — must run under drift-check (--check) so _tmpl.json exists
       failed_when: _tmpl.json.error is defined or (_tmpl.json.result | length) == 0
 
     - name: Set template facts
@@ -96,6 +97,7 @@
           id: 1
       register: _qemu_master
       no_log: true
+      check_mode: false   # read-only discoveryrule.get — must run under drift-check (--check)
       failed_when: _qemu_master.json.error is defined or (_qemu_master.json.result | length) == 0
 
     - name: Count currently-discovered qemu items on linked PVE hosts
@@ -111,15 +113,19 @@
           id: 1
       register: _qemu_count0
       no_log: true
+      check_mode: false   # read-only item.get countOutput — must run under drift-check (--check)
       failed_when: _qemu_count0.json.error is defined
 
     # The teardown only runs when there is something to do: the rule is
     # still enabled, or discovered qemu items still exist. Once converged
     # (rule disabled + 0 items) the whole block is skipped → clean re-runs.
     - name: VM discovery teardown
+      # Mutating block — skipped under drift-check (--check); it converges
+      # state, which is out of drift-check scope (see zabbix-host-groups.yml).
       when: >-
-        _qemu_master.json.result[0].status | int == 0
-        or (_qemu_count0.json.result | int) > 0
+        not ansible_check_mode
+        and (_qemu_master.json.result[0].status | int == 0
+             or (_qemu_count0.json.result | int) > 0)
       block:
         - name: Neutralise QEMU discovery — filter matches nothing + immediate lost-resource removal
           ansible.builtin.uri:
@@ -247,6 +253,7 @@
       register: _lxc
       no_log: true
       when:
+        - not ansible_check_mode  # mutating usermacro.update — out of drift-check scope
         - _lxc_macro.hostmacroid is defined
         - _lxc_macro.value | default('') != zbx_lxc_mem_value
       changed_when: true
