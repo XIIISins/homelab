@@ -393,6 +393,7 @@ homelab-env() {
         age=$(__homelab_cache_age_seconds)
         remaining_h=$(( (__homelab_cache_ttl_seconds - age) / 3600 ))
         echo "Loaded homelab env from cache (refresh in ${remaining_h}h, or: homelab-env --refresh)"
+        __homelab_ensure_netbox_inventory
         return 0
     fi
 
@@ -450,7 +451,64 @@ homelab-env() {
     ttl_h=$(( __homelab_cache_ttl_seconds / 3600 ))
     echo "Cached for ${ttl_h}h ($__homelab_cache_dir/env.{fish,sh})"
 
+    __homelab_ensure_netbox_inventory refresh
+
     return $choice_status
+}
+
+# === Public: NetBox inventory warm cache (macOS control node) ===
+#
+# On macOS, ansible-playbook SIGSEGVs its forked task workers whenever the main
+# process has already done HTTP — macOS CoreFoundation (proxy detection, network
+# path evaluation, os_log→CFPreferences) is not fork-safe. The NetBox dynamic
+# inventory (netbox.netbox.nb_inventory) does HTTP in the main process at
+# startup, so any playbook that also does a forked lookup (community.hashi_vault)
+# crashes. Linux controllers (Frigg/Semaphore) are immune. Full diagnosis:
+# docs/known-issues/frigg-control-node.md.
+#
+# Fix: materialize the NetBox inventory to a static, leak-free cache in a
+# short-lived separate process (which does the HTTP + exits — no forked workers,
+# no crash), then point ANSIBLE_INVENTORY at it so playbook runs do zero HTTP in
+# the forking process. group_vars (incl. the ansible-vault vault.yml) still load
+# normally because the cache lives in inventory/. Refreshed on every
+# `homelab-env` (re)fetch; run manually with `refresh-netbox-inventory`.
+refresh-netbox-inventory() {
+    if [ "$(uname -s)" != Darwin ]; then
+        echo "refresh-netbox-inventory: macOS-only (Linux controllers use the live NetBox inventory)."
+        return 0
+    fi
+    local repo script cache
+    if ! repo=$(git rev-parse --show-toplevel 2>/dev/null); then
+        echo "refresh-netbox-inventory: run from within the homelab repo." >&2
+        return 1
+    fi
+    script="$repo/.config/scripts/refresh-netbox-inventory-cache.sh"
+    cache="$repo/ansible/inventory/.netbox-cache.yml"
+    if [ ! -x "$script" ]; then
+        echo "refresh-netbox-inventory: missing/!x $script" >&2
+        return 1
+    fi
+    "$script" || return 1
+    export ANSIBLE_INVENTORY="$cache"
+    echo "refresh-netbox-inventory: ANSIBLE_INVENTORY -> $cache"
+}
+
+# Internal: called by homelab-env. Best-effort, non-fatal, silent no-op off
+# macOS or outside the repo. $1=refresh forces a re-materialize (fresh NetBox
+# pull); otherwise it only (re)exports ANSIBLE_INVENTORY when the cache exists,
+# and materializes only if it's missing.
+__homelab_ensure_netbox_inventory() {
+    [ "$(uname -s)" = Darwin ] || return 0
+    local repo cache
+    repo=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    cache="$repo/ansible/inventory/.netbox-cache.yml"
+    if [ "${1:-}" = refresh ] || [ ! -f "$cache" ]; then
+        if ! "$repo/.config/scripts/refresh-netbox-inventory-cache.sh"; then
+            echo "  ↳ NetBox inventory cache refresh failed; ansible will fall back to the live" >&2
+            echo "    inventory (may fork-crash on macOS). Fix + rerun: refresh-netbox-inventory" >&2
+        fi
+    fi
+    [ -f "$cache" ] && export ANSIBLE_INVENTORY="$cache"
 }
 
 # === Public: vault tokens ===
@@ -728,11 +786,13 @@ __vault_homelab_approle_env="$HOME/.config/ansible/vault-approle.env"
 __vault_homelab_default_addr='https://vault.niflheim.xiiisins.com'
 # Vault address for ANSIBLE lookups specifically. The Vault listener is now
 # TLS-only (listener-TLS flip — no plaintext path survives), so the old
-# plaintext-vault-ui-LB workaround for the macOS forked-worker crash is gone:
-# MacBook Ansible-with-Vault-lookups must run from Frigg (Linux, no fork
-# bug). Kept pointing at the FQDN (public LE cert at Traefik → no internal-CA
-# trust needed). See homelab.fish for the full rationale + CLAUDE.md "Frigg /
-# control-node watchtower" gotchas + docs/procedures/vault-tls-migration.md.
+# plaintext-vault-ui-LB workaround for the macOS forked-worker crash is gone.
+# NOTE: that crash was NOT the vault lookup / VAULT_ADDR — it was the NetBox
+# dynamic inventory doing HTTP in the main process (macOS CoreFoundation is not
+# fork-safe). The MacBook runs these roles fine now via the warm-inventory cache
+# (refresh-netbox-inventory / __homelab_ensure_netbox_inventory above). This var
+# stays the FQDN (public LE cert at Traefik → no internal-CA trust needed). See
+# CLAUDE.md "Frigg / control-node watchtower" + docs/procedures/vault-tls-migration.md.
 __vault_homelab_ansible_addr='https://vault.niflheim.xiiisins.com'
 
 __vault_homelab_iac_path='secret/ansible/frigg/iac-env'
@@ -894,6 +954,7 @@ vault-homelab-env() {
         age=$(__vault_homelab_cache_age_seconds)
         remaining_h=$(( (__vault_homelab_cache_ttl_seconds - age) / 3600 ))
         echo "Loaded vault-homelab env from cache (refresh in ${remaining_h}h, or: vault-homelab-env --refresh)"
+        __homelab_ensure_netbox_inventory
         return 0
     fi
 
@@ -984,6 +1045,8 @@ vault-homelab-env() {
     ttl_h=$(( __vault_homelab_cache_ttl_seconds / 3600 ))
     echo "Loaded vault-homelab env from Vault ($loaded iac-env var(s) + kubeconfig + ansible-vault + approle)."
     echo "Cached for ${ttl_h}h ($__vault_homelab_cache_path_sh + .fish)"
+
+    __homelab_ensure_netbox_inventory refresh
 }
 
 # --- Public: re-seed the local AppRole secret-zero from the loaded env ---

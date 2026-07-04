@@ -29,6 +29,9 @@ override.tf.json
 ansible/.ansible/
 ansible/inventory/group_vars/**/vault.yml
 !ansible/inventory/group_vars/**/*.example.yml
+# macOS control-node warm NetBox inventory cache (materialized by
+# .config/scripts/refresh-netbox-inventory-cache.sh — see frigg-control-node.md)
+ansible/inventory/.netbox-cache.yml
 ansible/collections/*
 
 # ============================================================================
