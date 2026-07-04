@@ -184,6 +184,10 @@ __homelab_cache_write() {
     # only needed for terraform/proxmox/asgard-lxcs-root/ applies). Cache it
     # if set so subshells inherit; absent otherwise.
     [ -n "${PROXMOX_VE_PASSWORD:-}" ]   && vars+=("PROXMOX_VE_PASSWORD")
+    # ANSIBLE_INVENTORY: set by __homelab_ensure_netbox_inventory on macOS
+    # (points at the warm NetBox cache). Cache it so a bare `source env.sh`
+    # gets it. Never set on Linux (Frigg) — the conditional keeps it out there.
+    [ -n "${ANSIBLE_INVENTORY:-}" ]     && vars+=("ANSIBLE_INVENTORY")
 
     ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     header_fish="# homelab env cache (fish) — written $ts, TTL ${__homelab_cache_ttl_seconds}s
@@ -447,11 +451,13 @@ homelab-env() {
     esac
 
     # Write cache regardless of VAULT_TOKEN outcome — env vars loaded fine.
+    # Ensure the NetBox inventory cache + ANSIBLE_INVENTORY BEFORE cache_write,
+    # so the export lands in env.{sh,fish} for a bare `source`.
+    __homelab_ensure_netbox_inventory refresh
+
     __homelab_cache_write
     ttl_h=$(( __homelab_cache_ttl_seconds / 3600 ))
     echo "Cached for ${ttl_h}h ($__homelab_cache_dir/env.{fish,sh})"
-
-    __homelab_ensure_netbox_inventory refresh
 
     return $choice_status
 }
@@ -871,6 +877,10 @@ __vault_homelab_cache_write() {
     vars+=("ANSIBLE_HASHI_VAULT_ADDR" "ANSIBLE_HASHI_VAULT_AUTH_METHOD" \
            "ANSIBLE_HASHI_VAULT_ROLE_ID" "ANSIBLE_HASHI_VAULT_SECRET_ID")
     [ -n "${VAULT_TOKEN:-}" ] && vars+=("VAULT_TOKEN")
+    # ANSIBLE_INVENTORY: warm NetBox cache path, set on macOS only (see
+    # __homelab_ensure_netbox_inventory). Cached so a bare `source vault-env.sh`
+    # gets it; the conditional keeps it out of Linux (Frigg) caches.
+    [ -n "${ANSIBLE_INVENTORY:-}" ] && vars+=("ANSIBLE_INVENTORY")
 
     ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     header_fish="# vault-homelab env cache (fish) — written $ts, TTL ${__vault_homelab_cache_ttl_seconds}s
@@ -1041,12 +1051,14 @@ vault-homelab-env() {
     export ANSIBLE_HASHI_VAULT_ROLE_ID="$role_id"
     export ANSIBLE_HASHI_VAULT_SECRET_ID="$secret_id"
 
+    # Ensure NetBox inventory cache + ANSIBLE_INVENTORY BEFORE cache_write, so
+    # the export lands in vault-env.{sh,fish} for a bare `source`.
+    __homelab_ensure_netbox_inventory refresh
+
     __vault_homelab_cache_write
     ttl_h=$(( __vault_homelab_cache_ttl_seconds / 3600 ))
     echo "Loaded vault-homelab env from Vault ($loaded iac-env var(s) + kubeconfig + ansible-vault + approle)."
     echo "Cached for ${ttl_h}h ($__vault_homelab_cache_path_sh + .fish)"
-
-    __homelab_ensure_netbox_inventory refresh
 }
 
 # --- Public: re-seed the local AppRole secret-zero from the loaded env ---
