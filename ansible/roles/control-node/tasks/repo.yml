@@ -55,10 +55,20 @@
   no_log: true
   tags: [control-node, control-node:repo]
 
-- name: Add github.com to operator known_hosts
+# Pin GitHub's host keys in a DEDICATED file, NOT ghost's general
+# ~/.ssh/known_hosts. That whole-file `copy:` used to own ~/.ssh/known_hosts,
+# but that same file is the known_hosts for EVERY SSH the ghost user makes
+# from Frigg — including the documented `ansible-playbook --limit frigg`-from-
+# Frigg path, whose controller SSHes ghost→10.0.11.30 (Frigg's own ansible_host)
+# and `accept-new`-learns Frigg's own host key. The github-only copy then
+# perpetually flagged that legit entry for deletion → 6h drift-check `changed=1`
+# forever (benign, but noise). Isolating the pin to known_hosts.github (git
+# consults ONLY it, via UserKnownHostsFile below) keeps the strict-pin rotation
+# tripwire intact while leaving ~/.ssh/known_hosts free for general ops.
+- name: Pin github.com host keys (dedicated known_hosts.github)
   ansible.builtin.copy:
     content: "{{ control_node_github_known_hosts }}"
-    dest: "{{ control_node_operator_home }}/.ssh/known_hosts"
+    dest: "{{ control_node_operator_home }}/.ssh/known_hosts.github"
     owner: "{{ control_node_operator_user }}"
     group: "{{ control_node_operator_group }}"
     mode: "0644"
@@ -78,6 +88,7 @@
           User git
           IdentityFile {{ control_node_operator_home }}/.ssh/id_ed25519
           IdentitiesOnly yes
+          UserKnownHostsFile {{ control_node_operator_home }}/.ssh/known_hosts.github
   tags: [control-node, control-node:repo]
 
 # Clone idempotently: clone if the dir is absent, otherwise leave it. We do
