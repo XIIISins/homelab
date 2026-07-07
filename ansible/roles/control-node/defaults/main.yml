@@ -175,3 +175,10 @@ control_node_claude_service_name: claude-remote-control
 # `claude remote-control --spawn worktree` runs from the repo checkout.
 control_node_claude_workdir: "{{ control_node_repo_dest }}"
 control_node_claude_settings_dir: "{{ control_node_operator_home }}/.claude"
+# The permission allow-list is deployed as Claude Code's ENTERPRISE managed
+# policy (`/etc/claude-code/managed-settings.json`), NOT ~ghost/.claude/settings.json.
+# Managed settings are highest-precedence + Claude Code NEVER writes them, so the
+# running `claude remote-control` service can persist its own runtime prefs
+# (notif toggles, key reordering) to the user settings file without fighting
+# Ansible. permissions.allow entries merge across layers → posture unchanged.
+control_node_claude_managed_settings_path: /etc/claude-code/managed-settings.json

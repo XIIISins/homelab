@@ -24,12 +24,29 @@
 # Conservative allow-list so a mobile remote-control session isn't
 # prompt-stormed on routine read-only ops. Anything mutating (apply, push,
 # kubectl apply, rm, etc.) deliberately still prompts.
-- name: Render operator Claude settings.json
+#
+# Deployed as Claude Code's ENTERPRISE managed policy — NOT ~ghost/.claude/
+# settings.json — because the running `claude remote-control` service writes
+# BACK to the user settings file (persisting notif toggles, reordering keys),
+# which perpetually fought a whole-file template: there (6h drift-check noise).
+# Managed settings are highest-precedence + never written by claude, and
+# permissions.allow/deny merge across layers, so the security floor is intact
+# while the user file is left free for claude's own runtime prefs.
+- name: Ensure /etc/claude-code exists (managed-settings dir)
+  ansible.builtin.file:
+    path: "{{ control_node_claude_managed_settings_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [control-node, control-node:claude]
+
+- name: Render Claude Code managed-settings allow-list (enterprise policy)
   ansible.builtin.template:
-    src: claude-settings.json.j2
-    dest: "{{ control_node_claude_settings_dir }}/settings.json"
-    owner: "{{ control_node_operator_user }}"
-    group: "{{ control_node_operator_group }}"
+    src: claude-managed-settings.json.j2
+    dest: "{{ control_node_claude_managed_settings_path }}"
+    owner: root
+    group: root
     mode: "0644"
   tags: [control-node, control-node:claude]
 

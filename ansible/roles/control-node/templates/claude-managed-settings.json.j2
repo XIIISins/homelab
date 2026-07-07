@@ -1,5 +1,5 @@
 {
-  "_comment": "ansible/roles/control-node/templates/claude-settings.json.j2 — Managed by Ansible. Conservative allow-list so a mobile remote-control session is not prompt-stormed on routine READ-ONLY ops. Anything mutating (terraform apply, git push, kubectl apply, rm, ansible-playbook without --check) deliberately still prompts.",
+  "_comment": "ansible/roles/control-node/templates/claude-managed-settings.json.j2 — Ansible-managed Claude Code ENTERPRISE policy at /etc/claude-code/managed-settings.json (highest precedence, never written back by claude). Conservative allow-list so a mobile remote-control session is not prompt-stormed on routine READ-ONLY ops. Anything mutating (terraform apply, git push, kubectl apply, rm, ansible-playbook without --check) deliberately still prompts. allow/deny merge across layers, so this floor cannot be weakened by ~ghost/.claude/settings.json.",
   "permissions": {
     "allow": [
       "Bash(git status)",
