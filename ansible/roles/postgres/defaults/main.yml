@@ -46,6 +46,13 @@ postgres_max_replication_slots: 10
 postgres_hot_standby: true
 postgres_archive_mode: "on"
 postgres_archive_command: "/bin/true" # no-op until WAL archiving destination exists
+# Hard ceiling on WAL retained for a replication slot. MUST stay set (not -1)
+# while patroni_dcs_member_slots_ttl is long: an unlimited slot + a multi-hour
+# node outage lets the leader retain WAL until its disk fills, which takes the
+# whole cluster down. With a cap the worst case degrades to "that replica needs
+# a reinit" — the safe failure direction. PG LXCs are 36G with ~10G free and
+# the cluster generates ~0.3 GB WAL/h, so 4GB ≈ 13h of runway.
+postgres_max_slot_wal_keep_size: 4GB
 
 # ---- Resource tuning (4GB RAM LXC) ----
 postgres_shared_buffers: 1GB

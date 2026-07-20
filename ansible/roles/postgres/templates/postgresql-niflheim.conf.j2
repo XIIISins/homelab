@@ -37,6 +37,7 @@ wal_buffers = {{ postgres_wal_buffers }}
 wal_level = {{ postgres_wal_level }}
 max_wal_senders = {{ postgres_max_wal_senders }}
 max_replication_slots = {{ postgres_max_replication_slots }}
+max_slot_wal_keep_size = {{ postgres_max_slot_wal_keep_size }}
 hot_standby = {{ 'on' if postgres_hot_standby else 'off' }}
 archive_mode = {{ postgres_archive_mode }}
 archive_command = '{{ postgres_archive_command }}'

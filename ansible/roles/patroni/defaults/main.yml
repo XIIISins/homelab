@@ -67,6 +67,15 @@ patroni_dcs_ttl: 30
 patroni_dcs_loop_wait: 10
 patroni_dcs_retry_timeout: 10
 patroni_dcs_maximum_lag_on_failover: 1048576 # 1 MiB
+# How long the leader keeps a member's replication slot (and the WAL it
+# reserves) after that member stops reporting. Patroni's default is 1800s
+# (30 min) — too short for a node outage measured in hours: the slot is
+# dropped, the leader recycles the WAL, and the returning replica can never
+# catch up ("requested WAL segment ... has already been removed"), requiring
+# a manual `patronictl reinit`. Hit on 2026-07-20 when Skuld was down ~5h and
+# Fulla could not rejoin. 8h covers an overnight/workday outage.
+# Bounded in practice by postgres_max_slot_wal_keep_size — see that var.
+patroni_dcs_member_slots_ttl: 28800 # 8h
 
 # ---- Patroni tags (node behavior modifiers) ----
 patroni_tag_nofailover: false

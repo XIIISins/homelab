@@ -30,6 +30,7 @@ bootstrap:
     loop_wait: {{ patroni_dcs_loop_wait }}
     retry_timeout: {{ patroni_dcs_retry_timeout }}
     maximum_lag_on_failover: {{ patroni_dcs_maximum_lag_on_failover }}
+    member_slots_ttl: {{ patroni_dcs_member_slots_ttl }}
     postgresql:
       use_pg_rewind: true
       use_slots: true
@@ -43,6 +44,7 @@ bootstrap:
         wal_level: {{ postgres_wal_level }}
         max_wal_senders: {{ postgres_max_wal_senders }}
         max_replication_slots: {{ postgres_max_replication_slots }}
+        max_slot_wal_keep_size: {{ postgres_max_slot_wal_keep_size }}
         hot_standby: 'on'
         archive_mode: 'on'
         archive_command: '{{ postgres_archive_command }}'
