@@ -3,16 +3,30 @@
 # ----------------------------------------------------------------------------
 # LXCs 1113/1114/1115 — Tailscale subnet routers + exit node
 # ----------------------------------------------------------------------------
-# Bifrost (1113, urd) + Heimdall (1114, verd): subnet-router HA pair
+# Bifrost (1113, urd) + Heimdall (1114, skuld): subnet-router HA pair
 # advertising the 10.0.0.0/16 supernet (auto-approved via tailnet ACL
 # autoApprovers — see terraform/tailscale/policy.hujson).
 #
-# Gjallarbru (1115, skuld): exit node, advertises IPv4+IPv6 default
+# Gjallarbru (1115, verd): exit node, advertises IPv4+IPv6 default
 # routes (also auto-approved).
 #
 # Each LXC on a different Proxmox host so a single-host failure never
 # takes down >1 advertiser of the supernet — the tailnet picks
 # another route holder transparently.
+#
+# Placement rebalance 2026-07-21: Gjallarbru and Heimdall were swapped
+# (Gjallarbru skuld→verd, Heimdall verd→skuld) because Skuld has an
+# open hardware fault — repeated instant hard crashes with fatal BERT
+# machine-check records, see docs/incidents/2026-07-17-skuld-hard-crashes.md.
+# The exit node is a SINGLE advertiser: losing it drops every remote
+# client's default route until the node returns. The subnet routers are
+# an HA PAIR: losing one is transparent to the tailnet. So the role that
+# rides on the unreliable node is a pair member, not the singleton.
+# One-TS-node-per-host is preserved. Moved with `pct migrate --restart`
+# + `terraform state rm`/`import` (node_name is part of the bpg resource
+# ID, so editing it in place would otherwise force a destroy/recreate —
+# which would mint a NEW tailnet machine and force every client to
+# re-select the exit node).
 #
 # Why these LXCs live in their own module:
 #   /dev/net/tun passthrough requires `device_passthrough` at create
@@ -39,8 +53,8 @@
 locals {
   tailscale_nodes = {
     bifrost    = { node = "urd",   vmid = 1113, ip = "10.0.11.213" }
-    heimdall   = { node = "verd",  vmid = 1114, ip = "10.0.11.214" }
-    gjallarbru = { node = "skuld", vmid = 1115, ip = "10.0.11.215" }
+    heimdall   = { node = "skuld", vmid = 1114, ip = "10.0.11.214" }
+    gjallarbru = { node = "verd",  vmid = 1115, ip = "10.0.11.215" }
   }
 }
 

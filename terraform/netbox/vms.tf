@@ -74,8 +74,8 @@ locals {
 
     # ── Tailscale trio (subnet routers Bifrost/Heimdall + exit Gjallarbru) ─
     bifrost    = { vmid = "1113", role = "tailscale-gateway", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
-    heimdall   = { vmid = "1114", role = "tailscale-gateway", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
-    gjallarbru = { vmid = "1115", role = "tailscale-gateway", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
+    heimdall   = { vmid = "1114", role = "tailscale-gateway", device = "skuld", cpu = 1, memory = 512, primary_iface = "eth0" }
+    gjallarbru = { vmid = "1115", role = "tailscale-gateway", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
 
     # ── Factorio LXC ───────────────────────────────────────────────
     factorio = { vmid = "1120", role = "game-server", device = "urd", cpu = 4, memory = 8192, primary_iface = "eth0" }
