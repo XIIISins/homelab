@@ -70,6 +70,12 @@ Together these suggest crash #3 may be a *true hang* (CPU/platform wedge, nothin
 
    A forced switchover was deliberately **not** performed — the desired end-state already held, and switching would have caused a needless blip.
 
+3. **Tailscale trio rebalanced off Skuld (2026-07-21).** `gjallarbru` (exit node) and `heimdall` (subnet router) were **swapped**: Gjallarbru Skuld → Verd, Heimdall Verd → Skuld. Rationale is the singleton-vs-HA-pair distinction — the exit node is the *only* advertiser of `0.0.0.0/0 + ::/0`, so a Skuld crash drops every remote client's default route until the node comes back; the subnet routers are a pair (`bifrost` on Urd + `heimdall`), and losing one is transparent because the tailnet reroutes via the survivor. Swapping rather than merely moving preserves one-Tailscale-LXC-per-host.
+
+   Executed as **`pct migrate --restart` + a Terraform state patch**, deliberately *not* a Terraform destroy/recreate. Editing `node_name` in `terraform/proxmox/asgard-lxcs-root/lxcs.tf` forces replacement, which would mint a **new tailnet machine record** (keys are `ephemeral = false`, so the old device lingers and the new one lands as `gjallarbru-1`) — and every client that had selected the exit node would have to re-select it by hand. Migration keeps the machine identity intact. Post-move verification: both containers `BackendState: Running`, Gjallarbru `ExitNodeOption: true` / "offers exit node", Heimdall's `10.0.0.0/16` still in `AllowedIPs`, and `net.ipv4.ip_forward` / `net.ipv6.conf.all.forwarding` both `1` on each — the containers restart during migration, so this is exactly the LXC reboot-persistence class from [2026-06-18](2026-06-18-lxc-reboot-persistence-drift.md) and was checked rather than assumed. `terraform plan` clean on both `asgard-lxcs-root` and `netbox`.
+
+   *State-patch mechanics (the reusable part):* `terraform import` on a bpg container does **not** populate create-only attributes (`initialization.user_account`, `operating_system.template_file_id`), so a plain `state rm` + `import` still planned a replacement. The working move is to pull the pre-migration state, rewrite `node_name` in place, bump `serial`, and `terraform state push` — the container's resource `id` is just the VMID, so nothing else changes. Gotcha recorded in [`../known-issues/terraform-state.md`](../known-issues/terraform-state.md).
+
 ## Blast radius — what lives on Skuld
 
 | Workload | ID | Type | Behaviour on Skuld loss |
@@ -80,7 +86,7 @@ Together these suggest crash #3 may be a *true hang* (CPU/platform wedge, nothin
 | `einherjar-skuld` | VM 2103 | asgard K3s worker | 1 of 3 — cluster survives |
 | `pbs` | LXC 1101 | Proxmox Backup Server | **Single instance — backups offline for the outage** |
 | `kvasir` | LXC 1112 | AdGuard replica | 1 of 3 — VIP `10.0.10.200` holds |
-| `gjallarbru` | LXC 1115 | Tailscale | 1 of 3 — tailnet holds |
+| ~~`gjallarbru`~~ → `heimdall` | LXC 1115 → 1114 | Tailscale | **Rebalanced 2026-07-21** (see below) — Skuld now holds a subnet-router HA-pair member, not the singleton exit node |
 
 Net: the cluster design absorbs a Skuld loss well. **PBS is the only true single point of failure on the node**, and it is backup infrastructure (degrades RPO during an outage rather than taking a service down).
 
@@ -92,6 +98,8 @@ Net: the cluster design absorbs a Skuld loss well. **PBS is the only true single
 4. **`rasdaemon` should be baseline on all PVE hosts, not installed reactively.** It has to be running *before* the event to attribute it. Installing it after two crashes still left crash #3 undecoded — and a machine-check that hangs the box outright may never reach it at all, so it is necessary but not sufficient. → candidate for the `baseline` Ansible role.
 5. **Patroni handled the leader failover unattended and correctly.** The requested "move the primary off Skuld" was already satisfied by automatic failover. **Verify current cluster state before performing a manual switchover** — an unnecessary one is a self-inflicted blip. `patronictl` is not on the default `pct exec` PATH; use `/opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list`.
 6. **A crash that needs a manual power-cycle is a different failure mode than one that auto-resets** and is worth recording as such. #1/#2 auto-reset with a BERT record; #3 wedged for 5 hours with none.
+7. **When a node becomes unreliable, rebalance by *cardinality of the role*, not by count of guests.** The useful question isn't "how much is on Skuld" but "which of these is the only one of its kind". Singleton roles (exit node, PBS) belong on healthy hardware; HA-pair/quorum members (subnet router, etcd, PG replica, AGH replica, K3s CP) are exactly what a sacrificial node should carry, because the failure is designed-for. This is what turned "move Gjallarbru" into "swap Gjallarbru with Heimdall".
+8. **Moving a guest between Proxmox nodes does not require rebuilding it, even under Terraform.** `pct migrate` + a state patch preserves every identity the guest holds downstream (here: the tailnet machine record). Reaching for destroy/recreate because "the IaC says node X" imposes real user-visible churn for a state-file cosmetic.
 
 ## What's still open
 
@@ -103,7 +111,7 @@ Net: the cluster design absorbs a Skuld loss well. **PBS is the only true single
 4. **If it recurs:** check `ras-mc-ctl --summary` / `--errors` **first** (may now have data), then BERT on the new boot, then note whether it auto-reset or required a power-cycle.
 5. **Explain crash #3's divergence** — no BERT, nothing in rasdaemon, 5h wedge. May indicate a hang path distinct from the #1/#2 machine-check.
 6. **Consider adding `rasdaemon` to the `baseline` role** for all PVE hosts (finding 4).
-7. **PBS single-instance exposure** on a node known to be unreliable — worth revisiting placement.
+7. **PBS single-instance exposure** on a node known to be unreliable — worth revisiting placement. **Now the last remaining singleton on Skuld** after the 2026-07-21 Tailscale rebalance, and the same `pct migrate` + state-patch move applies (PBS 1101 lives in `terraform/proxmox/asgard-lxcs/`, API-token module). Blocker to check first: PBS's datastore is NFS bind-mounted via the Proxmox host, so the mount must exist on the target node before the container starts there.
 
 ## Investigation notes
 
