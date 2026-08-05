@@ -7,7 +7,7 @@ Description=Claude Code remote-control (Frigg watchtower)
 Documentation=https://docs.claude.com/en/docs/claude-code
 After=network-online.target
 Wants=network-online.target
-# Don't crash-loop forever if claude exits non-zero repeatedly.
+# Don't restart-loop forever if claude keeps giving up repeatedly.
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -28,7 +28,17 @@ WorkingDirectory={{ control_node_claude_workdir }}
 # worktree rather than mutating the shared checkout.
 ExecStart=/usr/bin/env claude remote-control --spawn worktree
 
-Restart=on-failure
+# claude remote-control exits 0 (not just non-zero) when it gives up after a
+# sustained poll/auth error (observed: transient DNS failure to
+# api.anthropic.com, and separately an invalidated login session) — it
+# doesn't distinguish "stop for good" from "transient, please retry" at the
+# process-exit level. Restart=on-failure would leave the watchtower dead
+# until a human noticed and restarted it by hand (happened twice, 2026-08-02
+# and 2026-08-05). Restart=always covers the exit-0 case too; the
+# StartLimitIntervalSec/Burst pair above still caps a genuine crash-loop
+# (e.g. permanently revoked credentials) at 5 attempts per 5 minutes, so
+# real failures still surface as a failed unit instead of restarting forever.
+Restart=always
 RestartSec=10s
 
 [Install]
