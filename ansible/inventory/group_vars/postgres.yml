@@ -98,6 +98,25 @@ postgres_databases:
   - name: immich
     owner: immich
     password_vault_path: ansible/postgres/immich-password
+    # Immich hard-requires a vector-search extension at server startup
+    # (checks for vchord or pgvector; fails to boot with "No vector
+    # extension found" otherwise). pgvector is PGDG-packaged (postgres
+    # role installs postgresql-{{ postgres_version }}-pgvector on every
+    # node); this creates it in the immich DB specifically.
+    #
+    # cube + earthdistance (geo/"nearby" search) are core PG contrib —
+    # bundled with postgresql-17 itself, no extra package. Immich's own
+    # migration tries `CREATE EXTENSION IF NOT EXISTS earthdistance`, but
+    # the immich DB role isn't superuser, so its own attempt 42501s
+    # ("Must be superuser to create this extension"). Pre-creating here
+    # (postgres-common runs as the postgres superuser) means Immich's
+    # migration finds it already present and the IF-NOT-EXISTS short-
+    # circuits. cube MUST precede earthdistance (dependency) — list order
+    # is creation order (subelements iterates in-order).
+    extensions:
+      - vector
+      - cube
+      - earthdistance
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

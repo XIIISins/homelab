@@ -40,3 +40,19 @@
   loop: "{{ postgres_databases }}"
   loop_control:
     label: "{{ item.name }}"
+
+# Optional per-service extension list (schema: postgres_databases[].extensions
+# — e.g. Immich's `vector`, PGDG-packaged by the postgres role's pgvector
+# install). `subelements` skips entries with no `extensions` key entirely
+# (skip_missing=True), so this is a no-op for every DB that doesn't need one.
+- name: Create per-service PostgreSQL extensions
+  community.postgresql.postgresql_ext:
+    name: "{{ item.1 }}"
+    db: "{{ item.0.name }}"
+    state: present
+    login_unix_socket: /var/run/postgresql
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_databases | subelements('extensions', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}:{{ item.1 }}"

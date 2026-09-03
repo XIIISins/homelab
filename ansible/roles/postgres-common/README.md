@@ -79,4 +79,8 @@ See `defaults/main.yml` for the annotated schema:
 
 Group_vars for `postgres` (`ansible/inventory/group_vars/postgres.yml`)
 overrides `postgres_databases` to declare the per-service DBs that exist
-on this cluster.
+on this cluster. Each entry: `{name, owner, password_vault_path}`, plus an
+optional `extensions: [ext_name, ...]` — creates each named `CREATE
+EXTENSION` in that DB (e.g. Immich's `vector`, PGDG-packaged by the
+`postgres` role). Omit `extensions` entirely for DBs that don't need one;
+`subelements(skip_missing=True)` makes it a no-op.

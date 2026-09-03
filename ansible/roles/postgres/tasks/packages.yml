@@ -67,4 +67,13 @@
       - "postgresql-{{ postgres_version }}"
       - python3-psycopg2
       - python3-cryptography
+      # pgvector — needed by Immich (vector similarity search for face/CLIP
+      # embeddings; Immich hard-requires either pgvector or vchord, checked
+      # at server startup). PGDG-packaged, cluster-wide install (must exist
+      # on every node — a replica promoted to leader without it breaks any
+      # DB that CREATE EXTENSION'd it). Installed unconditionally rather
+      # than gated on postgres_databases containing an `extensions` entry —
+      # cheap (~1MB), avoids a second conditional package-install pass, and
+      # any future extension-needing app benefits without a role change.
+      - "postgresql-{{ postgres_version }}-pgvector"
     state: present
