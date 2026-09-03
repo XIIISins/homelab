@@ -60,7 +60,7 @@ The layer everything else stands on. These are documented in depth under **Compo
 Services that are decided but not yet deployed. Listed here so the catalog reflects intent, not just current state.
 
 - **Jellyfin** — designed (privileged LXC on Urd, QuickSync passthrough); deployment pending. Has its own page already.
-- **Immich** — self-hosted photo/video library for the household. Will reuse Garage (S3) + Postgres, same shape as Outline.
+- **Immich** — self-hosted photo/video library for the household, a secondary copy alongside iCloud/Google Photos. NFS-backed library (Immich has no native S3 support) + Postgres, same PG/identity shape as Outline.
 
 Startpage, MicroBin (which took the slot the originally-planned Privatebin would have), and n8n have since gone live — each now has its own subpage under this section.
 

@@ -4,6 +4,8 @@
 
 Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
+> ⚠️ **This volume layout predates the 2026-05-30 storage-tiering redesign** ([`docs/procedures/synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)) and no longer matches the live NAS (now 5 DSM volumes on the same underlying pool: Proxmox-backup, K8s-NFS, Proxmox-NFS, synology-pkgs, Media-backup — no `immich` share exists yet, see below). Folder-level detail below is historical; volume-level reality is in the redesign doc.
+
 ## Volume 1 — data (~553GB)
 
 | Folder | Protocol | Purpose |
@@ -22,7 +24,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | `media` | NFS+SMB | Movies, TV |
 | `manga` | NFS+SMB | Manga — Komga |
 | `downloads` | NFS | sabnzbd landing zone |
-| `immich` | NFS | Photos/videos (~500GB reserved) |
+| `immich` | NFS | *(planned, not created — see [open-questions.md](../operations/open-questions.md) "Immich" for current sizing, ~1TB)* |
 
 **iSCSI:** SAN Manager installed. Synology CSI creates one target+LUN per PVC (`iqn.2000-01.com.synology:munin.pvc-<uuid>`). LUNs are single-session by default — see [incident log](../incidents/README.md) / known issues re: stale sessions after ungraceful restarts.
 

@@ -149,6 +149,7 @@ External (Cloudflare):
 Internal — midgard (publicly-reachable services, internal alias):
   authentik.midgard.xiiisins.com → 10.0.20.10 (Traefik VIP)
   outline.midgard.xiiisins.com   → 10.0.20.10
+  immich.midgard.xiiisins.com    → 10.0.20.10 (planned)
 
 Internal — niflheim (internal-only):
   saga.niflheim.xiiisins.com        → 10.0.11.201
