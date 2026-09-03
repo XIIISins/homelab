@@ -260,7 +260,7 @@ Runtime quick-reference only. Full K3s install/VM detail in [`docs/services/asga
 
 **In flight / pending:**
 - 🟡 **Phase 6 — Secret mgmt (Vault OIDC) + Frigg watchtower.** Stage 1 (Vault OIDC, `homelab-admin` read-only, `VAULT_ADDR` cut to HTTPS FQDN) ✅. Stage 2 (Frigg HA control-node VM 2900, Vault-backed shim, `claude remote-control` as systemd, remote-host ansible) ✅ core LIVE. Vault listener TLS flip (`tls_disable=1` → cert-manager internal CA) ✅ landed 2026-06-20 (`.11` serves HTTPS, no plaintext endpoint) — no longer a Phase 7 gate; see [`docs/procedures/vault-tls-migration.md`](docs/procedures/vault-tls-migration.md).
-- 🟡 **Services** — Startpage ✅, MicroBin ✅, n8n ✅; **Immich remaining**.
+- ✅ **Services** — Startpage ✅, MicroBin ✅, n8n ✅, Immich ✅.
 - 🔲 Remaining asgard LXCs (Jellyfin — privileged LXC on Urd, QuickSync passthrough)
 - 🔲 **Phase 7 — Jotunheim K3s**
 - 🔲 Phase 8b — vm-operator migration (VLSingle/VMSingle CRDs + VMServiceScrape)
