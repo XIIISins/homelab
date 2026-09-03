@@ -56,6 +56,7 @@ __homelab_op_vault='Homelab 2.0'
 # title — informational only; the UUID is the stable key. To find a UUID:
 #   op item list --vault 'Homelab 2.0' --format=json | jq -r '.[]|"\(.id)\t\(.title)"'
 __op_ansible_vault_k3s='4srpqv2mt2vditxo7g5rqjquti' # [Asgard] - Ansible - Vault - AppRole (ansible-local)
+__op_ansible_vault_frigg='kcmjziie2a75zk4qytdixrprpe' # [Asgard] - Ansible - Vault - AppRole (ansible-frigg)
 __op_cloudflare_tf='ps4mc2hv7a777tzsef755te64m'     # [Asgard] - Terraform - Cloudflare - API token
 __op_authentik_admin='4pxuhyvygrqqeo3vro24bjrhwa'   # [Asgard] - Terraform - Authentik - Admin API token
 __op_adguard_admin='hvh3d7hlivcsbjqqye34f3d7a4'     # [Asgard] - Terraform - AdGuard - Admin login
@@ -108,6 +109,7 @@ __homelab_cache_ttl_seconds=86400
 # secret_id_accessor, expires_at.
 __homelab_approle_items=(
     "ansible-local|${__op_ansible_vault_k3s}"
+    "ansible-frigg|${__op_ansible_vault_frigg}"
     # "ansible-awx|<uuid>"   # add when AWX is deployed
 )
 
@@ -761,8 +763,15 @@ rotate-approle() {
     fi
     echo "✓ Old SecretID revoked."
     echo ""
-    echo "Next: homelab-env  (re-pull new SecretID into env)"
-    echo "Then: unset VAULT_TOKEN; homelab-env --refresh  (clears the cached copy too)"
+    if [ "$role" = "ansible-frigg" ]; then
+        echo "Next: re-seed Frigg's secret-zero file (it doesn't read 1P):"
+        echo "  ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/asgard-control.yml \\"
+        echo "    --tags control-node:vault-env -e control_node_frigg_secret_id=<new-secret-id> -l frigg"
+        echo "Then confirm on Frigg: . /usr/local/bin/homelab-env && homelab-env"
+    else
+        echo "Next: homelab-env  (re-pull new SecretID into env)"
+        echo "Then: unset VAULT_TOKEN; homelab-env --refresh  (clears the cached copy too)"
+    fi
 }
 
 # === Vault-backed env loading (no 1Password) ===
