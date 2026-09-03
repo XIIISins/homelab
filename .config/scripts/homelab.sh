@@ -347,7 +347,7 @@ __homelab_rotate_approle_fix() {
 # === Public: env loading ===
 
 homelab-env() {
-    local refresh=0 clear=0 path removed=0
+    local refresh=0 clear=0 cache_file removed=0
     local errors=0 loaded=0 entry env_var item field value choice choice_status=0
     local age remaining_h ttl_h
 
@@ -380,10 +380,10 @@ homelab-env() {
     done
 
     if [ $clear -eq 1 ]; then
-        for path in "$__homelab_cache_path_fish" "$__homelab_cache_path_sh"; do
-            if [ -f "$path" ]; then
-                rm "$path"
-                echo "Cleared $path"
+        for cache_file in "$__homelab_cache_path_fish" "$__homelab_cache_path_sh"; do
+            if [ -f "$cache_file" ]; then
+                rm "$cache_file"
+                echo "Cleared $cache_file"
                 removed=$((removed + 1))
             fi
         done
@@ -908,7 +908,7 @@ __vault_homelab_cache_write() {
 # --- Public: Vault-backed env loading ---
 
 vault-homelab-env() {
-    local refresh=0 clear=0 path removed=0
+    local refresh=0 clear=0 cache_file removed=0
     local role_id secret_id file_addr vault_token loaded=0
     local entry field env_var value jtmp ktmp ptmp age remaining_h ttl_h
 
@@ -947,10 +947,10 @@ vault-homelab-env() {
     done
 
     if [ $clear -eq 1 ]; then
-        for path in "$__vault_homelab_cache_path_fish" "$__vault_homelab_cache_path_sh"; do
-            if [ -f "$path" ]; then
-                rm "$path"
-                echo "Cleared $path"
+        for cache_file in "$__vault_homelab_cache_path_fish" "$__vault_homelab_cache_path_sh"; do
+            if [ -f "$cache_file" ]; then
+                rm "$cache_file"
+                echo "Cleared $cache_file"
                 removed=$((removed + 1))
             fi
         done
