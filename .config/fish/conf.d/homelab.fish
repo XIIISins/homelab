@@ -758,17 +758,19 @@ function rotate-approle --description "Rotate a Vault AppRole SecretID"
     end
 end
 
-# rotate-vault-root-token — mint a fresh Vault root token, verify it, save it
-# to 1P (hash-verified), THEN revoke the old one. Same mint-before-revoke
-# safety shape as rotate-approle, but for the one credential that unlocks
-# everything else — so it adds two checks rotate-approle doesn't need: the
-# new token must -orphan (else revoking the old PARENT token cascades and
-# kills the brand-new child too — the single most important correctness
-# detail here) and must pass a LIVE lookup against Vault before the old one
-# is touched. Requires an interactive terminal (the confirm-before-revoke
-# prompt reads stdin) — won't complete end-to-end from a non-interactive
-# caller, by design. Bash/zsh twin: .config/scripts/homelab.sh — keep both
-# in sync.
+# rotate-vault-root-token — mint a fresh Vault root token, have the human
+# paste it into 1P (print-and-paste, NOT `op item edit` — a live run proved
+# that reports success while silently not writing; see the step-3 comment
+# below), hash-verify the paste, THEN revoke the old token. Same
+# mint-before-revoke safety shape as rotate-approle, but for the one
+# credential that unlocks everything else — so it adds two checks
+# rotate-approle doesn't need: the new token must -orphan (else revoking the
+# old PARENT token cascades and kills the brand-new child too — the single
+# most important correctness detail here) and must pass a LIVE lookup
+# against Vault before the old one is touched. Requires an interactive
+# terminal (the confirm-before-revoke prompt reads stdin) — won't complete
+# end-to-end from a non-interactive caller, by design. Bash/zsh twin:
+# .config/scripts/homelab.sh — keep both in sync.
 function rotate-vault-root-token --description "Rotate the Vault root token + update 1P"
     if not set -q VAULT_TOKEN
         echo "rotate-vault-root-token: VAULT_TOKEN not set. Run: set-vault-token root" >&2
@@ -820,29 +822,34 @@ function rotate-vault-root-token --description "Rotate the Vault root token + up
     end
     echo "New accessor: $new_accessor"
 
-    # Step 3: write to 1P. Shell-var arg form, never stdin — the
-    # `vault kv patch <field>=-` stdin pattern has silently produced wrong
-    # values before (known-issues/vault.md); same risk applies to `op`.
-    echo "Writing new token to 1P..."
-    op item edit "$__op_vault_root" "password=$new_token" >/dev/null 2>&1
-    if test $status -ne 0
-        echo "rotate-vault-root-token: 1P write failed. The new token (accessor $new_accessor) is live but saved NOWHERE durable yet — do not close this terminal." >&2
-        echo "Retry: op item edit \"$__op_vault_root\" \"password=\$new_token\" (the value is in \$new_token in THIS shell if you're debugging inline)." >&2
-        echo "Or abandon it: vault token revoke -accessor $new_accessor" >&2
-        return 1
-    end
+    # Step 3: human pastes into 1P — NOT an automated `op item edit`.
+    # rotate-approle already established why: 1Password's CLI is documented
+    # as unreliable for editing certain item fields (known-issues/vault.md —
+    # a Password item's field can reject or silently no-op an edit). A live
+    # run of this exact function proved it: `op item edit` returned success
+    # but the value never actually landed. Print-and-paste is the proven
+    # working pattern here, same as rotate-approle.
+    echo ""
+    echo "Update 1P item \"$__op_vault_root\" with this value:"
+    echo ""
+    echo "  password = $new_token"
+    echo ""
+    echo "Both old and new tokens are currently valid."
+    read -P "Press enter once 1P is updated (Ctrl+C aborts, leaving both valid): " _ack
 
-    # Step 4: hash-verify the round-trip — never diff literal secret values.
-    # `op read` appends a trailing newline to its stdout; piping it straight
-    # into shasum hashes "token\n", not "token" — capture into a variable
-    # FIRST (command substitution strips trailing newlines in fish too) so
-    # both sides hash the identical newline-free value.
+    # Step 4: hash-verify what the human actually pasted — never diff
+    # literal secret values. `op read` appends a trailing newline to
+    # stdout; piping it straight into shasum hashes "token\n", not "token"
+    # — capture into a variable FIRST (command substitution strips
+    # trailing newlines in fish too) so both sides hash the identical
+    # newline-free value.
     set -l source_hash (echo -n "$new_token" | shasum -a 256 | cut -d' ' -f1)
     set -l verify_value (op read "op://$__homelab_op_vault/$__op_vault_root/password" 2>/dev/null)
     set -l verify_hash (echo -n "$verify_value" | shasum -a 256 | cut -d' ' -f1)
     set -e verify_value
     if test "$source_hash" != "$verify_hash"
-        echo "rotate-vault-root-token: 1P write verification FAILED (hash mismatch) — do NOT proceed. Old token is still untouched and still works." >&2
+        echo "rotate-vault-root-token: 1P doesn't hold the new token (hash mismatch) — do NOT proceed. Old token is untouched and still works." >&2
+        echo "Check the paste (field must be named exactly 'password') and re-run this function — it'll mint a fresh token again, which is fine, the un-pasted one here is just abandoned." >&2
         return 1
     end
     echo "✓ 1P write verified (hash match)."
@@ -856,9 +863,6 @@ function rotate-vault-root-token --description "Rotate the Vault root token + up
         return 1
     end
     echo "✓ New token verified live against Vault."
-    echo ""
-    echo "Both tokens are currently valid."
-    read -P "Press enter to revoke the OLD root token (accessor $old_accessor) now — Ctrl+C aborts, leaving both valid: " _ack
 
     # Step 6: revoke old. By accessor, not by value — never puts the old
     # token's literal value anywhere.
