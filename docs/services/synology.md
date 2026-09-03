@@ -24,7 +24,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 | `media` | NFS+SMB | Movies, TV |
 | `manga` | NFS+SMB | Manga — Komga |
 | `downloads` | NFS | sabnzbd landing zone |
-| `immich` | NFS | *(planned, not created — see [open-questions.md](../operations/open-questions.md) "Immich" for current sizing, ~1TB)* |
+| `immich` | NFS | *(planned, not created — new shared folder on the "K8s NFS" volume, expanded incrementally starting small; see [open-questions.md](../operations/open-questions.md) "Immich")* |
 
 **iSCSI:** SAN Manager installed. Synology CSI creates one target+LUN per PVC (`iqn.2000-01.com.synology:munin.pvc-<uuid>`). LUNs are single-session by default — see [incident log](../incidents/README.md) / known issues re: stale sessions after ungraceful restarts.
 
