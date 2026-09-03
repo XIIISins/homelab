@@ -148,9 +148,16 @@ __homelab_fish_quote() {
 __homelab_cache_age_seconds() {
     # Returns 1 if cache missing or stat fails; else prints seconds since mtime.
     [ -f "$__homelab_cache_path_sh" ] || return 1
-    # macOS BSD stat; control node is macOS.
+    # `date -r <file> +%s` gives file mtime as epoch seconds identically on
+    # BSD/macOS date AND GNU/Linux date — unlike `stat`, whose -f flag means
+    # opposite things on the two (BSD: format string; GNU: filesystem, not
+    # file, status). This file is sourced on both the macOS MacBook and
+    # Frigg (Linux) — a bare `stat -f %m` broke this function on Frigg with
+    # "cannot read file system information for '%m'" (found + fixed
+    # 2026-09-03, alongside the zsh `local path` PATH-emptying bug — see
+    # known-issues/shell-tooling.md for both).
     local mtime now
-    mtime=$(stat -f %m "$__homelab_cache_path_sh") || return 1
+    mtime=$(date -r "$__homelab_cache_path_sh" +%s) || return 1
     now=$(date +%s)
     printf '%s\n' $((now - mtime))
 }
@@ -859,8 +866,9 @@ __vault_homelab_read_approle() {
 
 __vault_homelab_cache_age_seconds() {
     [ -f "$__vault_homelab_cache_path_sh" ] || return 1
+    # See __homelab_cache_age_seconds above for why `date -r` and not `stat -f`.
     local mtime now
-    mtime=$(stat -f %m "$__vault_homelab_cache_path_sh") || return 1
+    mtime=$(date -r "$__vault_homelab_cache_path_sh" +%s) || return 1
     now=$(date +%s)
     printf '%s\n' $((now - mtime))
 }
