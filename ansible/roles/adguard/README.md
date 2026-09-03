@@ -23,6 +23,7 @@ Part of Phase 5b.2 — replaces the manually-installed AGH from the early homela
 - **Rewrites / clients / filters** — operator owns these via the Saga web UI; adguardhome-sync mirrors to replicas.
 - **VIP floating** — separate keepalived role.
 - **Bootstrapping the admin password** — the bcrypt hash lives in Vault at `secret/ansible/adguard/admin-password-hash` key `hash`. Mint with `htpasswd -bnBC 10 "" "<password>" | tr -d ':\n'` and stash in Vault + 1P "Asgard - AdGuard - admin login".
+- **Rotating the admin password on an already-bootstrapped node** — pushing a new hash to Vault + re-running this role does NOT work (the config-render task only fires when the file is missing, by design — see step 5 above). Needs a surgical live edit instead; full procedure + two sub-gotchas (sed delimiter vs bcrypt `/`, bcrypt hash-compare isn't a valid verify) in [`docs/known-issues/dns-adguard.md`](../../../docs/known-issues/dns-adguard.md).
 
 ## Variables
 
