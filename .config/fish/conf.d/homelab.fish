@@ -781,13 +781,21 @@ function rotate-vault-root-token --description "Rotate the Vault root token + up
 
     echo "Rotating Vault root token (1P item: \"$__op_vault_root\")"
 
-    # Step 1: snapshot the CURRENT token's accessor before anything else —
-    # -field, never -format=json (which prints the literal token value; see
-    # the shell-tooling gotcha this mistake already produced once).
-    set -l old_accessor (vault token lookup -field=accessor 2>&1)
+    # Step 1: snapshot the CURRENT token's accessor before anything else.
+    # `vault token lookup` has NO `-field` flag (only `-format`) — capture
+    # the full `-format=json` (which DOES include the literal token value at
+    # .data.id) into a local var, pull out only the accessor via jq, then
+    # `set -e` the var. Never echo/return `$old_lookup_json` itself.
+    set -l old_lookup_json (vault token lookup -format=json 2>&1)
     if test $status -ne 0
-        echo "rotate-vault-root-token: couldn't look up the current token's accessor — is VAULT_TOKEN actually a valid root token?" >&2
-        echo "$old_accessor" >&2
+        echo "rotate-vault-root-token: couldn't look up the current token — is VAULT_TOKEN actually a valid root token?" >&2
+        echo "$old_lookup_json" >&2
+        return 1
+    end
+    set -l old_accessor (echo $old_lookup_json | jq -r '.data.accessor')
+    set -e old_lookup_json
+    if test -z "$old_accessor"; or test "$old_accessor" = null
+        echo "rotate-vault-root-token: couldn't parse the accessor out of the lookup response." >&2
         return 1
     end
     echo "Old accessor: $old_accessor"

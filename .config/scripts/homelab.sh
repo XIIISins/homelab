@@ -794,7 +794,7 @@ rotate-approle() {
 # prompt reads stdin) — won't complete end-to-end from a non-interactive
 # caller, by design.
 rotate-vault-root-token() {
-    local old_accessor new_json new_token new_accessor source_hash verify_hash _ignored
+    local old_lookup_json old_accessor new_json new_token new_accessor source_hash verify_hash _ignored
 
     if [ -z "${VAULT_TOKEN:-}" ]; then
         echo "rotate-vault-root-token: VAULT_TOKEN not set. Run: set-vault-token root" >&2
@@ -807,12 +807,20 @@ rotate-vault-root-token() {
 
     echo "Rotating Vault root token (1P item: \"$__op_vault_root\")"
 
-    # Step 1: snapshot the CURRENT token's accessor before anything else —
-    # -field, never -format=json (which prints the literal token value; see
-    # the shell-tooling gotcha this mistake already produced once).
-    if ! old_accessor=$(vault token lookup -field=accessor 2>&1); then
-        echo "rotate-vault-root-token: couldn't look up the current token's accessor — is VAULT_TOKEN actually a valid root token?" >&2
-        echo "$old_accessor" >&2
+    # Step 1: snapshot the CURRENT token's accessor before anything else.
+    # `vault token lookup` has NO `-field` flag (only `-format`) — capture
+    # the full `-format=json` (which DOES include the literal token value at
+    # .data.id) into a local var, pull out only the accessor via jq, then
+    # `unset` the var. Never echo/return `$old_lookup_json` itself.
+    if ! old_lookup_json=$(vault token lookup -format=json 2>&1); then
+        echo "rotate-vault-root-token: couldn't look up the current token — is VAULT_TOKEN actually a valid root token?" >&2
+        echo "$old_lookup_json" >&2
+        return 1
+    fi
+    old_accessor=$(printf '%s' "$old_lookup_json" | jq -r '.data.accessor')
+    unset old_lookup_json
+    if [ -z "$old_accessor" ] || [ "$old_accessor" = "null" ]; then
+        echo "rotate-vault-root-token: couldn't parse the accessor out of the lookup response." >&2
         return 1
     fi
     echo "Old accessor: $old_accessor"
