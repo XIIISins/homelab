@@ -122,3 +122,14 @@ n8n-admins:
   # depth — so membership here == "can reach the n8n login screen", not
   # automatic n8n access. is_superuser=false (no Authentik-side privileges);
   # gating is the per-app policy binding only.
+
+immich-users:
+  is_superuser: false
+  # Members can authenticate to Immich (immich.xiiisins.com /
+  # immich.midgard.xiiisins.com) via the native OIDC Application (see
+  # immich.tf for the policy binding). Immich has no OIDC-claim → role
+  # mapping in the client-secret-only setup here, so every member lands
+  # as a normal Immich user (first-ever local admin account, created via
+  # Immich's own first-run wizard, keeps admin rights). is_superuser=false
+  # (no Authentik-side privileges); gating is the per-app policy binding
+  # only.

@@ -1,0 +1,88 @@
+# k8s/asgard/apps/immich/helmrelease.yaml
+#
+# Official immich-app/immich-charts chart, built on the bjw-s
+# common-library. Values verified against a real `helm template` render
+# (chart 0.13.1 / app v3.0.0) before landing here — see
+# docs/operations/open-questions.md "Immich" for the schema notes.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: immich
+      version: "0.13.1" # concrete pin (CLAUDE.md no-floats rule); app v3.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: immich
+        namespace: immich
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+
+  values:
+    # ── Shared across server + machine-learning (the chart's own docs:
+    # "these entries are shared between all the Immich components") ────
+    controllers:
+      main:
+        containers:
+          main:
+            env:
+              # DB_URL (not discrete DB_HOSTNAME/etc.) so the
+              # sslmode+uselibpqcompat query params can ride along.
+              # Patroni's pg_hba is hostssl-only (TLS mandatory) but its
+              # leader cert is self-signed — plain sslmode=require still
+              # verifies the chain and fails; uselibpqcompat=true is
+              # Immich's current documented escape hatch (the analogue of
+              # Outline's sslmode=no-verify / n8n's REJECT_UNAUTHORIZED=false).
+              DB_URL:
+                valueFrom:
+                  secretKeyRef:
+                    name: immich-app
+                    key: DB_URL
+
+    # ── Photo/video library — NFS PVC, not Garage/S3 (Immich has no
+    # native S3 backend; see decisions.md "Immich storage backend") ────
+    immich:
+      persistence:
+        library:
+          existingClaim: immich-library
+
+    # ── Redis/valkey — bundled, emptyDir (cache-class job-queue state,
+    # cheap to rebuild on restart, same posture as Outline's redis) ────
+    valkey:
+      enabled: true
+
+    server:
+      enabled: true
+      controllers:
+        main:
+          # Immich runs DB migrations on server startup; Recreate avoids
+          # an old+new pod briefly co-existing during a rolling update
+          # and racing migrations (the Outline/n8n precedent for any
+          # app that migrates on boot). Single replica by chart default.
+          strategy: Recreate
+      ingress:
+        main:
+          enabled: false # Gateway API HTTPRoute instead (httproute.yaml)
+
+    machine-learning:
+      enabled: true
+      persistence:
+        cache:
+          # Downloaded face-recognition/CLIP model files — small,
+          # re-downloadable, NOT the photo library. local-path (per-worker
+          # 50G disk, already provisioned) per decisions.md; the chart's
+          # own commented example suggests ReadWriteMany, which local-path
+          # (node-local, RWO-only) can't satisfy — override required.
+          enabled: true
+          type: persistentVolumeClaim
+          size: 10Gi
+          accessMode: ReadWriteOnce
+          storageClass: local-path

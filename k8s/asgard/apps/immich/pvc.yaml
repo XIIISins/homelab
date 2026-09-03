@@ -1,0 +1,31 @@
+# k8s/asgard/apps/immich/pvc.yaml
+#
+# Immich's UPLOAD_LOCATION — originals, thumbnails, encoded video,
+# profile pics, and DB backups all live under this one mount (Immich has
+# no per-subdir override and no native S3 backend — see
+# docs/operations/decisions.md "Immich storage backend — NFS, not Garage").
+#
+# `nfs-client` — same StorageClass/export MicroBin already uses
+# (k8s-nfs on Munin's Volume2), NOT a new dedicated share. csi-driver-nfs
+# enforces no per-PVC quota and DSM's shared folder carries none either,
+# so `storage:` below is nominal — it doesn't reserve anything on the NAS.
+# The real ceiling is Volume2 itself, left untouched at its current size
+# for now (operator's call — grow it live via DSM Storage Manager
+# whenever actually needed, no PVC edit or pod restart required either
+# way). 200Gi here is just so `kubectl get pvc` isn't misleadingly small.
+#
+# RWO is intentional: Immich's server is a single replica (Recreate
+# strategy — see helmrelease.yaml). NFS still lets the PV re-attach on a
+# different node after the old pod terminates.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library
+  namespace: immich
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 200Gi

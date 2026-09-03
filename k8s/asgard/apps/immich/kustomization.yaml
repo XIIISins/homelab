@@ -1,0 +1,10 @@
+# k8s/asgard/apps/immich/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - externalsecret.yaml
+  - helmrepository.yaml
+  - helmrelease.yaml
+  - httproute.yaml

@@ -1,0 +1,16 @@
+# k8s/asgard/apps/immich/helmrepository.yaml
+#
+# OCI HelmRepository — immich-app/immich-charts publishes only via OCI
+# (oci://ghcr.io/immich-app/immich-charts/immich); the old HTTP index at
+# https://immich-app.github.io/immich-charts/ was retired and no longer
+# receives updates. Same pattern as netbox/victoriametrics (see their
+# helmrepository.yaml).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  type: oci
+  interval: 1h
+  url: oci://ghcr.io/immich-app/immich-charts

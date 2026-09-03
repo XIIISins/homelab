@@ -58,3 +58,11 @@ resources:
   # VIP, encryption key from Vault, NO PVC (stateless-on-disk). See
   # terraform/{vault,authentik,cloudflare,adguard}/ + docs/services/n8n.md.
   - n8n
+  # Immich — photo/video library for the operator + direct family
+  # (secondary copy alongside iCloud/Google Photos). NFS library PVC
+  # (nfs-client, same k8s-nfs export as MicroBin — Immich has no native
+  # S3 backend), local-path ML-model-cache PVC, Postgres via Patroni VIP,
+  # Authentik OIDC (manual one-time Admin Settings paste — see
+  # helmrelease.yaml + open-questions.md "Immich"). External apex +
+  # midgard alias, no niflheim route.
+  - immich

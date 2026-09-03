@@ -70,6 +70,18 @@ resource "cloudflare_dns_record" "outline" {
   ttl     = 1
 }
 
+# Immich — public apex hostname tunnelled through cloudflared.
+# Cloudflared ingress rule lives in k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+# Internal LAN bypass via AGH rewrite (terraform/adguard/) to Traefik VIP.
+resource "cloudflare_dns_record" "immich" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "immich.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+
 # Zabbix (Hugin) — public apex hostname tunnelled through cloudflared.
 # Phase 8c.5 (WAN ingress). Cloudflared ingress rule lives in
 # k8s/asgard/infrastructure/cloudflared/configmap.yaml — pattern mirrors

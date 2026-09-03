@@ -90,6 +90,14 @@ postgres_databases:
   - name: n8n
     owner: n8n
     password_vault_path: ansible/postgres/n8n-password
+  # Immich photo/video library, asgard K3s (k8s/asgard/apps/immich/).
+  # Standard CREATE DATABASE immich OWNER immich — Immich runs its own
+  # migrations on server startup. Password minted by terraform/vault/ as
+  # random_password.immich_postgres, dual-pathed to ansible/postgres/immich-password
+  # (this role) and k8s/immich/postgres-password (ESO in the immich namespace).
+  - name: immich
+    owner: immich
+    password_vault_path: ansible/postgres/immich-password
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

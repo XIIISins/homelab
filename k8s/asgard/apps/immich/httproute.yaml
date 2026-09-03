@@ -1,0 +1,30 @@
+# k8s/asgard/apps/immich/httproute.yaml
+#
+# Single HTTPRoute on the midgard Gateway — apex (public, via cloudflared)
+# + midgard alias (LAN-fast-path). No niflheim-only route: Immich is a
+# family-facing service, not operator-only, so there's no internal-only
+# hostname to add (unlike Outline, which also gets a niflheim route).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: immich-midgard
+  namespace: immich
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-midgard
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-apex-wildcard
+  hostnames:
+    - immich.midgard.xiiisins.com
+    - immich.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: immich-server
+          port: 2283

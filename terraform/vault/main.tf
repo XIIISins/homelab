@@ -817,3 +817,29 @@ resource "vault_kv_secret_v2" "n8n_postgres_k8s" {
     value = random_password.n8n_postgres.result
   })
 }
+
+# Immich photo/video library, asgard K3s (k8s/asgard/apps/immich/).
+# Standard CREATE DATABASE immich OWNER immich — Immich runs its own
+# migrations on server startup. Dual-pathed to ansible/postgres/immich-password
+# (postgres-common role) and k8s/immich/postgres-password (ESO in the
+# immich namespace).
+resource "random_password" "immich_postgres" {
+  length  = 32
+  special = false # plain alphanumeric — no connection-string quoting hazards
+}
+
+resource "vault_kv_secret_v2" "immich_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/immich-password"
+  data_json = jsonencode({
+    value = random_password.immich_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "immich_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/immich/postgres-password"
+  data_json = jsonencode({
+    value = random_password.immich_postgres.result
+  })
+}

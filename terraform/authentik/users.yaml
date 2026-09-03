@@ -42,3 +42,4 @@ ghost:
     - vault-admins
     - paste-janitors
     - n8n-admins
+    - immich-users

@@ -143,6 +143,7 @@ locals {
     # ── midgard.xiiisins.com — internal-fast-path for tunnelled svcs ──
     "authentik.midgard.xiiisins.com" = "10.0.20.10"
     "wiki.midgard.xiiisins.com"      = "10.0.20.10"
+    "immich.midgard.xiiisins.com"    = "10.0.20.10"
     # n8n webhook LAN-fast-path. The midgard HTTPRoute (like the apex one)
     # exposes ONLY the /webhook/* paths — NOT the editor — so a LAN client
     # hitting n8n.midgard reaches the webhook handler without the Cloudflare

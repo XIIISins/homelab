@@ -116,6 +116,17 @@ data:
           httpHostHeader: n8n.xiiisins.com
           noTLSVerify: true
 
+      # Immich — public photo/video library. Same Traefik backchannel
+      # pattern as Outline above; the midgard Gateway's apex-wildcard
+      # listener routes immich.xiiisins.com via the immich HTTPRoute to
+      # the immich-server Service. CF DNS record: cloudflare_dns_record.immich
+      # in terraform/cloudflare/main.tf.
+      - hostname: immich.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: immich.xiiisins.com
+          noTLSVerify: true
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404
