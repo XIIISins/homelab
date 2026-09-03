@@ -25,6 +25,8 @@
 #   set-aws-creds         — set AWS_ACCESS_KEY_ID/SECRET from 1P (bootstrap|state)
 #   set-proxmox-password  — set PROXMOX_VE_PASSWORD from 1P (manual; for asgard-lxcs-root)
 #   rotate-approle        — rotate a Vault AppRole SecretID (--help, --fix)
+#   rotate-vault-root-token — rotate the Vault root token + update 1P (needs
+#                           an interactive terminal — confirms before revoke)
 #
 # Extending:
 #   - New env var loaded by homelab-env: append to __homelab_env_map.
@@ -779,6 +781,106 @@ rotate-approle() {
         echo "Next: homelab-env  (re-pull new SecretID into env)"
         echo "Then: unset VAULT_TOKEN; homelab-env --refresh  (clears the cached copy too)"
     fi
+}
+
+# rotate-vault-root-token — mint a fresh Vault root token, verify it, save it
+# to 1P (hash-verified), THEN revoke the old one. Same mint-before-revoke
+# safety shape as rotate-approle, but for the one credential that unlocks
+# everything else — so it adds two checks rotate-approle doesn't need: the
+# new token must -orphan (else revoking the old PARENT token cascades and
+# kills the brand-new child too — the single most important correctness
+# detail here) and must pass a LIVE lookup against Vault before the old one
+# is touched. Requires an interactive terminal (the confirm-before-revoke
+# prompt reads stdin) — won't complete end-to-end from a non-interactive
+# caller, by design.
+rotate-vault-root-token() {
+    local old_accessor new_json new_token new_accessor source_hash verify_hash _ignored
+
+    if [ -z "${VAULT_TOKEN:-}" ]; then
+        echo "rotate-vault-root-token: VAULT_TOKEN not set. Run: set-vault-token root" >&2
+        return 1
+    fi
+    if [ -z "${VAULT_ADDR:-}" ]; then
+        echo "rotate-vault-root-token: VAULT_ADDR not set. Run: homelab-env" >&2
+        return 1
+    fi
+
+    echo "Rotating Vault root token (1P item: \"$__op_vault_root\")"
+
+    # Step 1: snapshot the CURRENT token's accessor before anything else —
+    # -field, never -format=json (which prints the literal token value; see
+    # the shell-tooling gotcha this mistake already produced once).
+    if ! old_accessor=$(vault token lookup -field=accessor 2>&1); then
+        echo "rotate-vault-root-token: couldn't look up the current token's accessor — is VAULT_TOKEN actually a valid root token?" >&2
+        echo "$old_accessor" >&2
+        return 1
+    fi
+    echo "Old accessor: $old_accessor"
+
+    # Step 2: mint the replacement. -orphan is load-bearing (see header) —
+    # without it the new token is a CHILD of the one about to be revoked in
+    # Step 6, and would die with its parent. -ttl=0 matches a root token's
+    # conventional shape (no expiration; confirmed against the live token's
+    # own `creation_ttl: 0` / `expire_time: null` before writing this).
+    echo "Minting new root token (orphan, no TTL)..."
+    if ! new_json=$(vault token create -policy=root -orphan -ttl=0 -format=json 2>&1); then
+        echo "rotate-vault-root-token: mint failed. Old token untouched." >&2
+        echo "$new_json" >&2
+        return 1
+    fi
+    new_token=$(printf '%s' "$new_json" | jq -r '.auth.client_token')
+    new_accessor=$(printf '%s' "$new_json" | jq -r '.auth.accessor')
+    if [ -z "$new_token" ] || [ "$new_token" = "null" ]; then
+        echo "rotate-vault-root-token: couldn't parse the new token out of the mint response. Old token untouched." >&2
+        return 1
+    fi
+    echo "New accessor: $new_accessor"
+
+    # Step 3: write to 1P. Shell-var arg form, never stdin — the
+    # `vault kv patch <field>=-` stdin pattern has silently produced wrong
+    # values before (known-issues/vault.md); same risk applies to `op`.
+    echo "Writing new token to 1P..."
+    if ! op item edit "$__op_vault_root" "password=$new_token" >/dev/null 2>&1; then
+        echo "rotate-vault-root-token: 1P write failed. The new token (accessor $new_accessor) is live but saved NOWHERE durable yet — do not close this terminal." >&2
+        echo "Retry: op item edit \"$__op_vault_root\" \"password=\$new_token\" (the value is in \$new_token in THIS shell if you're debugging inline)." >&2
+        echo "Or abandon it: vault token revoke -accessor $new_accessor" >&2
+        return 1
+    fi
+
+    # Step 4: hash-verify the round-trip — never diff literal secret values.
+    source_hash=$(printf '%s' "$new_token" | shasum -a 256 | cut -d' ' -f1)
+    verify_hash=$(op read "op://$__homelab_op_vault/$__op_vault_root/password" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+    if [ "$source_hash" != "$verify_hash" ]; then
+        echo "rotate-vault-root-token: 1P write verification FAILED (hash mismatch) — do NOT proceed. Old token is still untouched and still works." >&2
+        return 1
+    fi
+    echo "✓ 1P write verified (hash match)."
+
+    # Step 5: prove the new token actually works, live, before burning the
+    # only other valid one. A parse-succeeded mint is not the same as a
+    # working credential.
+    if ! VAULT_TOKEN="$new_token" vault token lookup >/dev/null 2>&1; then
+        echo "rotate-vault-root-token: new token failed a live lookup against Vault. NOT revoking the old one. Investigate before retrying." >&2
+        return 1
+    fi
+    echo "✓ New token verified live against Vault."
+    echo ""
+    echo "Both tokens are currently valid."
+    _ignored=$(__homelab_prompt "Press enter to revoke the OLD root token (accessor $old_accessor) now — Ctrl+C aborts, leaving both valid: ")
+
+    # Step 6: revoke old. By accessor, not by value — never puts the old
+    # token's literal value anywhere.
+    echo "Revoking old token..."
+    if ! vault token revoke -accessor "$old_accessor"; then
+        echo "rotate-vault-root-token: revoke failed. New token is live + saved in 1P; old token may still work too — revoke manually:" >&2
+        echo "  vault token revoke -accessor $old_accessor" >&2
+        return 1
+    fi
+    echo "✓ Old root token revoked."
+    echo ""
+    echo "Next: unset VAULT_TOKEN; set-vault-token root   (loads the new token into this shell)"
+    echo "Any OTHER shell/session still holding the old VAULT_TOKEN (incl. ~/.cache/homelab/env.sh"
+    echo "if this session ran set-vault-token root earlier) is now dead — re-run set-vault-token root there too."
 }
 
 # === Vault-backed env loading (no 1Password) ===
