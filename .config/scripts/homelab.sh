@@ -856,8 +856,15 @@ rotate-vault-root-token() {
     fi
 
     # Step 4: hash-verify the round-trip — never diff literal secret values.
+    # `op read` appends a trailing newline to its stdout; piping it straight
+    # into shasum hashes "token\n", not "token" — capture into a variable
+    # FIRST (command substitution strips trailing newlines in bash/zsh) so
+    # both sides hash the identical newline-free value.
+    local verify_value
     source_hash=$(printf '%s' "$new_token" | shasum -a 256 | cut -d' ' -f1)
-    verify_hash=$(op read "op://$__homelab_op_vault/$__op_vault_root/password" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+    verify_value=$(op read "op://$__homelab_op_vault/$__op_vault_root/password" 2>/dev/null)
+    verify_hash=$(printf '%s' "$verify_value" | shasum -a 256 | cut -d' ' -f1)
+    unset verify_value
     if [ "$source_hash" != "$verify_hash" ]; then
         echo "rotate-vault-root-token: 1P write verification FAILED (hash mismatch) — do NOT proceed. Old token is still untouched and still works." >&2
         return 1
