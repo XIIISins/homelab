@@ -50,17 +50,26 @@ terraform output -raw terraform_state_secret_access_key; echo
 `-replace` destroys the old key and creates a new one atomically — no separate cleanup step. Paste the two output values into 1Password (`[Asgard] - Terraform - AWS - State access key`: `username` = access key id, `credential` = secret), then sync the rest:
 
 ```fish
-printf '%s' "$(terraform output -raw terraform_state_secret_access_key)" | shasum -a 256 | cut -c1-16
-printf '%s' (op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential') | shasum -a 256 | cut -c1-16
-AWS_ACCESS_KEY_ID=$(terraform output -raw terraform_state_access_key_id) AWS_SECRET_ACCESS_KEY=$(terraform output -raw terraform_state_secret_access_key) aws sts get-caller-identity
-
-cd ..
-set-vault-token root
-vault kv patch secret/ansible/frigg/iac-env aws_access_key_id=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/username') aws_secret_access_key=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential')
-set-aws-creds state
+set TF_HASH (printf '%s' "$(terraform output -raw terraform_state_secret_access_key)" | shasum -a 256 | cut -c1-16)
+set OP_HASH (printf '%s' (op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential') | shasum -a 256 | cut -c1-16)
+echo "terraform: $TF_HASH  1Password: $OP_HASH"
+if test "$TF_HASH" != "$OP_HASH"
+    cd ..
+    echo "STOP: 1Password doesn't match the new terraform output — paste didn't land, or went to the GUI wrong. Not propagating."
+else if AWS_ACCESS_KEY_ID=$(terraform output -raw terraform_state_access_key_id) AWS_SECRET_ACCESS_KEY=$(terraform output -raw terraform_state_secret_access_key) aws sts get-caller-identity >/dev/null
+    echo "new key confirmed live against AWS"
+    cd ..
+    set-vault-token root
+    vault kv patch secret/ansible/frigg/iac-env aws_access_key_id=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/username') aws_secret_access_key=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential')
+    set-aws-creds state
+else
+    cd ..
+    echo "STOP: 1Password matches, but AWS itself rejected the key (sts get-caller-identity failed) — investigate before propagating to frigg/iac-env."
+end
+set -e TF_HASH OP_HASH
 ```
 
-The first two lines hash-verify the 1Password write landed; the `sts get-caller-identity` call confirms the new key actually authenticates before you swap back off the bootstrap identity.
+The hash-compare confirms the 1Password write landed; the `sts get-caller-identity` call confirms the new key actually authenticates. Neither step propagates to `frigg/iac-env` or swaps you off the bootstrap identity unless both pass.
 
 ---
 
@@ -83,24 +92,26 @@ Rotate the **Terraform Cloudflare** token (the routine case) **from `https://das
 set CF_TOKEN (op read "op://Homelab 2.0/ps4mc2hv7a777tzsef755te64m/credential")
 ```
 
-Verify against the endpoint matching the token's prefix — using the wrong one reads as "invalid" for an otherwise-working token:
+Verify against the endpoint matching the token's prefix before propagating anywhere — using the wrong one reads as "invalid" for an otherwise-working token:
 - `cfut_...` (User, from the profile page) → `https://api.cloudflare.com/client/v4/user/tokens/verify`
 - `cfat_...` (Account, from the account page) → `https://api.cloudflare.com/client/v4/accounts/<id>/tokens/verify`
 
-```fish
-curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer $CF_TOKEN" | jq .
-```
-
-Propagate to every consumer (**not** `secret/k8s/cert-manager/cloudflare` — that path belongs to the separate dedicated token):
+Propagate to every consumer only if it verifies (**not** `secret/k8s/cert-manager/cloudflare` — that path belongs to the separate dedicated token):
 
 ```fish
-set-vault-token root
-vault kv patch secret/ansible/cloudflare/api-token value="$CF_TOKEN"
-vault kv patch secret/ansible/frigg/iac-env cloudflare_api_token="$CF_TOKEN"
-printf '%s' "$CF_TOKEN" | shasum -a 256 | cut -c1-16
-vault kv get -field=value secret/ansible/cloudflare/api-token | shasum -a 256 | cut -c1-16
-vault kv get -field=cloudflare_api_token secret/ansible/frigg/iac-env | shasum -a 256 | cut -c1-16
-set -e CF_TOKEN
+set CF_VERIFY (curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer $CF_TOKEN" | jq -c '.')
+printf '%s' $CF_VERIFY | jq .
+if test (printf '%s' $CF_VERIFY | jq -r '.success') != "true"
+    echo "STOP: didn't verify — wrong endpoint for this token's prefix (see above), or the dashboard roll/paste didn't land. Not propagating."
+else
+    set-vault-token root
+    vault kv patch secret/ansible/cloudflare/api-token value="$CF_TOKEN"
+    vault kv patch secret/ansible/frigg/iac-env cloudflare_api_token="$CF_TOKEN"
+    printf '%s' "$CF_TOKEN" | shasum -a 256 | cut -c1-16
+    vault kv get -field=value secret/ansible/cloudflare/api-token | shasum -a 256 | cut -c1-16
+    vault kv get -field=cloudflare_api_token secret/ansible/frigg/iac-env | shasum -a 256 | cut -c1-16
+end
+set -e CF_TOKEN CF_VERIFY
 ```
 Both hash lines should match the first one.
 
@@ -231,24 +242,35 @@ set -e TOKENS_JSON OLD_CANDIDATES OLD_COUNT OLD_ID NEW_NETBOX_TOKEN
 
 ## Semaphore API token
 
-**1Password item: `[Asgard] - Terraform - Semaphore - Admin API token`, UUID `24fmbstdhqzwk6eeru4vvaixsm`.** API-driven, and (unlike NetBox) its create response **does** return the real secret in full — worth a length sanity-check on whatever comes back (the working value is ~44 characters) before trusting it, since a masked value would otherwise look plausible.
+**1Password item: `[Asgard] - Terraform - Semaphore - Admin API token`, UUID `24fmbstdhqzwk6eeru4vvaixsm`.** API-driven, and (unlike NetBox) its create response **does** return the real secret in full (~44 characters) — but the same "authenticating with the credential being replaced" and "a failed create looks like a plausible short value" traps apply here too, so gated the same way:
 
 ```fish
-# capture the current id automatically — nothing to copy by hand
-set OLD_ID (curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[0].id')
-
-set NEW_TOKEN_JSON (curl -s -X POST "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN")
-set NEW_SEMAPHORE_TOKEN (echo $NEW_TOKEN_JSON | jq -r .id)
-set -e NEW_TOKEN_JSON
-printf '%s' "$NEW_SEMAPHORE_TOKEN" | wc -c   # sanity: should be ~44, not a short masked value
-
-op item edit '24fmbstdhqzwk6eeru4vvaixsm' --vault "Homelab 2.0" "credential=$NEW_SEMAPHORE_TOKEN"
-printf '%s' "$NEW_SEMAPHORE_TOKEN" | shasum -a 256 | cut -c1-16
-printf '%s' (op read 'op://Homelab 2.0/24fmbstdhqzwk6eeru4vvaixsm/credential') | shasum -a 256 | cut -c1-16
-
-set-vault-token root
-vault kv patch secret/ansible/frigg/iac-env semaphore_api_token="$NEW_SEMAPHORE_TOKEN"
-curl -s -X DELETE "$SEMAPHOREUI_API_BASE_URL/user/tokens/$OLD_ID" -H "Authorization: Bearer $NEW_SEMAPHORE_TOKEN"
+# preflight — capture the current id, which doubles as confirming
+# SEMAPHOREUI_API_TOKEN still authenticates before creating anything
+set OLD_ID (curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[0].id // empty')
+if test -z "$OLD_ID"
+    echo "STOP: SEMAPHOREUI_API_TOKEN isn't authenticating (or no existing token found). Refresh the env and re-run."
+else
+    set NEW_TOKEN_JSON (curl -s -X POST "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN")
+    set NEW_SEMAPHORE_TOKEN (echo $NEW_TOKEN_JSON | jq -r '.id // empty')
+    set -e NEW_TOKEN_JSON
+    if test (string length "$NEW_SEMAPHORE_TOKEN") -lt 30
+        echo "STOP: create failed or returned a short/masked value (expected ~44 chars, got "(string length "$NEW_SEMAPHORE_TOKEN")"). NOT writing to 1Password."
+    else
+        op item edit '24fmbstdhqzwk6eeru4vvaixsm' --vault "Homelab 2.0" "credential=$NEW_SEMAPHORE_TOKEN"
+        set NEW_HASH (printf '%s' "$NEW_SEMAPHORE_TOKEN" | shasum -a 256 | cut -c1-16)
+        set OP_HASH (printf '%s' (op read 'op://Homelab 2.0/24fmbstdhqzwk6eeru4vvaixsm/credential') | shasum -a 256 | cut -c1-16)
+        echo "$NEW_HASH / $OP_HASH"
+        if test "$NEW_HASH" != "$OP_HASH"
+            echo "STOP: 1Password write didn't stick — paste into the GUI instead. NOT deleting the old token."
+        else
+            set-vault-token root
+            vault kv patch secret/ansible/frigg/iac-env semaphore_api_token="$NEW_SEMAPHORE_TOKEN"
+            curl -s -X DELETE "$SEMAPHOREUI_API_BASE_URL/user/tokens/$OLD_ID" -H "Authorization: Bearer $NEW_SEMAPHORE_TOKEN"
+        end
+        set -e NEW_HASH OP_HASH
+    end
+end
 set -e NEW_SEMAPHORE_TOKEN OLD_ID
 ```
 `$OLD_ID` grabs `.[0]` assuming there's normally exactly one Semaphore token live — if there's ever more than one, list them first (`jq -r '.[] | "\(.id) \(.name)"'`) and delete deliberately instead.
@@ -278,7 +300,11 @@ printf '%s' (op read 'op://Homelab 2.0/hvh3d7hlivcsbjqqye34f3d7a4/password') | s
 set ROTATE_DATE (date -u +%Y-%m-%d)
 for h in 10.0.11.201 10.0.11.202 10.0.11.203
     ssh -o IdentitiesOnly=true -i $ANSIBLE_PRIVATE_KEY_FILE ansible@$h "sudo cp /opt/AdGuardHome/AdGuardHome.yaml /opt/AdGuardHome/AdGuardHome.yaml.bak-pw-rotate-$ROTATE_DATE && sudo sed -i 's|^    password: .*|    password: \"$NEW_ADGUARD_HASH\"|' /opt/AdGuardHome/AdGuardHome.yaml && sudo systemctl restart AdGuardHome.service"
-    echo "$h: $status"
+    if test $status -ne 0
+        echo "STOP: $h — ssh/cp/sed/restart failed (exit $status). That node still has the OLD password; fix it before trusting the login-test below."
+    else
+        echo "$h: ok"
+    end
 end
 set -e ROTATE_DATE
 ```
