@@ -88,29 +88,63 @@ set -e CF_TOKEN
 
 ## Authentik admin API token
 
-**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old-and-new both valid during the safety window (delete last). The identifier is `authentik-bootstrap-token-<N>`, N incrementing each rotation — the block below discovers the current N and computes the next one itself, so there's no placeholder to fill in by hand (surfaced 2026-09-05: a bare `N` in an earlier version of this doc got copy-pasted literally instead of substituted — every identifier below is now either auto-discovered or a real value, nothing to remember to replace):
+**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old-and-new both valid during the safety window (delete last). The identifier is `authentik-bootstrap-token-<N>`, N incrementing each rotation.
+
+> **`$AUTHENTIK_TOKEN` *is* the credential this section rotates** — it's the exact same 1Password field, cached into your shell by `homelab-env`. That has a sharp edge: if it's already stale when you start (a leftover from a previous rotation), or if any step below fails and you keep going anyway, you can end up authenticating later calls with a token that's already been deleted, or writing a failed API response's `null` straight into 1Password as though it were a real credential (both have happened — surfaced 2026-09-05). The block below **checks after every step and stops cold on the first failure** rather than cascading — don't skip a `STOP:` line, it means nothing further has been written.
 
 ```fish
-# discover current + next identifier automatically — nothing to substitute
-set CUR_ID (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r '[.results[] | select(.identifier | test("^authentik-bootstrap-token-[0-9]+$"))] | sort_by(.identifier | ltrimstr("authentik-bootstrap-token-") | tonumber) | last | .identifier')
-set NEW_ID "authentik-bootstrap-token-"(math (string replace 'authentik-bootstrap-token-' '' $CUR_ID) + 1)
-echo "rotating $CUR_ID -> $NEW_ID"
+# 0. preflight — confirm the token authenticating this whole sequence is
+# actually alive before touching anything. If this fails, run
+# `homelab-env --refresh` (or read the credential fresh from 1Password)
+# and re-paste this whole block — don't proceed past a STOP line.
+set PREFLIGHT (curl -s -o /dev/null -w '%{http_code}' "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN")
+if test "$PREFLIGHT" != "200"
+    echo "STOP: AUTHENTIK_TOKEN isn't authenticating (HTTP $PREFLIGHT). Refresh it and re-run this whole block."
+else
+    # 1. discover current + next identifier automatically — nothing to substitute
+    set CUR_ID (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r '[.results[] | select(.identifier | test("^authentik-bootstrap-token-[0-9]+$"))] | sort_by(.identifier | ltrimstr("authentik-bootstrap-token-") | tonumber) | last | .identifier')
+    set NEW_ID "authentik-bootstrap-token-"(math (string replace 'authentik-bootstrap-token-' '' $CUR_ID) + 1)
+    echo "rotating $CUR_ID -> $NEW_ID"
 
-curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d (jq -n --arg id "$NEW_ID" '{identifier:$id,user:6,intent:"api",expiring:false,description:"rotated"}') | jq -r '.identifier'
-# should print $NEW_ID back — confirms creation succeeded
+    # 2. create — verify it actually landed before trusting it
+    set CREATE_ID (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d (jq -n --arg id "$NEW_ID" '{identifier:$id,user:6,intent:"api",expiring:false,description:"rotated"}') | jq -r '.identifier')
+    if test "$CREATE_ID" != "$NEW_ID"
+        echo "STOP: create failed (got '$CREATE_ID', expected '$NEW_ID'). Nothing written anywhere — investigate, then safe to retry from the top."
+    else
+        # 3. fetch the new key, sanity-check its shape before trusting it —
+        # this is what would have caught the "null" poisoning: a failed
+        # view_key lookup renders as the literal 4-character string "null",
+        # which is a plausible-looking but completely wrong value.
+        set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/$NEW_ID/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
+        if test (string length "$NEW_AUTHENTIK_TOKEN") -lt 20
+            echo "STOP: fetched key looks wrong (too short to be real). NOT writing to 1Password. The new token record '$NEW_ID' may need manual cleanup in Authentik."
+        else
+            op item edit '4pxuhyvygrqqeo3vro24bjrhwa' --vault "Homelab 2.0" "credential=$NEW_AUTHENTIK_TOKEN"
+            printf '%s' "$NEW_AUTHENTIK_TOKEN" | shasum -a 256 | cut -c1-16
+            printf '%s' (op read 'op://Homelab 2.0/4pxuhyvygrqqeo3vro24bjrhwa/credential') | shasum -a 256 | cut -c1-16
+            curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN" | jq '.results | length'
 
-set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/$NEW_ID/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
-
-op item edit '4pxuhyvygrqqeo3vro24bjrhwa' --vault "Homelab 2.0" "credential=$NEW_AUTHENTIK_TOKEN"
-printf '%s' "$NEW_AUTHENTIK_TOKEN" | shasum -a 256 | cut -c1-16
-printf '%s' (op read 'op://Homelab 2.0/4pxuhyvygrqqeo3vro24bjrhwa/credential') | shasum -a 256 | cut -c1-16
-curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN" | jq '.results | length'
-
-curl -s -X DELETE "$AUTHENTIK_URL/api/v3/core/tokens/$CUR_ID/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN"
-set-vault-token root
-vault kv patch secret/ansible/frigg/iac-env authentik_token="$NEW_AUTHENTIK_TOKEN"
-set -e NEW_AUTHENTIK_TOKEN CUR_ID NEW_ID
+            curl -s -X DELETE "$AUTHENTIK_URL/api/v3/core/tokens/$CUR_ID/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN"
+            set-vault-token root
+            vault kv patch secret/ansible/frigg/iac-env authentik_token="$NEW_AUTHENTIK_TOKEN"
+        end
+    end
+end
+set -e NEW_AUTHENTIK_TOKEN CUR_ID NEW_ID CREATE_ID PREFLIGHT
 ```
+The hash-compare and the `jq '.results | length'` call both prove the new token is genuinely live and correctly stored before the old one gets deleted.
+
+**If Authentik ever ends up with no working credential at all** (env stale, 1Password poisoned, no API token authenticates) — mint one directly against the database, bypassing the API entirely, same escape hatch as NetBox's Django shell:
+
+```fish
+kubectl exec -n authentik <authentik-server-pod> -- ak shell -c "
+from authentik.core.models import Token, User
+u = User.objects.get(username='akadmin')
+t = Token.objects.create(identifier='authentik-bootstrap-token-<next-N>', user=u, intent='api', expiring=False, description='recovered via django shell')
+print('TOKEN:', t.key)
+"
+```
+Run this yourself, not via an assistant's own tool call — the printed value should only ever touch your own screen. Paste it into 1Password by hand (GUI, not `op item edit`) afterward.
 
 ## NetBox admin API token
 
