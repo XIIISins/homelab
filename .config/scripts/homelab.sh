@@ -172,8 +172,21 @@ __homelab_cache_is_fresh() {
 
 # Write env (static + 1P + VAULT_TOKEN if set) to BOTH fish + sh cache files
 # atomically (mktemp + mv). Bash/zsh-only — uses arrays + ${!var}.
+#
+# `value` is declared HERE (function scope), not re-declared inside the
+# loop below — that was the actual bug behind the 2026-09-03/04 transcript
+# leaks. zsh, unlike bash, PRINTS `value=<current-value>` to stdout as a
+# side effect of `local value` when `value` is already local in the
+# current scope AND already holds a value from a prior iteration — a
+# genuine zsh builtin quirk, not an explicit echo/print anywhere in this
+# file, and not xtrace (confirmed via minimal repro: `f(){ local x;
+# x=1; local x; }; f` alone prints `x=1` under zsh, never under bash).
+# Every OTHER loop in this file (the fetch loop in homelab-env itself,
+# __vault_homelab_cache_write's equivalent) already declares its loop
+# var once at function scope — this was the one exception. Full incident
+# + isolation steps: docs/known-issues/shell-tooling.md.
 __homelab_cache_write() {
-    local entry env_var ts header_fish header_sh tmp_fish tmp_sh
+    local entry env_var value ts header_fish header_sh tmp_fish tmp_sh
     local -a vars=()
 
     mkdir -p "$__homelab_cache_dir"
@@ -214,7 +227,6 @@ __homelab_cache_write() {
     printf '%s\n' "$header_sh" > "$tmp_sh"
     for env_var in "${vars[@]}"; do
         # printenv works in both bash + zsh; cached vars are all exported.
-        local value
         if value=$(printenv "$env_var"); then
             printf 'set -gx %s %s\n' "$env_var" "$(__homelab_fish_quote "$value")" >> "$tmp_fish"
             printf 'export %s=%s\n' "$env_var" "$(__homelab_posix_quote "$value")" >> "$tmp_sh"
