@@ -66,13 +66,18 @@
   },
   "procedures.md": {
     "id": "43cf4144-ac86-44a9-86f9-47e7cb49a53d",
-    "sha": "5e47acf7e0b2362ff60858b4a66e1f747cc7a65d4ec6b0b4bcfb839c88f226c9",
+    "sha": "a3b7679bb7541cb7ec00a8c1981593cef8fa8c3c0f855a4063363a3ae7213b51",
     "title": "Procedures"
   },
   "procedures/approle-rotation.md": {
     "id": "2da03ded-b3c1-4959-9913-d4a1451ceac1",
-    "sha": "2be520485a5ae7ea9b642eeb200c66da98df61f080d9d91c4487399146c55457",
+    "sha": "e70f8efcde1a901484cae047ae3904f1a46650e5da12c9c8ef5d5f490ad98c8d",
     "title": "AppRole rotation"
+  },
+  "procedures/credential-rotation.md": {
+    "id": "aee83142-fb36-4ce8-9c34-e29763b1f043",
+    "sha": "4f523654b3e67f1019b4b2c54cb00433e748d55a1105d66897e3e7295798d3d4",
+    "title": "Credential rotation"
   },
   "procedures/k3s-node-rebuild.md": {
     "id": "4f720f90-7361-4afe-913e-7d6229d8a7a2",
@@ -101,7 +106,7 @@
   },
   "services-and-purpose.md": {
     "id": "f43aa048-3184-4db5-bfa5-ebf4d80d52af",
-    "sha": "5f359f799faa87ef85c030ccf27a1de229942ae083b9454c6250db5aa067814a",
+    "sha": "98db6f7055a78ee5c15ae242a74dbbb6e0213a4e90c04e87c083356b2a59552d",
     "title": "Services and purpose"
   },
   "services-and-purpose/factorio.md": {
