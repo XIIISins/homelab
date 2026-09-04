@@ -160,7 +160,7 @@ Run this yourself, not via an assistant's own tool call — the printed value sh
 
 ## NetBox admin API token
 
-**Neither the REST API's create response nor the web UI's "Add token" reliably hand you a usable value** in this deployment — see `known-issues/netbox.md` for why. The proven path is Django shell, and **the full credential is three concatenated parts**: `nbt_<key>.<token>` — not just the `.token` field alone.
+**Neither the REST API's create response nor the web UI's "Add token" reliably hand you a usable value** in this deployment — see `known-issues/netbox.md` for why. The proven path is Django shell.
 
 ```fish
 set ROTATE_DATE (date -u +%Y-%m-%d)
@@ -168,39 +168,45 @@ kubectl exec -n netbox deploy/netbox -c netbox -- /opt/netbox/venv/bin/python /o
 from users.models import User, Token
 u = User.objects.get(username='admin')
 t = Token.objects.create(user=u, description='homelab-env admin token (rotated $ROTATE_DATE)')
-print('KEY:', t.key)
-print('TOKEN:', t.token)
+print('CREDENTIAL:', 'nbt_' + t.key + '.' + t.token)
 "
 set -e ROTATE_DATE
 ```
-Construct the real value yourself: `nbt_<KEY>.<TOKEN>` (literal `nbt_` + the `KEY` line + a literal `.` + the `TOKEN` line). Paste that combined string into **1Password item `[Asgard] - Terraform - NetBox - Admin API token`, UUID `lsqb4z5mbeijeqbxx43y5pkl5q`**, `credential` field, then:
+Paste the printed `CREDENTIAL:` value directly into **1Password item `[Asgard] - Terraform - NetBox - Admin API token`, UUID `lsqb4z5mbeijeqbxx43y5pkl5q`**, `credential` field — it's already the full `nbt_<key>.<token>` string, nothing left to construct by hand. Then:
 
 ```fish
 # item: [Asgard] - Terraform - NetBox - Admin API token (lsqb4z5mbeijeqbxx43y5pkl5q)
 set NEW_NETBOX_TOKEN (op read "op://Homelab 2.0/lsqb4z5mbeijeqbxx43y5pkl5q/credential")
 curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NEW_NETBOX_TOKEN" | jq '.count'
-# should return a number — that confirms the reconstruction was correct
+# should return a number — confirms the reconstruction was correct
 
 set-vault-token root
 vault kv patch secret/ansible/frigg/iac-env netbox_api_token="$NEW_NETBOX_TOKEN"
 
-# find the old token's id automatically — NetBox bumps a token's last_used
-# on every authenticated request, so the request below (itself authenticated
-# as $NETBOX_API_TOKEN) marks its own record fresher than anything else's.
-# Require exactly one match; ambiguous or zero hits STOP rather than guess —
-# other tokens in this list belong to different consumers (ansible_nb_api,
-# ansible_nb_inventory, old bootstrap/leak-cleanup entries) and must not be
-# touched here.
-set BEFORE (date -u +%Y-%m-%dT%H:%M:%S)
-set OLD_ID (curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r --arg t "$BEFORE" '[.results[] | select(.last_used >= $t)] | if length == 1 then .[0].id else "" end')
-if test -z "$OLD_ID"
-    echo "STOP: couldn't uniquely identify the old token by freshness (need exactly 1 match). List by hand and pick manually, then delete with the id substituted in:"
-    curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r '.results[] | "\(.id) \(.description) last_used=\(.last_used)"'
-else
+# find the old token to clean up — deliberately authenticates with
+# $NEW_NETBOX_TOKEN (just proven working above), not the shell's cached
+# $NETBOX_API_TOKEN: that var is often already stale by this point (it's
+# literally the credential being replaced, and may be a leftover from an
+# earlier rotation this same session), so relying on it to authenticate
+# its own cleanup is the same failure class as Authentik's self-invalidating-
+# token bug. Candidates = same-family tokens (matching description) other
+# than the one just minted (newest by `created`); other tokens in this
+# list (ansible_nb_api, ansible_nb_inventory, old bootstrap entries) are
+# different consumers and are never touched here.
+set TOKENS_JSON (curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NEW_NETBOX_TOKEN" | jq -c '.')
+set OLD_CANDIDATES (printf '%s' $TOKENS_JSON | jq -c '[.results[] | select(.description | test("^homelab-env admin token"))] | sort_by(.created) | .[0:-1]')
+set OLD_COUNT (printf '%s' $OLD_CANDIDATES | jq 'length')
+if test "$OLD_COUNT" = "0"
+    echo "nothing to clean up — only the token you just minted matches"
+else if test "$OLD_COUNT" = "1"
+    set OLD_ID (printf '%s' $OLD_CANDIDATES | jq -r '.[0].id')
     echo "deleting old NetBox admin token id $OLD_ID"
-    curl -s -X DELETE "$NETBOX_SERVER_URL/api/users/tokens/$OLD_ID/" -H "Authorization: Bearer $NETBOX_API_TOKEN"
+    curl -s -X DELETE "$NETBOX_SERVER_URL/api/users/tokens/$OLD_ID/" -H "Authorization: Bearer $NEW_NETBOX_TOKEN"
+else
+    echo "STOP: $OLD_COUNT old candidates found, not touching any — list and pick by hand:"
+    printf '%s' $OLD_CANDIDATES | jq -r '.[] | "\(.id) \(.description) created=\(.created)"'
 end
-set -e NEW_NETBOX_TOKEN BEFORE OLD_ID
+set -e TOKENS_JSON OLD_CANDIDATES OLD_COUNT OLD_ID NEW_NETBOX_TOKEN
 ```
 
 ## Semaphore API token
