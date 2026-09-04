@@ -141,13 +141,21 @@ The hash-compare and the `jq '.results | length'` call both prove the new token 
 **If Authentik ever ends up with no working credential at all** (env stale, 1Password poisoned, no API token authenticates) — mint one directly against the database, bypassing the API entirely, same escape hatch as NetBox's Django shell:
 
 ```fish
-kubectl exec -n authentik <authentik-server-pod> -- ak shell -c "
+set POD (kubectl get pod -n authentik -l app.kubernetes.io/name=authentik,app.kubernetes.io/component=server -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n authentik "$POD" -- ak shell -c "
 from authentik.core.models import Token, User
+import re
 u = User.objects.get(username='akadmin')
-t = Token.objects.create(identifier='authentik-bootstrap-token-<next-N>', user=u, intent='api', expiring=False, description='recovered via django shell')
+nums = [int(m.group(1)) for i in Token.objects.values_list('identifier', flat=True) if (m := re.fullmatch(r'authentik-bootstrap-token-(\d+)', i))]
+ident = f'authentik-bootstrap-token-{max(nums) + 1 if nums else 1}'
+t = Token.objects.create(identifier=ident, user=u, intent='api', expiring=False, description='recovered via django shell')
+print('IDENT:', ident)
 print('TOKEN:', t.key)
 "
+set -e POD
 ```
+Deliberately doesn't touch the API at all — that's the point of this fallback, the API path is presumed broken. `$POD` and the next identifier are both discovered from the cluster/DB directly.
+
 Run this yourself, not via an assistant's own tool call — the printed value should only ever touch your own screen. Paste it into 1Password by hand (GUI, not `op item edit`) afterward.
 
 ## NetBox admin API token
@@ -155,13 +163,15 @@ Run this yourself, not via an assistant's own tool call — the printed value sh
 **Neither the REST API's create response nor the web UI's "Add token" reliably hand you a usable value** in this deployment — see `known-issues/netbox.md` for why. The proven path is Django shell, and **the full credential is three concatenated parts**: `nbt_<key>.<token>` — not just the `.token` field alone.
 
 ```fish
+set ROTATE_DATE (date -u +%Y-%m-%d)
 kubectl exec -n netbox deploy/netbox -c netbox -- /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py shell -c "
 from users.models import User, Token
 u = User.objects.get(username='admin')
-t = Token.objects.create(user=u, description='homelab-env admin token (rotated <date>)')
+t = Token.objects.create(user=u, description='homelab-env admin token (rotated $ROTATE_DATE)')
 print('KEY:', t.key)
 print('TOKEN:', t.token)
 "
+set -e ROTATE_DATE
 ```
 Construct the real value yourself: `nbt_<KEY>.<TOKEN>` (literal `nbt_` + the `KEY` line + a literal `.` + the `TOKEN` line). Paste that combined string into **1Password item `[Asgard] - Terraform - NetBox - Admin API token`, UUID `lsqb4z5mbeijeqbxx43y5pkl5q`**, `credential` field, then:
 
@@ -174,10 +184,23 @@ curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NEW_NE
 set-vault-token root
 vault kv patch secret/ansible/frigg/iac-env netbox_api_token="$NEW_NETBOX_TOKEN"
 
-# find + delete the old token's id first (via the API, with the still-valid old token)
-curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r '.results[] | "\(.id) \(.description)"'
-curl -s -X DELETE "$NETBOX_SERVER_URL/api/users/tokens/<OLD_ID>/" -H "Authorization: Bearer $NETBOX_API_TOKEN"
-set -e NEW_NETBOX_TOKEN
+# find the old token's id automatically — NetBox bumps a token's last_used
+# on every authenticated request, so the request below (itself authenticated
+# as $NETBOX_API_TOKEN) marks its own record fresher than anything else's.
+# Require exactly one match; ambiguous or zero hits STOP rather than guess —
+# other tokens in this list belong to different consumers (ansible_nb_api,
+# ansible_nb_inventory, old bootstrap/leak-cleanup entries) and must not be
+# touched here.
+set BEFORE (date -u +%Y-%m-%dT%H:%M:%S)
+set OLD_ID (curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r --arg t "$BEFORE" '[.results[] | select(.last_used >= $t)] | if length == 1 then .[0].id else "" end')
+if test -z "$OLD_ID"
+    echo "STOP: couldn't uniquely identify the old token by freshness (need exactly 1 match). List by hand and pick manually, then delete with the id substituted in:"
+    curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r '.results[] | "\(.id) \(.description) last_used=\(.last_used)"'
+else
+    echo "deleting old NetBox admin token id $OLD_ID"
+    curl -s -X DELETE "$NETBOX_SERVER_URL/api/users/tokens/$OLD_ID/" -H "Authorization: Bearer $NETBOX_API_TOKEN"
+end
+set -e NEW_NETBOX_TOKEN BEFORE OLD_ID
 ```
 
 ## Semaphore API token
@@ -223,10 +246,12 @@ op item edit 'hvh3d7hlivcsbjqqye34f3d7a4' --vault "Homelab 2.0" "password=$NEW_A
 printf '%s' "$NEW_ADGUARD_PASSWORD" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/hvh3d7hlivcsbjqqye34f3d7a4/password') | shasum -a 256 | cut -c1-16
 
+set ROTATE_DATE (date -u +%Y-%m-%d)
 for h in 10.0.11.201 10.0.11.202 10.0.11.203
-    ssh -o IdentitiesOnly=true -i $ANSIBLE_PRIVATE_KEY_FILE ansible@$h "sudo cp /opt/AdGuardHome/AdGuardHome.yaml /opt/AdGuardHome/AdGuardHome.yaml.bak-pw-rotate-<date> && sudo sed -i 's|^    password: .*|    password: \"$NEW_ADGUARD_HASH\"|' /opt/AdGuardHome/AdGuardHome.yaml && sudo systemctl restart AdGuardHome.service"
+    ssh -o IdentitiesOnly=true -i $ANSIBLE_PRIVATE_KEY_FILE ansible@$h "sudo cp /opt/AdGuardHome/AdGuardHome.yaml /opt/AdGuardHome/AdGuardHome.yaml.bak-pw-rotate-$ROTATE_DATE && sudo sed -i 's|^    password: .*|    password: \"$NEW_ADGUARD_HASH\"|' /opt/AdGuardHome/AdGuardHome.yaml && sudo systemctl restart AdGuardHome.service"
     echo "$h: $status"
 end
+set -e ROTATE_DATE
 ```
 **Delimiter must be `|`, not `/`** — bcrypt hashes commonly contain literal `/`.
 
