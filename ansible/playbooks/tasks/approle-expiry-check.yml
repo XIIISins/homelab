@@ -1,0 +1,61 @@
+# ansible/playbooks/tasks/approle-expiry-check.yml
+#
+# Included per-role (loop_var: approle_role_name) by infra-health-check.yml's
+# AppRole-expiry check. Expects from the parent scope: approle_role_name,
+# vault_addr, vault_token, approle_expiry_warn_days. Appends findings to
+# approle_findings, which include_tasks shares back to the parent (no vars:
+# isolation on a bare include_tasks + loop).
+#
+# Date-only comparison deliberately, not full datetime parsing: Vault's
+# expiration_time carries nanosecond fractional seconds ("...724204722Z"),
+# which Python's %f directive (max 6 digits) can choke on, and mixing an
+# aware (parsed, tz-suffixed) datetime with Ansible's naive now() raises
+# "can't subtract offset-naive and offset-aware datetimes". Day-level
+# granularity is all a 2-week warning needs anyway.
+
+- name: "List SecretID accessors for {{ approle_role_name }}"
+  ansible.builtin.uri:
+    url: "{{ vault_addr }}/v1/auth/approle/role/{{ approle_role_name }}/secret-id?list=true"
+    method: GET
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    return_content: true
+    status_code: [200, 404]
+  register: _approle_list
+  failed_when: false
+  no_log: true
+
+- name: "Look up each accessor's expiration for {{ approle_role_name }}"
+  ansible.builtin.uri:
+    url: "{{ vault_addr }}/v1/auth/approle/role/{{ approle_role_name }}/secret-id-accessor/lookup"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ vault_token }}"
+    body_format: json
+    body:
+      secret_id_accessor: "{{ item }}"
+    return_content: true
+    status_code: [200]
+  loop: "{{ (_approle_list.json.data.keys | default([])) if (_approle_list.status | default(0) == 200) else [] }}"
+  loop_control:
+    label: "{{ approle_role_name }}/{{ item[0:8] }}"
+  register: _approle_lookups
+  failed_when: false
+  no_log: true
+
+- name: "Evaluate {{ approle_role_name }} expiry"
+  ansible.builtin.set_fact:
+    approle_findings: >-
+      {{ approle_findings | default([]) + ([_msg] if _bad else []) }}
+  vars:
+    _valid: "{{ _approle_lookups.results | default([]) | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
+    _expirations: "{{ _valid | map(attribute='json.data.expiration_time') | select('string') | list }}"
+    _latest_expiry: "{{ (_expirations | sort | last) if (_expirations | length > 0) else '' }}"
+    _days_left: >-
+      {{ ((_latest_expiry[0:10] | to_datetime('%Y-%m-%d')) - (now().strftime('%Y-%m-%d') | to_datetime('%Y-%m-%d'))).days
+         if _latest_expiry != '' else -9999 }}
+    _bad: "{{ (_latest_expiry == '') or (_days_left | int < approle_expiry_warn_days | int) }}"
+    _msg: >-
+      {{ ('Vault AppRole `' ~ approle_role_name ~ '` has NO live SecretID accessor — already expired, revoked, or never bootstrapped.')
+         if _latest_expiry == ''
+         else ('Vault AppRole `' ~ approle_role_name ~ '` SecretID expires in ' ~ _days_left ~ ' day(s) (' ~ _latest_expiry[0:10] ~ ') — rotate via docs/procedures/credential-rotation.md.') }}

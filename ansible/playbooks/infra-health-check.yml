@@ -15,6 +15,11 @@
 #      >= 2 running members) — defence-in-depth for the on_role_change
 #      Hermod callback, which can't fire if the node holding it is dead
 #   4. etcd quorum                      (/health on each DCS node)
+#   5. PBS backup failures + reachability
+#   6. Vault AppRole SecretID expiry    (ansible-local/-frigg/-awx — the
+#      class of gap that caused the 2026-09-03 ansible-frigg silent-expiry
+#      incident; warns 14d out via date-only comparison, see the included
+#      tasks/approle-expiry-check.yml for why not full datetime parsing)
 #
 # Severity -> Hermod tag routing (see docs/services/notifications.md):
 #   critical -> Hrist   alert -> Mist
@@ -72,6 +77,17 @@
     # Cert expiry thresholds (days remaining).
     cert_warn_days: 14
     cert_crit_days: 3
+
+    # AppRole SecretID expiry. Every role currently on the 90d rotation
+    # cadence (see docs/procedures/credential-rotation.md); 14d gives
+    # ~28 twice-daily chances to alert before expiry, same reasoning as
+    # cert_warn_days.
+    vault_addr: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_ADDR') }}"
+    approle_roles:
+      - ansible-local
+      - ansible-frigg
+      - ansible-awx
+    approle_expiry_warn_days: 14
 
     # One representative served endpoint per cert-manager wildcard zone.
     # Each FQDN has a CoreDNS rewrite -> Traefik ClusterIP so the pod can
@@ -261,6 +277,34 @@
                  ~ (_failed_tasks[0].worker_type | default('task')) ~ '` -> '
                  ~ (_failed_tasks[0].status | default('error')) ~ ').' }}
           when: groups['pbs'] | default([]) | length > 0
+
+        # --- 6. Vault AppRole SecretID expiry --------------------------
+        # The ANSIBLE_HASHI_VAULT_* lookup plugins (used above for KV reads)
+        # have no equivalent for LIST/accessor-lookup against auth/approle/*,
+        # so get a raw client token via vault_login and hit those two Vault
+        # HTTP endpoints directly. Needs the `ansible` policy's
+        # auth/approle/role/+/secret-id{,-accessor/lookup} grant (metadata
+        # only, never the SecretID value itself).
+        - name: Authenticate to Vault for AppRole introspection
+          community.hashi_vault.vault_login:
+            url: "{{ vault_addr }}"
+            auth_method: approle
+            role_id: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_ROLE_ID') }}"
+            secret_id: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_SECRET_ID') }}"
+          register: _vault_login
+          no_log: true
+
+        - name: Check each AppRole's SecretID expiry
+          ansible.builtin.include_tasks: tasks/approle-expiry-check.yml
+          loop: "{{ approle_roles }}"
+          loop_control:
+            loop_var: approle_role_name
+          vars:
+            vault_token: "{{ _vault_login.login.auth.client_token }}"
+
+        - name: Record AppRole expiry findings
+          ansible.builtin.set_fact:
+            crit_findings: "{{ crit_findings | default([]) + (approle_findings | default([])) }}"
 
         # --- POST findings to Hermod ----------------------------------
         - name: POST critical findings to Hermod

@@ -68,12 +68,28 @@ resource "vault_auth_backend" "approle" {
 # ansible policy: read on secret/data/ansible/*
 # Scoped narrower than the ESO policy — Ansible only reads its own subtree.
 # K8s workload secrets (under secret/k8s/*) are not visible.
+#
+# Also grants read-only AppRole *metadata* introspection (secret-id list +
+# accessor lookup) for infra-health-check.yml's AppRole-expiry alert —
+# these two calls return only accessor IDs + expiration timestamps, NEVER
+# the actual SecretID value, so this doesn't expose any role's live
+# credential to another role. Deliberately NOT auth/approle/role/+/secret-id
+# alone (that's the CREATE-a-new-SecretID path — write, not list) and
+# NOT a bare auth/approle/* wildcard (would include role create/delete).
 resource "vault_policy" "ansible" {
   name = "ansible"
 
   policy = <<-EOT
     path "secret/data/ansible/*" {
       capabilities = ["read"]
+    }
+
+    path "auth/approle/role/+/secret-id" {
+      capabilities = ["list"]
+    }
+
+    path "auth/approle/role/+/secret-id-accessor/lookup" {
+      capabilities = ["update"]
     }
   EOT
 }
