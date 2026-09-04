@@ -56,20 +56,19 @@ set-aws-creds state
 - **"cert-manager-niflheim-dns01"** (Cloudflare dashboard name) — narrow, DNS-01-only, dedicated to cert-manager. **Separate from the Terraform token.** Its only home is `secret/k8s/cert-manager/cloudflare` (no 1Password mirror) — do not overwrite that path with the Terraform token's value (this happened once; recovered via `vault kv rollback -version=1`, since Vault keeps KV version history by default and nothing else does).
 - **"Admin-read-all"** (Cloudflare dashboard name) — not consumed by anything in this repo as far as traced. No 1Password mirror.
 
-Rotate the **Terraform Cloudflare** token (the common case):
+Rotate the **Terraform Cloudflare** token (the common case) **from `https://dash.cloudflare.com/profile/api-tokens` — the account-scoped page (`https://dash.cloudflare.com/<account_id>/api-tokens`) mints a different token *type* for the same roll, not just a different URL.** Rolling from the profile page produces a `cfut_`-prefixed **User** token; rolling from the account page produces a `cfat_`-prefixed **Account** token. `infra-health-check.yml`'s Cloudflare check hardcodes the `user` verify endpoint (below), so use the profile page unless you have a specific reason to want an Account token.
 
 ```fish
-# roll "Terraform Cloudflare" in the Cloudflare dashboard, paste the new
-# value into 1Password item: [Asgard] - Terraform - Cloudflare - API
-# token (ps4mc2hv7a777tzsef755te64m), credential field
+# roll "Terraform Cloudflare" at https://dash.cloudflare.com/profile/api-tokens
+# (NOT the account-level API Tokens page), paste the new value into
+# 1Password item: [Asgard] - Terraform - Cloudflare - API token
+# (ps4mc2hv7a777tzsef755te64m), credential field
 set CF_TOKEN (op read "op://Homelab 2.0/ps4mc2hv7a777tzsef755te64m/credential")
 ```
 
 **Verify against the correct endpoint — it depends on the token's prefix**, and using the wrong one produces a misleading `Invalid API Token` for an otherwise-valid token:
-- `cfut_...` (User token) → `https://api.cloudflare.com/client/v4/user/tokens/verify`
-- `cfat_...` (Account token) → `https://api.cloudflare.com/client/v4/accounts/<account_id>/tokens/verify`
-
-Cloudflare's dashboard can hand back either type on a "Roll" depending on account state — if you want the simpler `infra-health-check.yml` prober to keep working without modification (it only checks the `user` endpoint), roll to a **User** token specifically.
+- `cfut_...` (User token, from the profile page) → `https://api.cloudflare.com/client/v4/user/tokens/verify`
+- `cfat_...` (Account token, from the account page) → `https://api.cloudflare.com/client/v4/accounts/<account_id>/tokens/verify`
 
 ```fish
 curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer $CF_TOKEN" | jq .

@@ -63,9 +63,35 @@ There are three separate API tokens in the Cloudflare account, not one — check
 | **cert-manager-niflheim-dns01** | Narrow — DNS-01 only, dedicated to cert-manager | `secret/k8s/cert-manager/cloudflare` only — no 1Password mirror |
 | **Admin-read-all** | Broad, read-only | Not consumed by anything in the homelab |
 
-Rotate the **Terraform Cloudflare** token for the routine case. Cloudflare's own token-verify endpoint depends on the token's prefix — `cfut_`-prefixed (User) tokens verify at `/client/v4/user/tokens/verify`, `cfat_`-prefixed (Account) tokens need `/client/v4/accounts/<id>/tokens/verify` instead. Both are valid; using the wrong endpoint reads as "invalid" for an otherwise-working token.
+Rotate the **Terraform Cloudflare** token (the routine case) **from `https://dash.cloudflare.com/profile/api-tokens`** — the account-scoped API Tokens page mints a *different token type* for the same roll, not just a different URL. Rolling from the profile page produces a `cfut_`-prefixed **User** token; rolling from the account page produces a `cfat_`-prefixed **Account** token instead. The homelab's health check hardcodes the User-token verify endpoint, so use the profile page.
 
-Never propagate the Terraform token's value into `secret/k8s/cert-manager/cloudflare` — that path belongs to the separate dedicated token.
+```fish
+# roll it at https://dash.cloudflare.com/profile/api-tokens, paste the new
+# value into 1Password (item: [Asgard] - Terraform - Cloudflare - API
+# token, credential field), then:
+set CF_TOKEN (op read "op://Homelab 2.0/ps4mc2hv7a777tzsef755te64m/credential")
+```
+
+Verify against the endpoint matching the token's prefix — using the wrong one reads as "invalid" for an otherwise-working token:
+- `cfut_...` (User, from the profile page) → `https://api.cloudflare.com/client/v4/user/tokens/verify`
+- `cfat_...` (Account, from the account page) → `https://api.cloudflare.com/client/v4/accounts/<id>/tokens/verify`
+
+```fish
+curl -s "https://api.cloudflare.com/client/v4/user/tokens/verify" -H "Authorization: Bearer $CF_TOKEN" | jq .
+```
+
+Propagate to every consumer (**not** `secret/k8s/cert-manager/cloudflare` — that path belongs to the separate dedicated token):
+
+```fish
+set-vault-token root
+vault kv patch secret/ansible/cloudflare/api-token value="$CF_TOKEN"
+vault kv patch secret/ansible/frigg/iac-env cloudflare_api_token="$CF_TOKEN"
+printf '%s' "$CF_TOKEN" | shasum -a 256 | cut -c1-16
+vault kv get -field=value secret/ansible/cloudflare/api-token | shasum -a 256 | cut -c1-16
+vault kv get -field=cloudflare_api_token secret/ansible/frigg/iac-env | shasum -a 256 | cut -c1-16
+set -e CF_TOKEN
+```
+Both hash lines should match the first one.
 
 ---
 
