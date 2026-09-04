@@ -2,9 +2,18 @@
 #
 # Included per-role (loop_var: approle_role_name) by infra-health-check.yml's
 # AppRole-expiry check. Expects from the parent scope: approle_role_name,
-# vault_addr, vault_token, approle_expiry_warn_days. Appends findings to
-# approle_findings, which include_tasks shares back to the parent (no vars:
-# isolation on a bare include_tasks + loop).
+# vault_addr, vault_token, vault_ca_cert_path (may be empty string — see
+# below), approle_expiry_warn_days. Appends findings to approle_findings,
+# which include_tasks shares back to the parent (no vars: isolation on a
+# bare include_tasks + loop).
+#
+# ca_path applies default(omit, true) HERE, not in the parent, because the
+# omit sentinel only reliably survives as the direct result of a parameter's
+# own expression — passing an already-omitted value through an included
+# file's vars: is fragile. An empty vault_ca_cert_path (e.g. testing against
+# the public FQDN, which needs no special CA trust) correctly omits ca_path
+# rather than passing "" and having the uri module reject it as an invalid
+# path.
 #
 # Date-only comparison deliberately, not full datetime parsing: Vault's
 # expiration_time carries nanosecond fractional seconds ("...724204722Z"),
@@ -19,6 +28,7 @@
     method: GET
     headers:
       X-Vault-Token: "{{ vault_token }}"
+    ca_path: "{{ vault_ca_cert_path | default('') | default(omit, true) }}"
     return_content: true
     status_code: [200, 404]
   register: _approle_list
@@ -31,6 +41,7 @@
     method: POST
     headers:
       X-Vault-Token: "{{ vault_token }}"
+    ca_path: "{{ vault_ca_cert_path | default('') | default(omit, true) }}"
     body_format: json
     body:
       secret_id_accessor: "{{ item }}"

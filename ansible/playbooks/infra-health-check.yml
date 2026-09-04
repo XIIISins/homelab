@@ -285,12 +285,26 @@
         # HTTP endpoints directly. Needs the `ansible` policy's
         # auth/approle/role/+/secret-id{,-accessor/lookup} grant (metadata
         # only, never the SecretID value itself).
+        #
+        # ca_cert is REQUIRED here, not optional — Semaphore's pod reaches
+        # Vault via the in-cluster address (vault.vault.svc.cluster.local),
+        # which serves the cert-manager internal CA, not a publicly-trusted
+        # one (see terraform/semaphore/main.tf's ANSIBLE_HASHI_VAULT_CA_CERT
+        # comment + docs/procedures/vault-tls-migration.md). The KV-read
+        # lookups above pick this up automatically via the collection's own
+        # env-var auto-detection; vault_login and the raw uri calls below
+        # do NOT auto-detect it when other auth params are passed explicitly
+        # — must be passed. default(omit, true) drops the param entirely
+        # when the env var is unset (e.g. testing against the public FQDN,
+        # which needs no special CA trust) rather than passing an empty
+        # string, which both modules reject as an invalid path.
         - name: Authenticate to Vault for AppRole introspection
           community.hashi_vault.vault_login:
             url: "{{ vault_addr }}"
             auth_method: approle
             role_id: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_ROLE_ID') }}"
             secret_id: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_SECRET_ID') }}"
+            ca_cert: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_CA_CERT') | default(omit, true) }}"
           register: _vault_login
           no_log: true
 
@@ -301,6 +315,12 @@
             loop_var: approle_role_name
           vars:
             vault_token: "{{ _vault_login.login.auth.client_token }}"
+            # Raw value (possibly empty string), NOT pre-`| default(omit)`
+            # here — the omit sentinel only reliably survives as the direct
+            # result of a parameter's own expression, not passed through an
+            # intermediate var into an included tasks file. The sub-task
+            # file applies default(omit, true) itself at the point of use.
+            vault_ca_cert_path: "{{ lookup('env', 'ANSIBLE_HASHI_VAULT_CA_CERT') }}"
 
         - name: Record AppRole expiry findings
           ansible.builtin.set_fact:
