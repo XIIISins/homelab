@@ -36,7 +36,12 @@
       secret_id_accessor: "{{ item }}"
     return_content: true
     status_code: [200]
-  loop: "{{ (_approle_list.json.data.keys | default([])) if (_approle_list.status | default(0) == 200) else [] }}"
+  # Bracket notation, deliberately not `.data.keys` — Vault's LIST response
+  # literally has a JSON field named "keys" (the array of accessor IDs),
+  # but Jinja dot-access on a dict resolves "keys" to Python's builtin
+  # dict.keys METHOD first, not the item — "unsupported for variable
+  # storage" render error. Bracket indexing sidesteps the collision.
+  loop: "{{ (_approle_list.json.data['keys'] | default([])) if (_approle_list.status | default(0) == 200) else [] }}"
   loop_control:
     label: "{{ approle_role_name }}/{{ item[0:8] }}"
   register: _approle_lookups
