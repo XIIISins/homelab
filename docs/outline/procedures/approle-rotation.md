@@ -4,18 +4,21 @@
 
 Rotating the Vault AppRole SecretIDs that machines use to authenticate. Run this as routine credential hygiene, or immediately if a SecretID is exposed.
 
-> **The one thing to get right:** there are **two AppRoles** with **two storage conventions** and **two rotation helpers**. Conflating them produces a mismatched RoleID/SecretID pair and a confusing `permission denied` on every Vault login. Know which one you're rotating before you start.
+> **The one thing to get right:** there are **three AppRoles** across **two storage conventions** and **two rotation helpers**. Conflating them produces a mismatched RoleID/SecretID pair and a confusing `permission denied` on every Vault login. Know which one you're rotating before you start.
 
 ---
 
-## The two AppRoles
+## The three AppRoles
 
 | AppRole | Used by | Credentials stored in | Rotate with |
 |---|---|---|---|
-| `ansible-local` | The operator's MacBook control node | 1Password item `Ansible - Vault - k3s` | `rotate-approle ansible-local` |
+| `ansible-local` | The operator's MacBook control node | 1Password `[Asgard] - Ansible - Vault - AppRole (ansible-local)` | `rotate-approle ansible-local` |
+| `ansible-frigg` | The Frigg control-node watchtower | 1Password `[Asgard] - Ansible - Vault - AppRole (ansible-frigg)` | `rotate-approle ansible-frigg` |
 | `ansible-awx` | Semaphore (in-cluster Ansible) | Vault KV `secret/k8s/semaphore/vault-approle` | `rotate-semaphore-approle` |
 
-The names are historical — `ansible-awx` was minted for an AWX deployment that Semaphore later replaced; Semaphore inherited the role. There is **no 1Password entry for `ansible-awx`**, which is why `rotate-approle ansible-awx` fails with "unknown role": that helper is 1Password-canonical.
+The `ansible-awx` name is historical — it was minted for an AWX deployment that Semaphore later replaced; Semaphore inherited the role. There is **no 1Password entry for it**, which is why `rotate-approle ansible-awx` fails with "unknown role": that helper is 1Password-canonical, and `ansible-awx` is the one exception.
+
+No AppRole SecretID goes unwatched anymore — an active check runs on the existing twice-daily infra-health prober and posts a critical alert once any of the three drops inside 14 days of expiry, or has zero live accessors.
 
 ---
 
@@ -23,6 +26,13 @@ The names are historical — `ansible-awx` was minted for an AWX deployment that
 
 1. `rotate-approle ansible-local` — mints a fresh SecretID and writes it to the 1Password item.
 2. Verify the next Ansible run against a Vault-backed role authenticates cleanly.
+
+---
+
+## Rotating `ansible-frigg` (control node)
+
+1. `rotate-approle ansible-frigg` — same mint-and-verify flow as `ansible-local`, but the post-revoke step differs: Frigg doesn't read 1Password, so its new SecretID has to be re-propagated onto the box directly, via the `control-node:vault-env` tag on `asgard-control.yml`.
+2. Confirm on Frigg itself that its env loader authenticates cleanly with the new SecretID.
 
 ---
 

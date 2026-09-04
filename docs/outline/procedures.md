@@ -20,7 +20,8 @@ Step-by-step operational runbooks. Where **Troubleshooting** is reactive ("this 
 
 | Procedure | When you reach for it | Blast radius |
 |---|---|---|
-| **AppRole rotation** | Routine credential hygiene, or after a SecretID leak | One consumer's Vault auth |
+| **Credential rotation** | Any machine credential — AWS, Cloudflare, Authentik, NetBox, Semaphore, AdGuard, the Vault root token — needs a fresh value | One credential's consumers |
+| **AppRole rotation** | Routine credential hygiene, or after a SecretID leak — the Vault AppRole deep dive | One consumer's Vault auth |
 | **Vault recovery** | Vault is sealed, a follower won't rejoin, or a token expired mid-deploy | The secrets layer |
 | **K3s node rebuild** | A single control-plane or worker node needs rebuilding | One node; cluster stays up |
 | **NetBox initial data import** | First-time (or post-wipe) NetBox population | NetBox data only |
