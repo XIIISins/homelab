@@ -10,9 +10,20 @@ Every machine-facing credential in the homelab has a defined rotation path — w
 
 ## Vault root token
 
-1Password item `[Bootstrap] - Manual - Vault - Root token`. Rotate with `rotate-vault-root-token` (either shell dialect) — an interactive helper, since the confirm-before-revoke step reads from the terminal. It mints a fresh **orphan** token, has the operator paste it into 1Password, hash-verifies the paste, proves the new token works live, then prompts before revoking the old one.
+1Password item `[Bootstrap] - Manual - Vault - Root token`. An interactive helper handles the whole thing — the confirm-before-revoke step reads from the terminal, so it can't run unattended:
 
-If there's no working root token to run that with, recovery is `vault operator generate-root` against a threshold of the Shamir recovery-key shares — no existing root token required, since this is Vault's designed unauthenticated bootstrap-recovery path.
+```fish
+rotate-vault-root-token
+```
+
+It mints a fresh **orphan** token, has the operator paste it into 1Password, hash-verifies the paste, proves the new token works live, then prompts before revoking the old one.
+
+If there's no working root token to run that with, recovery is against a threshold of the Shamir recovery-key shares — no existing root token required, since this is Vault's designed unauthenticated bootstrap-recovery path:
+
+```fish
+vault operator generate-root -init
+# submit recovery-key shares as prompted, then decode with the OTP it gives you
+```
 
 ---
 
@@ -97,7 +108,24 @@ Both hash lines should match the first one.
 
 ## Authentik admin API token
 
-API-driven, no UI needed. Mint a new one via `POST /api/v3/core/tokens/`, retrieve its key via `.../view_key/`, write it to 1Password (`[Asgard] - Terraform - Authentik - Admin API token`), confirm it authenticates, then delete the old identifier. Old and new stay valid side by side until the delete step, so there's no window where automation breaks mid-rotation.
+**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old and new stay valid side by side until the delete step, so there's no window where automation breaks mid-rotation.
+
+```fish
+set NEW_TOKEN_JSON (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d '{"identifier":"authentik-bootstrap-token-N","user":6,"intent":"api","expiring":false,"description":"rotated <date>"}')
+# bump N past whatever the current identifier suffix is
+set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/authentik-bootstrap-token-N/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
+
+op item edit '4pxuhyvygrqqeo3vro24bjrhwa' --vault "Homelab 2.0" "credential=$NEW_AUTHENTIK_TOKEN"
+printf '%s' "$NEW_AUTHENTIK_TOKEN" | shasum -a 256 | cut -c1-16
+printf '%s' (op read 'op://Homelab 2.0/4pxuhyvygrqqeo3vro24bjrhwa/credential') | shasum -a 256 | cut -c1-16
+curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN" | jq '.results | length'
+
+curl -s -X DELETE "$AUTHENTIK_URL/api/v3/core/tokens/authentik-bootstrap-token-<old-N>/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN"
+set-vault-token root
+vault kv patch secret/ansible/frigg/iac-env authentik_token="$NEW_AUTHENTIK_TOKEN"
+set -e NEW_AUTHENTIK_TOKEN
+```
+The `jq '.results | length'` call is just proving the new token authenticates (returns a number, not a 401) before you delete the old one.
 
 ---
 
@@ -115,30 +143,87 @@ print('TOKEN:', t.token)
 "
 ```
 
-The bearer credential is **three concatenated parts**, not just the printed `TOKEN` value: `nbt_<KEY>.<TOKEN>` — literal `nbt_` prefix, the `KEY` line, a literal `.`, then the `TOKEN` line. Paste that combined string into 1Password (`[Asgard] - Terraform - NetBox - Admin API token`).
+The bearer credential is **three concatenated parts**, not just the printed `TOKEN` value: `nbt_<KEY>.<TOKEN>` — literal `nbt_` prefix, the `KEY` line, a literal `.`, then the `TOKEN` line. Paste that combined string into **1Password item `[Asgard] - Terraform - NetBox - Admin API token`, UUID `lsqb4z5mbeijeqbxx43y5pkl5q`**, `credential` field, then:
+
+```fish
+set NEW_NETBOX_TOKEN (op read "op://Homelab 2.0/lsqb4z5mbeijeqbxx43y5pkl5q/credential")
+curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NEW_NETBOX_TOKEN" | jq '.count'
+# should return a number — confirms the reconstruction was correct
+
+set-vault-token root
+vault kv patch secret/ansible/frigg/iac-env netbox_api_token="$NEW_NETBOX_TOKEN"
+
+# find + delete the old token's id (via the API, with the still-valid old token)
+curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NETBOX_API_TOKEN" | jq -r '.results[] | "\(.id) \(.description)"'
+curl -s -X DELETE "$NETBOX_SERVER_URL/api/users/tokens/<OLD_ID>/" -H "Authorization: Bearer $NETBOX_API_TOKEN"
+set -e NEW_NETBOX_TOKEN
+```
 
 ---
 
 ## Semaphore API token
 
-API-driven — `POST /user/tokens` returns the real secret in full (unlike NetBox). Worth a length sanity-check on whatever comes back (the working value is ~44 characters) before trusting it, since a masked value would otherwise look plausible. This is Semaphore's own UI-login token, separate from the `ansible-awx` AppRole it uses internally to run Ansible — rotating one doesn't touch the other.
+**1Password item: `[Asgard] - Terraform - Semaphore - Admin API token`, UUID `24fmbstdhqzwk6eeru4vvaixsm`.** API-driven, and (unlike NetBox) its create response **does** return the real secret in full — worth a length sanity-check on whatever comes back (the working value is ~44 characters) before trusting it, since a masked value would otherwise look plausible.
+
+```fish
+curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[] | "\(.id) \(.name)"'
+# note the current id to delete later
+
+set NEW_TOKEN_JSON (curl -s -X POST "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN")
+set NEW_SEMAPHORE_TOKEN (echo $NEW_TOKEN_JSON | jq -r .id)
+set -e NEW_TOKEN_JSON
+printf '%s' "$NEW_SEMAPHORE_TOKEN" | wc -c   # sanity: should be ~44, not a short masked value
+
+op item edit '24fmbstdhqzwk6eeru4vvaixsm' --vault "Homelab 2.0" "credential=$NEW_SEMAPHORE_TOKEN"
+printf '%s' "$NEW_SEMAPHORE_TOKEN" | shasum -a 256 | cut -c1-16
+printf '%s' (op read 'op://Homelab 2.0/24fmbstdhqzwk6eeru4vvaixsm/credential') | shasum -a 256 | cut -c1-16
+
+set-vault-token root
+vault kv patch secret/ansible/frigg/iac-env semaphore_api_token="$NEW_SEMAPHORE_TOKEN"
+curl -s -X DELETE "$SEMAPHOREUI_API_BASE_URL/user/tokens/<OLD_ID>" -H "Authorization: Bearer $NEW_SEMAPHORE_TOKEN"
+set -e NEW_SEMAPHORE_TOKEN
+```
+
+This is Semaphore's own UI-login token, separate from the `ansible-awx` AppRole it uses internally to run Ansible — rotating one doesn't touch the other.
 
 ---
 
 ## AdGuard admin password
 
-The most involved one. AdGuard Home has no API-token concept — the credential is a real login, bcrypt-hashed into each of the three nodes' own config files by the `adguard` Ansible role. That role's config-render step is deliberately guarded to never touch an already-bootstrapped node's file (it protects the live DNS rewrites/filters/clients AdGuard writes back into the same file) — so pushing a new password hash to Vault and re-running the role is a silent no-op, not a rotation.
+**1Password item: `[Asgard] - Terraform - AdGuard - Admin login`, UUID `hvh3d7hlivcsbjqqye34f3d7a4`** (`username` = `ghost`, not the role default `admin`; `password` is what rotates). The most involved one. AdGuard Home has no API-token concept — the credential is a real login, bcrypt-hashed into each of the three nodes' own config files by the `adguard` Ansible role. That role's config-render step is deliberately guarded to never touch an already-bootstrapped node's file (it protects the live DNS rewrites/filters/clients AdGuard writes back into the same file) — so pushing a new password hash to Vault and re-running the role is a silent no-op, not a rotation.
 
 The working path is a surgical in-place edit of the `password:` line on each node, followed by a service restart:
 
 ```fish
 set NEW_ADGUARD_PASSWORD (openssl rand -base64 24)
 set NEW_ADGUARD_HASH (htpasswd -bnBC 10 "" "$NEW_ADGUARD_PASSWORD" | tr -d ':\n')
-# ... write to Vault + 1Password (Adguard - admin), then per node:
-ssh ansible@<node> "sudo sed -i 's|^    password: .*|    password: \"$NEW_ADGUARD_HASH\"|' /opt/AdGuardHome/AdGuardHome.yaml && sudo systemctl restart AdGuardHome.service"
+
+set-vault-token root
+vault kv patch secret/ansible/adguard/admin-password-hash hash="$NEW_ADGUARD_HASH"
+vault kv patch secret/ansible/adguardhome-sync/admin-password password="$NEW_ADGUARD_PASSWORD"
+vault kv patch secret/ansible/frigg/iac-env adguard_password="$NEW_ADGUARD_PASSWORD"
+op item edit 'hvh3d7hlivcsbjqqye34f3d7a4' --vault "Homelab 2.0" "password=$NEW_ADGUARD_PASSWORD"
+printf '%s' "$NEW_ADGUARD_PASSWORD" | shasum -a 256 | cut -c1-16
+printf '%s' (op read 'op://Homelab 2.0/hvh3d7hlivcsbjqqye34f3d7a4/password') | shasum -a 256 | cut -c1-16
+
+for h in 10.0.11.201 10.0.11.202 10.0.11.203
+    ssh -o IdentitiesOnly=true -i $ANSIBLE_PRIVATE_KEY_FILE ansible@$h "sudo cp /opt/AdGuardHome/AdGuardHome.yaml /opt/AdGuardHome/AdGuardHome.yaml.bak-pw-rotate-<date> && sudo sed -i 's|^    password: .*|    password: \"$NEW_ADGUARD_HASH\"|' /opt/AdGuardHome/AdGuardHome.yaml && sudo systemctl restart AdGuardHome.service"
+    echo "$h: $status"
+end
 ```
 
-Two things worth knowing before running this: the `sed` delimiter has to avoid `/`, since bcrypt hashes commonly contain it — use `|`. And verify by testing the actual login, never by comparing the file's hash against what's stored elsewhere — bcrypt salts randomly per invocation, so two independently-generated hashes of the identical password will essentially never match, which is expected, not a failure.
+**Delimiter must be `|`, not `/`** — bcrypt hashes commonly contain literal `/`.
+
+Verify by testing the actual login, never by comparing the file's hash to what's stored elsewhere — bcrypt salts randomly per invocation, so two independently-generated hashes of the identical password will essentially never match, and that's expected, not a failure:
+
+```fish
+curl -s -X POST "http://10.0.11.201/control/login" -H "Content-Type: application/json" -d "{\"name\":\"$ADGUARD_USERNAME\",\"password\":\"$NEW_ADGUARD_PASSWORD\"}" -i | head -1
+curl -s -X POST "http://10.0.11.202/control/login" -H "Content-Type: application/json" -d "{\"name\":\"$ADGUARD_USERNAME\",\"password\":\"$NEW_ADGUARD_PASSWORD\"}" -i | head -1
+curl -s -X POST "http://10.0.11.203/control/login" -H "Content-Type: application/json" -d "{\"name\":\"$ADGUARD_USERNAME\",\"password\":\"$NEW_ADGUARD_PASSWORD\"}" -i | head -1
+curl -s -o /dev/null -w "%{http_code}\n" https://smoketest.niflheim.xiiisins.com/anything
+set -e NEW_ADGUARD_PASSWORD NEW_ADGUARD_HASH
+```
+All four should be `200`.
 
 ---
 
