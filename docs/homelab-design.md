@@ -54,6 +54,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 
 ### Procedures — operational runbooks
 - [`procedures/teardown-rebuild.md`](procedures/teardown-rebuild.md) — full homelab disaster-recovery + rebuild runbook (foundation → LXCs → K3s → all services, dependency-ordered, two-day). The asgard-K3s-cluster-only path is validated (2026-05-17); the executed predecessor is archived at [`procedures/archive/2026-05-17-asgard-rename-rebuild.md`](procedures/archive/2026-05-17-asgard-rename-rebuild.md).
+- [`procedures/credential-rotation.md`](procedures/credential-rotation.md) — step-by-step rotation for every homelab-env credential (Vault root token, AppRoles, AWS, Cloudflare, Authentik, NetBox, Semaphore, AdGuard). Written up 2026-09-04 after a two-day transcript-leak-driven full rotation. Note: this index is otherwise stale — several other `procedures/*.md` files exist (`agh-cutover.md`, `netbox-initial-data-import.md`, `proxmox-host-patching.md`, `s4-observability-validation.md`, `synology-storage-redesign.md`, `vault-tls-migration.md`, `zabbix-saml-deploy.md`) but aren't listed here; a cleanup pass is a good candidate for a future post-flight.
 
 ### Known issues — Claude-runtime gotchas
 - [`../CLAUDE.md`](../CLAUDE.md) "Known gotchas" — currently canonical home. Migration to [`known-issues/`](known-issues/README.md) planned (see README there).
