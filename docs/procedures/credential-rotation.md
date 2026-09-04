@@ -13,12 +13,13 @@ Step-by-step rotation for every homelab-env credential type. Written up 2026-09-
 
 ## Vault root token
 
-Interactive-only (needs a real terminal for the confirm-before-revoke prompt): `rotate-vault-root-token` in either shim dialect. Full mechanism + the `op item edit` silent-fail history: `known-issues/vault.md`. Recovery path if it goes wrong: `vault operator generate-root` (documented inline in `2026-09-03-vault-root-token-recovery.md`; a standalone runbook is still an open item).
+**1Password item: `[Bootstrap] - Manual - Vault - Root token`, UUID `7g4grolyien2yqkm7me2jficmy`** (renamed from `Asgard - Vault - Root Token` during the S1 reorg — always reference by UUID). Interactive-only (needs a real terminal for the confirm-before-revoke prompt): `rotate-vault-root-token` in either shim dialect. Full mechanism + the `op item edit` silent-fail history: `known-issues/vault.md`. Recovery path if it goes wrong: `vault operator generate-root` (documented inline in `2026-09-03-vault-root-token-recovery.md`; a standalone runbook is still an open item).
 
 ## Vault AppRole (`ansible-local`, `ansible-frigg`, `ansible-awx`)
 
-- `ansible-local` / `ansible-frigg`: `rotate-approle <role>` — prints the new SecretID for the operator to paste into 1Password, hash-verifies, prompts before revoking the old one. **Only `username` = RoleID, never touch it; `password`/`secret_id_accessor`/`expires_at` are what change.**
-- `ansible-awx` (Semaphore's role): separate helper, `rotate-semaphore-approle` — writes straight to Vault KV `secret/k8s/semaphore/vault-approle`, then `terraform apply` in `terraform/semaphore/` propagates it.
+- `ansible-local`: **1Password item `[Asgard] - Ansible - Vault - AppRole (ansible-local)`, UUID `4srpqv2mt2vditxo7g5rqjquti`.** `rotate-approle ansible-local` — prints the new SecretID for the operator to paste into that item, hash-verifies, prompts before revoking the old one. **Only `username` = RoleID, never touch it; `password`/`secret_id_accessor`/`expires_at` are what change.**
+- `ansible-frigg`: **1Password item `[Asgard] - Ansible - Vault - AppRole (ansible-frigg)`, UUID `kcmjziie2a75zk4qytdixrprpe`.** `rotate-approle ansible-frigg` — same pattern, but its post-revoke step is different: Frigg doesn't read 1P, so also re-propagate via `ansible-playbook ... asgard-control.yml --tags control-node:vault-env -e control_node_frigg_secret_id=<new-secret-id> -l frigg`.
+- `ansible-awx` (Semaphore's role): **no 1Password item — Vault KV only**, `secret/k8s/semaphore/vault-approle`. Separate helper, `rotate-semaphore-approle` — writes straight there, then `terraform apply` in `terraform/semaphore/` propagates it.
 - Full detail on why these are two different helpers, the mount `max_lease_ttl` clamp, and the `username`-vs-`role_id` footgun: `known-issues/vault.md`.
 
 ## AWS (`terraform-state` IAM user's access key)
@@ -34,9 +35,10 @@ terraform apply -replace=aws_iam_access_key.terraform_state
 terraform output -raw terraform_state_access_key_id; echo
 terraform output -raw terraform_state_secret_access_key; echo
 ```
-Paste both into 1Password (`[Asgard] - Terraform - AWS - State access key`: `username` = access key id, `credential` = secret). `-replace` destroys-then-creates atomically — no separate old-key cleanup.
+**1Password item: `[Asgard] - Terraform - AWS - State access key`, UUID `jnvf6aokgml7vkjj4ho2xlcvua`.** Paste both values in: `username` = access key id, `credential` = secret. `-replace` destroys-then-creates atomically — no separate old-key cleanup.
 
 ```fish
+# item: [Asgard] - Terraform - AWS - State access key (jnvf6aokgml7vkjj4ho2xlcvua)
 printf '%s' "$(terraform output -raw terraform_state_secret_access_key)" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential') | shasum -a 256 | cut -c1-16
 AWS_ACCESS_KEY_ID=$(terraform output -raw terraform_state_access_key_id) AWS_SECRET_ACCESS_KEY=$(terraform output -raw terraform_state_secret_access_key) aws sts get-caller-identity
@@ -50,15 +52,16 @@ set-aws-creds state
 ## Cloudflare
 
 **There are (at least) three separate Cloudflare API tokens in the account**, not one — check the dashboard (My Profile → API Tokens) before assuming which one you're rolling:
-- **"Terraform Cloudflare"** — broad scope (Tunnel, DNS, WAF, Zone Settings, Bot Management). This is the one `CLOUDFLARE_API_TOKEN` refers to.
-- **"cert-manager-niflheim-dns01"** — narrow, DNS-01-only, dedicated to cert-manager. **Separate from the Terraform token.** Its only home is `secret/k8s/cert-manager/cloudflare` — do not overwrite that path with the Terraform token's value (this happened once; recovered via `vault kv rollback -version=1`, since Vault keeps KV version history by default and nothing else does).
-- **"Admin-read-all"** — not consumed by anything in this repo as far as traced.
+- **"Terraform Cloudflare"** (Cloudflare dashboard name) — broad scope (Tunnel, DNS, WAF, Zone Settings, Bot Management). This is the one `CLOUDFLARE_API_TOKEN` refers to, mirrored to **1Password item `[Asgard] - Terraform - Cloudflare - API token`, UUID `ps4mc2hv7a777tzsef755te64m`**.
+- **"cert-manager-niflheim-dns01"** (Cloudflare dashboard name) — narrow, DNS-01-only, dedicated to cert-manager. **Separate from the Terraform token.** Its only home is `secret/k8s/cert-manager/cloudflare` (no 1Password mirror) — do not overwrite that path with the Terraform token's value (this happened once; recovered via `vault kv rollback -version=1`, since Vault keeps KV version history by default and nothing else does).
+- **"Admin-read-all"** (Cloudflare dashboard name) — not consumed by anything in this repo as far as traced. No 1Password mirror.
 
 Rotate the **Terraform Cloudflare** token (the common case):
 
 ```fish
-# roll it in the Cloudflare dashboard, paste the new value into 1Password
-# (item [Asgard] - Terraform - Cloudflare - API token, credential field)
+# roll "Terraform Cloudflare" in the Cloudflare dashboard, paste the new
+# value into 1Password item: [Asgard] - Terraform - Cloudflare - API
+# token (ps4mc2hv7a777tzsef755te64m), credential field
 set CF_TOKEN (op read "op://Homelab 2.0/ps4mc2hv7a777tzsef755te64m/credential")
 ```
 
@@ -86,13 +89,14 @@ set -e CF_TOKEN
 
 ## Authentik admin API token
 
-API-driven, no UI needed. Old-and-new both valid during the safety window (delete last):
+**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old-and-new both valid during the safety window (delete last):
 
 ```fish
 set NEW_TOKEN_JSON (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d '{"identifier":"authentik-bootstrap-token-N","user":6,"intent":"api","expiring":false,"description":"rotated <date>"}')
 # bump N past whatever the current identifier suffix is
 set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/authentik-bootstrap-token-N/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
 
+# item: [Asgard] - Terraform - Authentik - Admin API token (4pxuhyvygrqqeo3vro24bjrhwa)
 op item edit '4pxuhyvygrqqeo3vro24bjrhwa' --vault "Homelab 2.0" "credential=$NEW_AUTHENTIK_TOKEN"
 printf '%s' "$NEW_AUTHENTIK_TOKEN" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/4pxuhyvygrqqeo3vro24bjrhwa/credential') | shasum -a 256 | cut -c1-16
@@ -117,9 +121,10 @@ print('KEY:', t.key)
 print('TOKEN:', t.token)
 "
 ```
-Construct the real value yourself: `nbt_<KEY>.<TOKEN>` (literal `nbt_` + the `KEY` line + a literal `.` + the `TOKEN` line). Paste that combined string into 1Password (`[Asgard] - Terraform - NetBox - Admin API token`, `credential`), then:
+Construct the real value yourself: `nbt_<KEY>.<TOKEN>` (literal `nbt_` + the `KEY` line + a literal `.` + the `TOKEN` line). Paste that combined string into **1Password item `[Asgard] - Terraform - NetBox - Admin API token`, UUID `lsqb4z5mbeijeqbxx43y5pkl5q`**, `credential` field, then:
 
 ```fish
+# item: [Asgard] - Terraform - NetBox - Admin API token (lsqb4z5mbeijeqbxx43y5pkl5q)
 set NEW_NETBOX_TOKEN (op read "op://Homelab 2.0/lsqb4z5mbeijeqbxx43y5pkl5q/credential")
 curl -s "$NETBOX_SERVER_URL/api/users/tokens/" -H "Authorization: Bearer $NEW_NETBOX_TOKEN" | jq '.count'
 # should return a number — that confirms the reconstruction was correct
@@ -135,7 +140,7 @@ set -e NEW_NETBOX_TOKEN
 
 ## Semaphore API token
 
-API-driven, and (unlike NetBox) its create response **does** return the real secret in full — confirm by checking the length before trusting it (44 chars observed; NetBox's masked values were 12).
+**1Password item: `[Asgard] - Terraform - Semaphore - Admin API token`, UUID `24fmbstdhqzwk6eeru4vvaixsm`.** API-driven, and (unlike NetBox) its create response **does** return the real secret in full — confirm by checking the length before trusting it (44 chars observed; NetBox's masked values were 12).
 
 ```fish
 curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[] | "\(.id) \(.name)"'
@@ -146,6 +151,7 @@ set NEW_SEMAPHORE_TOKEN (echo $NEW_TOKEN_JSON | jq -r .id)
 set -e NEW_TOKEN_JSON
 printf '%s' "$NEW_SEMAPHORE_TOKEN" | wc -c   # sanity: should be ~44, not a short masked value
 
+# item: [Asgard] - Terraform - Semaphore - Admin API token (24fmbstdhqzwk6eeru4vvaixsm)
 op item edit '24fmbstdhqzwk6eeru4vvaixsm' --vault "Homelab 2.0" "credential=$NEW_SEMAPHORE_TOKEN"
 printf '%s' "$NEW_SEMAPHORE_TOKEN" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/24fmbstdhqzwk6eeru4vvaixsm/credential') | shasum -a 256 | cut -c1-16
@@ -159,7 +165,7 @@ Note: this is Semaphore's own UI-login API token — distinct from the `ansible-
 
 ## AdGuard admin password
 
-The most involved one — AGH has no API-token concept, and the `adguard` role's config-render is guarded to never touch an already-bootstrapped node's file (protects live rewrites/filters/clients). A plain role re-run + Vault write is a **silent no-op**. Full detail on why, plus the `sed` delimiter and bcrypt-hash-compare gotchas: `known-issues/dns-adguard.md`. Condensed runbook:
+**1Password item: `[Asgard] - Terraform - AdGuard - Admin login`, UUID `hvh3d7hlivcsbjqqye34f3d7a4`** (`username` = `ghost`, not the role default `admin`; `password` is what rotates). The most involved one — AGH has no API-token concept, and the `adguard` role's config-render is guarded to never touch an already-bootstrapped node's file (protects live rewrites/filters/clients). A plain role re-run + Vault write is a **silent no-op**. Full detail on why, plus the `sed` delimiter and bcrypt-hash-compare gotchas: `known-issues/dns-adguard.md`. Condensed runbook:
 
 ```fish
 set NEW_ADGUARD_PASSWORD (openssl rand -base64 24)
@@ -169,6 +175,7 @@ set-vault-token root
 vault kv patch secret/ansible/adguard/admin-password-hash hash="$NEW_ADGUARD_HASH"
 vault kv patch secret/ansible/adguardhome-sync/admin-password password="$NEW_ADGUARD_PASSWORD"
 vault kv patch secret/ansible/frigg/iac-env adguard_password="$NEW_ADGUARD_PASSWORD"
+# item: [Asgard] - Terraform - AdGuard - Admin login (hvh3d7hlivcsbjqqye34f3d7a4)
 op item edit 'hvh3d7hlivcsbjqqye34f3d7a4' --vault "Homelab 2.0" "password=$NEW_ADGUARD_PASSWORD"
 printf '%s' "$NEW_ADGUARD_PASSWORD" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/hvh3d7hlivcsbjqqye34f3d7a4/password') | shasum -a 256 | cut -c1-16
