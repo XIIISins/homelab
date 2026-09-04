@@ -123,8 +123,12 @@ else
     set NEW_ID "authentik-bootstrap-token-"(math (string replace 'authentik-bootstrap-token-' '' $CUR_ID) + 1)
     echo "rotating $CUR_ID -> $NEW_ID"
 
-    # 2. create — verify it actually landed before trusting it
-    set CREATE_ID (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d (jq -n --arg id "$NEW_ID" '{identifier:$id,user:6,intent:"api",expiring:false,description:"rotated"}') | jq -r '.identifier')
+    # 2. create — verify it actually landed before trusting it.
+    # jq -n (no -c) here would break: fish splits a command substitution's
+    # output into a list on newlines, so a pretty-printed multi-line JSON
+    # body arrives at -d as just its first line ("{"), and curl 400s on
+    # "unexpected end of data". -c keeps it one line, one list element.
+    set CREATE_ID (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d (jq -nc --arg id "$NEW_ID" '{identifier:$id,user:6,intent:"api",expiring:false,description:"rotated"}') | jq -r '.identifier')
     if test "$CREATE_ID" != "$NEW_ID"
         echo "STOP: create failed (got '$CREATE_ID', expected '$NEW_ID'). Nothing written anywhere — investigate, then safe to retry from the top."
     else
