@@ -108,22 +108,28 @@ Both hash lines should match the first one.
 
 ## Authentik admin API token
 
-**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old and new stay valid side by side until the delete step, so there's no window where automation breaks mid-rotation.
+**1Password item: `[Asgard] - Terraform - Authentik - Admin API token`, UUID `4pxuhyvygrqqeo3vro24bjrhwa`.** API-driven, no UI needed. Old and new stay valid side by side until the delete step, so there's no window where automation breaks mid-rotation. The identifier is `authentik-bootstrap-token-<N>`, incrementing each rotation — the block below discovers the current N and computes the next one itself, nothing to fill in by hand.
 
 ```fish
-set NEW_TOKEN_JSON (curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d '{"identifier":"authentik-bootstrap-token-N","user":6,"intent":"api","expiring":false,"description":"rotated <date>"}')
-# bump N past whatever the current identifier suffix is
-set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/authentik-bootstrap-token-N/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
+# discover current + next identifier automatically — nothing to substitute
+set CUR_ID (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r '[.results[] | select(.identifier | test("^authentik-bootstrap-token-[0-9]+$"))] | sort_by(.identifier | ltrimstr("authentik-bootstrap-token-") | tonumber) | last | .identifier')
+set NEW_ID "authentik-bootstrap-token-"(math (string replace 'authentik-bootstrap-token-' '' $CUR_ID) + 1)
+echo "rotating $CUR_ID -> $NEW_ID"
+
+curl -s -X POST "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" -H "Content-Type: application/json" -d (jq -n --arg id "$NEW_ID" '{identifier:$id,user:6,intent:"api",expiring:false,description:"rotated"}') | jq -r '.identifier'
+# should print $NEW_ID back — confirms creation succeeded
+
+set NEW_AUTHENTIK_TOKEN (curl -s "$AUTHENTIK_URL/api/v3/core/tokens/$NEW_ID/view_key/" -H "Authorization: Bearer $AUTHENTIK_TOKEN" | jq -r .key)
 
 op item edit '4pxuhyvygrqqeo3vro24bjrhwa' --vault "Homelab 2.0" "credential=$NEW_AUTHENTIK_TOKEN"
 printf '%s' "$NEW_AUTHENTIK_TOKEN" | shasum -a 256 | cut -c1-16
 printf '%s' (op read 'op://Homelab 2.0/4pxuhyvygrqqeo3vro24bjrhwa/credential') | shasum -a 256 | cut -c1-16
 curl -s "$AUTHENTIK_URL/api/v3/core/tokens/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN" | jq '.results | length'
 
-curl -s -X DELETE "$AUTHENTIK_URL/api/v3/core/tokens/authentik-bootstrap-token-<old-N>/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN"
+curl -s -X DELETE "$AUTHENTIK_URL/api/v3/core/tokens/$CUR_ID/" -H "Authorization: Bearer $NEW_AUTHENTIK_TOKEN"
 set-vault-token root
 vault kv patch secret/ansible/frigg/iac-env authentik_token="$NEW_AUTHENTIK_TOKEN"
-set -e NEW_AUTHENTIK_TOKEN
+set -e NEW_AUTHENTIK_TOKEN CUR_ID NEW_ID
 ```
 The `jq '.results | length'` call is just proving the new token authenticates (returns a number, not a 401) before you delete the old one.
 
@@ -166,8 +172,8 @@ set -e NEW_NETBOX_TOKEN
 **1Password item: `[Asgard] - Terraform - Semaphore - Admin API token`, UUID `24fmbstdhqzwk6eeru4vvaixsm`.** API-driven, and (unlike NetBox) its create response **does** return the real secret in full — worth a length sanity-check on whatever comes back (the working value is ~44 characters) before trusting it, since a masked value would otherwise look plausible.
 
 ```fish
-curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[] | "\(.id) \(.name)"'
-# note the current id to delete later
+# capture the current id automatically — nothing to copy by hand
+set OLD_ID (curl -s "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN" | jq -r '.[0].id')
 
 set NEW_TOKEN_JSON (curl -s -X POST "$SEMAPHOREUI_API_BASE_URL/user/tokens" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN")
 set NEW_SEMAPHORE_TOKEN (echo $NEW_TOKEN_JSON | jq -r .id)
@@ -180,9 +186,10 @@ printf '%s' (op read 'op://Homelab 2.0/24fmbstdhqzwk6eeru4vvaixsm/credential') |
 
 set-vault-token root
 vault kv patch secret/ansible/frigg/iac-env semaphore_api_token="$NEW_SEMAPHORE_TOKEN"
-curl -s -X DELETE "$SEMAPHOREUI_API_BASE_URL/user/tokens/<OLD_ID>" -H "Authorization: Bearer $NEW_SEMAPHORE_TOKEN"
-set -e NEW_SEMAPHORE_TOKEN
+curl -s -X DELETE "$SEMAPHOREUI_API_BASE_URL/user/tokens/$OLD_ID" -H "Authorization: Bearer $NEW_SEMAPHORE_TOKEN"
+set -e NEW_SEMAPHORE_TOKEN OLD_ID
 ```
+`$OLD_ID` grabs `.[0]` assuming there's normally exactly one Semaphore token live — if there's ever more than one, list them first (`jq -r '.[] | "\(.id) \(.name)"'`) and delete deliberately instead.
 
 This is Semaphore's own UI-login token, separate from the `ansible-awx` AppRole it uses internally to run Ansible — rotating one doesn't touch the other.
 
