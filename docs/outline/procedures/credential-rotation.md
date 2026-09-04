@@ -30,9 +30,26 @@ The day-to-day `terraform-state` IAM identity is deliberately scoped to S3 only 
 cd terraform/aws
 set-aws-creds bootstrap
 terraform apply -replace=aws_iam_access_key.terraform_state
+# review plan, confirm
+
+terraform output -raw terraform_state_access_key_id; echo
+terraform output -raw terraform_state_secret_access_key; echo
 ```
 
-`-replace` destroys the old key and creates a new one atomically — no separate cleanup step. Pull the new values with `terraform output -raw terraform_state_access_key_id` / `terraform_state_secret_access_key`, store them in 1Password (`[Asgard] - Terraform - AWS - State access key`), sync `secret/ansible/frigg/iac-env`, then `set-aws-creds state` to swap back.
+`-replace` destroys the old key and creates a new one atomically — no separate cleanup step. Paste the two output values into 1Password (`[Asgard] - Terraform - AWS - State access key`: `username` = access key id, `credential` = secret), then sync the rest:
+
+```fish
+printf '%s' "$(terraform output -raw terraform_state_secret_access_key)" | shasum -a 256 | cut -c1-16
+printf '%s' (op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential') | shasum -a 256 | cut -c1-16
+AWS_ACCESS_KEY_ID=$(terraform output -raw terraform_state_access_key_id) AWS_SECRET_ACCESS_KEY=$(terraform output -raw terraform_state_secret_access_key) aws sts get-caller-identity
+
+cd ..
+set-vault-token root
+vault kv patch secret/ansible/frigg/iac-env aws_access_key_id=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/username') aws_secret_access_key=(op read 'op://Homelab 2.0/jnvf6aokgml7vkjj4ho2xlcvua/credential')
+set-aws-creds state
+```
+
+The first two lines hash-verify the 1Password write landed; the `sts get-caller-identity` call confirms the new key actually authenticates before you swap back off the bootstrap identity.
 
 ---
 
