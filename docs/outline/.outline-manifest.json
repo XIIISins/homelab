@@ -76,7 +76,7 @@
   },
   "procedures/credential-rotation.md": {
     "id": "aee83142-fb36-4ce8-9c34-e29763b1f043",
-    "sha": "7f210100558d10dcc4b5e30edb4efe4d5be574a8d522bcd0b065228cec55177b",
+    "sha": "cc1971e948a75bb30e09dd6a80cb545759144e7d8519d61b620780ed7e1f468c",
     "title": "Credential rotation"
   },
   "procedures/k3s-node-rebuild.md": {
