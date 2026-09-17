@@ -10,6 +10,11 @@ callback sees — the wrapper:
     playbooks/apply.yml        -> mode=apply  (critical on failure only)
     playbooks/fleet-agents.yml -> mode=apply  (critical on failure only;
                                   daily fleet-wide agent reconverge)
+    playbooks/os-updates.yml   -> mode=apply  (critical on failure only;
+                                  run directly, not via a wrapper — it's
+                                  only ever invoked by the asgard-os-updates
+                                  template, so no other mode needs to
+                                  claim this filename)
 
 Any other wrapper is a no-op — the callback is meant for the Semaphore
 wrapper playbooks; per-host ad-hoc runs from the operator's MacBook
@@ -60,6 +65,7 @@ class CallbackModule(CallbackBase):
         "drift-check.yml": "drift",
         "apply.yml": "apply",
         "fleet-agents.yml": "apply",
+        "os-updates.yml": "apply",
     }
 
     def __init__(self):
