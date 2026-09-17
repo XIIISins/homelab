@@ -12,7 +12,14 @@
 # Provider block stays empty so env vars are the single source of truth.
 provider "semaphoreui" {}
 
-provider "vault" {}
+# skip_child_token: the AppRole-issued token (ansible-frigg, when applied
+# from Frigg/the control-node shim) has read access to secret/* but no
+# grant on auth/token/create — the provider's default per-request child
+# token would 403. skip_child_token uses the token directly instead;
+# still fully policy-scoped, just skips the create-a-limited-copy step.
+provider "vault" {
+  skip_child_token = true
+}
 
 # === Vault data sources (operator-supplied secrets) ===
 #
