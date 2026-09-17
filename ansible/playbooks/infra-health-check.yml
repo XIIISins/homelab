@@ -20,6 +20,13 @@
 #      class of gap that caused the 2026-09-03 ansible-frigg silent-expiry
 #      incident; warns 14d out via date-only comparison, see the included
 #      tasks/approle-expiry-check.yml for why not full datetime parsing)
+#   7. claude-remote-control.service state on Frigg — same blind-spot
+#      class as #6: the RC watchtower crash-loops on an invalidated login
+#      session (2026-08-02, 2026-08-05, 2026-09-17), burns through
+#      StartLimitBurst, and then sits `failed` with nothing watching it
+#      (7.5h undetected on 2026-09-17). Read via service_facts in a
+#      dedicated play against frigg (see below), consumed via hostvars
+#      in the main localhost play.
 #
 # Severity -> Hermod tag routing (see docs/services/notifications.md):
 #   critical -> Hrist   alert -> Mist
@@ -44,6 +51,21 @@
 # explicit POSTs below are the only Hermod traffic. A play-level rescue
 # POSTs a critical if the job itself errors (e.g. Vault unreachable),
 # so a broken prober is never silent.
+
+- name: Probe Frigg watchtower service state
+  # Separate play (not the localhost prober below) because reading
+  # claude-remote-control's unit state needs an SSH connection to frigg
+  # itself, not an HTTP probe. Read-only (service_facts never mutates
+  # state); ignore_unreachable so a dead/unreachable Frigg degrades to a
+  # finding in the main play rather than aborting the whole health check.
+  hosts: control
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Gather claude-remote-control unit state
+      ansible.builtin.service_facts:
+      register: _frigg_service_facts
+      failed_when: false
 
 - name: Infra health check (active prober -> Hermod)
   hosts: localhost
@@ -325,6 +347,33 @@
         - name: Record AppRole expiry findings
           ansible.builtin.set_fact:
             crit_findings: "{{ crit_findings | default([]) + (approle_findings | default([])) }}"
+
+        # --- 7. Frigg watchtower: claude-remote-control state ---------
+        # Populated by the "Probe Frigg watchtower service state" play
+        # above (same playbook run, so its facts are already in hostvars).
+        # ansible.builtin.service_facts only ever reports `state` as
+        # "running" or "stopped" (never "active"/"failed" — those land in
+        # `status`, and only transiently: a bad status is preserved, but a
+        # healthy one gets overwritten with the unit's ENABLEMENT string,
+        # e.g. "enabled" — verified empirically 2026-09-17 against frigg).
+        # So "running" is the only value that means healthy; anything else
+        # (stopped, unreachable host) is worth a finding.
+        - name: Record claude-remote-control state finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['claude-remote-control.service on frigg: state=`' ~ _rc_state
+                     ~ '` status=`' ~ _rc_status ~ '` — RC watchtower is down.'
+                     ~ ' Check `journalctl -u claude-remote-control`; if it crash-looped'
+                     ~ ' on an invalidated login, `claude auth login` then'
+                     ~ ' `systemctl restart claude-remote-control`.']
+                    if _rc_state != 'running' else []) }}
+          vars:
+            _rc_unit: >-
+              {{ (hostvars['frigg'].ansible_facts.services | default({}))
+                 .get('claude-remote-control.service', {}) }}
+            _rc_state: "{{ _rc_unit.get('state', 'unreachable') }}"
+            _rc_status: "{{ _rc_unit.get('status', 'unreachable') }}"
 
         # --- POST findings to Hermod ----------------------------------
         - name: POST critical findings to Hermod

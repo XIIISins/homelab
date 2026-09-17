@@ -32,7 +32,10 @@ caddy_apt_keyring_path: "/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
 # Cloudsmith rolls forward + drops older versions periodically — when
 # bumping, verify the target version is still in the candidate list
 # before changing this pin (apt errors out on a missing pin).
-caddy_version: "2.11.3"
+# Bumped to 2.11.4 2026-09-17: unattended-upgrades pulled hermod past the
+# pin (drift-check would otherwise downgrade it); verified 2.11.4 is
+# still the current Cloudsmith candidate before accepting.
+caddy_version: "2.11.4"
 
 # ---- Sites ----
 # List-of-dicts. Each entry renders one Caddyfile block. Required fields:
