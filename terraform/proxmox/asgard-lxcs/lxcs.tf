@@ -469,7 +469,7 @@ resource "proxmox_virtual_environment_container" "adguard" {
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 4 # GB — adguardhome + sqlite query log
+    size         = 8 # GB — adguardhome + querylog.json (90d retention). Bumped from 4 (2026-09-17, Saga at 85% full — VIP holder sees most traffic, journal + querylog.json/.1 dominate; Mimir/Kvasir bumped in lockstep for failover symmetry)
   }
 
   network_interface {
