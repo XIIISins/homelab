@@ -15,15 +15,24 @@
     owner: root
     group: root
     mode: "0644"
-    force: false
+    force: true
   when: not ansible_check_mode
+  register: control_node_hashicorp_keyring_asc
   tags: [control-node, control-node:toolchain]
 
+# force: false + creates: here used to mean "fetch once, dearmor once,
+# forever" — if HashiCorp ever rotated/added a signing key, the frozen
+# keyring couldn't pick it up and apt started failing with "Missing key"
+# with no self-heal path (hit live 2026-09-17 on frigg, key
+# D55C0D1AC78A8D8126CB631CFC9CA96ACA026560). force: true + gating dearmor
+# on the download's own `changed` (not `creates`) means a genuine upstream
+# rotation gets picked up on the next run, while an unchanged key still
+# reports changed=0 (get_url's force:true does a real content diff, not
+# an unconditional redownload-and-flag).
 - name: Dearmor HashiCorp keyring
   ansible.builtin.command:
     cmd: "gpg --batch --yes --dearmor -o {{ control_node_hashicorp_keyring }} {{ control_node_hashicorp_keyring }}.asc"
-    creates: "{{ control_node_hashicorp_keyring }}"
-  when: not ansible_check_mode
+  when: not ansible_check_mode and control_node_hashicorp_keyring_asc.changed
   tags: [control-node, control-node:toolchain]
 
 - name: Install HashiCorp apt source
@@ -48,15 +57,16 @@
     owner: root
     group: root
     mode: "0644"
-    force: false
+    force: true
   when: not ansible_check_mode
+  register: control_node_k8s_keyring_asc
   tags: [control-node, control-node:toolchain]
 
+# Same self-heal-on-rotation fix as the HashiCorp keyring above.
 - name: Dearmor Kubernetes keyring
   ansible.builtin.command:
     cmd: "gpg --batch --yes --dearmor -o {{ control_node_k8s_keyring }} {{ control_node_k8s_keyring }}.asc"
-    creates: "{{ control_node_k8s_keyring }}"
-  when: not ansible_check_mode
+  when: not ansible_check_mode and control_node_k8s_keyring_asc.changed
   tags: [control-node, control-node:toolchain]
 
 - name: Install Kubernetes apt source
@@ -81,15 +91,16 @@
     owner: root
     group: root
     mode: "0644"
-    force: false
+    force: true
   when: not ansible_check_mode
+  register: control_node_nodesource_keyring_asc
   tags: [control-node, control-node:toolchain]
 
+# Same self-heal-on-rotation fix as the HashiCorp keyring above.
 - name: Dearmor NodeSource keyring
   ansible.builtin.command:
     cmd: "gpg --batch --yes --dearmor -o {{ control_node_nodesource_keyring }} {{ control_node_nodesource_keyring }}.asc"
-    creates: "{{ control_node_nodesource_keyring }}"
-  when: not ansible_check_mode
+  when: not ansible_check_mode and control_node_nodesource_keyring_asc.changed
   tags: [control-node, control-node:toolchain]
 
 - name: Install NodeSource apt source
@@ -112,7 +123,10 @@
     update_cache: true
   when:
     - not ansible_check_mode
-    - control_node_hashicorp_repo.changed or control_node_k8s_repo.changed or control_node_nodesource_repo.changed
+    - >-
+      control_node_hashicorp_repo.changed or control_node_k8s_repo.changed or control_node_nodesource_repo.changed
+      or control_node_hashicorp_keyring_asc.changed or control_node_k8s_keyring_asc.changed
+      or control_node_nodesource_keyring_asc.changed
   tags: [control-node, control-node:toolchain]
 
 - name: Install terraform (pinned)
