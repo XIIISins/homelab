@@ -26,6 +26,43 @@
 # Override the per-group serial for a fast batch run (NOT recommended
 # for unattended Semaphore runs against quorum groups):
 #   ansible-playbook playbooks/os-updates.yml -e '{"os_updates_serial": "100%"}'
+#
+# Self-reboot avoidance: when this playbook is triggered FROM Semaphore,
+# the ansible-playbook process runs inside the semaphore-0 pod — which
+# lives on one of the k3s_worker nodes. Rebooting that node mid-play kills
+# the pod, which kills this very process, orphaning the Semaphore task and
+# silently skipping every play after the K3s-worker one (postgres onward
+# never runs). The preliminary play below discovers that node (best-effort
+# — a no-op when run from the MacBook/Frigg, or if discovery fails) and
+# excludes it from the normal K3s-worker play; the final play at the
+# bottom of this file patches it last, after everything else in the fleet
+# has already completed. See docs/known-issues/semaphore.md "self-reboot".
+
+- name: Discover Semaphore's current K3s worker (patched last, own-host risk)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  # `kubectl get pod` needs no privilege escalation. Explicit because
+  # ansible.cfg defaults become: true, which makes localhost tasks try to
+  # sudo and fail ("sudo: a password is required") — same fix as
+  # infra-health-check.yml's localhost play.
+  become: false
+  tasks:
+    - name: Look up semaphore-0's node (best-effort — empty if not found/no kubectl)
+      ansible.builtin.command:
+        argv: [kubectl, get, pod, -n, semaphore, semaphore-0, -o, "jsonpath={.spec.nodeName}"]
+      register: _semaphore_node
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Record semaphore_node fact (empty string if undiscoverable)
+      ansible.builtin.set_fact:
+        semaphore_node: >-
+          {{ _semaphore_node.stdout
+             if (_semaphore_node.rc | default(1)) == 0
+                and (_semaphore_node.stdout | default('')) in groups['k3s_worker']
+             else '' }}
 
 - name: Patch K3s control planes
   hosts: k3s_cp
@@ -40,7 +77,18 @@
   become: true
   serial: "{{ os_updates_serial | default(1) }}"
   roles:
+    # Skip whichever worker currently hosts semaphore-0 — it's patched by
+    # the dedicated final play instead. Static `hosts: k3s_worker` (not a
+    # templated host list) matches the proxmox-host-patching.yml
+    # convention and keeps `--syntax-check` working: a play-level `hosts:`
+    # field is parsed before any play executes, so it can't reference
+    # hostvars a prior play set at runtime — a per-task `when:` can.
+    # `| default('')`: a `--limit` run that excludes `localhost` silently
+    # skips the discovery play (documented Ansible gotcha — `--limit`
+    # filters localhost too), leaving the fact unset; default to '' so
+    # this degrades to "patch everyone normally" instead of erroring.
     - role: os-updates
+      when: inventory_hostname != (hostvars['localhost']['semaphore_node'] | default(''))
       tags: [os-updates]
 
 - name: Patch PostgreSQL/Patroni cluster
@@ -90,4 +138,24 @@
   become: true
   roles:
     - role: os-updates
+      tags: [os-updates]
+
+- name: Patch Semaphore's own K3s worker (last — self-reboot risk accepted)
+  # Static hosts: k3s_worker again (see the note above); the when:
+  # inverts the earlier play's condition so ONLY this one node gets
+  # patched here — the other two workers show "skipping". When
+  # semaphore_node is '' (undiscoverable / run outside Semaphore's own
+  # context), the condition is never true for any host and this whole
+  # play no-ops, which is correct — there's nothing to patch-last in that
+  # case. This is the ONLY place in the fleet-wide run where this node is
+  # touched — by design, everything else has already completed by the
+  # time this play's reboot handler fires. If Semaphore's task shows
+  # orphaned "running" after a run reaches here, check this host's actual
+  # state directly (uptime / kubectl get nodes) rather than trusting the
+  # Semaphore UI — see docs/known-issues/semaphore.md.
+  hosts: k3s_worker
+  become: true
+  roles:
+    - role: os-updates
+      when: inventory_hostname == (hostvars['localhost']['semaphore_node'] | default(''))
       tags: [os-updates]

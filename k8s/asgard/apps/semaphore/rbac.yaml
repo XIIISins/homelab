@@ -1,0 +1,39 @@
+# k8s/asgard/apps/semaphore/rbac.yaml
+#
+# Dedicated ServiceAccount for the Semaphore pod (instead of granting the
+# namespace's shared `default` SA new permissions) + a narrowly-scoped
+# Role/RoleBinding: get/list on pods, this namespace only. Just enough
+# for ansible/playbooks/os-updates.yml's preliminary discovery play to
+# look up which node currently hosts semaphore-0, so that node can be
+# excluded from the normal K3s-worker patch play and rebooted last, after
+# everything else in the fleet has already patched successfully — see
+# docs/known-issues/semaphore.md "self-reboot" entry.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: semaphore
+  namespace: semaphore
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: semaphore-self-lookup
+  namespace: semaphore
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: semaphore-self-lookup
+  namespace: semaphore
+subjects:
+  - kind: ServiceAccount
+    name: semaphore
+    namespace: semaphore
+roleRef:
+  kind: Role
+  name: semaphore-self-lookup
+  apiGroup: rbac.authorization.k8s.io

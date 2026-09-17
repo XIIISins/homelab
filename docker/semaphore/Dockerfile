@@ -28,10 +28,17 @@
 # Bump BASE_IMAGE in lockstep with the image tag in
 # k8s/asgard/apps/semaphore/statefulset.yaml AND the IMAGE_TAG revision in
 # .github/workflows/build-semaphore-image.yml whenever the base image OR
-# ansible/requirements.yml changes.
+# ansible/requirements.yml changes — this also applies to any change to
+# this Dockerfile's own content (e.g. the kubectl binary below), since an
+# unchanged tag would silently keep serving whatever's already cached.
+#
+# KUBECTL_VERSION: pinned to match the K3s server version
+# (roles/k3s/defaults/main.yml k3s_version) so `kubectl` inside Semaphore
+# talks to an API server it was built against. Bump both together.
 
 ARG BASE_IMAGE=semaphoreui/semaphore:v2.18.5-ansible2.16.5
 FROM ${BASE_IMAGE}
+ARG KUBECTL_VERSION=v1.33.1
 
 # Root for the install; drop back to the stock semaphore user (UID 1001) at
 # the end so the running container stays unprivileged exactly as upstream.
@@ -51,5 +58,21 @@ RUN set -eux; \
     chmod -R a+rX "$SITEPKG/ansible_collections"; \
     pip3 install --no-cache-dir hvac psycopg2-binary pytz; \
     rm -f /tmp/requirements.yml
+
+# Static kubectl binary — used by ansible/playbooks/os-updates.yml's
+# preliminary localhost play to look up which node currently hosts the
+# Semaphore pod itself (a task run from inside Semaphore can't safely
+# reboot its own host mid-play; see docs/known-issues/semaphore.md). No
+# other in-repo playbook needs kubectl availability inside this image —
+# every other kubectl-dependent discovery (proxmox-host-patching.yml)
+# runs from the MacBook/Frigg, which already carry it via the
+# control-node toolchain role.
+RUN set -eux; \
+    cd /tmp; \
+    curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"; \
+    curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"; \
+    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check; \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
+    rm -f kubectl kubectl.sha256
 
 USER 1001

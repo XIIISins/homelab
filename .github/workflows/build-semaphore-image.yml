@@ -10,8 +10,9 @@
 #   - a stable revision tag (IMAGE_TAG) that the StatefulSet pins
 #   - an immutable sha-<gitsha> tag for traceability / rollback
 #
-# BUMP IMAGE_TAG (the rN suffix) whenever the base image OR
-# ansible/requirements.yml changes, and update the matching tag in
+# BUMP IMAGE_TAG (the rN suffix) whenever the base image,
+# ansible/requirements.yml, OR any other Dockerfile content changes (e.g.
+# the kubectl binary added in r3), and update the matching tag in
 # k8s/asgard/apps/semaphore/statefulset.yaml in the same commit. Concrete-
 # pinned (no :latest float) per the repo IaC pin policy.
 #
@@ -32,7 +33,7 @@ on:
 
 env:
   IMAGE: ghcr.io/xiiisins/semaphore-homelab
-  IMAGE_TAG: v2.18.5-ansible2.16.5-r2
+  IMAGE_TAG: v2.18.5-ansible2.16.5-r3
 
 jobs:
   build:

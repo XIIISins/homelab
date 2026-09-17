@@ -39,6 +39,12 @@ spec:
       labels:
         app.kubernetes.io/name: semaphore
     spec:
+      # Dedicated SA (k8s/asgard/apps/semaphore/rbac.yaml) instead of the
+      # namespace's shared `default` SA — scoped to get/list on pods in
+      # this namespace only, just enough for os-updates.yml's preliminary
+      # play to look up semaphore-0's current node (see
+      # docs/known-issues/semaphore.md "self-reboot" entry).
+      serviceAccountName: semaphore
       # Disable legacy service-link env vars. K8s auto-injects
       # <SVC>_SERVICE_HOST / <SVC>_PORT / <SVC>_PORT_<n>_TCP_* for every
       # Service in the namespace; here the `semaphore` Service generates
@@ -71,8 +77,9 @@ spec:
           # the only channel that reaches the task. Runtime pip deps (hvac /
           # psycopg2-binary / pytz) are baked too. Bump the tag in lockstep
           # with IMAGE_TAG in the build workflow + BASE_IMAGE in the Dockerfile
-          # whenever requirements.yml moves.
-          image: ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r2
+          # whenever requirements.yml moves. r3 adds a static kubectl binary
+          # for the self-reboot-avoidance discovery play in os-updates.yml.
+          image: ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r3
           imagePullPolicy: IfNotPresent
           # Deps are baked into the image above, so the old pod-start
           # `pip3 install ... && exec ...` wrapper (~15s/restart) is gone —
