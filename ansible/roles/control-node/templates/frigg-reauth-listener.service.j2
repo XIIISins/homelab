@@ -1,0 +1,33 @@
+{# ansible/roles/control-node/templates/frigg-reauth-listener.service.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/control-node/templates/frigg-reauth-listener.service.j2
+
+[Unit]
+Description=Frigg re-auth watchtower (auto-recovers claude-remote-control)
+Documentation=https://docs.claude.com/en/docs/claude-code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ control_node_operator_user }}
+Group={{ control_node_operator_group }}
+WorkingDirectory={{ control_node_operator_home }}
+
+Environment=REAUTH_SERVICE_NAME={{ control_node_claude_service_name }}
+Environment=REAUTH_PORT={{ control_node_reauth_listen_port }}
+Environment=REAUTH_CHECK_INTERVAL={{ control_node_reauth_check_interval_seconds }}
+Environment=REAUTH_LOGIN_TIMEOUT={{ control_node_reauth_login_timeout_seconds }}
+Environment=REAUTH_APPROLE_ENV_PATH={{ control_node_approle_env_path }}
+Environment=REAUTH_HERMOD_CONFIG_KEY_VAULT_PATH=secret/{{ control_node_reauth_hermod_config_key_vault_path }}
+Environment=REAUTH_HERMOD_BASE_URL={{ control_node_reauth_hermod_base_url }}
+Environment=REAUTH_PASTE_BACK_URL=http://frigg-auth.niflheim.xiiisins.com:{{ control_node_reauth_listen_port }}/
+Environment=REAUTH_CREDENTIALS_PATH={{ control_node_claude_settings_dir }}/.credentials.json
+Environment=VAULT_ADDR={{ control_node_vault_addr }}
+
+ExecStart=/usr/bin/env python3 {{ control_node_reauth_script_path }}
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

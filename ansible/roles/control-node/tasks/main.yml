@@ -32,3 +32,7 @@
 - name: Configure Claude Code remote-control
   ansible.builtin.include_tasks: claude.yml
   tags: [control-node, control-node:claude]
+
+- name: Configure Frigg re-auth watchtower
+  ansible.builtin.include_tasks: reauth.yml
+  tags: [control-node, control-node:reauth]

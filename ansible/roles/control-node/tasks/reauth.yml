@@ -1,0 +1,40 @@
+# ansible/roles/control-node/tasks/reauth.yml
+---
+# Frigg re-auth watchtower — auto-recovers claude-remote-control from the RC
+# login-invalidation crash-loop (docs/known-issues/frigg-control-node.md item
+# 18) instead of only alerting on it. Static Python script (no templating —
+# config flows in via systemd Environment= lines) + always-on systemd unit.
+# Paste-back reachability: terraform/adguard/rewrites.tf's
+# frigg-auth.niflheim.xiiisins.com rewrite (internal-only, no UCG
+# port-forward). Outbound Discord posts: ansible/inventory/group_vars/
+# apprise.yml's Hermod Caddy allowlist must include Frigg's IP.
+
+- name: Deploy frigg-reauth-listener script
+  ansible.builtin.copy:
+    src: frigg-reauth-listener.py
+    dest: "{{ control_node_reauth_script_path }}"
+    owner: "{{ control_node_operator_user }}"
+    group: "{{ control_node_operator_group }}"
+    mode: "0755"
+  notify: restart frigg-reauth-listener
+  tags: [control-node, control-node:reauth]
+
+- name: Render frigg-reauth-listener systemd unit
+  ansible.builtin.template:
+    src: frigg-reauth-listener.service.j2
+    dest: "/etc/systemd/system/{{ control_node_reauth_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart frigg-reauth-listener
+  tags: [control-node, control-node:reauth]
+
+- name: Enable + start frigg-reauth-listener service
+  ansible.builtin.systemd:
+    name: "{{ control_node_reauth_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [control-node, control-node:reauth]

@@ -182,3 +182,24 @@ control_node_claude_settings_dir: "{{ control_node_operator_home }}/.claude"
 # (notif toggles, key reordering) to the user settings file without fighting
 # Ansible. permissions.allow entries merge across layers → posture unchanged.
 control_node_claude_managed_settings_path: /etc/claude-code/managed-settings.json
+
+# ---- Frigg re-auth watchtower (auto-recovery for the RC login-invalidation
+# crash-loop — see docs/known-issues/frigg-control-node.md item 18) ----
+# Always-on listener, self-checks claude-remote-control every 30s via
+# `systemctl is-failed` (NOT "stopped" — an intentional manual stop must
+# never trigger this). On a genuine failed state it spawns `claude auth
+# login` under a pty, POSTs the auth URL to Hermod/Discord, and serves a
+# one-page form (reachable only via the internal-only AGH rewrite below) for
+# pasting the resulting code back in. On success it restarts
+# claude-remote-control and posts a recovery message; on a timeout with no
+# paste it kills the attempt and reports back, ready to retry next cycle.
+control_node_reauth_script_path: "{{ control_node_local_bin }}/frigg-reauth-listener.py"
+control_node_reauth_service_name: frigg-reauth-listener
+control_node_reauth_listen_port: 8686
+control_node_reauth_check_interval_seconds: 30
+control_node_reauth_login_timeout_seconds: 600
+# Hermod config-key + webhook base — fetched at runtime via the same
+# ansible-frigg AppRole the homelab-env shim uses (NOT part of iac-env; a
+# single ad hoc Vault read is simpler than growing that map for one field).
+control_node_reauth_hermod_config_key_vault_path: "ansible/hermod/config-key"
+control_node_reauth_hermod_base_url: "http://hermod.niflheim.xiiisins.com"

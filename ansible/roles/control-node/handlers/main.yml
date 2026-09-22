@@ -13,3 +13,9 @@
   # it would just crash-loop. The enable/start gating lives in claude.yml;
   # this handler runs on config change, guarded the same way.
   when: control_node_claude_env_stat.stat.exists | default(false)
+
+- name: restart frigg-reauth-listener
+  ansible.builtin.systemd:
+    name: "{{ control_node_reauth_service_name }}"
+    state: restarted
+    daemon_reload: true

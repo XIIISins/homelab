@@ -50,6 +50,10 @@ caddy_sites:
       - "10.0.254.11/32"
       - "10.0.254.12/32"
       - "10.0.254.13/32"
+      # Frigg (control-node watchtower) — the re-auth self-recovery listener
+      # posts its own Discord alerts directly (docs/known-issues/
+      # frigg-control-node.md item 18), not routed through Semaphore.
+      - "10.0.11.30/32"
 
 # -----------------------------------------------------------------------------
 # vlagent role overrides — pick up Caddy access log

@@ -58,6 +58,13 @@ locals {
     # ssh ansible@frigg.niflheim.xiiisins.com (or Tailscale-SSH as ghost).
     "frigg.niflheim.xiiisins.com" = "10.0.11.30"
 
+    # ── niflheim.xiiisins.com — Frigg re-auth watchtower paste-back ─
+    # Same bare-VM pattern as frigg.niflheim above, different port (8686).
+    # Internal-only by construction (no UCG port-forward exists for it) —
+    # reachable from LAN or Tailscale, nowhere else. See
+    # docs/known-issues/frigg-control-node.md item 18.
+    "frigg-auth.niflheim.xiiisins.com" = "10.0.11.30"
+
     # ── niflheim.xiiisins.com — AGH trio (DNS LXCs) ────────────────
     # adguard.* is a generic alias on the primary (Saga). adguard-vip.*
     # is the keepalived VIP — used by tooling that should follow the
