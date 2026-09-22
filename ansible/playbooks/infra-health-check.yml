@@ -27,6 +27,22 @@
 #      (7.5h undetected on 2026-09-17). Read via service_facts in a
 #      dedicated play against frigg (see below), consumed via hostvars
 #      in the main localhost play.
+#   8. secret/ansible/frigg/iac-env credential sync/liveness — the same
+#      blind-spot class again: no rotation helper writes this mirror
+#      atomically with its own service, so Frigg's vault-homelab-env can
+#      keep authenticating with a stale credential for days after a
+#      rotation elsewhere (confirmed 2026-09-04: 5/6 fields stale a full
+#      day after their "primary" rotation — see
+#      docs/known-issues/frigg-control-node.md). Cloudflare + AdGuard
+#      have a second Vault-side mirror already read elsewhere in the
+#      fleet, so those two get direct value-equality checks; NetBox,
+#      Authentik and Semaphore have no second Vault mirror (the only
+#      other copy is 1Password, which this pod can't read), so those
+#      three get a liveness probe of the iac-env copy itself against its
+#      real API. AWS is deliberately NOT covered — STS needs SigV4
+#      request signing, which needs an AWS SDK collection this repo
+#      doesn't otherwise depend on (IaC pin policy: no new dep for a
+#      probe); stays manual-discipline-only.
 #
 # Severity -> Hermod tag routing (see docs/services/notifications.md):
 #   critical -> Hrist   alert -> Mist
@@ -83,6 +99,14 @@
     # Cloudflare token: Vault path scaffolded in terraform/vault/main.tf,
     # operator mirrors the 1P value in once. Field `value`.
     cloudflare_token_vault_path: "ansible/cloudflare/api-token"
+
+    # frigg/iac-env sync/liveness (check #8). AdGuard's second mirror is
+    # the plaintext copy adguardhome-sync reads (NOT the bcrypt hash at
+    # ansible/adguard/admin-password-hash — that's salted per-invocation
+    # and can never byte-compare equal, see docs/procedures/
+    # credential-rotation.md's AdGuard section).
+    frigg_iac_env_vault_path: "ansible/frigg/iac-env"
+    adguardhome_sync_password_vault_path: "ansible/adguardhome-sync/admin-password"
 
     # PBS backup-failure check. The official "Proxmox Backup Server by
     # HTTP" Zabbix template needs Zabbix 7.2+; we're on 7.0 LTS, so this
@@ -374,6 +398,119 @@
                  .get('claude-remote-control.service', {}) }}
             _rc_state: "{{ _rc_unit.get('state', 'unreachable') }}"
             _rc_status: "{{ _rc_unit.get('status', 'unreachable') }}"
+
+        # --- 8. frigg/iac-env credential sync/liveness -----------------
+        - name: Read frigg/iac-env from Vault
+          ansible.builtin.set_fact:
+            _iac_env: >-
+              {{ lookup('community.hashi_vault.vault_kv2_get',
+                        frigg_iac_env_vault_path).secret }}
+          no_log: true # entire secret is credentials
+
+        - name: Record Cloudflare iac-env sync finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['frigg/iac-env `cloudflare_api_token` is OUT OF SYNC with `secret/'
+                     ~ cloudflare_token_vault_path ~ '` — Frigg is authenticating with a'
+                     ~ ' stale/different token. Re-sync per the Cloudflare section of'
+                     ~ ' docs/procedures/credential-rotation.md.']
+                    if (_iac_env.cloudflare_api_token | default('')) != (_cf_token | default(''))
+                    else []) }}
+          no_log: true # comparing two live tokens
+
+        - name: Read AdGuard-sync mirror password from Vault
+          ansible.builtin.set_fact:
+            _adguardhome_sync_password: >-
+              {{ lookup('community.hashi_vault.vault_kv2_get',
+                        adguardhome_sync_password_vault_path).secret.password }}
+          no_log: true
+
+        - name: Record AdGuard iac-env sync finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['frigg/iac-env `adguard_password` is OUT OF SYNC with `secret/'
+                     ~ adguardhome_sync_password_vault_path ~ '` — Frigg is authenticating'
+                     ~ ' with a stale/different password. Re-sync per the AdGuard section of'
+                     ~ ' docs/procedures/credential-rotation.md.']
+                    if (_iac_env.adguard_password | default('')) != (_adguardhome_sync_password | default(''))
+                    else []) }}
+          no_log: true
+
+        # NetBox/Authentik/Semaphore have no second Vault mirror to diff
+        # against (the only other copy is 1Password, unreachable from this
+        # pod) — probe the iac-env copy itself against its own API, same
+        # endpoint/header shape proven in credential-rotation.md's own
+        # rotation scripts.
+        - name: Probe NetBox with frigg/iac-env's token
+          ansible.builtin.uri:
+            url: "{{ _iac_env.netbox_server_url }}/api/users/tokens/"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ _iac_env.netbox_api_token }}"
+            return_content: false
+            status_code: [200, 401, 403, 404]
+          register: _netbox_iac_probe
+          failed_when: false
+          no_log: true # token in the Authorization header
+
+        - name: Record NetBox iac-env liveness finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['frigg/iac-env `netbox_api_token` does NOT authenticate against NetBox'
+                     ~ ' (HTTP ' ~ (_netbox_iac_probe.status | default('?'))
+                     ~ ') — Frigg TF applies against terraform/netbox will fail. Rotate/re-sync'
+                     ~ ' per the NetBox section of docs/procedures/credential-rotation.md.']
+                    if (_netbox_iac_probe.status | default(0)) != 200
+                    else []) }}
+
+        - name: Probe Authentik with frigg/iac-env's token
+          ansible.builtin.uri:
+            url: "{{ _iac_env.authentik_url }}/api/v3/core/tokens/"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ _iac_env.authentik_token }}"
+            return_content: false
+            status_code: [200, 401, 403]
+          register: _authentik_iac_probe
+          failed_when: false
+          no_log: true # token in the Authorization header
+
+        - name: Record Authentik iac-env liveness finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['frigg/iac-env `authentik_token` does NOT authenticate against Authentik'
+                     ~ ' (HTTP ' ~ (_authentik_iac_probe.status | default('?'))
+                     ~ ') — Frigg TF applies against terraform/authentik will fail. Rotate/re-sync'
+                     ~ ' per the Authentik section of docs/procedures/credential-rotation.md.']
+                    if (_authentik_iac_probe.status | default(0)) != 200
+                    else []) }}
+
+        - name: Probe Semaphore with frigg/iac-env's token
+          ansible.builtin.uri:
+            url: "{{ _iac_env.semaphore_api_base_url }}/user/tokens"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ _iac_env.semaphore_api_token }}"
+            return_content: false
+            status_code: [200, 401, 403]
+          register: _semaphore_iac_probe
+          failed_when: false
+          no_log: true # token in the Authorization header
+
+        - name: Record Semaphore iac-env liveness finding
+          ansible.builtin.set_fact:
+            crit_findings: >-
+              {{ crit_findings | default([])
+                 + (['frigg/iac-env `semaphore_api_token` does NOT authenticate against Semaphore'
+                     ~ ' (HTTP ' ~ (_semaphore_iac_probe.status | default('?'))
+                     ~ ') — Frigg TF applies against terraform/semaphore will fail. Rotate/re-sync'
+                     ~ ' per the Semaphore section of docs/procedures/credential-rotation.md.']
+                    if (_semaphore_iac_probe.status | default(0)) != 200
+                    else []) }}
 
         # --- POST findings to Hermod ----------------------------------
         - name: POST critical findings to Hermod
