@@ -55,9 +55,9 @@ Production cluster — core infrastructure (Vault, MetalLB, etc.), automation (A
 
 | Name | VM ID | Node | IP | Role | Spec |
 |------|-------|------|----|------|------|
-| Göndul | 2001 | Urd | `10.0.21.11` | K3s CP | 2vCPU/4GB/10GB |
-| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 2vCPU/4GB/10GB |
-| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 2vCPU/4GB/10GB |
+| Göndul | 2001 | Urd | `10.0.21.11` | K3s CP | 2vCPU/4GB/20GB |
+| Hlökk | 2002 | Verd | `10.0.21.12` | K3s CP | 2vCPU/4GB/20GB |
+| Sigrún | 2003 | Skuld | `10.0.21.13` | K3s CP | 2vCPU/4GB/20GB |
 | Einherjar-urd | 2101 | Urd | `10.0.21.21` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
 | Einherjar-verd | 2102 | Verd | `10.0.21.22` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
 | Einherjar-skuld | 2103 | Skuld | `10.0.21.23` | K3s Worker | 2vCPU/16GB/30GB OS + 50GB `scsi1` (local-path) |
