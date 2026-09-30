@@ -233,6 +233,7 @@ Don't parallelize when: the second task needs the first's output; the work mutat
 - **`terraform apply` only from the main checkout, never a worktree** (plan/HCL-edit from worktrees is fine). Prevents intentionality-loss across parallel agents.
 - **`kubectl apply` is never used directly — Flux reconciles** (`flux reconcile …` is the nudge); manifests land via the git path. Pushing `main` IS the K8s deploy.
 - **`ansible-playbook`: one at a time across all agents** (concurrent runs race on SSH MaxAuthTries, package locks, notify-handler restarts). Coordinated manually; ask before running if another agent might be mid-playbook.
+- **Chart / platform upgrades: use the `chart-bump` agent** ([`.claude/agents/chart-bump.md`](.claude/agents/chart-bump.md), helpers in `.claude/scripts/chart-bump/`). It investigates live state + upstream, verifies the target images exist, orders by blast radius, then executes one item at a time. K3s minors go through [`k3s-upgrade.yml`](ansible/playbooks/k3s-upgrade.yml) ([procedure](docs/procedures/k3s-upgrade.md)); status of the 2026-09 wave in [chart-bumps-2026-09.md](docs/operations/chart-bumps-2026-09.md).
 
 ---
 
