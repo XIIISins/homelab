@@ -132,6 +132,18 @@ fine).
 the chart notes. **Read the upgrade guide before 2.0.** Also confirm the
 `hashicorp/vault` Terraform provider used in `terraform/vault/` supports 2.0.
 
+**Chart 0.34.1 landed 2026-09-30 (`077e658`), verified in-homelab.** Live before:
+3/3 unsealed on 1.21.2, `vault-2` active. Render diff 0.32.0 vs 0.34.1 with our
+values: only the chart label plus a new startup-script guard that aborts only if
+the raft config contains an `autopilot_redundancy_zone` placeholder (ours does
+not); image stays 1.21.2. The StatefulSet is `updateStrategy: OnDelete`, so the
+bump does **not** roll pods — the new spec (label + guard) only takes effect as
+each pod is deleted. After Flux: HelmRelease `v10` Ready, all 3 pods still
+unsealed on 1.21.2, UI 200, `/v1/sys/health` ok, `ClusterSecretStore` Valid,
+19/19 ExternalSecrets synced. **Pending:** canary restart of a standby
+(`vault-1`) to exercise the new startup script + KMS auto-unseal, then
+`vault-0`, then the active `vault-2` last.
+
 Suggested sequence: (a) merge §2 pin; (b) bump chart to 0.34.1 with image still
 1.21.2; confirm Raft 3/3, unseal-on-restart works (AWS KMS reachable), OIDC login
 OK; (c) later, plan 2.0: snapshot Raft first (`vault operator raft snapshot
