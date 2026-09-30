@@ -6,3 +6,7 @@
 - name: Configure apt repo posture
   ansible.builtin.import_tasks: repos.yml
   tags: [proxmox-host, proxmox-host:repos]
+
+- name: Configure HA watchdog module
+  ansible.builtin.import_tasks: watchdog.yml
+  tags: [proxmox-host, proxmox-host:watchdog]

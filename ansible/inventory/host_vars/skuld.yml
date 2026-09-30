@@ -1,0 +1,6 @@
+# ansible/inventory/host_vars/skuld.yml
+---
+# Canary for the hardware HA watchdog (iTCO_wdt). Skuld suffers full-system
+# freezes the kernel can't catch; softdog (kernel timer) can't fire in that
+# case, the chipset TCO timer can. Active after the next reboot.
+proxmox_host_watchdog_module: iTCO_wdt

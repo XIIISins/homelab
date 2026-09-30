@@ -40,3 +40,17 @@ proxmox_host_no_subscription_component: "pve-no-subscription"
 # /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg — override per node
 # group if you're still on 8.
 proxmox_host_archive_keyring: "/usr/share/keyrings/proxmox-archive-keyring.gpg"
+
+# --- HA watchdog module -------------------------------------------------
+# PVE's watchdog-mux (HA fencing) defaults to `softdog`, a KERNEL-timer
+# watchdog — it cannot fire if the kernel itself freezes. The MSI Cubi
+# (Alder Lake PCH) has an Intel TCO hardware watchdog (`iTCO_wdt`) that
+# resets the box from the chipset. Proxmox blacklists iTCO_wdt from
+# autoload, so it must be selected by name via WATCHDOG_MODULE in
+# /etc/default/pve-ha-manager. Empty string = leave unmanaged (softdog).
+# Set per-host in inventory/host_vars/<host>.yml (canary: skuld first).
+#
+# Takes effect on next boot ONLY: restarting watchdog-mux while HA
+# clients are connected trips the watchdog and resets the node, so this
+# role never restarts it. Validate with a reboot (see known-issues).
+proxmox_host_watchdog_module: ""

@@ -1,0 +1,13 @@
+# ansible/roles/proxmox-host/tasks/watchdog.yml
+---
+# Select the watchdog driver used by PVE's watchdog-mux. Config only —
+# NO handler/restart: bouncing watchdog-mux with HA clients attached
+# fences (resets) the node. The change activates on the next reboot.
+- name: Select HA watchdog module ({{ proxmox_host_watchdog_module }})
+  ansible.builtin.lineinfile:
+    path: /etc/default/pve-ha-manager
+    regexp: '^#?\s*WATCHDOG_MODULE='
+    line: "WATCHDOG_MODULE={{ proxmox_host_watchdog_module }}"
+    create: false
+    mode: "0644"
+  when: proxmox_host_watchdog_module | length > 0
