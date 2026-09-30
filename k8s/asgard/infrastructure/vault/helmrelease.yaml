@@ -39,6 +39,15 @@ spec:
     server:
       replicas: 3
 
+      # Explicit server image pin. Without it the chart default moves with the
+      # chart version (0.32.0 -> Vault 1.21.2, 0.34.x -> Vault 2.0.x), so a
+      # routine chart bump would silently be a Vault MAJOR upgrade. 1.21.2 is
+      # the appVersion of the currently-pinned chart 0.32.0. Bump this
+      # deliberately, on its own — see docs/operations/chart-bumps-2026-09.md.
+      image:
+        repository: hashicorp/vault
+        tag: "1.21.2"
+
       # cert-manager-issued listener cert (Secret vault-tls in this ns, from
       # cert-manager-config/certificate-vault.yaml). Mounted at
       # /vault/userconfig/vault-tls → tls.crt / tls.key / ca.crt.

@@ -20,7 +20,7 @@ spec:
   chart:
     spec:
       chart: kube-state-metrics
-      version: "7.4.0" # app v2.19.0
+      version: "8.6.0" # app v2.20.0
       sourceRef:
         kind: HelmRepository
         name: prometheus-community

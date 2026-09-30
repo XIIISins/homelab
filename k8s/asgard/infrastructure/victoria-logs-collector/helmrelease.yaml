@@ -27,7 +27,7 @@ spec:
   chart:
     spec:
       chart: victoria-logs-collector
-      version: "0.3.4" # chart 0.3.4 → vlagent v1.x
+      version: "0.3.7" # chart 0.3.7 → vlagent v1.x
       sourceRef:
         kind: HelmRepository
         # Reuse the OCI repo declared by k8s/asgard/apps/victoriametrics/
