@@ -1,0 +1,203 @@
+# ansible/playbooks/k3s-upgrade.yml
+---
+# Rolling in-place K3s upgrade — ONE MINOR VERSION PER RUN.
+#
+#   ansible-playbook playbooks/k3s-upgrade.yml -e k3s_target_version=v1.34.11+k3s1
+#
+# Why this exists: roles/k3s installs the binary only when a node is NOT already
+# a healthy cluster member (detect-state.yml), so bumping `k3s_version` alone
+# does nothing on a running cluster. Kubernetes forbids skipping minor versions,
+# so run once per minor (1.33 -> 1.34 -> 1.35 -> 1.36), verify, then run again.
+# After the FINAL hop, set `k3s_version` in roles/k3s/defaults/main.yml to the
+# version reached so a rebuild installs it.
+#
+# Order + safety:
+#   Play 1  pre-flight (first CP): all nodes Ready, on-demand etcd snapshot.
+#   Play 2  control planes, serial 1, NO drain (CPs are tainted NoSchedule and
+#           run no workloads): swap binary -> restart -> wait Ready + version ->
+#           wait etcd healthy before touching the next CP (keeps 2/3 quorum).
+#   Play 3  workers, serial 1: drain -> swap binary -> restart -> wait Ready +
+#           version -> uncordon. Never two workers at once (Vault Raft, PDBs).
+#   Play 4  summary.
+# Nodes already at the target version are skipped, so a failed run is re-runnable.
+# Restarting the k3s service does not stop running pods (KillMode=process).
+#
+# Run ONE ansible-playbook at a time across all agents (CLAUDE.md).
+
+- name: K3s upgrade — pre-flight
+  hosts: k3s_cp[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Require k3s_target_version
+      ansible.builtin.assert:
+        that:
+          - k3s_target_version is defined
+          - k3s_target_version is match('^v1\.[0-9]+\.[0-9]+\+k3s[0-9]+$')
+        fail_msg: "Pass -e k3s_target_version=v1.NN.N+k3sN (one minor above the running version)"
+
+    - name: All nodes must be Ready before we start
+      ansible.builtin.shell: |
+        set -o pipefail
+        total=$(/usr/local/bin/k3s kubectl get nodes --no-headers | wc -l)
+        ready=$(/usr/local/bin/k3s kubectl get nodes --no-headers | awk '$2=="Ready"' | wc -l)
+        echo "$ready/$total"
+        [ "$ready" = "$total" ] && [ "$total" -eq {{ (groups['k3s_cp'] + groups['k3s_worker']) | length }} ]
+      args:
+        executable: /bin/bash
+      register: preflight_nodes
+      changed_when: false
+
+    - name: Show node readiness
+      ansible.builtin.debug:
+        msg: "Ready nodes: {{ preflight_nodes.stdout }}"
+
+    - name: Take an on-demand etcd snapshot (rollback safety net)
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s etcd-snapshot save --name pre-upgrade-{{ k3s_target_version | regex_replace('[^0-9a-z]+', '-') }}
+      register: etcd_snapshot
+      changed_when: true
+
+    - name: Snapshot output
+      ansible.builtin.debug:
+        msg: "{{ (etcd_snapshot.stderr_lines + etcd_snapshot.stdout_lines) | select('search', 'saved|Snapshot|snapshot') | list | first | default('snapshot requested') }}"
+
+- name: K3s upgrade — control planes (one at a time)
+  hosts: k3s_cp
+  serial: 1
+  gather_facts: false
+  become: true
+  vars:
+    k3s_bin_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_target_version }}"
+    # kubectl is run from a DIFFERENT control plane than the one being restarted
+    k3s_kubectl_host: "{{ groups['k3s_cp'] | difference([inventory_hostname]) | first }}"
+  tasks:
+    - name: Current K3s version
+      ansible.builtin.shell: /usr/local/bin/k3s --version | head -1 | cut -d' ' -f3
+      register: k3s_current
+      changed_when: false
+
+    - name: Upgrade this control plane
+      when: k3s_current.stdout != k3s_target_version
+      block:
+        - name: Download K3s binary (checksum-verified)
+          ansible.builtin.get_url:
+            url: "{{ k3s_bin_url }}/k3s"
+            dest: /usr/local/bin/k3s
+            mode: "0755"
+            owner: root
+            group: root
+            force: true
+            checksum: "sha256:{{ k3s_bin_url }}/sha256sum-amd64.txt"
+
+        - name: Restore SELinux context on the binary
+          ansible.builtin.command: restorecon -v /usr/local/bin/k3s
+          changed_when: false
+
+        - name: Restart k3s
+          ansible.builtin.systemd:
+            name: k3s
+            state: restarted
+            daemon_reload: true
+
+        - name: Wait for the API port on this node
+          ansible.builtin.wait_for:
+            host: "{{ ansible_host }}"
+            port: 6443
+            timeout: 300
+
+        - name: Wait until this node is Ready at the target version
+          ansible.builtin.shell: |
+            /usr/local/bin/k3s kubectl get node {{ inventory_hostname }} \
+              -o jsonpath='{.status.nodeInfo.kubeletVersion}/{.status.conditions[?(@.type=="Ready")].status}'
+          delegate_to: "{{ k3s_kubectl_host }}"
+          register: cp_state
+          until: cp_state.stdout == k3s_target_version ~ '/True'
+          retries: 40
+          delay: 10
+          changed_when: false
+
+        - name: Wait for etcd to report healthy before moving to the next control plane
+          ansible.builtin.command: /usr/local/bin/k3s kubectl get --raw '/readyz/etcd'
+          delegate_to: "{{ k3s_kubectl_host }}"
+          register: etcd_ready
+          until: etcd_ready.rc == 0 and 'ok' in etcd_ready.stdout
+          retries: 30
+          delay: 10
+          changed_when: false
+
+- name: K3s upgrade — workers (one at a time)
+  hosts: k3s_worker
+  serial: 1
+  gather_facts: false
+  become: true
+  vars:
+    k3s_bin_url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_target_version }}"
+    k3s_kubectl_host: "{{ groups['k3s_cp'] | first }}"
+  tasks:
+    - name: Current K3s version
+      ansible.builtin.shell: /usr/local/bin/k3s --version | head -1 | cut -d' ' -f3
+      register: k3s_current
+      changed_when: false
+
+    - name: Upgrade this worker
+      when: k3s_current.stdout != k3s_target_version
+      block:
+        - name: Drain the node (evicts pods; DaemonSets stay)
+          ansible.builtin.command:
+            cmd: >-
+              /usr/local/bin/k3s kubectl drain {{ inventory_hostname }}
+              --ignore-daemonsets --delete-emptydir-data --timeout=600s
+          delegate_to: "{{ k3s_kubectl_host }}"
+          changed_when: true
+
+        - name: Download K3s binary (checksum-verified)
+          ansible.builtin.get_url:
+            url: "{{ k3s_bin_url }}/k3s"
+            dest: /usr/local/bin/k3s
+            mode: "0755"
+            owner: root
+            group: root
+            force: true
+            checksum: "sha256:{{ k3s_bin_url }}/sha256sum-amd64.txt"
+
+        - name: Restore SELinux context on the binary
+          ansible.builtin.command: restorecon -v /usr/local/bin/k3s
+          changed_when: false
+
+        - name: Restart k3s (agent)
+          ansible.builtin.systemd:
+            name: k3s
+            state: restarted
+            daemon_reload: true
+
+        - name: Wait until this node is Ready at the target version
+          ansible.builtin.shell: |
+            /usr/local/bin/k3s kubectl get node {{ inventory_hostname }} \
+              -o jsonpath='{.status.nodeInfo.kubeletVersion}/{.status.conditions[?(@.type=="Ready")].status}'
+          delegate_to: "{{ k3s_kubectl_host }}"
+          register: worker_state
+          until: worker_state.stdout == k3s_target_version ~ '/True'
+          retries: 40
+          delay: 10
+          changed_when: false
+
+        - name: Uncordon the node
+          ansible.builtin.command:
+            cmd: /usr/local/bin/k3s kubectl uncordon {{ inventory_hostname }}
+          delegate_to: "{{ k3s_kubectl_host }}"
+          changed_when: true
+
+- name: K3s upgrade — summary
+  hosts: k3s_cp[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Node versions
+      ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o wide
+      register: final_nodes
+      changed_when: false
+
+    - name: Show result
+      ansible.builtin.debug:
+        var: final_nodes.stdout_lines
