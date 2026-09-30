@@ -45,12 +45,14 @@ resource "authentik_provider_oauth2" "vault" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
       # Vault UI's built-in OIDC callback (auth mount path "oidc").
       url = "https://vault.niflheim.xiiisins.com/ui/vault/auth/oidc/oidc/callback"
     },
     {
-      matching_mode = "strict"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
       # Vault CLI helper listener — `vault login -method=oidc`.
       url = "http://localhost:8250/oidc/callback"
     },

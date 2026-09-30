@@ -142,11 +142,12 @@ resource "authentik_provider_saml" "zabbix" {
   # Zabbix will reject responses whose audience doesn't match.
   audience = "https://hugin.xiiisins.com"
 
-  # Issuer = IdP entityID. Authentik's default issuer pattern is
-  # `https://<authentik-host>/`. Pin explicitly so the role doesn't
-  # have to introspect Authentik's URL — gets baked into the Vault
-  # IdP-info blob.
-  issuer = "https://authentik.midgard.xiiisins.com/"
+  # Issuer = IdP entityID. Since authentik 2026.5 the issuer is generated
+  # automatically (from the request host) and `issuer` became the optional
+  # `issuer_override`. Keep pinning it explicitly: the request host can be
+  # authentik.xiiisins.com or the midgard alias, and Zabbix's
+  # idp_entityid must not depend on which one the user arrived on.
+  issuer_override = "https://authentik.midgard.xiiisins.com/"
 
   # POST binding — Zabbix supports both POST and Redirect for the SP
   # side. POST avoids the URL-length limits that Redirect imposes on
@@ -242,7 +243,7 @@ resource "vault_kv_secret_v2" "zabbix_saml_idp" {
   name  = "ansible/zabbix/saml-idp"
   data_json = jsonencode({
     # IdP entity ID — Zabbix's userdirectory_saml.idp_entityid.
-    entity_id = authentik_provider_saml.zabbix.issuer
+    entity_id = authentik_provider_saml.zabbix.issuer_override
 
     # SSO URL (Redirect binding) — where Zabbix sends users for sign-in.
     # Authentik exposes Redirect + POST variants; Redirect is what

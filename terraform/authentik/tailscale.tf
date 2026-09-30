@@ -80,8 +80,9 @@ resource "authentik_provider_oauth2" "tailscale" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
-      url           = "https://login.tailscale.com/a/oauth_response"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://login.tailscale.com/a/oauth_response"
     },
   ]
 }

@@ -38,16 +38,19 @@ resource "authentik_provider_oauth2" "outline" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
-      url           = "https://wiki.xiiisins.com/auth/oidc.callback"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://wiki.xiiisins.com/auth/oidc.callback"
     },
     {
-      matching_mode = "strict"
-      url           = "https://wiki.midgard.xiiisins.com/auth/oidc.callback"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://wiki.midgard.xiiisins.com/auth/oidc.callback"
     },
     {
-      matching_mode = "strict"
-      url           = "https://wiki.niflheim.xiiisins.com/auth/oidc.callback"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://wiki.niflheim.xiiisins.com/auth/oidc.callback"
     },
   ]
 }

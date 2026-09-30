@@ -40,8 +40,9 @@ resource "authentik_provider_oauth2" "netbox" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
-      url           = "https://netbox.niflheim.xiiisins.com/oauth/complete/oidc/"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://netbox.niflheim.xiiisins.com/oauth/complete/oidc/"
     },
   ]
 }

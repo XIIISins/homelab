@@ -47,24 +47,29 @@ resource "authentik_provider_oauth2" "immich" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
-      url           = "https://immich.xiiisins.com/auth/login"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://immich.xiiisins.com/auth/login"
     },
     {
-      matching_mode = "strict"
-      url           = "https://immich.xiiisins.com/user-settings"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://immich.xiiisins.com/user-settings"
     },
     {
-      matching_mode = "strict"
-      url           = "https://immich.midgard.xiiisins.com/auth/login"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://immich.midgard.xiiisins.com/auth/login"
     },
     {
-      matching_mode = "strict"
-      url           = "https://immich.midgard.xiiisins.com/user-settings"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://immich.midgard.xiiisins.com/user-settings"
     },
     {
-      matching_mode = "strict"
-      url           = "app.immich:///oauth-callback"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "app.immich:///oauth-callback"
     },
   ]
 }

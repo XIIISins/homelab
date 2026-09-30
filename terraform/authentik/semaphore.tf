@@ -45,8 +45,9 @@ resource "authentik_provider_oauth2" "semaphore" {
 
   allowed_redirect_uris = [
     {
-      matching_mode = "strict"
-      url           = "https://semaphore.niflheim.xiiisins.com/api/auth/oidc/authentik/redirect"
+      matching_mode     = "strict"
+      redirect_uri_type = "authorization"
+      url               = "https://semaphore.niflheim.xiiisins.com/api/auth/oidc/authentik/redirect"
     },
   ]
 }
