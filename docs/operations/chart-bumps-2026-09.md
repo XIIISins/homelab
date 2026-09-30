@@ -140,9 +140,12 @@ not); image stays 1.21.2. The StatefulSet is `updateStrategy: OnDelete`, so the
 bump does **not** roll pods — the new spec (label + guard) only takes effect as
 each pod is deleted. After Flux: HelmRelease `v10` Ready, all 3 pods still
 unsealed on 1.21.2, UI 200, `/v1/sys/health` ok, `ClusterSecretStore` Valid,
-19/19 ExternalSecrets synced. **Pending:** canary restart of a standby
-(`vault-1`) to exercise the new startup script + KMS auto-unseal, then
-`vault-0`, then the active `vault-2` last.
+19/19 ExternalSecrets synced. **Canary `vault-1` restarted 2026-09-30:** came
+back Ready in ~10s on the 0.34.1 spec (no autopilot-guard error), auto-unsealed
+from the KMS stored key, rejoined Raft as a voter, identical committed index on
+all 3, UI 200, ExternalSecrets still 19/19. **Still pending:** `vault-0`
+(standby), then the active `vault-2` last — until rolled they run the 0.32.0 pod
+spec (functionally identical).
 
 Suggested sequence: (a) merge §2 pin; (b) bump chart to 0.34.1 with image still
 1.21.2; confirm Raft 3/3, unseal-on-restart works (AWS KMS reachable), OIDC login
