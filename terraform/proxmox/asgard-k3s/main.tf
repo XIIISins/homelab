@@ -7,8 +7,8 @@ locals {
 
   # os_disk_ssd: flip the scsi0 OS disk to SSD emulation (rotational=0). Validated
   # on einherjar-urd first as a canary (in-place flag change, no data touched);
-  # now true on all workers. The CPs still need it — done in a separate quorum-safe
-  # pass (terraform/proxmox/asgard-k3s control_plane disk). NVMe-backed, so accurate.
+  # now true on all workers; the CP disk sets ssd = true directly (applied in a
+  # separate quorum-safe pass, one CP at a time). NVMe-backed, so accurate.
   workers = {
     einherjar-urd   = { node = "urd", vmid = 2101, ip = "10.0.21.21", ip_vlan20 = "10.0.20.201", template_node = "urd", template_id = 10006, cores = 2, memory = 16384, os_disk_ssd = true }
     einherjar-verd  = { node = "verd", vmid = 2102, ip = "10.0.21.22", ip_vlan20 = "10.0.20.202", template_node = "verd", template_id = 10002, cores = 2, memory = 16384, os_disk_ssd = true }
@@ -22,6 +22,13 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
   name      = each.key
   node_name = each.value.node
   vm_id     = each.value.vmid
+
+  # Let the provider reboot the VM itself when an update needs it (disk ssd flag).
+  # CPs are quorum-critical: NEVER apply this resource untargeted with pending
+  # changes on all three — that reboots all CPs at once. Apply per CP:
+  #   terraform apply -target='proxmox_virtual_environment_vm.control_plane["<name>"]'
+  # and wait for etcd healthy between CPs.
+  reboot_after_update = true
 
   clone {
     vm_id     = each.value.template_id
@@ -38,11 +45,17 @@ resource "proxmox_virtual_environment_vm" "control_plane" {
     dedicated = each.value.memory
   }
 
+  # 20 GB (was 10): CP OS disks hit 89 % on hlokk during the 2026-09 Skuld freezes
+  # (etcd raft-drop log flood + containerd images + etcd snapshots). Grow is in-place;
+  # the guest partition + filesystem are then grown by ansible (see
+  # docs/procedures/k3s-upgrade.md). ssd = true = SSD emulation (rotational=0); applies
+  # only after a Proxmox-level power-cycle (qm reboot), one CP at a time.
   disk {
     datastore_id = "local-lvm"
-    size         = 10
+    size         = 20
     interface    = "scsi0"
     discard      = "on"
+    ssd          = true
   }
 
   network_device {
