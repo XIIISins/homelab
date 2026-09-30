@@ -16,6 +16,25 @@ in-homelab session that can watch Flux reconcile and check live state.
   it, but upstream release notes weren't reachable. Treat "diff only" as
   weaker evidence.
 
+## Progress log (in-homelab session, 2026-09-30)
+
+Order re-derived by blast radius (lowest first; dependencies respected):
+Traefik 41.6.1 → NetBox → cert-manager (1.20 → 1.21) → MetalLB → ESO → latest 1.x →
+Authentik (2 hops) → Flux → K3s → ESO 2.x (needs K8s ≥ 1.35) → Vault 2.0.
+
+| Item | State |
+|---|---|
+| Safe batch (§1), Vault image pin (§2) | ✅ landed, verified |
+| Traefik 41.6.0 → 41.6.1 (§4) | ✅ live (41.6.1 renders identical to 41.6.0) |
+| Vault chart 0.34.1 (§3b) | ✅ live, all 3 pods rolled, image 1.21.2 |
+| Synology CSI (§6) | ✅ live on **0.11.3** (driver v1.3.1). 0.11.4 not deployable: its `v1.4.0` image was never published to Docker Hub |
+| NetBox (§8) | ✅ chart 8.3.89 + app **v4.6.10**. **4.7 held:** no released e-breuninger/netbox provider supports 4.7 (6.0.0-rc tops out at 4.6.10); 4.7 migration is irreversible |
+
+**Capacity finding:** workers are at 84–90 % CPU *requests* (2 vCPU each) while
+real usage is ~5–10 %. A surge pod needing ≥ ~300m can't schedule, so rolling
+updates of NetBox (500m) deadlock until the old pod is deleted. See
+[k8s-scheduling.md](../known-issues/k8s-scheduling.md).
+
 ## Inventory (pinned → latest as of 2026-09-30)
 
 | Chart | Pinned | Latest | Status |
@@ -350,6 +369,8 @@ DaemonSet one worker at a time; keep an eye on `dmesg` for iSCSI session errors
 ---
 
 ## 8. NetBox 8.2.17 → 8.3.89 — chart alone is easy, NetBox 4.7 is a migration
+
+**DONE to 4.6.10 (2026-09-30); 4.7 HELD until the Terraform provider supports it** (see progress log). Notes below stay valid for the eventual 4.7 move (add `ltree` to `postgres_databases[netbox].extensions`, then apply with `--tags postgres-common-databases`; PG leader dump first). The `housekeeping` CronJob is disabled (obsolete since 4.6).
 
 **Confidence: Read** (`docs/release-notes/version-4.7.md`).
 
