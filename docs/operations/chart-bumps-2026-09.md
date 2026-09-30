@@ -19,8 +19,8 @@ in-homelab session that can watch Flux reconcile and check live state.
 ## Progress log (in-homelab session, 2026-09-30)
 
 Order re-derived by blast radius (lowest first; dependencies respected):
-Traefik 41.6.1 → NetBox → cert-manager (1.20 → 1.21) → MetalLB → ESO → latest 1.x →
-Authentik (2 hops) → Flux → K3s → ESO 2.x (needs K8s ≥ 1.35) → Vault 2.0.
+Traefik 41.6.1 → NetBox → cert-manager (1.20 → 1.21) → MetalLB → ESO (→ 1.3.2 → 2.11.0) →
+Authentik (2 hops) → **K3s** → Flux 2.9 (its minimum K8s is 1.34.1, so K3s goes first) → Vault 2.0.
 
 | Item | State |
 |---|---|
@@ -29,6 +29,10 @@ Authentik (2 hops) → Flux → K3s → ESO 2.x (needs K8s ≥ 1.35) → Vault 2
 | Vault chart 0.34.1 (§3b) | ✅ live, all 3 pods rolled, image 1.21.2 |
 | Synology CSI (§6) | ✅ live on **0.11.3** (driver v1.3.1). 0.11.4 not deployable: its `v1.4.0` image was never published to Docker Hub |
 | NetBox (§8) | ✅ chart 8.3.89 + app **v4.6.10**. **4.7 held:** no released e-breuninger/netbox provider supports 4.7 (6.0.0-rc tops out at 4.6.10); 4.7 migration is irreversible |
+| cert-manager (§5) | ✅ v1.21.2 (via v1.20.4). Release notes read: nothing in our config affected. A forced ACME renewal was NOT run (blocked by the permission classifier); issuers re-registered Ready |
+| MetalLB (§5) | ✅ 0.16.1 with `frrk8s.enabled: false` + `speaker.frr.enabled: false` — 0.16 defaults to the bundled frr-k8s subchart (extra DaemonSet), we are L2-only. Speakers 4/4 → 1/1 containers. VIP probe during the roll: 126/126 OK |
+| External Secrets (§9) | ✅ 2.11.0 (via 1.3.2). The "unknown breaking changes" were benign for us: 2.0.0 removed Alibaba/Device42, 2.0.1 sprig `htpasswd` rename, 2.2.0 OCIRepository layerSelector. Works on K3s 1.33. 2.x `kubectl get externalsecret` columns changed (LAST SYNC is now last) |
+| Authentik (§7) | ✅ server 2026.8.3 (via 2026.5.6) + Terraform provider 2026.8.0. Default trusted-proxy CIDRs already include 10.0.0.0/8, so **no `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` override needed** (setting it would replace the default). 2026.5 renamed SAML `issuer` → `issuer_override` (auto-generated issuer); provider bump + 13× `redirect_uri_type = "authorization"` were needed to keep `terraform plan` clean |
 
 **Capacity finding:** workers are at 84–90 % CPU *requests* (2 vCPU each) while
 real usage is ~5–10 %. A surge pod needing ≥ ~300m can't schedule, so rolling
