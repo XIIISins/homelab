@@ -87,6 +87,9 @@ __pycache__/
 *.zip
 
 # ============================================================================
-# Claude working tree
+# Claude working tree (worktrees, local settings) — but agents/ and scripts/ are
+# versioned: the chart-bump agent + its helper scripts are part of the repo.
 # ============================================================================
-.claude/
+.claude/*
+!.claude/agents/
+!.claude/scripts/
