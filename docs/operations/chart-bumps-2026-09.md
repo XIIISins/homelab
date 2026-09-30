@@ -173,6 +173,17 @@ logs:
 access log). Upstream ships a migrator: `hack/migrate/README.md` in
 `traefik/traefik-helm-chart`.
 
+**Verified 2026-09-30 (in-homelab session, live cluster + `helm template`):**
+live release was 40.2.0 / image v3.7.1, 3/3 pods Ready, live values identical to
+the repo. Correction to the above: chart 41's `values.schema.json` **rejects**
+the old `logs` key (`additional properties 'logs' not allowed`), so leaving it
+would fail the HelmRelease rather than silently ignore it. Rendered 40.2.0 vs
+41.6.0 with the renamed values: the only diffs are the `helm.sh/chart` label and
+image `v3.7.1` → `v3.7.13` (args, Service, anti-affinity, strategy identical).
+CRD delta: `traefik.io_middlewares` gains an optional `errors.errorRequestHeaders`
+field (additive) plus Hub CRDs (unused); the HelmRelease sets no `upgrade.crds`
+policy so Flux skips CRD updates — harmless, nothing we use changed.
+
 Also note in 41.x: a `safeNaming` option ("can be breaking", needs Traefik
 v3.7.11+) — **leave it off**; it is opt-in. Proxy app goes v3.7.x → v3.7.13.
 
