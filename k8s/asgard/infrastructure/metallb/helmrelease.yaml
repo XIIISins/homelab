@@ -19,10 +19,22 @@ spec:
   chart:
     spec:
       chart: metallb
-      version: "0.15.3"
+      version: "0.16.1"
       sourceRef:
         kind: HelmRepository
         name: metallb
         namespace: flux-system
   install:
     createNamespace: false
+  values:
+    # L2-only (no BGPPeer/BGPAdvertisement resources exist). From 0.16 the
+    # chart defaults to the bundled frr-k8s subchart (extra DaemonSet + webhook)
+    # and the speaker's FRR sidecars are deprecated. Turn both off -> native
+    # mode: one lean speaker container per node, no FRR pods, no extra CPU
+    # requests on workers (which are ~85-90 % requested, see
+    # known-issues/k8s-scheduling.md). Re-enable frrk8s only if BGP is adopted.
+    frrk8s:
+      enabled: false
+    speaker:
+      frr:
+        enabled: false
