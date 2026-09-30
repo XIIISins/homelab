@@ -12,6 +12,10 @@
   ansible.builtin.import_tasks: network.yml
   tags: k3s_network
 
+- name: Keep syslog from filling the OS disk (etcd raft-drop spam, size cap)
+  ansible.builtin.import_tasks: logging.yml
+  tags: k3s_logging
+
 - name: Detect existing K3s state
   ansible.builtin.import_tasks: detect-state.yml
   tags: k3s_install

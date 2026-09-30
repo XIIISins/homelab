@@ -15,6 +15,11 @@
     daemon_reload: true
   when: inventory_hostname in groups['k3s_worker']
 
+- name: restart rsyslog
+  ansible.builtin.systemd:
+    name: rsyslog
+    state: restarted
+
 - name: reload vlan20 policy routing
   ansible.builtin.systemd:
     name: vlan20-policy-routing.service

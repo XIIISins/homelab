@@ -1,0 +1,35 @@
+---
+# ansible/roles/k3s/tasks/logging.yml
+#
+# Keep /var/log/messages from filling the small (10 GB CP / 30 GB worker) OS disks.
+#
+# Why: embedded etcd logs a warn line for EVERY Raft message it drops while a peer is
+# unreachable ("dropped internal Raft message since sending buffer is full"), ~115k
+# lines/hour. Each Skuld freeze (2026-09-21, 2026-09-30) therefore wrote ~2 million lines
+# (~1 GB) into /var/log/messages on the surviving CPs and took hlokk to 89 % disk.
+# The genuine peer-down signals ("failed to reach the peer URL", "prober detected
+# unhealthy status") are kept — only the per-message drop spam is filtered, and it still
+# lives in the journal. Belt and braces: a size cap + shorter retention on the rotation.
+#
+# Apply alone:  ansible-playbook playbooks/asgard-k3s.yml --tags k3s_logging
+
+- name: Drop etcd raft "sending buffer is full" spam from /var/log/messages
+  ansible.builtin.copy:
+    dest: /etc/rsyslog.d/05-drop-etcd-raft-spam.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # managed by ansible (roles/k3s/tasks/logging.yml) — see that file for why
+      :msg, contains, "dropped internal Raft message since sending buffer is full" stop
+  notify: restart rsyslog
+
+- name: Cap syslog size and shorten rotation retention
+  ansible.builtin.blockinfile:
+    path: /etc/logrotate.d/rsyslog
+    insertafter: '^\s*missingok'
+    marker: "    # {mark} ANSIBLE k3s logging cap"
+    block: "    maxsize 200M\n    rotate 2\n    compress"
+  # logrotate rejects duplicate stanzas for /var/log/messages, so the options are added
+  # to the distro stanza instead of a drop-in. `maxsize` triggers rotation at the next
+  # daily logrotate.timer run even before the weekly boundary.
