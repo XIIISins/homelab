@@ -32,9 +32,14 @@ spec:
       retries: 3
 
   values:
-    # ── Pin image to chart appVersion explicitly ──────────────────────
+    # ── Pin image explicitly ──────────────────────────────────────────
+    # Held on the 4.6 line: no released e-breuninger/netbox provider supports
+    # NetBox 4.7 (6.0.0-rc tops out at 4.6.10), and 4.7's migration is
+    # irreversible. Move to 4.7.x once the provider does (+ `ltree` extension
+    # in postgres_databases[netbox].extensions first). See
+    # docs/operations/chart-bumps-2026-09.md §8.
     image:
-      tag: v4.6.1
+      tag: v4.6.10
 
     # ── External Postgres via HAProxy VIP ─────────────────────────────
     postgresql:
@@ -205,9 +210,10 @@ spec:
       replicaCount: 1
       resourcesPreset: medium
 
+    # Off: since NetBox 4.6 housekeeping runs inside NetBox (the chart marks
+    # this CronJob "only useful before v4.6.0"), and 4.7 removes the command.
     housekeeping:
-      enabled: true
-      schedule: "30 3 * * *" # 03:30 daily — cheap maintenance pass
+      enabled: false
 
     # ── No edge routing via chart ─────────────────────────────────────
     # HTTPRoute lives as a separate manifest (5i.d), consistent with
