@@ -143,9 +143,9 @@ unsealed on 1.21.2, UI 200, `/v1/sys/health` ok, `ClusterSecretStore` Valid,
 19/19 ExternalSecrets synced. **Canary `vault-1` restarted 2026-09-30:** came
 back Ready in ~10s on the 0.34.1 spec (no autopilot-guard error), auto-unsealed
 from the KMS stored key, rejoined Raft as a voter, identical committed index on
-all 3, UI 200, ExternalSecrets still 19/19. **Still pending:** `vault-0`
-(standby), then the active `vault-2` last — until rolled they run the 0.32.0 pod
-spec (functionally identical).
+all 3, UI 200, ExternalSecrets still 19/19. **Roll complete 2026-09-30:**
+`vault-0` (standby) then the active `vault-2` last; leadership moved to
+`vault-1`, all 3 unsealed on 1.21.2, identical Raft index, ExternalSecrets 19/19.
 
 Suggested sequence: (a) merge §2 pin; (b) bump chart to 0.34.1 with image still
 1.21.2; confirm Raft 3/3, unseal-on-restart works (AWS KMS reachable), OIDC login
@@ -246,6 +246,22 @@ Both are cluster-critical (TLS issuance; every VIP). Own PRs, one at a time.
 ---
 
 ## 6. synology-csi 0.11.1 → 0.11.4 — driver jumps v1.2.1 → v1.4.0
+
+**ATTEMPTED 2026-09-30 AND REVERTED — chart 0.11.4 is not deployable.** Its
+default driver image `docker.io/synology/synology-csi:v1.4.0` does not exist on
+Docker Hub (latest published tags: `v1.3.1`, `latest`). Result: controller
+`ImagePullBackOff`/`CrashLoopBackOff` + the urd node plugin failed; Helm revision
+10 timed out (5m), Flux rolled back via the reverted commit (revision 11 =
+0.11.1 / v1.2.1). Existing iSCSI sessions were unaffected (kernel-held), the
+`meta-garage-0` volume stayed Bound/attached, `garage-0` kept running; nothing
+could provision/attach for ~8 min. Recovery needed a manual
+`kubectl -n synology-csi delete pod synology-csi-controller-0` — a StatefulSet
+won't replace a crash-looping pod on its own during a rolling update.
+Chart→appVersion: 0.11.1→v1.2.1, 0.11.2→v1.3.0, **0.11.3→v1.3.1**, 0.11.4→v1.4.0.
+**Retry with chart 0.11.3** (driver v1.3.1 exists on Hub) — or pin
+`plugin.tag` explicitly. Pre-checks already done live: `client-info` is
+`https: false` / port 5000 (so TLS verification doesn't apply) and the only
+Synology PV (`meta-garage-0`) has no `fsType` (ext4) — no btrfs.
 
 **Confidence: Read** (chart README/diff). **This is not a patch-level bump** — the
 chart patch number hides a driver minor jump.
