@@ -2,7 +2,7 @@
 #
 # Official immich-app/immich-charts chart, built on the bjw-s
 # common-library. Values verified against a real `helm template` render
-# (chart 0.13.1 / app v3.0.0) before landing here — see
+# (chart 0.13.1 / app v3.0.0; bumped to 0.13.2 / v3.2.0 2026-09-30, no values changes) before landing here — see
 # docs/operations/open-questions.md "Immich" for the schema notes.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -14,7 +14,7 @@ spec:
   chart:
     spec:
       chart: immich
-      version: "0.13.1" # concrete pin (CLAUDE.md no-floats rule); app v3.0.0
+      version: "0.13.2" # concrete pin (CLAUDE.md no-floats rule); app v3.2.0
       sourceRef:
         kind: HelmRepository
         name: immich

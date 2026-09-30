@@ -12,7 +12,7 @@ spec:
   # is sourced straight from the upstream git tag — concrete-pinned per the
   # CLAUDE.md no-floats rule. Bump = move this tag + the image tags below.
   ref:
-    tag: v0.0.36
+    tag: v0.0.37
   ignore: |
     # Pull only the chart dir (smaller clone); exclude everything else.
     /*
@@ -43,7 +43,7 @@ spec:
     # so it survives a VM rebuild). See docs/procedures/synology-storage-redesign.md.
     image:
       repository: docker.io/rancher/local-path-provisioner
-      tag: v0.0.36 # concrete pin (matches chart appVersion / git tag)
+      tag: v0.0.37 # concrete pin (matches chart appVersion / git tag)
     helperImage:
       # Chart default is the floating busybox:latest — pin per CLAUDE.md no-floats.
       repository: docker.io/library/busybox
