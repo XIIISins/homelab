@@ -1,0 +1,65 @@
+# ansible/playbooks/aiops-service-status.yml
+---
+# Phase 10c3 action `service-status` (T0, read-only) — registry entry in
+# aiops/actions.yml. Reads one systemd unit's state on ONE inventory host and
+# prints a machine-readable line the executor parses:
+#
+#   AIOPS_RESULT {"action": "service-status", "ok": true, "active_state": ..., ...}
+#
+# Extra-vars (declared + typed in the registry, passed as the Semaphore task
+# `environment`):  target_host (single inventory hostname), unit (<name>.service)
+#
+# Read-only on purpose: `systemd` with no `state:` only queries (no change, no
+# daemon-reload) and runs as the ansible user. `check_mode: false` so the read
+# also happens under --check. The wrapper-less filename means hermod_summary's
+# _MODES map ignores it (no Hermod traffic from a status read).
+
+- name: AIOps service-status - validate target
+  # hosts: localhost is fine HERE (no --limit is used with this template), unlike
+  # the replay wrappers where --limit would skip it (known-issues/lxc-proxmox.md).
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # control-node ansible.cfg defaults become: true
+  tasks:
+    - name: Assert extra-vars are well-formed and the host is a single known inventory host
+      ansible.builtin.assert:
+        that:
+          - target_host is defined
+          - unit is defined
+          - target_host is match('^[a-z0-9][a-z0-9-]*$')
+          - unit is match('^[A-Za-z0-9@:._-]+\.service$')
+          - target_host in groups['all']
+        fail_msg: >-
+          service-status needs target_host (one inventory hostname) and unit
+          (<name>.service). Got target_host={{ target_host | default('<unset>') }},
+          unit={{ unit | default('<unset>') }}.
+        quiet: true
+
+- name: AIOps service-status - read unit state
+  hosts: "{{ target_host | default('aiops-no-target') }}" # default only keeps --syntax-check/ansible-lint parseable; the guard play fails first when unset
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Query the unit (no state => read-only)
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+      register: _aiops_unit
+      failed_when: false
+      check_mode: false
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _status: "{{ _aiops_unit.status | default({}) }}"
+        _aiops_result:
+          action: service-status
+          ok: "{{ (_status.get('LoadState', '') == 'loaded') }}"
+          target_host: "{{ target_host }}"
+          unit: "{{ unit }}"
+          load_state: "{{ _status.get('LoadState', 'unknown') }}"
+          active_state: "{{ _status.get('ActiveState', 'unknown') }}"
+          sub_state: "{{ _status.get('SubState', 'unknown') }}"
+          n_restarts: "{{ _status.get('NRestarts', '') }}"
+          active_since: "{{ _status.get('ActiveEnterTimestamp', '') }}"

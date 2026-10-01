@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/XIIISins/homelab/aiops/schema/runbooks.v1.schema.json",
+  "title": "Runbook metadata sidecar (aiops.runbooks/v1)",
+  "description": "Machine-readable metadata for entries in docs/known-issues/, docs/procedures/ and docs/services/. The docs stay the human source of truth and keep their format; each documented entry carries one HTML-comment marker `<!-- runbook: RB-XXX -->` directly above it, and aiops/runbooks.yml is the sidecar keyed by that id. Cross-file consistency (marker present, tier/automatable rules, action references) is enforced by aiops/tools/lint.py, not by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "runbooks"],
+  "properties": {
+    "schema_version": { "const": "aiops.runbooks/v1" },
+    "runbooks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/runbook" }
+    }
+  },
+  "$defs": {
+    "runbook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "source", "tier", "automatable", "preconditions", "verify", "selection"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^RB-[A-Z0-9]+(-[A-Z0-9]+)*$" },
+        "title": { "type": "string", "minLength": 5 },
+        "source": {
+          "description": "Repo-relative Markdown file holding the human runbook. The marker comment for this id must appear in it exactly once.",
+          "type": "string",
+          "pattern": "^docs/(known-issues|procedures|services)/[A-Za-z0-9._-]+\\.md$"
+        },
+        "tier": {
+          "description": "Blast radius of the scenario the runbook handles (aiops-roadmap.md 'Blast-radius tiers'), i.e. of the hardest thing it touches, not of the diagnosis.",
+          "enum": ["T0", "T1", "T2", "T3"]
+        },
+        "automatable": {
+          "description": "Highest autonomy the runbook may EVER be run with. none = human only (diagnosis may still be automated via `diagnostics`). Default for everything is none; auto additionally requires `idempotency_proof`, tier <= T1, and remediation actions whose own max_autonomy is auto.",
+          "enum": ["none", "approval", "auto"]
+        },
+        "maturity": {
+          "description": "curated = the linked doc is a real procedure; stub = the alert path needs a runbook id today but the doc is only the nearest related gotcha (tracked in open-questions.md).",
+          "enum": ["curated", "stub"]
+        },
+        "preconditions": {
+          "description": "Facts that must hold before acting (read by a human or the diagnosis session; machine-checkable ones also appear as action guards).",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 5 }
+        },
+        "diagnostics": {
+          "description": "T0 registry actions that gather evidence for this runbook.",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "remediation": {
+          "description": "Registry actions that perform the fix. Must be non-empty iff automatable != none; each action's tier must be <= this runbook's tier.",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "verify": {
+          "description": "How to confirm the problem is gone. `command` is a read-only shell snippet (lint rejects mutating verbs); `action` names a T0 registry action whose result is the check.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "command": { "type": "string", "minLength": 5 },
+            "action": { "type": "string" }
+          }
+        },
+        "idempotency_proof": {
+          "description": "Repo path of the playbook/role whose re-run safety justifies automatable: auto. Absent for everything else.",
+          "type": "string"
+        },
+        "selection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["basis", "why"],
+          "properties": {
+            "basis": {
+              "description": "recurrence = chosen for how often the class recurs in docs/incidents/ + known-issues; critical-path = chosen because a critical alert path needs a runbook_id; both = either alone would have selected it.",
+              "enum": ["recurrence", "critical-path", "both"]
+            },
+            "why": { "type": "string", "minLength": 10 },
+            "incidents": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^docs/incidents/[A-Za-z0-9._-]+\\.md$" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

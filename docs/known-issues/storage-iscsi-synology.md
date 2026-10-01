@@ -6,6 +6,7 @@
 
 ## Storage / iSCSI / Synology CSI
 
+<!-- runbook: RB-ISCSI-STALE-SESSION -->
 - **iSCSI LUNs are single-session.** After ungraceful restarts, stale sessions or discovery node records can pin a LUN to the wrong node (`non-retryable iSCSI login failure` / `iscsi_limit_max_session_count`). Cleanup: `iscsiadm -m session` / `-m node -o delete` on affected nodes; clear NAS-side if needed.
 - **iSCSI node records persist across pod migrations and outlive sessions.** Sessions die with the pod; `/var/lib/iscsi/nodes/` records do not. After worker-to-worker iSCSI PV migration, source worker is left with stale node records. Latent risk: next iscsid restart/reboot logs in to stale targets → Multi-Attach errors elsewhere. Diagnosis: `iscsiadm -m node` vs `iscsiadm -m session`; entries in `node` but not `session` AND the PV is bound to a *different* node = orphan. Cleanup: `iscsiadm -m node -T <iqn> -p <portal> -o delete` on source. **Recurs after every iSCSI PV migration.**
 - **iSCSI session timeout → ext4 journal abort → FS RO.** Network blip during maintenance lets the session time out; ext4 remounts RO. Recovery: scale workload to 0, attach LUN to debug pod, `fsck.ext4 -y /dev/sdX` (from Alpine — see RHEL 9 e2fsprogs gotcha below), detach, scale back up.

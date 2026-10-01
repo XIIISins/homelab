@@ -1,0 +1,32 @@
+{
+  "description": "The prober itself failed; its rescue block posts this",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Infra health check ERRORED",
+    "body": "The infra-health-check playbook failed to complete: `Vault unreachable`. Health coverage is currently blind — investigate.",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "semaphore",
+      "service": "s4-prober",
+      "check": "prober-errored",
+      "summary": "Infra health check ERRORED",
+      "detail": "The infra-health-check playbook failed to complete: `Vault unreachable`. Health coverage is currently blind — investigate.",
+      "runbook_id": "RB-S4-PROBER-ERRORED",
+      "fingerprint": "4452e9fa9f1f5aba",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "description": "A POST with no tag (the #hermod-untagged quarantine): severity untagged, no runbook obligation",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Something odd happened",
+    "body": "no tag set by this producer",
+    "type": "info",
+    "format": "text"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "unknown",
+      "status": "event",
+      "severity": "untagged",
+      "host": "fleet",
+      "service": "unknown",
+      "check": "something-odd-happened",
+      "summary": "Something odd happened",
+      "detail": "no tag set by this producer",
+      "runbook_id": "RB-ALERT-UNCLASSIFIED",
+      "fingerprint": "0d9757793150259e",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "",
+        "apprise_type": "info"
+      }
+    }
+  ]
+}

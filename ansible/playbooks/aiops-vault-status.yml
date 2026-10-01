@@ -1,0 +1,48 @@
+# ansible/playbooks/aiops-vault-status.yml
+---
+# Phase 10c3 action `vault-status` (T0, read-only) — registry entry in
+# aiops/actions.yml. Unauthenticated seal/HA status of Vault via the vault CLI
+# on Frigg. Sends no token: `vault status` is an open endpoint, so this cannot
+# read a secret.
+#
+# Limitation, stated on purpose: it reports the node the FQDN routes to (the
+# vault-ui Service only selects ready pods), not a per-pod view. Per-pod seal
+# state needs the read-only kubectl toolbelt (10d2).
+#
+# `vault status` exits 2 when sealed; that is parsed, not treated as a failure.
+# Exit 1 (cannot reach / TLS error) yields ok: false.
+# Result line: AIOPS_RESULT {"action": "vault-status", "ok": ..., "sealed": ..., ...}
+
+- name: AIOps vault-status
+  hosts: control
+  gather_facts: false
+  become: false
+  environment:
+    VAULT_ADDR: "{{ vault_addr | default('https://vault.niflheim.xiiisins.com') }}"
+  tasks:
+    - name: Read Vault status (read-only, no token)
+      ansible.builtin.command:
+        argv: [vault, status, -format=json]
+      register: _vault
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Parse the status document
+      ansible.builtin.set_fact:
+        _vault_doc: "{{ (_vault.stdout | from_json) if (_vault.rc in [0, 2] and _vault.stdout | length > 0) else {} }}"
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: vault-status
+          ok: "{{ _vault_doc | length > 0 }}"
+          sealed: "{{ _vault_doc.get('sealed', none) }}"
+          initialized: "{{ _vault_doc.get('initialized', none) }}"
+          ha_enabled: "{{ _vault_doc.get('ha_enabled', none) }}"
+          version: "{{ _vault_doc.get('version', '') }}"
+          storage_type: "{{ _vault_doc.get('storage_type', '') }}"
+          raft_committed_index: "{{ _vault_doc.get('raft_committed_index', none) }}"
+          vault_cli_rc: "{{ _vault.rc }}"

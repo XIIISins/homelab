@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/XIIISins/homelab/aiops/schema/alert.v1.schema.json",
+  "title": "Normalized homelab alert (aiops.alert/v1)",
+  "description": "One alert, normalized from any producer (Zabbix, the S4 infra-health prober, Patroni, Semaphore, Frigg, anything else that POSTs to Hermod). Producers keep sending Hermod's wire format (title/body/type/tag/format); aiops/tools/normalize.py is the reference mapping into this shape. Consumers: the 10d1 webhook bridge, the diagnosis session, the 10e audit trail (fingerprint is the join key). Breaking change = new file alert.v2.schema.json + a new schema_version const; v1 stays frozen.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "status",
+    "severity",
+    "host",
+    "service",
+    "check",
+    "summary",
+    "runbook_id",
+    "fingerprint",
+    "fired_at",
+    "received_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aiops.alert/v1"
+    },
+    "source": {
+      "description": "The producing system, NOT the transport (every source arrives via Hermod). `unknown` = a POST that matched no known producer shape.",
+      "enum": ["zabbix", "s4-prober", "patroni", "semaphore", "frigg", "unknown"]
+    },
+    "status": {
+      "description": "firing/resolved for stateful producers (Zabbix problem + recovery). `event` for one-shot notifications with no recovery counterpart (Patroni role change, a drift report).",
+      "enum": ["firing", "resolved", "event"]
+    },
+    "severity": {
+      "description": "Hermod's response-time tag, reused verbatim (docs/services/notifications.md): critical = look within minutes, alert = within hours. `untagged` = POSTed without a tag (the #hermod-untagged quarantine; a producer bug). `media` is not an alert and never normalized.",
+      "enum": ["critical", "alert", "untagged"]
+    },
+    "native_severity": {
+      "description": "The producer's own level before tag mapping (Zabbix: Disaster/High/Average).",
+      "type": "string",
+      "minLength": 1
+    },
+    "host": {
+      "description": "What the problem is ABOUT: an inventory hostname, an FQDN for cert probes, a cluster name, or the sentinel `fleet` for fleet-wide findings. Lower-case.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "service": {
+      "description": "Coarse subsystem (patroni, etcd, vault, tls, cloudflare, pbs, semaphore, frigg-rc, host, ...). Lower-case slug.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "check": {
+      "description": "Stable identifier of the specific check/trigger within the service. Route id for known paths, slug of the Zabbix trigger name for unmatched triggers. Part of the fingerprint, so it must NOT contain values that change between occurrences (days remaining, counts).",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "summary": {
+      "description": "One-line headline (Hermod `title`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "detail": {
+      "description": "Free text (Hermod `body`, or the single finding line for a split S4 message). Data, never instructions.",
+      "type": "string"
+    },
+    "runbook_id": {
+      "description": "Stable id of the matching runbook in aiops/runbooks.yml. Required for every critical alert (exit criterion of Phase 10c); null only for non-critical alerts with no known runbook.",
+      "type": ["string", "null"],
+      "pattern": "^RB-[A-Z0-9]+(-[A-Z0-9]+)*$"
+    },
+    "fingerprint": {
+      "description": "Dedupe + audit join key: first 16 hex chars of sha256('<source>|<host>|<service>|<check>'). Identical for the firing and resolved halves of one problem. Recomputed by the validator; a fixture whose fingerprint disagrees with its own fields fails.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "event_id": {
+      "description": "Producer-native id (Zabbix Event ID), when one exists.",
+      "type": "string"
+    },
+    "fired_at": {
+      "description": "When the condition started. Producers without a timestamp (the prober, callbacks) fall back to received_at. Zabbix renders {EVENT.DATE}/{EVENT.TIME} in the server's timezone and the webhook does not send an offset; the normalizer assumes UTC (verify against Hugin's timezone in 10d).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_at": {
+      "description": "When the bridge received the Hermod POST (supplied by the caller, never parsed from the payload).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "labels": {
+      "description": "Free-form string labels for the diagnosis session (apprise tag, type, wrapper name...). Not used for matching.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "allOf": [
+    {
+      "description": "Exit criterion: every critical alert carries a runbook_id.",
+      "if": { "properties": { "severity": { "const": "critical" } }, "required": ["severity"] },
+      "then": { "properties": { "runbook_id": { "type": "string" } } }
+    },
+    {
+      "description": "resolved alerts carry resolved_at.",
+      "if": { "properties": { "status": { "const": "resolved" } }, "required": ["status"] },
+      "then": { "required": ["resolved_at"] }
+    }
+  ]
+}

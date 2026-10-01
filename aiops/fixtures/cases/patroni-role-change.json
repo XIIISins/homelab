@@ -1,0 +1,32 @@
+{
+  "description": "Patroni on_role_change callback (one-shot event, alert tag)",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Patroni: fulla promoted to LEADER (niflheim-pg)",
+    "body": "**Action:** on_role_change\n**Role:** primary\n**Scope:** niflheim-pg\n**Host:** fulla\n**Timestamp:** 2026-10-01T12:31:07Z",
+    "type": "warning",
+    "tag": "alert",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "patroni",
+      "status": "event",
+      "severity": "alert",
+      "host": "fulla",
+      "service": "patroni",
+      "check": "role-change",
+      "summary": "Patroni: fulla promoted to LEADER (niflheim-pg)",
+      "detail": "**Action:** on_role_change\n**Role:** primary\n**Scope:** niflheim-pg\n**Host:** fulla\n**Timestamp:** 2026-10-01T12:31:07Z",
+      "runbook_id": "RB-PG-HA-DEGRADED",
+      "fingerprint": "e967099f78c4d019",
+      "fired_at": "2026-10-01T12:31:07Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "alert",
+        "apprise_type": "warning"
+      }
+    }
+  ]
+}

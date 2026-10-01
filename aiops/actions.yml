@@ -1,0 +1,299 @@
+# aiops/actions.yml — the action registry (Phase 10c3).
+#
+# Schema: schema/actions.v1.schema.json. Validated by `python3 aiops/tools/lint.py`
+# (every action has a tier + verify step; every Semaphore template and playbook
+# reference resolves).
+#
+# Rule of the road (aiops-roadmap.md principle 1): the agent acts ONLY through
+# a named entry here, executed by Semaphore. No entry = no action. The
+# executor (10e1) may trigger only these templates, passing only the declared
+# extra_vars (as the Semaphore task `environment`, a JSON string — that
+# channel is honoured even though the templates forbid CLI-arg overrides, see
+# known-issues/zabbix.md "Semaphore task-start API").
+#
+# Result convention: every playbook ends with a debug line
+#   AIOPS_RESULT {"action": "<name>", "ok": true|false, ...}
+# which the executor parses from the task output to evaluate `verify.expect`.
+#
+# Exception: for replay-role-check / replay-role a playbook cannot see its own
+# stats, so `ok` and `changed` in their verify.expect come from the target
+# host's PLAY RECAP line (failed=0 unreachable=0; changed=N); AIOPS_RESULT only
+# marks guard-passed / complete phases and the check-mode flag.
+#
+# The playbooks re-enforce each guard themselves (they read this file), so a
+# misbehaving executor cannot widen a guard by passing different vars.
+#
+# Initial scope is T0/T1 only. T2 entries arrive with 10e. Every mutator is
+# `max_autonomy: approval`: raising a ceiling to `auto` is a reviewed PR that
+# belongs to 10f1 (kill switch, rate limit, circuit breaker, maintenance flag).
+#
+# `semaphore.applied: false` = the template is defined in
+# terraform/semaphore/templates.tf but nobody has run `terraform apply` yet
+# (operator gate, from the main checkout). Flip to true in the PR that follows
+# the apply.
+
+schema_version: aiops.actions/v1
+
+# Targets the mutating actions may touch (T1 = stateless / replicated /
+# rebuildable from IaC with no data loss, aiops-roadmap.md). Anything not
+# listed is T2/T3 and out of scope for restart-unit / replay-role.
+host_tiers:
+  T1:
+    - mimir      # AdGuard replica
+    - kvasir     # AdGuard replica (Saga is the Terraform/sync origin: not T1)
+    - bifrost    # Tailscale LXC
+    - heimdall   # Tailscale LXC
+    - gjallarbru # Tailscale LXC
+    - hermod     # AppriseAPI + Caddy (stateless; alerts still land in VL when it is down)
+
+actions:
+  # === T0: read-only =========================================================
+
+  service-status:
+    description: Read a systemd unit's state on one inventory host (ActiveState, SubState, restart count).
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Read-only (systemctl show). Safe under --check; changes nothing.
+    semaphore:
+      template: aiops-service-status
+      playbook: ansible/playbooks/aiops-service-status.yml
+      applied: false
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+        description: A single inventory hostname (never a group or pattern).
+      unit:
+        type: string
+        required: true
+        pattern: '[A-Za-z0-9@:._-]+\.service'
+    guard:
+      summary: Any single inventory host; read-only, so no tier restriction. The playbook rejects patterns and unknown hosts.
+      target_policy: any-inventory-host
+    verify:
+      self: true
+      expect:
+        ok: true
+    rollback: Nothing to roll back (read-only).
+
+  vault-status:
+    description: Unauthenticated Vault seal/HA status via the vault CLI on Frigg (sealed, initialized, HA mode, version, Raft index). Reports the node the FQDN routes to, not a per-pod view (per-pod seal state needs the 10d2 read-only kubectl toolbelt).
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Read-only (`vault status`, no token). Exit code 2 (sealed) is parsed, not treated as a task failure.
+    semaphore:
+      template: aiops-vault-status
+      playbook: ansible/playbooks/aiops-vault-status.yml
+      applied: false
+    extra_vars: {}
+    guard:
+      summary: Runs on Frigg only; sends no credential. Does not call authenticated endpoints, so it cannot read secrets.
+      target_policy: n/a
+      needs: vault CLI on Frigg and control_node_vault_addr (roles/control-node/defaults).
+    verify:
+      self: true
+      expect:
+        ok: true
+        sealed: false
+    rollback: Nothing to roll back (read-only).
+
+  patroni-status:
+    description: Patroni cluster state from the open GET /cluster endpoint on the PG trio (members, roles, state, lag, leader present).
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Read-only HTTP GET against the unauthenticated /cluster endpoint (same probe as infra-health-check).
+    semaphore:
+      template: aiops-patroni-status
+      playbook: ansible/playbooks/aiops-patroni-status.yml
+      applied: false
+    extra_vars: {}
+    guard:
+      summary: GET /cluster only; the mutating Patroni endpoints (/switchover, /failover, /restart) need restapi auth and are never called here.
+      target_policy: n/a
+    verify:
+      self: true
+      expect:
+        ok: true
+        leader_present: true
+    rollback: Nothing to roll back (read-only).
+
+  replay-role-check:
+    description: Dry-run (--check --diff) of site.yml for ONE host and an allow-listed role tag; reports what a replay would change. Always the first step of replay-role.
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Runs with --check; by repo convention probe tasks that must execute under --check carry check_mode false and are read-only (known-issues/semaphore.md).
+    semaphore:
+      template: aiops-replay-role-check
+      playbook: ansible/playbooks/aiops-replay-role-check.yml
+      applied: false
+      task_fields:
+        limit: '{target_host}'
+        arguments: ['--check', '--diff', '--tags', '{role_tag}']
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      role_tag:
+        type: enum
+        required: true
+        values: [baseline, hardening, vlagent, zabbix-agent]
+    guard:
+      summary: The wrapper playbook asserts ansible_check_mode, a single-host --limit equal to target_host, an allow-listed tag, and a full inventory (>=20 hosts). A hosts:localhost preflight would be skipped under --limit (known-issues/lxc-proxmox.md), so the guard runs on `all` with run_once.
+      target_policy: host_tiers.T1
+      allowed_tags: [baseline, hardening, vlagent, zabbix-agent]
+    verify:
+      self: true
+      expect:
+        ok: true
+        check_mode: true
+    rollback: Nothing to roll back (check mode).
+
+  # === T1: mutating, replay-safe, T1 hosts only ================================
+
+  restart-unit:
+    description: Restart one systemd unit on one T1 host, then wait until it reports active.
+    tier: T1
+    max_autonomy: approval
+    idempotent: true
+    idempotency: systemctl restart converges to the same running state on replay; the unit allow-list excludes units whose restart moves state (keepalived VIP, databases).
+    semaphore:
+      template: aiops-restart-unit
+      playbook: ansible/playbooks/aiops-restart-unit.yml
+      applied: false
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      unit:
+        type: string
+        required: true
+        pattern: '[A-Za-z0-9@:._-]+\.service'
+    guard:
+      summary: Host must be in host_tiers.T1 AND the unit must be in the per-host allow-list below; anything else fails the play before any change.
+      target_policy: host_tiers.T1
+      allowed_units:
+        mimir: [AdGuardHome.service]
+        kvasir: [AdGuardHome.service]
+        bifrost: [tailscaled.service]
+        heimdall: [tailscaled.service]
+        gjallarbru: [tailscaled.service]
+        hermod: [apprise-api.service, caddy.service]
+    verify:
+      action: service-status
+      vars:
+        target_host: '{target_host}'
+        unit: '{unit}'
+      expect:
+        ok: true
+        active_state: active
+    rollback: A restart has no inverse. If the unit does not come back active the play fails and the alert stays open; escalate to the unit's runbook. Bifrost is the subnet router, so restarting tailscaled there briefly interrupts tailnet routes (accepted at T1).
+
+  replay-role:
+    description: Converge ONE allow-listed role tag on ONE T1 host by running site.yml with --limit and --tags (the same code path as asgard-apply, narrowed).
+    tier: T1
+    max_autonomy: approval
+    idempotent: true
+    idempotency: site.yml is the fleet's idempotent converge (drift-check runs it every 6h in --check mode and asgard-apply runs it for real). The role tags are the ones those plays already apply fleet-wide. The registry still requires replay-role-check first.
+    semaphore:
+      template: aiops-replay-role
+      playbook: ansible/playbooks/aiops-replay-role.yml
+      applied: false
+      task_fields:
+        limit: '{target_host}'
+        arguments: ['--tags', '{role_tag}']
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      role_tag:
+        type: enum
+        required: true
+        values: [baseline, hardening, vlagent, zabbix-agent]
+    guard:
+      summary: Wrapper playbook asserts not-check-mode, a single-host --limit equal to target_host, an allow-listed tag, host in host_tiers.T1, and a full inventory. The executor must have a clean replay-role-check diff (in scope, no unexpected hosts/tasks) for the same host and tag first. Roles with their own idempotency guards (calico-upgrade, k3s-upgrade) are not tags in the allow-list.
+      target_policy: host_tiers.T1
+      allowed_tags: [baseline, hardening, vlagent, zabbix-agent]
+      requires_prior: replay-role-check
+    verify:
+      action: replay-role-check
+      vars:
+        target_host: '{target_host}'
+        role_tag: '{role_tag}'
+      expect:
+        ok: true
+        changed: 0
+    rollback: Replaying a converge has no inverse; the previous state is whatever Git declared before the drift. If verify still shows changes after the replay, stop and escalate (the drift is not role-convergeable, e.g. a provision-layer setting, see RB-LXC-BOOT-DRIFT).
+
+  flux-reconcile:
+    description: Nudge Flux to reconcile one HelmRelease now (`flux reconcile hr <hr_name> -n <hr_namespace>`); applies only what Git already declares.
+    tier: T1
+    max_autonomy: approval
+    idempotent: true
+    idempotency: A reconcile re-evaluates desired state from Git; replaying with no new commit is a no-op. It never edits the release, only triggers the controller.
+    semaphore:
+      template: aiops-flux-reconcile
+      playbook: ansible/playbooks/aiops-flux-reconcile.yml
+      applied: false
+    extra_vars:
+      hr_name:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      hr_namespace:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+    fixed_vars:
+      reset: false
+    guard:
+      summary: HelmRelease must not be on the stateful deny-list. The template runs on Frigg (flux CLI + kubeconfig live there; the Semaphore pod has neither the flux CLI nor RBAC on HelmReleases).
+      target_policy: n/a
+      denied_releases: [vault, immich, netbox, authentik, victoriametrics, victorialogs, synology-csi, csi-driver-nfs, local-path-provisioner, sealed-secrets]
+      needs: flux CLI + kubeconfig for the operator user on Frigg (roles/control-node). Open question for 10e - run it with a scoped ServiceAccount, not the operator kubeconfig.
+    verify:
+      self: true
+      expect:
+        ok: true
+        ready: 'True'
+    rollback: None needed; if the release goes unhealthy, follow RB-FLUX-HR-STALLED / the Helm rollback steps in known-issues/flux-helm-kustomize.md.
+
+  flux-reconcile-reset:
+    description: Reset the retry budget of a Stalled HelmRelease and reconcile it (`flux reconcile hr <hr_name> -n <hr_namespace> --reset`).
+    tier: T1
+    max_autonomy: approval
+    idempotent: true
+    idempotency: --reset zeroes the failure counters and re-attempts what Git declares; replay after a success is a no-op. NOT proof against a repeated failed upgrade, hence the allow-list below.
+    semaphore:
+      template: aiops-flux-reconcile
+      playbook: ansible/playbooks/aiops-flux-reconcile.yml
+      applied: false
+    extra_vars:
+      hr_name:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      hr_namespace:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+    fixed_vars:
+      reset: true
+    guard:
+      summary: STRICT allow-list of stateless releases; a retried upgrade can re-run a DB migration and a failed one can roll back into a poisoned DB (Immich, 2026-09-30). The playbook also refuses while any node is NotReady (a Stalled release on a dead host is RB-FLUX-HR-NODE-OUTAGE, not a chart fault).
+      target_policy: n/a
+      allowed_releases: [kube-state-metrics, victoria-logs-collector, vmagent]
+      needs: flux CLI + kubeconfig for the operator user on Frigg.
+    verify:
+      self: true
+      expect:
+        ok: true
+        ready: 'True'
+    rollback: --reset has no inverse. If the release fails again it stays Stalled and the alert stays open; do not loop (the 10f1 circuit breaker caps attempts per target).

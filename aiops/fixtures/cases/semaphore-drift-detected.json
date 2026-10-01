@@ -1,0 +1,32 @@
+{
+  "description": "hermod_summary callback: drift report (alert, one-shot)",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Drift detected: 4 task(s) on 2 host(s)",
+    "body": "**Wrapper:** `drift-check.yml`\n**Totals:** ok=500 changed=4 failed=0 unreachable=0\n\n**Per host:**\n- `bifrost`: ok=30 changed=2 failed=0 unreachable=0",
+    "type": "warning",
+    "tag": "alert",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "semaphore",
+      "status": "event",
+      "severity": "alert",
+      "host": "fleet",
+      "service": "semaphore",
+      "check": "drift-detected",
+      "summary": "Drift detected: 4 task(s) on 2 host(s)",
+      "detail": "**Wrapper:** `drift-check.yml`\n**Totals:** ok=500 changed=4 failed=0 unreachable=0\n\n**Per host:**\n- `bifrost`: ok=30 changed=2 failed=0 unreachable=0",
+      "runbook_id": "RB-LXC-BOOT-DRIFT",
+      "fingerprint": "03ce66ed2870d556",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "alert",
+        "apprise_type": "warning"
+      }
+    }
+  ]
+}

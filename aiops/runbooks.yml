@@ -1,0 +1,381 @@
+# aiops/runbooks.yml — machine-readable metadata for the recurring runbooks.
+#
+# Schema: schema/runbooks.v1.schema.json. Cross-file rules (marker in the doc,
+# tier/automatable consistency, action references, read-only verify) are
+# enforced by `python3 aiops/tools/lint.py`.
+#
+# How this relates to the docs: the Markdown under docs/known-issues/,
+# docs/procedures/ and docs/services/ stays the human source of truth and its
+# format is unchanged. Each entry here is anchored by ONE HTML-comment marker
+# `<!-- runbook: RB-XXX -->` placed directly above the bullet/heading it
+# describes. Invisible when rendered; greppable by the agent.
+#
+# Selection (Phase 10c2, 2026-10-01). Two bases, recorded per entry:
+#   recurrence    the class shows up repeatedly across docs/incidents/ and
+#                 known-issues/ (grep of the incident log + the cross-file
+#                 mentions: Helm remediation 9 incidents, AppRole/SecretID 8,
+#                 iSCSI sessions 5, etcd raft/syslog 5, watchdog/hard-freeze 4,
+#                 ...) or it is the named acceptance replay for 10d.
+#   critical-path a `critical` alert path (aiops/alert-routing.yml) needs a
+#                 runbook_id today and the nearest documented gotcha is the
+#                 anchor. Those marked `maturity: stub` have NO dedicated
+#                 procedure yet — see open-questions.md.
+#
+# Defaults are conservative on purpose: `automatable: none` unless a registry
+# action exists AND is provably safe to replay. Nothing is `auto`. Nothing
+# T3 is above `none` (the linter enforces it).
+
+schema_version: aiops.runbooks/v1
+
+runbooks:
+  # --- recurrence-selected ---------------------------------------------------
+
+  - id: RB-FLUX-HR-STALLED
+    title: HelmRelease Stalled / RetriesExceeded does not heal on a plain reconcile
+    source: docs/known-issues/flux-helm-kustomize.md
+    tier: T1
+    automatable: approval
+    preconditions:
+      - HelmRelease shows Stalled=True / RetriesExceeded (Helm's own retry budget is spent)
+      - All 6 K3s nodes are Ready (otherwise this is RB-FLUX-HR-NODE-OUTAGE, not a chart fault)
+      - The release is stateless; stateful releases (vault, immich, netbox, authentik, victoria*, CSI) are on the action's deny/allow list because a retried upgrade can re-run a DB migration
+      - No maintenance window (k3s-upgrade, calico-upgrade, os-updates) is active
+    diagnostics: []
+    remediation: [flux-reconcile-reset]
+    verify:
+      command: "kubectl get hr -n <namespace> <name> -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}'"
+    selection:
+      basis: recurrence
+      why: Helm remediation/retry exhaustion is the most-repeated Flux class (9 incident files, 9 known-issues files) and the roadmap's named T1 heal (10f2). Approval-only until the 10f1 guards exist because the Immich rollback poisoned its own DB.
+      incidents:
+        - docs/incidents/2026-09-30-skuld-freeze-chart-bump.md
+        - docs/incidents/2026-05-22-evening-phase-5e1-traefik.md
+
+  - id: RB-FLUX-HR-NODE-OUTAGE
+    title: Helm wait timeout while a node is down is a host fault, not a chart regression
+    source: docs/known-issues/flux-helm-kustomize.md
+    tier: T0
+    automatable: none
+    preconditions:
+      - Any node NotReady, or HelmRelease InProgress with pods Terminating on a NotReady node
+      - Classify the layer BEFORE any Flux action (roadmap principle 2); do not roll back or reset while the host is down
+    diagnostics: []
+    verify:
+      command: "kubectl get nodes"
+    selection:
+      basis: both
+      why: This is the 2026-09-30 Skuld-freeze acceptance replay for 10d (must say dead host, not bad release); a pure classification runbook, so T0 with no remediation.
+      incidents:
+        - docs/incidents/2026-09-30-skuld-freeze-chart-bump.md
+
+  - id: RB-ESO-FORCE-SYNC
+    title: ExternalSecret does not pick up a new Vault value until refreshInterval
+    source: docs/known-issues/flux-helm-kustomize.md
+    tier: T1
+    automatable: none
+    preconditions:
+      - The Vault path resolves (a single missing remoteRef blocks the whole target Secret)
+      - The consuming pod needs a restart after the Secret updates if it mounts the key via subPath
+    diagnostics: []
+    verify:
+      command: "kubectl get externalsecret -A"
+    selection:
+      basis: recurrence
+      why: ESO sync/ordering shows up in 8 incident files. The force-sync is a kubectl annotate with no registry action yet, so it stays none; candidate for a 10e registry entry.
+      incidents:
+        - docs/incidents/2026-05-17-evening-authentik-redis.md
+
+  - id: RB-ISCSI-STALE-SESSION
+    title: Pod cannot mount an iSCSI PVC (stale session / orphan node record / DSM state)
+    source: docs/known-issues/storage-iscsi-synology.md
+    tier: T2
+    automatable: none
+    preconditions:
+      - Synology allows one session per LUN; audit ALL workers for the orphan, not just the node the pod is on
+      - The CSI controller StatefulSet is up (a down controller stalls every VolumeAttachment cluster-wide)
+      - Stateful single-instance workload; scale to 0 before touching the LUN
+    diagnostics: []
+    verify:
+      command: "kubectl get volumeattachments"
+    selection:
+      basis: recurrence
+      why: Five incident files plus a standing memory note; the failure mode that most often needs cross-node reasoning, which is exactly what must stay human.
+      incidents:
+        - docs/incidents/2026-05-14-etcd-storm-cascade.md
+        - docs/incidents/2026-05-21-evening-phase-4a-cleanup.md
+        - docs/incidents/2026-05-22-phase-4b-worker-rebuild.md
+
+  - id: RB-ETCD-RAFT-SYSLOG-FLOOD
+    title: Control-plane disk fills while a CP peer is down (etcd Raft-drop log spam)
+    source: docs/known-issues/k3s-lifecycle.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Host is a K3s control plane (quorum member, T3 even though the cleanup is a log vacuum)
+      - Another CP is down or partitioned (the spam only occurs while a peer is unreachable)
+      - Check CP OS disks before any K3s hop
+    diagnostics: []
+    verify:
+      command: "df -h /"
+    selection:
+      basis: both
+      why: A named 10d acceptance replay and the roadmap's example T1 "known-condition cleanup". Held at T3/none here because the target is a control plane; 10f may split a host-scoped cleanup out once a guard exists (open question).
+      incidents:
+        - docs/incidents/2026-09-30-skuld-freeze-chart-bump.md
+
+  - id: RB-VAULT-APPROLE-EXPIRY
+    title: Vault AppRole SecretID expiring or already expired
+    source: docs/procedures/credential-rotation.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Rotation is human-in-the-loop by design (the helper prints the new SecretID; never touch the 1P username field)
+      - The approle mount max_lease_ttl must cover the role's secret_id_ttl (default clamps 90d to 32d)
+      - Never echo the SecretID
+    diagnostics: []
+    verify:
+      command: "vault list auth/approle/role/ansible-frigg/secret-id"
+    selection:
+      basis: both
+      why: AppRole/SecretID appears in 8 incident files and the S4 prober raises a critical for it; the 2026-09-03 silent expiry took Frigg's homelab-env down for ~5 days.
+      incidents:
+        - docs/incidents/2026-09-03-frigg-approle-silent-expiry.md
+        - docs/incidents/2026-09-03-vault-root-token-recovery.md
+
+  - id: RB-VAULT-RAFT-DRAIN
+    title: Draining or replacing a Vault Raft node (step down first, one voter at a time)
+    source: docs/known-issues/k3s-lifecycle.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Vault Raft holds quorum (3 voters; the chart's required anti-affinity leaves the drained pod Pending, accept 2/3)
+      - Step the leader down BEFORE drain/delete
+      - Never run two Vault pod operations concurrently
+    diagnostics: []
+    verify:
+      action: vault-status
+    selection:
+      basis: recurrence
+      why: Every worker hop (rebuilds, os-updates, k3s-upgrade) re-exercises it; T3 state store, so diagnosis (vault-status) only.
+      incidents:
+        - docs/incidents/2026-05-22-phase-4b-worker-rebuild.md
+        - docs/incidents/2026-05-17-asgard-rebuild.md
+
+  - id: RB-CALICO-DATASTORE-PRUNE
+    title: Calico datastore wiped by K3s addon-file pruning
+    source: docs/known-issues/k3s-lifecycle.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Never replace the addon files by hand; Calico moves only via ansible/playbooks/calico-upgrade.yml (datastore export + per-file CRD-prune guard)
+      - Offsite Calico objects exist in S3 (docs/procedures/offsite-backups.md); restore order CRDs -> Installation -> objects
+      - Every non-host-network pod must be recreated after the rebuild
+    diagnostics: []
+    verify:
+      command: "kubectl get ippools.crd.projectcalico.org"
+    selection:
+      basis: recurrence
+      why: The 2026-10-01 incident and a named 10d acceptance replay (must flag K3s per-addon pruning); the cautionary tale behind principle 5 (idempotency guards).
+      incidents:
+        - docs/incidents/2026-10-01-calico-datastore-prune.md
+
+  - id: RB-HOST-HARD-FREEZE
+    title: Proxmox host hard-freezes (no panic, no log) and does not fence
+    source: docs/known-issues/lxc-proxmox.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Host-level classification first (node unreachable, guests Terminating, Helm waits timing out = dead host)
+      - Never restart watchdog-mux to apply watchdog config (trips the watchdog); activate on the next reboot
+      - Hypervisors are human-only (T3)
+    diagnostics: []
+    verify:
+      command: "cat /sys/class/watchdog/watchdog0/identity"
+    selection:
+      basis: both
+      why: Skuld froze on 2026-07-17 and 2026-09-30 and is the first 10d replay; also the target of Zabbix host-unreachable triggers in the routing table.
+      incidents:
+        - docs/incidents/2026-07-17-skuld-hard-crashes.md
+        - docs/incidents/2026-09-30-skuld-freeze-chart-bump.md
+
+  - id: RB-LXC-BOOT-DRIFT
+    title: LXC config that does not survive a container restart (perpetual drift)
+    source: docs/known-issues/lxc-proxmox.md
+    tier: T2
+    automatable: approval
+    preconditions:
+      - Target host is in host_tiers.T1 of the registry (replica LXCs only until 10e widens it)
+      - Run replay-role-check first and read the diff; abort if it touches anything outside the declared role
+      - Provision-layer fixes (resolv.conf via the Terraform dns block, locale tmpfiles symlink) are NOT converged by replaying a role
+    diagnostics: [replay-role-check]
+    remediation: [replay-role]
+    verify:
+      action: replay-role-check
+    selection:
+      basis: recurrence
+      why: 48 drift items after one fleet reboot (2026-06-18) and several perpetual-changed=1 classes since; the standing "replay drifted baseline on a replica LXC" T1 candidate of 10f2, approval-only for now.
+      incidents:
+        - docs/incidents/2026-06-18-lxc-reboot-persistence-drift.md
+
+  - id: RB-FRIGG-RC-LOGIN
+    title: Frigg claude-remote-control login invalidated (crash-loop past StartLimitBurst)
+    source: docs/known-issues/frigg-control-node.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - frigg-reauth-listener already self-heals via a Discord URL + paste-back flow; wait for its result before acting
+      - Frigg is the agent host (T3, human-only); a full-scope interactive claude auth login is required, not a setup-token
+    diagnostics: [service-status]
+    verify:
+      command: "systemctl is-active claude-remote-control"
+    selection:
+      basis: both
+      why: Three occurrences (2026-08-02, 08-05, 09-17) and two critical alert paths (prober check 7, reauth listener).
+      incidents:
+        - docs/incidents/2026-09-17-frigg-rc-login-invalidation.md
+
+  - id: RB-PG-HA-DEGRADED
+    title: Patroni cluster degraded or etcd DCS quorum at risk
+    source: docs/known-issues/postgres.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Patroni leadership floats; any DB provisioning or switchover must target the CURRENT leader (--limit on one node is not safe)
+      - Quorum members (PG trio, HAProxy/etcd trio) are leader-aware and never autonomous
+      - Mutating REST endpoints (/switchover, /failover, /restart) need restapi auth; GET endpoints are open
+    diagnostics: [patroni-status]
+    verify:
+      action: patroni-status
+    selection:
+      basis: both
+      why: Patroni quorum loss is a critical path in both the S4 prober and the Zabbix routing; leader-change alerts recur on every PVE patch run.
+      incidents:
+        - docs/incidents/2026-05-24-5g2-haproxy-keepalived-vip.md
+
+  - id: RB-SEMAPHORE-RUN-FAILED
+    title: Semaphore run failed or stuck (apply failure, orphaned running task)
+    source: docs/known-issues/semaphore.md
+    tier: T2
+    automatable: none
+    preconditions:
+      - Read the PLAY RECAP; status error usually means one failed host, not the whole fleet
+      - A task stuck "running" while a worker reboots under semaphore-0 blocks the project queue (max_parallel_tasks 1); stop it in the UI, then re-run (the playbooks are idempotent)
+      - Do not re-run asgard-apply while another playbook runs anywhere (SSH MaxAuthTries / package-lock races)
+    diagnostics: []
+    verify:
+      command: "curl -s -H \"Authorization: Bearer $SEMAPHOREUI_API_TOKEN\" \"$SEMAPHOREUI_API_BASE_URL/project/1/tasks/last\""
+    selection:
+      basis: critical-path
+      why: "`Apply failed` is a critical Hermod path (hermod_summary callback). maturity stub - the nearest documented case is the os-updates orphaned-task gotcha; there is no general failed-apply procedure yet."
+    maturity: stub
+
+  # --- critical-path-selected (nearest documented gotcha as anchor) -----------
+
+  - id: RB-CF-TOKEN-INVALID
+    title: Cloudflare API token invalid (TF applies will 401)
+    source: docs/procedures/credential-rotation.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - Three separate Cloudflare tokens exist (Terraform, cert-manager DNS-01, tunnel); identify which one failed before rotating
+      - Rotation is a human step (1P + Vault + the frigg/iac-env mirror); never echo the token
+    diagnostics: []
+    verify:
+      command: "curl -s -H \"Authorization: Bearer $CLOUDFLARE_API_TOKEN\" https://api.cloudflare.com/client/v4/user/tokens/verify"
+    selection:
+      basis: critical-path
+      why: S4 prober check 1 is a critical path; the rotation procedure already exists.
+
+  - id: RB-TLS-CERT-EXPIRY
+    title: Served TLS cert near expiry or unreachable (cert-manager renewal stuck)
+    source: docs/known-issues/cloudflare.md
+    tier: T2
+    automatable: none
+    preconditions:
+      - cert-manager renews via DNS-01 with the zone-scoped Cloudflare token; a stuck renewal usually means that token or the Order/Challenge, not Traefik
+      - Probe goes through the CoreDNS rewrite to Traefik's ClusterIP, not the MetalLB VIP
+    diagnostics: []
+    verify:
+      command: "kubectl get certificate -A"
+    selection:
+      basis: critical-path
+      why: S4 prober check 2 is critical below 3 days. maturity stub - there is no cert-renewal procedure; the anchor is the Cloudflare-token gotcha that most plausibly breaks DNS-01.
+    maturity: stub
+
+  - id: RB-PBS-BACKUP-FAILURE
+    title: PBS backup task failed or the monitoring token is invalid
+    source: docs/known-issues/zabbix.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - PBS is a privileged LXC on Skuld (T3); its datastore capacity is already an open prerequisite for 10g
+      - The prober uses the zabbix@pbs!monitoring token; 401/403 means the token, not the backups
+    diagnostics: []
+    verify:
+      command: "ssh root@10.0.11.20 proxmox-backup-manager task list --errors"
+    selection:
+      basis: critical-path
+      why: S4 prober check 5 is critical. maturity stub - the anchor documents why PBS rides the prober (no 7.0 Zabbix template); no restore/failure procedure exists.
+    maturity: stub
+
+  - id: RB-CRED-IAC-ENV-SYNC
+    title: frigg/iac-env credential mirror out of sync or no longer authenticating
+    source: docs/known-issues/frigg-control-node.md
+    tier: T3
+    automatable: none
+    preconditions:
+      - secret/ansible/frigg/iac-env is a manually-maintained mirror; no rotation helper writes it
+      - Re-sync per the matching section of docs/procedures/credential-rotation.md; never echo values
+    diagnostics: []
+    verify:
+      command: "vault kv metadata get secret/ansible/frigg/iac-env"
+    selection:
+      basis: critical-path
+      why: S4 prober check 8 (Cloudflare/AdGuard sync, NetBox/Authentik/Semaphore liveness) is critical.
+
+  - id: RB-S4-PROBER-ERRORED
+    title: infra-health-check prober itself errored (health coverage is blind)
+    source: docs/known-issues/zabbix.md
+    tier: T2
+    automatable: none
+    preconditions:
+      - While the prober is down every S4 check (CF token, certs, Patroni/etcd, PBS, AppRole, Frigg RC) is unmonitored; treat as urgent
+      - Usual causes are Vault unreachable from the Semaphore pod or a missing become false on the localhost play
+    diagnostics: []
+    verify:
+      command: "curl -s -H \"Authorization: Bearer $SEMAPHOREUI_API_TOKEN\" \"$SEMAPHOREUI_API_BASE_URL/project/1/tasks/last\""
+    selection:
+      basis: critical-path
+      why: The prober's rescue block posts a critical when the job errors.
+
+  - id: RB-ZBX-TRIAGE
+    title: Zabbix High/Disaster trigger with no more specific runbook
+    source: docs/known-issues/zabbix.md
+    tier: T0
+    automatable: none
+    preconditions:
+      - Classify host-level vs workload-level before any action (roadmap principle 2)
+      - Zabbix suppresses Warning/Information; only Average/High/Disaster reach Hermod
+    diagnostics: [service-status]
+    verify:
+      command: "ssh ansible@10.0.11.21 systemctl is-active zabbix-server"
+    selection:
+      basis: critical-path
+      why: Catch-all for the Zabbix route so every critical Zabbix alert carries a runbook_id; the real trigger list needs a read-only Zabbix API pass in 10d2. maturity stub.
+    maturity: stub
+
+  - id: RB-ALERT-UNCLASSIFIED
+    title: Critical alert from a producer the routing table does not know
+    source: docs/services/notifications.md
+    tier: T0
+    automatable: none
+    preconditions:
+      - A new producer was wired without a routing entry, or a producer changed its message shape; fix the table in aiops/alert-routing.yml
+      - Diagnosis only; classify the layer and look at VictoriaLogs for the producing host
+    diagnostics: []
+    verify:
+      command: "kubectl get nodes && flux get hr -A"
+    selection:
+      basis: critical-path
+      why: Fallback for unknown critical sources so the "every critical alert has a runbook_id" exit criterion holds even for new producers. maturity stub.
+    maturity: stub

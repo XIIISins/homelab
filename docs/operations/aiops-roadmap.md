@@ -116,6 +116,8 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10c — Stage 0: machine-readable ops
 
+*Status 2026-10-01: ✅ code landed (schemas, routing, 20 runbook ids, 8-action registry, playbooks, CI job) — see [`aiops/README.md`](../../aiops/README.md). Not yet live: the seven new Semaphore templates await an operator `terraform apply` in `terraform/semaphore/`. Notes for 10d in [`open-questions.md`](open-questions.md).*
+
 - **10c1 — Alert schema.** Normalise Zabbix / S4 prober / Hermod payloads: `host`, `service`, `severity` (existing response-time tags), `runbook_id`, `fingerprint`/dedupe key, timestamps.
 - **10c2 — Runbook metadata.** The recurring entries in [`known-issues/`](../known-issues/) and [`procedures/`](../procedures/) get a stable `runbook_id`, preconditions, `automatable: none|approval|auto`, tier, and a verify command. Start with the ~10 most-recurring.
 - **10c3 — Action registry.** A repo-managed registry (named action → Semaphore template + typed extra-vars schema + tier + guard + verify + rollback note). Initial entries (T0/T1): `service-status`, `restart-unit` (one host), `replay-role --limit <host>` (check-mode first), `flux-reconcile` / `flux-reconcile --reset`, `vault-status`, `patroni-status`. T2 entries added in 10e.

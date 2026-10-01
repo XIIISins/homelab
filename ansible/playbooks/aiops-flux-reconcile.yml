@@ -1,0 +1,118 @@
+# ansible/playbooks/aiops-flux-reconcile.yml
+---
+# Phase 10c3 actions `flux-reconcile` and `flux-reconcile-reset` (T1,
+# max_autonomy: approval) — both registry entries share this playbook and are
+# told apart by the fixed extra-var `reset` (false / true).
+#
+# Runs ON FRIGG (group `control`): the flux CLI and the operator kubeconfig live
+# there (roles/control-node); the Semaphore pod has neither the flux CLI nor
+# RBAC on HelmReleases. It becomes the operator user so flux/kubectl pick up
+# that user's kubeconfig. Open question for 10e: replace the operator
+# kubeconfig with a ServiceAccount scoped to `reconcile` on HelmReleases.
+#
+# Extra-vars: hr_name, hr_namespace (the HelmRelease), reset (fixed by the registry)
+# Result line: AIOPS_RESULT {"action": ..., "ok": ..., "ready": "True"|"False"|...}
+#
+# Guards (read from aiops/actions.yml, so the caller cannot widen them):
+#   reset=false  hr_name must NOT be on flux-reconcile.guard.denied_releases
+#   reset=true   hr_name must be ON flux-reconcile-reset.guard.allowed_releases AND
+#                every node must be Ready (a Stalled release on a dead host is a
+#                host fault, not a chart fault: RB-FLUX-HR-NODE-OUTAGE)
+#
+# Idempotent: reconcile re-evaluates desired state from Git; replay with no new
+# commit is a no-op. Skipped under --check (it would only trigger the controller).
+
+- name: AIOps flux-reconcile
+  hosts: control
+  gather_facts: false
+  become: true
+  become_user: "{{ aiops_operator_user | default('ghost') }}"
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _denied: "{{ _registry.actions['flux-reconcile'].guard.denied_releases }}"
+    _allowed_reset: "{{ _registry.actions['flux-reconcile-reset'].guard.allowed_releases }}"
+    _reset: "{{ reset | default(false) | bool }}"
+    _env:
+      KUBECONFIG: "/home/{{ aiops_operator_user | default('ghost') }}/.kube/config"
+      PATH: "{{ aiops_path | default('/usr/local/bin:/usr/bin:/bin') }}" # override only for tests with stub binaries
+  environment: "{{ _env }}"
+  tasks:
+    - name: Assert well-formed extra-vars
+      ansible.builtin.assert:
+        that:
+          - hr_name is defined
+          - hr_namespace is defined
+          - hr_name is match('^[a-z0-9][a-z0-9-]*$')
+          - hr_namespace is match('^[a-z0-9][a-z0-9-]*$')
+        fail_msg: "flux-reconcile needs hr_name and hr_namespace (DNS-label shaped)."
+        quiet: true
+
+    - name: Assert the release is permitted for this action
+      ansible.builtin.assert:
+        that:
+          - (hr_name in _allowed_reset) if _reset else (hr_name not in _denied)
+        fail_msg: >-
+          flux-reconcile{{ '-reset' if _reset else '' }} refused for {{ hr_name }}:
+          {{ 'only the stateless releases ' ~ (_allowed_reset | join(', ')) ~ ' may be reset'
+             if _reset else 'it is on the stateful deny-list ' ~ (_denied | join(', ')) }}.
+        quiet: true
+
+    - name: Read node readiness (read-only)
+      ansible.builtin.command:
+        argv: [kubectl, get, nodes, --no-headers]
+      register: _nodes
+      changed_when: false
+      check_mode: false
+      when: _reset
+
+    - name: Refuse a reset while any node is not Ready
+      ansible.builtin.assert:
+        that: _nodes.stdout_lines | reject('search', '\sReady\s') | list | length == 0
+        fail_msg: >-
+          A node is not Ready; this is a host problem (RB-FLUX-HR-NODE-OUTAGE),
+          not a chart fault. Not resetting {{ hr_name }}.
+        quiet: true
+      when: _reset
+
+    - name: Reconcile the HelmRelease
+      ansible.builtin.command:
+        argv: "{{ ['flux', 'reconcile', 'hr', hr_name, '-n', hr_namespace, '--timeout', '5m'] + (['--reset'] if _reset else []) }}"
+      register: _flux
+      changed_when: true
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Read the Ready condition afterwards (read-only)
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - hr
+          - "{{ hr_name }}"
+          - -n
+          - "{{ hr_namespace }}"
+          - -o
+          - jsonpath={.status.conditions[?(@.type=="Ready")].status}
+      register: _ready
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: "{{ 'flux-reconcile-reset' if _reset else 'flux-reconcile' }}"
+          ok: "{{ (_ready.stdout | default('') | trim) == 'True' }}"
+          hr_name: "{{ hr_name }}"
+          hr_namespace: "{{ hr_namespace }}"
+          ready: "{{ _ready.stdout | default('') | trim }}"
+          reset: "{{ _reset }}"
+          check_mode: "{{ ansible_check_mode }}"
+
+    - name: Fail the run if the release is not Ready
+      ansible.builtin.assert:
+        that: (_ready.stdout | default('') | trim) == 'True'
+        fail_msg: "{{ hr_namespace }}/{{ hr_name }} is not Ready after reconcile; do not loop, escalate."
+        quiet: true

@@ -1,0 +1,78 @@
+# ansible/playbooks/aiops-replay-guard.yml
+---
+# Phase 10c3 — shared guard imported by aiops-replay-role-check.yml and
+# aiops-replay-role.yml (registry actions `replay-role-check` / `replay-role`).
+# Not a Semaphore template by itself.
+#
+# Enforces, BEFORE site.yml runs, that the run is exactly what the registry
+# allows: one host (a single-host --limit equal to the `target_host` extra-var,
+# in host_tiers.T1), one allow-listed role tag (--tags), the expected check-mode,
+# and a complete inventory.
+#
+# Why `hosts: all` + run_once and not `hosts: localhost`: a `hosts: localhost`
+# play is silently SKIPPED under --limit <otherhost> ("no hosts matched"), which
+# would bypass the guard exactly when it matters (known-issues/lxc-proxmox.md).
+# Under a single-host --limit, `all` is that one host; if the limit is wrong or
+# missing, the asserts fail. any_errors_fatal stops every later play.
+#
+# Magic vars used: ansible_limit (--limit), ansible_run_tags (--tags),
+# ansible_skip_tags (--skip-tags), ansible_check_mode (--check). The tasks carry
+# `tags: [always]` because the executor runs with --tags <role>, which would
+# otherwise skip them; `--skip-tags always` is rejected by the assert.
+#
+# Caller sets:  aiops_expect_check_mode (true for the check action, false for
+#               the apply action)  and  aiops_action (registry action name).
+
+- name: AIOps replay guard
+  # The `hosts:` expression is a tripwire the tags can't disable: `--skip-tags
+  # always` would skip the assert below (even `always` tasks), but a play's
+  # `hosts:` is templated before any task selection. An undefined variable
+  # there aborts the whole playbook at play start. (Terse by design: the error
+  # names aiops_guard_forbids_skip_tags_always.)
+  hosts: "{{ 'all' if 'always' not in (ansible_skip_tags | default([])) else aiops_guard_forbids_skip_tags_always }}"
+  gather_facts: false
+  become: false
+  any_errors_fatal: true
+  run_once: true
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _allowed_hosts: "{{ _registry.host_tiers.T1 }}"
+    _allowed_tags: "{{ _registry.actions['replay-role'].guard.allowed_tags }}"
+  tasks:
+    - name: Assert extra-vars and run flags match the registry guard
+      # tags: always, or `--tags <role>` (which the executor passes) would skip
+      # this task and the guard would silently never run.
+      tags: [always]
+      ansible.builtin.assert:
+        that:
+          - target_host is defined
+          - target_host is match('^[a-z0-9][a-z0-9-]*$')
+          - ansible_limit is defined
+          - ansible_limit == target_host
+          - target_host in _allowed_hosts
+          - target_host in groups['all']
+          - ansible_run_tags | length == 1
+          - ansible_run_tags[0] in _allowed_tags
+          - "'always' not in (ansible_skip_tags | default([]))"
+          - ansible_check_mode == (aiops_expect_check_mode | bool)
+          - groups['all'] | length >= (site_inventory_min_hosts | default(20) | int)
+        fail_msg: >-
+          {{ aiops_action }} refused. Needs: target_host={{ target_host | default('<unset>') }}
+          in host_tiers.T1, --limit equal to it (got {{ ansible_limit | default('<none>') }}),
+          exactly one --tags from {{ _allowed_tags }} (got {{ ansible_run_tags }}),
+          check mode {{ aiops_expect_check_mode }} (is {{ ansible_check_mode }}),
+          and a full inventory ({{ groups['all'] | length }} hosts).
+        quiet: true
+
+    - name: Emit machine-readable start marker
+      tags: [always]
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: "{{ aiops_action }}"
+          phase: guard-passed
+          ok: true
+          target_host: "{{ target_host }}"
+          role_tag: "{{ ansible_run_tags[0] }}"
+          check_mode: "{{ ansible_check_mode }}"

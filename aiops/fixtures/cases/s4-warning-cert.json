@@ -1,0 +1,32 @@
+{
+  "description": "S4 warning (alert tag): the same cert check as the critical case, same fingerprint, lower severity",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Infra health: 1 warning(s)",
+    "body": "**Infra health check — WARNING**\n\n- TLS cert for **niflheim** (`netbox.niflheim.xiiisins.com`) expires in 12d (<14d).",
+    "type": "warning",
+    "tag": "alert",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "alert",
+      "host": "netbox.niflheim.xiiisins.com",
+      "service": "tls",
+      "check": "cert-expiry",
+      "summary": "TLS cert for niflheim (netbox.niflheim.xiiisins.com) expires in 12d (<14d).",
+      "detail": "TLS cert for **niflheim** (`netbox.niflheim.xiiisins.com`) expires in 12d (<14d).",
+      "runbook_id": "RB-TLS-CERT-EXPIRY",
+      "fingerprint": "8014d303877f6d95",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "alert",
+        "apprise_type": "warning"
+      }
+    }
+  ]
+}

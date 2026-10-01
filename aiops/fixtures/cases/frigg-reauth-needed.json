@@ -1,0 +1,32 @@
+{
+  "description": "frigg-reauth-listener posts the auth URL (critical, one-shot)",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Frigg: claude-remote-control needs re-auth",
+    "body": "The RC login session was invalidated and auto-recovery has kicked in. Visit the URL below, sign in, then paste the resulting code back.",
+    "type": "info",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "frigg",
+      "status": "event",
+      "severity": "critical",
+      "host": "frigg",
+      "service": "frigg-rc",
+      "check": "reauth-needed",
+      "summary": "Frigg: claude-remote-control needs re-auth",
+      "detail": "The RC login session was invalidated and auto-recovery has kicked in. Visit the URL below, sign in, then paste the resulting code back.",
+      "runbook_id": "RB-FRIGG-RC-LOGIN",
+      "fingerprint": "347f27deb72c35f2",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "info"
+      }
+    }
+  ]
+}

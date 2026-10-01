@@ -1,0 +1,26 @@
+{
+  "description": "additionalProperties is false: no ad-hoc fields",
+  "must_fail_with": "Additional properties are not allowed",
+  "alert": {
+    "schema_version": "aiops.alert/v1",
+    "source": "zabbix",
+    "status": "firing",
+    "severity": "critical",
+    "host": "hlin",
+    "service": "pg-ha",
+    "check": "etcd-service-is-unavailable",
+    "summary": "[Zabbix] High: Etcd: Service is unavailable",
+    "detail": "**Host:** hlin\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Etcd: Service is unavailable\n**Severity:** High\n**Host:** hlin\n**Started at:** 2026.10.01 12:34:56\n**Event ID:** 48213\n\nService state: 0",
+    "runbook_id": "RB-PG-HA-DEGRADED",
+    "fingerprint": "684f5224a5ec3091",
+    "fired_at": "2026-10-01T12:34:56Z",
+    "received_at": "2026-10-01T12:40:00Z",
+    "labels": {
+      "apprise_tag": "critical",
+      "apprise_type": "failure"
+    },
+    "native_severity": "High",
+    "event_id": "48213",
+    "tier": "T1"
+  }
+}
