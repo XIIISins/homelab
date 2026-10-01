@@ -1,0 +1,26 @@
+# ansible/playbooks/nonprod-drift-check.yml
+#
+# Semaphore wrapper for the `asgard-nonprod-drift-check` template (Phase 10b1).
+# Runs site-nonprod.yml under `--check --diff` (set by the template's
+# `arguments`). hermod_summary classifies it as non-prod: a failed/unreachable
+# host posts tag `info` ("[non-prod] Drift check failed"), changes-only drift
+# is silent (fault injection is expected to drift the canaries).
+#
+# Same self-enforcing --check preflight as drift-check.yml.
+---
+- name: Non-prod drift-check preflight - assert --check is in effect
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Assert ansible_check_mode is true
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode | bool
+        fail_msg: >-
+          nonprod-drift-check.yml requires --check mode. The Semaphore
+          template sets it in `arguments`; for ad-hoc runs use
+          ansible-playbook --check --diff nonprod-drift-check.yml
+        success_msg: "nonprod-drift-check in --check mode, proceeding."
+
+- name: Non-prod drift-check - converge (check mode) via site-nonprod.yml
+  ansible.builtin.import_playbook: site-nonprod.yml

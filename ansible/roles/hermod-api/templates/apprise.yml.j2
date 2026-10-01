@@ -35,11 +35,16 @@ urls:
   - {{ discord_apprise(hermod_api_discord_urls.alert) }}/?format=markdown&username={{ hermod_api_usernames.alert }}:
       - tag: alert
 
+  # ── info: FYI only, never needs a response (Randgrid — "shield-truce") ──
+  # Non-prod / canary-origin alerts land here. No mention, mirrors `alert`.
+  - {{ discord_apprise(hermod_api_discord_urls.info) }}/?format=markdown&username={{ hermod_api_usernames.info }}:
+      - tag: info
+
   # ── media: entertainment notifications (Olrun — "ale-rune") ───────
   - {{ discord_apprise(hermod_api_discord_urls.media) }}/?format=markdown&username={{ hermod_api_usernames.media }}:
       - tag: media
 
   # ── untagged quarantine (Hel — underworld of lost messages) ───────
   # Bare URL (no nested tag dict) — matches notifications with no tag.
-  # POSTs tagged critical/alert/media DO NOT also land here.
+  # POSTs tagged critical/alert/info/media DO NOT also land here.
   - {{ discord_apprise(hermod_api_discord_urls.untagged) }}/?format=markdown&username={{ hermod_api_usernames.untagged }}

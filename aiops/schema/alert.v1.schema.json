@@ -33,7 +33,7 @@
     },
     "severity": {
       "description": "Hermod's response-time tag, reused verbatim (docs/services/notifications.md): critical = look within minutes, alert = within hours. `untagged` = POSTed without a tag (the #hermod-untagged quarantine; a producer bug). `media` is not an alert and never normalized.",
-      "enum": ["critical", "alert", "untagged"]
+      "enum": ["critical", "alert", "info", "untagged"]
     },
     "native_severity": {
       "description": "The producer's own level before tag mapping (Zabbix: Disaster/High/Average).",

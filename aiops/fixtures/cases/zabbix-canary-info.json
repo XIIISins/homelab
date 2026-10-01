@@ -1,0 +1,35 @@
+{
+  "description": "Zabbix event on a canary after the webhook cap: wire tag info, stays info",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "[Zabbix] High: Linux: Zabbix agent is not available",
+    "body": "**Host:** canary-3\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Linux: Zabbix agent is not available\n**Severity:** High\n**Host:** canary-3\n**Started at:** 2026.10.01 12:34:56\n**Event ID:** 50002\n\nno data",
+    "type": "failure",
+    "tag": "info",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "info",
+      "host": "canary-3",
+      "service": "host",
+      "check": "agent-unavailable",
+      "summary": "[Zabbix] High: Linux: Zabbix agent is not available",
+      "detail": "**Host:** canary-3\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Linux: Zabbix agent is not available\n**Severity:** High\n**Host:** canary-3\n**Started at:** 2026.10.01 12:34:56\n**Event ID:** 50002\n\nno data",
+      "runbook_id": "RB-HOST-HARD-FREEZE",
+      "fingerprint": "f761a5553e14eb76",
+      "fired_at": "2026-10-01T12:34:56Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "info",
+        "apprise_type": "failure",
+        "aiops_canary": "true"
+      },
+      "native_severity": "High",
+      "event_id": "50002"
+    }
+  ]
+}
