@@ -20,6 +20,7 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 | Traefik / Gateway API | [traefik-gateway-api.md](traefik-gateway-api.md) | Traefik chart values, Gateway listener ports |
 | Authentik | [authentik.md](authentik.md) | OIDC/SAML providers, brand vs outpost host, per-app group gates |
 | Cloudflare / Cloudflared | [cloudflare.md](cloudflare.md) | Tunnel origins, token scopes/rotation, ruleset imports |
+| DigitalOcean (offsite droplets / firewalls) | [digitalocean.md](digitalocean.md) | Cloud-firewall tag binding + additivity, source-IP-allowlist scan pitfalls, static-egress constraints, offsite droplet lifecycle |
 | DNS / AdGuard Home | [dns-adguard.md](dns-adguard.md) | AGH rewrites, NXDOMAIN caching, coredns-custom, sync, admin user |
 | Postgres | [postgres.md](postgres.md) | Patroni adoption, pg_hba, sslmode, backups from leader, DB provisioning |
 | HAProxy / keepalived | [haproxy-keepalived.md](haproxy-keepalived.md) | VRID, VIP policy routing, leader-detect httpchk, reload self-heal |
