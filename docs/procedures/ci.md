@@ -17,7 +17,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 | `actionlint` | workflow syntax + embedded shell | `.github/workflows/**` changed |
 | `terraform fmt` / `terraform validate (<module>)` | `fmt -check -recursive`; per module `init -backend=false` + `validate` (no plan, no state) | a `terraform/**` module changed |
 | `kubernetes` | `kubectl kustomize` of every `kustomization.yaml` under `k8s/`, then kubeconform `-strict` with the datreeio CRD catalog | `k8s/**` changed |
-| `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` (cached via `actions/cache`, keyed on `requirements.yml` + `ci-requirements.txt`; Galaxy is only hit when a pin changes) | `ansible/**` changed |
+| `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` (cached — see [Cache keys](#cache-keys--bump-checklist); Galaxy is only hit when a pin changes) | `ansible/**` changed |
 | `docs links` | relative Markdown links + `#anchors` resolve | any `*.md` changed |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
 
@@ -41,10 +41,34 @@ gitleaks git --no-banner --redact .                     # >= 8.29.1 — see know
 
 ## Changing CI
 
-- **Bump a tool:** edit URL **and** sha256 together in the `env:` block (`curl -fsSL <url> | sha256sum`); `install-tool.sh` refuses a mismatch. GitHub Actions pins (`uses: …@<sha> # vX.Y.Z`) are bumped by Dependabot ([`.github/dependabot.yml`](../../.github/dependabot.yml)). Terraform/Helm/Ansible pins stay with the `chart-bump` agent.
+- **Bump a tool:** edit URL **and** sha256 together in the `env:` block (`curl -fsSL <url> | sha256sum`); `install-tool.sh` refuses a mismatch. The sha is also the cache key, so the bump busts the tool cache — then run the [bump cache checklist](#cache-keys--bump-checklist). GitHub Actions pins (`uses: …@<sha> # vX.Y.Z`) are bumped by Dependabot ([`.github/dependabot.yml`](../../.github/dependabot.yml)). Terraform/Helm/Ansible pins stay with the `chart-bump` agent.
 - **Add a job:** add it to `ci-gate.needs` or it is not gated. If it is path-conditional, add its path rule to `ci-changes.sh`.
 - **Never** add a workflow-level `paths:` filter to `ci.yml` — a required check skipped that way never reports and blocks every non-matching PR.
 - **Never** make a second check "required"; fold it into `CI gate` so the ruleset stays one line.
+
+## Cache keys + bump checklist
+
+Everything slow is cached with `actions/cache` (SHA-pinned). Each key is derived from the pin that produces the content, so **bumping the pin busts the cache automatically** — the job after a bump is a deliberate cold run. The one exception is the CRD schema cache (a float upstream), which has a manual epoch.
+
+| Cache | Path | Key (busts when…) | Job(s) |
+|---|---|---|---|
+| Tool downloads (gitleaks, actionlint, terraform, kubectl+kubeconform) | `~/.cache/ci-tools` (`TOOL_CACHE`, files named by sha256, re-verified on every use) | `tool-<name>-<pinned sha256>` — the `*_SHA` in `ci.yml` `env:` changes | secrets, workflows, terraform-*, kubernetes |
+| Terraform providers | `~/.cache/terraform-plugins` (`TF_PLUGIN_CACHE_DIR`) | `tfproviders-<TERRAFORM_SHA>-<module>-<hash of module/*.tf>`; `restore-keys` falls back to the module's previous set, `init` fetches only what's missing | terraform-validate |
+| kubeconform CRD schemas | `~/.cache/kubeconform` | `kubeconform-schemas-<KUBECONFORM_SCHEMA_EPOCH>-<KUBECONFORM_SHA>-<hash ci-k8s.sh>` | kubernetes |
+| pip wheels | `~/.cache/pip` | `pip-ansible-` / `pip-yamllint-<hash of ci-requirements.txt>` | ansible-lint, yamllint |
+| Galaxy collections | `ansible/collections` | `galaxy-<os>-<hash of requirements.yml + ci-requirements.txt>`; saved right after the install succeeds (not at job end) so a lint failure doesn't discard it | ansible-lint |
+
+### When you bump a pin — check the cache behaved
+
+Applies to every bump (chart-bump agent, Dependabot action bumps, manual): collection / provider / ansible-core / terraform / tool pins.
+
+1. **Bump the pin in the file the key hashes** (table above). If you bump a Helm chart / operator and need a fresh CRD schema, also bump `KUBECONFORM_SCHEMA_EPOCH` in `ci.yml`.
+2. **Push; the first run on the PR is expected to be a cold miss.** In the job log, the cache step says `Cache not found for input keys: …` and the install step runs. That is correct — not a regression.
+3. **Confirm it was saved:** the job's post step logs `Cache saved with key: …` (galaxy: the `save galaxy collections` step). No "saved" line = the next run will be cold again; find out why before merging.
+4. **Confirm the hit:** push an empty commit (or re-run the job) and check the log says `Cache restored from key: …` and the install step is *skipped* (`install pinned collections` greyed out; tools print `using cached download`). If the key didn't change between the two runs but it still missed, the key is hashing something volatile — fix the key.
+5. **Unexpected hit after a bump** (cache restored although you changed a pin) means the pin isn't in the key's inputs — add it. A stale cache is worse than a slow one.
+
+Caches are scoped to the branch that created them but a PR can read `main`'s; after merge the `main` push run re-saves under the same key. Entries unused for 7 days are evicted (10 GB repo cap), so a quiet fortnight means one cold run — also fine.
 
 ## Branch + PR flow
 
