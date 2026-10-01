@@ -58,7 +58,7 @@ actions:
     semaphore:
       template: aiops-service-status
       playbook: ansible/playbooks/aiops-service-status.yml
-      applied: false
+      applied: true
     extra_vars:
       target_host:
         type: string
@@ -87,7 +87,7 @@ actions:
     semaphore:
       template: aiops-vault-status
       playbook: ansible/playbooks/aiops-vault-status.yml
-      applied: false
+      applied: true
     extra_vars: {}
     guard:
       summary: Runs on Frigg only; sends no credential. Does not call authenticated endpoints, so it cannot read secrets.
@@ -109,7 +109,7 @@ actions:
     semaphore:
       template: aiops-patroni-status
       playbook: ansible/playbooks/aiops-patroni-status.yml
-      applied: false
+      applied: true
     extra_vars: {}
     guard:
       summary: GET /cluster only; the mutating Patroni endpoints (/switchover, /failover, /restart) need restapi auth and are never called here.
@@ -130,7 +130,7 @@ actions:
     semaphore:
       template: aiops-replay-role-check
       playbook: ansible/playbooks/aiops-replay-role-check.yml
-      applied: false
+      applied: true
       task_fields:
         limit: '{target_host}'
         arguments: ['--check', '--diff', '--tags', '{role_tag}']
@@ -165,7 +165,7 @@ actions:
     semaphore:
       template: aiops-restart-unit
       playbook: ansible/playbooks/aiops-restart-unit.yml
-      applied: false
+      applied: true
     extra_vars:
       target_host:
         type: string
@@ -204,7 +204,7 @@ actions:
     semaphore:
       template: aiops-replay-role
       playbook: ansible/playbooks/aiops-replay-role.yml
-      applied: false
+      applied: true
       task_fields:
         limit: '{target_host}'
         arguments: ['--tags', '{role_tag}']
@@ -241,7 +241,7 @@ actions:
     semaphore:
       template: aiops-flux-reconcile
       playbook: ansible/playbooks/aiops-flux-reconcile.yml
-      applied: false
+      applied: true
     extra_vars:
       hr_name:
         type: string
@@ -274,7 +274,7 @@ actions:
     semaphore:
       template: aiops-flux-reconcile
       playbook: ansible/playbooks/aiops-flux-reconcile.yml
-      applied: false
+      applied: true
     extra_vars:
       hr_name:
         type: string
