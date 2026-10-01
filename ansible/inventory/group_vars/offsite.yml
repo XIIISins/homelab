@@ -40,7 +40,7 @@ caddy_reload_method: restarted
 # hostname is added at the 10a3 cutover (flip this to true in the cutover PR) —
 # a cert request for a name that still resolves to the legacy droplet would
 # just fail ACME validation and burn rate limit.
-do1_serve_heyleaf: false
+do1_serve_heyleaf: true # flipped at the 10a3 cutover, AFTER plantnet.heyleaf.app resolves to do1
 do1_validation_host: do1-next.xiiisins.com
 do1_production_host: plantnet.heyleaf.app
 
