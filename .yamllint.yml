@@ -1,0 +1,35 @@
+# .yamllint.yml — YAML syntax/hygiene policy for CI (.github/workflows/ci.yml).
+#
+# Scope is deliberately "does it parse and is it unambiguous", not style:
+# the repo's YAML is hand-aligned with long explanatory comments, and Helm
+# values / Jinja2 templates are out of scope (templates are not valid YAML
+# until rendered). Generated vendor files are ignored.
+extends: relaxed
+
+ignore: |
+  k8s/asgard/flux-system/flux-system/gotk-components.yaml
+  k8s/asgard/infrastructure/gateway-api/standard-install.yaml
+  ansible/collections/
+  **/templates/*.j2
+  **/.terraform/
+
+rules:
+  line-length: disable
+  document-start: disable
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
+  truthy:
+    check-keys: false
+  comments:
+    require-starting-space: true
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: -1   # hand-aligned values
+  commas: disable

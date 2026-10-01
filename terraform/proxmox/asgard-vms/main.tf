@@ -16,16 +16,16 @@ locals {
   # Non-K3s asgard VM band = 2900+ (K3s VMs occupy 2001-2103).
   vms = {
     frigg = {
-      node        = "verd"        # initial home; ha-manager may relocate on failure
+      node        = "verd" # initial home; ha-manager may relocate on failure
       vmid        = 2900
       ip          = "10.0.11.30"
-      gateway     = "10.0.11.1"   # VLAN 11 (HL-ASG-SVC)
-      template_id = 10010         # debian-13-cloud (resides on verd)
+      gateway     = "10.0.11.1" # VLAN 11 (HL-ASG-SVC)
+      template_id = 10010       # debian-13-cloud (resides on verd)
       cores       = 2
-      memory      = 6144          # comfortable for claude + light TF/Ansible builds;
-                                  # leaves HA failover headroom on a 32GB node already
-                                  # running a 16GB worker + 4GB CP. Bump if builds need it.
-      disk_size   = 40
+      memory      = 6144 # comfortable for claude + light TF/Ansible builds;
+      # leaves HA failover headroom on a 32GB node already
+      # running a 16GB worker + 4GB CP. Bump if builds need it.
+      disk_size = 40
     }
   }
 }

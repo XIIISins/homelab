@@ -229,9 +229,10 @@ Don't parallelize when: the second task needs the first's output; the work mutat
 
 ### Mutating operations — what runs where
 
-- **Worktree → local `main`: ff-merge when clean AND tested**, then `ExitWorktree`. Never `git push` (operator's call). If `--ff-only` refuses, flag it — don't force/rebase without permission. Skip the auto-merge if untested (UI without browser test, OS config without reboot validation) — leave the branch + say why. Sub-agent fanouts still need parent diff-review first.
+- **Branch + PR flow (CI gate + `main` ruleset, 2026-10-01 — [`procedures/ci.md`](docs/procedures/ci.md)).** Changes land on `feat/<descriptive>` / `doc/<descriptive>` (also `fix/`, `chore/`) branches via PR; conventional-commit subjects; `main` requires the `CI gate` check and rejects direct pushes (admin bypass = break-glass only). Auto-merge is fine for docs/routine bumps; `terraform/`, `ansible/`, `k8s/` PRs get a diff review first. Not `claude/<random>` branch names.
+- **Worktree → branch: when clean AND tested, push the `feat/`/`doc/` branch and open/update its PR** (the operator merges or enables auto-merge); *never* ff-merge into or push `main` directly once the ruleset is on. (Pre-ruleset flow was: ff-merge local `main`, operator pushes.) Skip the merge/PR-ready step if untested (UI without browser test, OS config without reboot validation) — leave the branch + say why. Sub-agent fanouts still need parent diff-review first.
 - **`terraform apply` only from the main checkout, never a worktree** (plan/HCL-edit from worktrees is fine). Prevents intentionality-loss across parallel agents.
-- **`kubectl apply` is never used directly — Flux reconciles** (`flux reconcile …` is the nudge); manifests land via the git path. Pushing `main` IS the K8s deploy.
+- **`kubectl apply` is never used directly — Flux reconciles** (`flux reconcile …` is the nudge); manifests land via the git path. Merging to `main` IS the K8s deploy.
 - **`ansible-playbook`: one at a time across all agents** (concurrent runs race on SSH MaxAuthTries, package locks, notify-handler restarts). Coordinated manually; ask before running if another agent might be mid-playbook.
 - **Chart / platform upgrades: use the `chart-bump` agent** ([`.claude/agents/chart-bump.md`](.claude/agents/chart-bump.md), helpers in `.claude/scripts/chart-bump/`). It investigates live state + upstream, verifies the target images exist, orders by blast radius, then executes one item at a time. K3s minors go through [`k3s-upgrade.yml`](ansible/playbooks/k3s-upgrade.yml) ([procedure](docs/procedures/k3s-upgrade.md)); status of the 2026-09 wave in [chart-bumps-2026-09.md](docs/operations/chart-bumps-2026-09.md).
 
@@ -304,6 +305,7 @@ Hard-won operational facts — rules, symptoms, diagnostics, recovery commands �
 | Semaphore (Ansible scheduler) | [`semaphore.md`](docs/known-issues/semaphore.md) |
 | Outline (wiki) | [`outline.md`](docs/known-issues/outline.md) |
 | MicroBin (pastebin / file-share) | [`microbin.md`](docs/known-issues/microbin.md) |
+| CI / GitHub Actions / branch rulesets | [`ci-github-actions.md`](docs/known-issues/ci-github-actions.md) |
 
 **Adding a gotcha** (post-flight): edit the matching file — never paste gotcha text back into this section. New subject → new file + a row above + a row in the known-issues `README.md`. This index carries pointers only.
 
@@ -398,7 +400,7 @@ Norse mythology throughout. **Meta-principle:** primary defines the theme; repli
 homelab/
 ├── CLAUDE.md          docs/ (→ docs/homelab-design.md index)   .github/workflows/   docker/
 ├── terraform/         proxmox/{asgard-k3s,asgard-lxcs,asgard-lxcs-root,asgard-vms} · vault · cloudflare ·
-│                       authentik · tailscale · netbox · adguard · garage · semaphore · aws (bootstrap)
+│                       authentik · tailscale · netbox · adguard · garage · semaphore · github (ruleset) · aws (bootstrap)
 ├── ansible/           inventory/ (hosts.yml + group_vars/, NetBox dyn-inv) · playbooks/ · roles/
 └── k8s/asgard/        flux-system/ · infrastructure/ (HelmReleases) · <component>-config/ (CRD-dependent,
                         dependsOn: infrastructure) · apps/ (leaf workloads)   |   k8s/jotunheim/ (not yet deployed)

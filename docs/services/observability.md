@@ -106,7 +106,7 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 
 ## See also
 
-- [`docs/incidents/2026-05-24-phase-8-observability.md`](../incidents/2026-05-24-phase-8-observability.md) — Phase 8a deploy retrospective (12 findings)
+- [`docs/incidents/2026-05-24-phase-7-observability.md`](../incidents/2026-05-24-phase-7-observability.md) — Phase 8a deploy retrospective (12 findings)
 - CLAUDE.md "Architectural invariants → Services / placement" + "vmui / VictoriaMetrics dashboards" gotcha section
 - [`docs/services/asgard-k3s.md`](asgard-k3s.md) — pattern reference for K8s deployments
 - Phase 8c Zabbix LXC ([`docs/services/zabbix.md`](zabbix.md), [`docs/operations/build-sequence.md`](../operations/build-sequence.md)) — infra-level monitoring, complementary to this stack

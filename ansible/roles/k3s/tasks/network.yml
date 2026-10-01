@@ -56,7 +56,7 @@
     line: "200 vlan20"
     state: present
     regexp: '^\d+\s+vlan20$'
-    create: yes
+    create: true
     owner: root
     group: root
     mode: "0644"

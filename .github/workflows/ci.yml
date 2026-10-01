@@ -1,0 +1,201 @@
+# .github/workflows/ci.yml
+#
+# PR validation for the homelab IaC repo. Pushing `main` IS the K8s deploy
+# (Flux reconciles it), so this is the gate in front of that: nothing here
+# touches a cluster, a hypervisor, Vault or Terraform state — static checks only.
+#
+#   secrets     gitleaks over the commits being added (public repo; findings are
+#               --redact'ed so the Actions log never prints a value)
+#   yamllint    YAML parses + is unambiguous (config: .yamllint.yml)
+#   workflows   actionlint on .github/workflows
+#   terraform   fmt -check + per-module `init -backend=false` / `validate`
+#   kubernetes  kustomize build of every kustomization + kubeconform (schema)
+#   ansible     ansible-lint (profile in ansible/.ansible-lint) with the pinned collections
+#   docs        relative Markdown links + anchors resolve
+#   CI gate     the ONE job a branch ruleset requires (see terraform/github/)
+#
+# Why a single gate job: jobs are skipped when their paths didn't change
+# (.github/scripts/ci-changes.sh). A *required* check that is skipped by a
+# workflow-level path filter never reports and blocks the PR forever; a skipped
+# *job* inside an always-running workflow does report, and the gate folds
+# "skipped" into "passing".
+#
+# Tool versions + sha256 are pinned inline (IaC pin policy; installs go through
+# .github/scripts/install-tool.sh which verifies the hash). Reproduce locally:
+# every step is a script in .github/scripts/ — see docs/procedures/ci.md.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # URL + sha256 pairs; bump both together.
+  TERRAFORM_URL: https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_linux_amd64.zip
+  TERRAFORM_SHA: 0566a24f5332098b15716ebc394be503f4094acba5ba529bf5eb0698ed5e2a90
+  GITLEAKS_URL: https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
+  GITLEAKS_SHA: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
+  KUBECTL_URL: https://dl.k8s.io/release/v1.34.0/bin/linux/amd64/kubectl
+  KUBECTL_SHA: cfda68cba5848bc3b6c6135ae2f20ba2c78de20059f68789c090166d6abc3e2c
+  KUBECONFORM_URL: https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+  KUBECONFORM_SHA: 95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
+  ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+  ACTIONLINT_SHA: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    outputs:
+      terraform_modules: ${{ steps.c.outputs.terraform_modules }}
+      k8s: ${{ steps.c.outputs.k8s }}
+      ansible: ${{ steps.c.outputs.ansible }}
+      docs: ${{ steps.c.outputs.docs }}
+      workflows: ${{ steps.c.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: c
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: .github/scripts/ci-changes.sh "$BASE" HEAD
+
+  secrets:
+    name: secrets (gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - run: .github/scripts/install-tool.sh "$GITLEAKS_URL" "$GITLEAKS_SHA" gitleaks
+      - name: scan the commits this change adds
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          zero=0000000000000000000000000000000000000000
+          args=(--no-banner --redact)
+          case "$EVENT" in
+            pull_request) args+=(--log-opts="$PR_BASE..$PR_HEAD") ;;
+            push) [ "$PUSH_BEFORE" = "$zero" ] || args+=(--log-opts="$PUSH_BEFORE..$PUSH_AFTER") ;;
+          esac   # workflow_dispatch / new branch: full-history scan
+          gitleaks git "${args[@]}" .
+
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pip install --quiet yamllint==1.35.1
+      - run: yamllint -f github .
+
+  workflows:
+    name: actionlint
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: .github/scripts/install-tool.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA" actionlint
+      - run: actionlint -color
+
+  terraform-fmt:
+    name: terraform fmt
+    needs: changes
+    if: needs.changes.outputs.terraform_modules != '[]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: .github/scripts/install-tool.sh "$TERRAFORM_URL" "$TERRAFORM_SHA" terraform
+      - run: terraform fmt -check -recursive -diff terraform
+
+  terraform-validate:
+    name: terraform validate (${{ matrix.module }})
+    needs: changes
+    if: needs.changes.outputs.terraform_modules != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.terraform_modules) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: .github/scripts/install-tool.sh "$TERRAFORM_URL" "$TERRAFORM_SHA" terraform
+      - run: .github/scripts/ci-terraform.sh "${{ matrix.module }}"
+
+  kubernetes:
+    name: kubernetes (kustomize + kubeconform)
+    needs: changes
+    if: needs.changes.outputs.k8s == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: .github/scripts/install-tool.sh "$KUBECTL_URL" "$KUBECTL_SHA" kubectl
+      - run: .github/scripts/install-tool.sh "$KUBECONFORM_URL" "$KUBECONFORM_SHA" kubeconform
+      - run: .github/scripts/ci-k8s.sh
+
+  ansible:
+    name: ansible-lint
+    needs: changes
+    if: needs.changes.outputs.ansible == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pip install --quiet -r .github/ci-requirements.txt
+      - name: install pinned collections
+        working-directory: ansible
+        run: ansible-galaxy collection install -r requirements.yml -p collections
+      - name: ansible-lint
+        working-directory: ansible
+        run: ansible-lint --format github
+
+  docs:
+    name: docs links
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 .github/scripts/ci-doc-links.py
+
+  # The single required status check. Always runs; fails if any needed job
+  # failed or was cancelled. "skipped" (path-filtered out) counts as passing.
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - changes
+      - secrets
+      - yamllint
+      - workflows
+      - terraform-fmt
+      - terraform-validate
+      - kubernetes
+      - ansible
+      - docs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: all required jobs succeeded or were skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS" | jq -e 'any(.[]; .result == "failure" or .result == "cancelled")' >/dev/null; then
+            echo "::error title=CI gate::at least one job failed or was cancelled"
+            exit 1
+          fi

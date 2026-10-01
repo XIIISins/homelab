@@ -1,0 +1,7 @@
+# .github/ci-requirements.txt — Python tools for CI (pip install -r).
+# Concrete pins per the IaC pin policy. ansible-core matches the version baked
+# into the Semaphore image (docker/semaphore, ansible 2.16.x) so lint sees the
+# same module/plugin surface the fleet actually runs.
+yamllint==1.35.1
+ansible-core==2.16.5
+ansible-lint==24.12.2

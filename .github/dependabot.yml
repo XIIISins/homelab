@@ -1,0 +1,16 @@
+# .github/dependabot.yml
+# Keeps the pinned GitHub Actions (SHA + version comment) current. Each bump
+# arrives as a PR and has to pass the same CI gate as everything else.
+# Deliberately NOT enabled for terraform / pip / docker / helm: those pins are
+# coupled to live state and are bumped by the chart-bump agent
+# (.claude/agents/chart-bump.md) in blast-radius order, not on a bot schedule.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(ci)"
+    open-pull-requests-limit: 3

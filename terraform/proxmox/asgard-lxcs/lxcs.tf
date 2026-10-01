@@ -35,13 +35,13 @@ resource "proxmox_virtual_environment_container" "factorio" {
   }
 
   memory {
-    dedicated = 8192     # MB
+    dedicated = 8192 # MB
     swap      = 1024
   }
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 8     # GB
+    size         = 8 # GB
   }
 
   network_interface {
@@ -116,8 +116,8 @@ resource "proxmox_virtual_environment_container" "factorio" {
 locals {
   postgres_nodes = {
     fulla = { node = "skuld", vmid = 1130, ip = "10.0.11.230" }
-    vor   = { node = "urd",   vmid = 1131, ip = "10.0.11.231" }
-    idunn = { node = "verd",  vmid = 1132, ip = "10.0.11.232" }
+    vor   = { node = "urd", vmid = 1131, ip = "10.0.11.231" }
+    idunn = { node = "verd", vmid = 1132, ip = "10.0.11.232" }
   }
 }
 
@@ -153,13 +153,13 @@ resource "proxmox_virtual_environment_container" "postgres" {
   }
 
   memory {
-    dedicated = 4096     # MB
+    dedicated = 4096 # MB
     swap      = 1024
   }
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 46    # GB — local LVM-thin; NFS unsuitable for PG data. Bumped from 36 (2026-09-17, nodes at 69-82% full)
+    size         = 46 # GB — local LVM-thin; NFS unsuitable for PG data. Bumped from 36 (2026-09-17, nodes at 69-82% full)
   }
 
   network_interface {
@@ -252,8 +252,8 @@ locals {
   # installed by the keepalived role (same pattern as K3s workers'
   # VLAN 20 fix — see CLAUDE.md "Networking / multi-homed workers").
   haproxy_etcd_nodes = {
-    hlin   = { node = "urd",   vmid = 1133, ip = "10.0.11.233", vlan10_ip = "10.0.10.233" }
-    eir    = { node = "verd",  vmid = 1134, ip = "10.0.11.234", vlan10_ip = "10.0.10.234" }
+    hlin   = { node = "urd", vmid = 1133, ip = "10.0.11.233", vlan10_ip = "10.0.10.233" }
+    eir    = { node = "verd", vmid = 1134, ip = "10.0.11.234", vlan10_ip = "10.0.10.234" }
     snotra = { node = "skuld", vmid = 1135, ip = "10.0.11.235", vlan10_ip = "10.0.10.235" }
   }
 }
@@ -290,13 +290,13 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
   }
 
   memory {
-    dedicated = 2048    # MB
+    dedicated = 2048 # MB
     swap      = 1024
   }
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 16   # GB — etcd snapshots + WAL + OS
+    size         = 16 # GB — etcd snapshots + WAL + OS
   }
 
   network_interface {
@@ -353,7 +353,7 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
   }
 
   features {
-    nesting = true     # systemd 257 on Debian 13 — see gotchas
+    nesting = true # systemd 257 on Debian 13 — see gotchas
   }
 
   console {
@@ -402,8 +402,8 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
 
 locals {
   adguard_nodes = {
-    saga   = { node = "urd",   vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201" }
-    mimir  = { node = "verd",  vmid = 1111, ip = "10.0.11.202", vlan10_ip = "10.0.10.202" }
+    saga   = { node = "urd", vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201" }
+    mimir  = { node = "verd", vmid = 1111, ip = "10.0.11.202", vlan10_ip = "10.0.10.202" }
     kvasir = { node = "skuld", vmid = 1112, ip = "10.0.11.203", vlan10_ip = "10.0.10.203" }
   }
 }

@@ -39,6 +39,7 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 | Semaphore (Ansible scheduler) | [semaphore.md](semaphore.md) | PG backend, collection skew/custom image, Vault config keys, inventory cache |
 | Outline (wiki) | [outline.md](outline.md) | image path, Recreate strategy, OIDC callback, per-consumer Redis |
 | MicroBin (pastebin / file-share) | [microbin.md](microbin.md) | hardcoded DB path, route names, partial-auth gating |
+| CI / GitHub Actions / branch rulesets | [ci-github-actions.md](ci-github-actions.md) | CI gate, gitleaks version, kubeconform/validate pitfalls, required-check + ruleset behaviour |
 
 ## Maintenance
 
