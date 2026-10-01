@@ -10,6 +10,12 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# `validate` type-checks provider blocks but never contacts anything; some
+# providers (vault) still insist their required arguments exist. Dummy values
+# satisfy that. They are placeholders, not credentials.
+export VAULT_ADDR="${VAULT_ADDR:-https://vault.invalid:8200}"
+export VAULT_TOKEN="${VAULT_TOKEN:-ci-validate-only}"
+
 rc=0
 for m in "$@"; do
   echo "::group::terraform validate $m"
