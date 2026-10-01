@@ -28,6 +28,13 @@ offsite_ts3_voice_port: 9987
 offsite_plantnet_commit: 25fea29645ee191c44f71b694b2ca260a494accc
 offsite_plantnet_local_repo: "{{ lookup('env', 'HOME') }}/Dev/xiiisins/HeyLeaf" # controller checkout
 offsite_plantnet_subdir: plantnet-proxy-docker
+# HeyLeaf .gitignores package-lock.json, so the pinned commit has none and the
+# Dockerfile's `npm ci` cannot build from a git archive. The role ships the
+# controller checkout's (untracked) lockfile next to the exported source,
+# pinned by content hash so the build input stays reproducible. Bump the hash
+# deliberately (or drop this once HeyLeaf commits its lockfile).
+offsite_plantnet_lockfile_src: "{{ offsite_plantnet_local_repo }}/{{ offsite_plantnet_subdir }}/package-lock.json"
+offsite_plantnet_lockfile_sha256: dc2786762721c41cbd35fc1df3b43b658331e1ade42bfa51cd551d8e1ce991d7
 offsite_plantnet_loopback_port: 3000 # Caddy upstream; never published on a public interface
 # PlantNet API key: Vault KV `api_key` field (seeded 2026-10-01).
 offsite_plantnet_vault_path: ansible/do1/plantnet
