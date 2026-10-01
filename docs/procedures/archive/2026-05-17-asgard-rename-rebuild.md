@@ -29,7 +29,7 @@ The recovery chain has four legs, **none of which depend on the homelab**:
    - `[Asgard] - Terraform - AWS - State access key` (+ `Bootstrap access key` for the `aws/` module) — Terraform S3 state
    - `[Asgard] - Manual - K3s - Kubeconfig (asgard)` — cluster access once it's up
 3. **This runbook** — the procedure below.
-4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`); AppRole bootstrap in [`docs/architecture/identity-secrets.md`](../architecture/identity-secrets.md).
+4. **A control node** — any machine with `op`, `terraform`, `ansible`, `kubectl`, `vault`, `fish`. Load creds via the `homelab-env` shim (`. ~/.cache/homelab/env.sh`); AppRole bootstrap in [`docs/architecture/identity-secrets.md`](../../architecture/identity-secrets.md).
 
 **Which sections apply:** Section 2 (the one-time `must-run → asgard` rename) is **historical** — the cluster is already `asgard`. For a rebuild, run **§1 (capture) → §3 (checks) → §4 (teardown) → §5 (rebuild) → §6 (verify)** and **skip §2**.
 

@@ -19,7 +19,7 @@ End-to-end Phase 5h.3 deploy and the drift-check shakeout that followed. Semapho
 - Patroni cluster on Idunn leader at deploy start; PG backend for Semaphore lives there.
 - NetBox 4.6.1 live since 5i (2026-05-24); TF→NetBox standing pattern from 5i.3 means every device/VM in `terraform/netbox/{devices,vms}.tf` already carries its `ansible:<group>` tags.
 - ESO + Vault KV stable since Phase 4.
-- AppRole rotation discipline established 2026-05-27 after a transcript-leak rotation event ([commit ef4a185](../../commit/ef4a185)) — Semaphore is on the `ansible-awx` AppRole; rotation uses the `rotate-semaphore-approle` fish helper.
+- AppRole rotation discipline established 2026-05-27 after a transcript-leak rotation event ([commit ef4a185](https://github.com/XIIISins/homelab/commit/ef4a185)) — Semaphore is on the `ansible-awx` AppRole; rotation uses the `rotate-semaphore-approle` fish helper.
 
 ## Key findings
 
@@ -71,13 +71,13 @@ Generalisable lesson encoded in CLAUDE.md: dynamic-inventory plugins that fall t
 
 ### Inventory plumbing — name collisions and lookup paths
 
-- **Inventory file isolated from `group_vars/`** ([commit 04803eb](../../commit/04803eb)). The `nb_inventory` plugin walks `group_vars/` at parse time and was decrypting Ansible Vault on every Semaphore call — slow + brittle when the vault-pass file path is per-template. Moved `inventory/netbox.yml` to a parallel dir so the plugin doesn't see `group_vars/all/vault.yml`.
-- **netbox-injected `tags` → `netbox_tags`** ([commit 3571d70](../../commit/3571d70)). NetBox's `tags` attribute on devices/VMs collided with the standard Ansible `tags` semantics on plays/tasks. Renamed to `netbox_tags` via `keyed_groups` rewrite; the original `tags` namespace is now safe for play-level use.
-- **Tag-rename keyed_groups break + revert** ([commit 055599e](../../commit/055599e)). First attempt nulled `tags='[]'` to force the rename; that broke `keyed_groups` entirely (no source data to key on). Reverted to letting both names co-exist with the rename happening downstream.
-- **Group renames** ([commit 5fa891f](../../commit/5fa891f)). `factorio` → `gameserver`, `hermod` → `apprise` — the NetBox tags should describe the role-class (gameserver, apprise, monitoring), not the specific identity (factorio, hermod) so adding a second gameserver later is a tag-add, not a group-rename.
-- **VM map key case** ([commit 4ccd4b2](../../commit/4ccd4b2)). 6 VM map keys in `terraform/netbox/vms.tf` were Title-Case; inventory consumers expect lowercase to match `hosts.yml` convention. Lowercased.
-- **Urd → urd** ([commit 3ec81c1](../../commit/3ec81c1)). Same class, but for the physical host — `terraform/netbox/devices.tf` had `Urd` where inventory expected `urd`.
-- **UCG-Ultra exclusion** ([commit 8415c8e](../../commit/8415c8e)). The UCG-Ultra is a NetBox device but it's not Ansible-managed (it has no SSH, the management plane is the UniFi controller). Excluded via inventory filter so drift-check doesn't try to gather facts against it.
+- **Inventory file isolated from `group_vars/`** ([commit 04803eb](https://github.com/XIIISins/homelab/commit/04803eb)). The `nb_inventory` plugin walks `group_vars/` at parse time and was decrypting Ansible Vault on every Semaphore call — slow + brittle when the vault-pass file path is per-template. Moved `inventory/netbox.yml` to a parallel dir so the plugin doesn't see `group_vars/all/vault.yml`.
+- **netbox-injected `tags` → `netbox_tags`** ([commit 3571d70](https://github.com/XIIISins/homelab/commit/3571d70)). NetBox's `tags` attribute on devices/VMs collided with the standard Ansible `tags` semantics on plays/tasks. Renamed to `netbox_tags` via `keyed_groups` rewrite; the original `tags` namespace is now safe for play-level use.
+- **Tag-rename keyed_groups break + revert** ([commit 055599e](https://github.com/XIIISins/homelab/commit/055599e)). First attempt nulled `tags='[]'` to force the rename; that broke `keyed_groups` entirely (no source data to key on). Reverted to letting both names co-exist with the rename happening downstream.
+- **Group renames** ([commit 5fa891f](https://github.com/XIIISins/homelab/commit/5fa891f)). `factorio` → `gameserver`, `hermod` → `apprise` — the NetBox tags should describe the role-class (gameserver, apprise, monitoring), not the specific identity (factorio, hermod) so adding a second gameserver later is a tag-add, not a group-rename.
+- **VM map key case** ([commit 4ccd4b2](https://github.com/XIIISins/homelab/commit/4ccd4b2)). 6 VM map keys in `terraform/netbox/vms.tf` were Title-Case; inventory consumers expect lowercase to match `hosts.yml` convention. Lowercased.
+- **Urd → urd** ([commit 3ec81c1](https://github.com/XIIISins/homelab/commit/3ec81c1)). Same class, but for the physical host — `terraform/netbox/devices.tf` had `Urd` where inventory expected `urd`.
+- **UCG-Ultra exclusion** ([commit 8415c8e](https://github.com/XIIISins/homelab/commit/8415c8e)). The UCG-Ultra is a NetBox device but it's not Ansible-managed (it has no SSH, the management plane is the UniFi controller). Excluded via inventory filter so drift-check doesn't try to gather facts against it.
 
 ### Drift-check `--check` mode shakeout — 20 commits across 19 roles
 
@@ -89,7 +89,7 @@ The detailed catalogue of patterns is in [`docs/architecture/ansible-orchestrati
 - **Leader-gated provisioning** (postgres-common databases, Patroni adoption) — skipped under `--check` because leader discovery itself depends on a live cluster.
 - **Fresh-install-only paths** (sftpgo daemon stop, factorio reconcile-on-bootstrap) — gated on `is_fresh_install AND not ansible_check_mode`.
 
-The drift-check Semaphore template's wrapper preflight-asserts `ansible_check_mode == true` and fails loud otherwise — prevents an accidental `--check`-less re-run of the same template from mutating the fleet ([commit 05762d3](../../commit/05762d3)).
+The drift-check Semaphore template's wrapper preflight-asserts `ansible_check_mode == true` and fails loud otherwise — prevents an accidental `--check`-less re-run of the same template from mutating the fleet ([commit 05762d3](https://github.com/XIIISins/homelab/commit/05762d3)).
 
 The pattern is uniform across roles. Per-role READMEs deliberately do NOT duplicate the catalogue — scope decision recorded 2026-05-27.
 
@@ -105,14 +105,14 @@ The shakeout exercised several existing rules that previously had thin evidence:
 
 Documented in their own retros and reinforced in CLAUDE.md:
 
-- **Vault `kv patch field=-` stdin form is unreliable** ([commit ef4a185](../../commit/ef4a185)). Surfaced during AppRole rotation when Semaphore drift-checks started failing with `permission denied` on `/v1/auth/approle/login`. Diagnostic: hash-compare `vault kv get -field=...` against canonical source. Defence-in-depth pattern in `rotate-semaphore-approle`.
-- **AWS auto-unseal IAM access key rotation** ([commit e77c7f1](../../commit/e77c7f1)). Transcript leak; operator rotated.
+- **Vault `kv patch field=-` stdin form is unreliable** ([commit ef4a185](https://github.com/XIIISins/homelab/commit/ef4a185)). Surfaced during AppRole rotation when Semaphore drift-checks started failing with `permission denied` on `/v1/auth/approle/login`. Diagnostic: hash-compare `vault kv get -field=...` against canonical source. Defence-in-depth pattern in `rotate-semaphore-approle`.
+- **AWS auto-unseal IAM access key rotation** ([commit e77c7f1](https://github.com/XIIISins/homelab/commit/e77c7f1)). Transcript leak; operator rotated.
 
 Neither was a 5h.3 failure per se — both were operational hygiene events that happened during the same window and are encoded as rules.
 
 ### OS patching split
 
-Surfaced as a scope-creep concern during the playbook restructure. `baseline` was running `apt-get update + upgrade` on every converge, which (a) made converge runs minutes-slow, (b) meant drift-check would have to handle the "package available but not installed" cycle every time. Splitting into a separate `os-updates` role + playbook ([commit 20c7645](../../commit/20c7645)) is cleaner: `baseline` is pure config-idempotency now, and OS patching runs on its own Semaphore template at its own cadence (per-group `serial: 1` for quorum-sensitive groups, Proxmox hosts deliberately excluded — host reboots take VMs/LXCs with them, separate manual procedure).
+Surfaced as a scope-creep concern during the playbook restructure. `baseline` was running `apt-get update + upgrade` on every converge, which (a) made converge runs minutes-slow, (b) meant drift-check would have to handle the "package available but not installed" cycle every time. Splitting into a separate `os-updates` role + playbook ([commit 20c7645](https://github.com/XIIISins/homelab/commit/20c7645)) is cleaner: `baseline` is pure config-idempotency now, and OS patching runs on its own Semaphore template at its own cadence (per-group `serial: 1` for quorum-sensitive groups, Proxmox hosts deliberately excluded — host reboots take VMs/LXCs with them, separate manual procedure).
 
 CLAUDE.md "Ansible / roles" section already encodes the rule; this phase is where it actually landed.
 
@@ -120,11 +120,11 @@ CLAUDE.md "Ansible / roles" section already encodes the rule; this phase is wher
 
 | Finding | Where it landed |
 |---------|-----------------|
-| NetBox dynamic-inventory silent-success | CLAUDE.md "NetBox" section ([commit 781a5b2](../../commit/781a5b2)) |
+| NetBox dynamic-inventory silent-success | CLAUDE.md "NetBox" section ([commit 781a5b2](https://github.com/XIIISins/homelab/commit/781a5b2)) |
 | Semaphore uses `ansible-awx` AppRole (NOT `ansible-local`) | Memory `feedback_semaphore_uses_ansible_awx.md` |
 | `vault kv patch field=-` unreliable | Memory `feedback_vault_kv_patch_stdin_unreliable.md` + CLAUDE.md "Vault" |
 | `--check` mode caveats catalogue | `docs/architecture/ansible-orchestration.md` (single canonical reference) |
-| `baseline` no longer patches OS — see `os-updates` role | CLAUDE.md "Ansible / roles" ([commit 7605d2a](../../commit/7605d2a)) |
+| `baseline` no longer patches OS — see `os-updates` role | CLAUDE.md "Ansible / roles" ([commit 7605d2a](https://github.com/XIIISins/homelab/commit/7605d2a)) |
 
 ## What stays open
 
