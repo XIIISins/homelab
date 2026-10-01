@@ -57,6 +57,13 @@ resource "netbox_virtual_machine" "do1" {
   memory_mb = 1024
   comments  = "DigitalOcean droplet ${data.terraform_remote_state.digitalocean.outputs.droplet_id}, ams3, s-1vcpu-1gb. terraform/digitalocean + ansible/playbooks/do1.yml."
 
+  # Not a Proxmox guest, so no real vmid: 9900-9999 is the reserved VMID
+  # cross-reference range for DigitalOcean nodes (network.md "Resource ID
+  # scheme"). Without a value the provider keeps planning a VMID=null removal.
+  custom_fields = {
+    VMID = "9900"
+  }
+
   tags = [netbox_tag.ansible_offsite.name]
 }
 
