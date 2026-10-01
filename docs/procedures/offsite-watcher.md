@@ -32,7 +32,7 @@ The single listener (UI + `/metrics` + push API) binds **only** `100.102.131.126
    set TOKEN (openssl rand -hex 32)
    vault kv put secret/ansible/do1/gatus-heartbeat token="$TOKEN"
    set -e TOKEN
-   # Verify without printing: expect 65 (64 chars + newline).
+   # Verify without printing: expect 64 (piped, vault kv get -field adds no newline).
    vault kv get -field=token secret/ansible/do1/gatus-heartbeat | wc -c
    ```
    Then mirror both into the 1Password Homelab vault (offline mirror rule; item names per the 1P convention). The roles **fail early with these instructions** if either secret is absent or malformed (`do1.yml --skip-tags gatus` runs the rest of the play meanwhile).
