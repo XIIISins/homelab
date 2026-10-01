@@ -22,7 +22,11 @@ WorkingDirectory={{ gatus_data_dir }}
 
 # The listener binds the tailscale address only; at boot tailscaled may not
 # have assigned it yet. Wait (max 90 s), then fail and let Restart= retry.
-ExecStartPre=/bin/sh -c 'i=0; while [ "$i" -lt 90 ]; do ip -4 -o addr show dev tailscale0 | grep -q " {{ gatus_listen_address }}/" && exit 0; i=$((i+1)); sleep 1; done; echo "tailscale0 has no {{ gatus_listen_address }}" >&2; exit 1'
+# The `+` prefix runs this ONE read-only wait outside the unit's sandbox:
+# `ip` needs an AF_NETLINK socket, which RestrictAddressFamilies below forbids
+# for every process in the unit (without `+` the loop saw "Cannot open netlink
+# socket" for 90 s and the start timed out). The Gatus process stays confined.
+ExecStartPre=+/bin/sh -c 'i=0; while [ "$i" -lt 90 ]; do ip -4 -o addr show dev tailscale0 | grep -q " {{ gatus_listen_address }}/" && exit 0; i=$((i+1)); sleep 1; done; echo "tailscale0 has no {{ gatus_listen_address }}" >&2; exit 1'
 ExecStart={{ gatus_binary }}
 Restart=always
 RestartSec=10
