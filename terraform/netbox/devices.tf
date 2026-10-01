@@ -38,7 +38,7 @@ locals {
       device_type    = "beelink_mini_s12"
       interface_name = "nic0" # Beelink vendor-custom UEFI NIC name (NOT enp45s0)
       ip             = "10.0.254.13/24"
-      description    = "Proxmox host. Beelink Mini S12 Pro (N100/16GB), the outlier vs Urd+Verd. Hosts PBS (1101) + Sigrún CP + several LXCs."
+      description    = "Proxmox host. Beelink Mini S12 Pro (N100/16GB), the outlier vs Urd+Verd. Hosts Sigrún CP + several LXCs."
     }
     munin = {
       name           = "Munin"
