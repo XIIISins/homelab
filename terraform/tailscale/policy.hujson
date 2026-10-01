@@ -28,6 +28,11 @@
         // the operator can Tailscale-SSH in (ssh block below); advertises
         // nothing. autogroup:admin owner lets the operator re-tag if needed.
         "tag:server":              ["tag:terraform-tag-owner", "autogroup:admin"],
+        // tag:offsite — do1, the DigitalOcean offsite node (Phase 10a): the
+        // only public-internet-facing tailnet member (PlantNet proxy + TS3
+        // failover + later the Gatus watcher). Gets NO blanket reach — see
+        // the scoped grants below.
+        "tag:offsite":             ["tag:terraform-tag-owner", "autogroup:admin"],
     },
 
     // ---------------------------------------------------------------
@@ -52,11 +57,40 @@
     // names destinations, `ip` names protocols+ports (or `["*"]` for
     // unrestricted). ACL-syntax compatibility is indefinite but `acls`
     // will not receive new features.
+    //
+    // 10a1 posture (replaces the day-1 allow-all `* -> *` above): everything
+    // that was on the tailnet before keeps full reach (user devices, subnet
+    // routers, the exit node, tag:server/Frigg), but `*` is no longer a
+    // SOURCE, so the internet-facing tag:offsite node can reach only what is
+    // granted explicitly below. Any NEW tag (e.g. tag:burst, 10b2) is
+    // likewise default-deny until it gets a grant here.
+    //
+    // While the legacy droplet still carries the interim manual tag:server it
+    // keeps the old wide reach; that ends when it is destroyed (10a3 cleanup).
     "grants": [
         {
-            "src": ["*"],
+            // dst `*` also lets these reach tag:offsite (operator SSH,
+            // Frigg's Gatus heartbeat).
+            "src": ["autogroup:member", "tag:subnet-router", "tag:exit-node", "tag:server"],
             "dst": ["*"],
             "ip":  ["*"],
+        },
+        // do1 -> Frigg: liveness probe for the outside watcher (Gatus, 10b3).
+        // Port 22 is answered by tailscaled (Tailscale SSH) on Frigg; the ssh
+        // block below only admits autogroup:member, so a probe can connect
+        // but never log in.
+        {
+            "src": ["tag:offsite"],
+            "dst": ["tag:server"],
+            "ip":  ["tcp:22"],
+        },
+        // do1 -> Hermod (10.0.11.22, via the subnet routers): HTTP
+        // reachability probe. Hermod's Caddy allowlist still decides what the
+        // request may do. Tune ports with the gatus role (10b3).
+        {
+            "src": ["tag:offsite"],
+            "dst": ["10.0.11.22"],
+            "ip":  ["tcp:80"],
         },
     ],
 

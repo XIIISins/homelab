@@ -58,6 +58,10 @@ locals {
     # joins tagged tag:server purely so the operator can Tailscale-SSH in
     # from anywhere (ssh rule in policy.hujson). Same authkey mechanism.
     frigg = { tag = "server" }
+    # do1 (DigitalOcean offsite node, Phase 10a) — tag:offsite, scoped grants
+    # in policy.hujson. Tagged nodes' node keys do not expire; the 90-day cap
+    # above only matters for rebuilds (apply here before re-running ansible).
+    do1 = { tag = "offsite" }
   }
 }
 
