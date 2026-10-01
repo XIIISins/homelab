@@ -71,8 +71,8 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 3. Plan and **read the plan** — it must show only the ruleset being created and `allow_auto_merge` / `delete_branch_on_merge` (+ merge-method flags) changing on the imported repo; anything else changing means the `github_repository` block is overriding a setting you want to keep:
    ```bash
    cd terraform/github && terraform init
-   GITHUB_TOKEN="$(op read 'op://Homelab 2.0/Terraform - GitHub - token/credential')" terraform plan
-   GITHUB_TOKEN="$(op read 'op://Homelab 2.0/Terraform - GitHub - token/credential')" terraform apply
+   GITHUB_TOKEN="$(op read 'op://Homelab 2.0/Terraform - GitHub - token/token')" terraform plan
+   GITHUB_TOKEN="$(op read 'op://Homelab 2.0/Terraform - GitHub - token/token')" terraform apply
    ```
 4. Verify: open a throwaway PR — it must show `CI gate` as required; try `git push origin main` from a clone — must be rejected (as non-admin / without bypass).
 
@@ -80,5 +80,5 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 
 ## Open follow-ups
 
-- ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Rotation: add a GitHub section to `credential-rotation.md` (90-day expiry — due ~2027-01-01).
+- ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Seed gotcha: the 1P field label is `token`, not `credential`; `op read` of a wrong label returns empty and a hash-compare of two empty strings still "matches" (`e3b0c44298fc1c14`) — `test -n "$GH"` before `vault kv patch`. Rotation: add a GitHub section to `credential-rotation.md` (90-day expiry — due ~2027-01-01).
 - Optional later: required `CODEOWNERS`, signed commits, a weekly full-history gitleaks run, `terraform plan` on PRs once a read-only state role exists.

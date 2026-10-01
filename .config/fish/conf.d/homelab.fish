@@ -93,7 +93,7 @@ set -g __homelab_env_map \
     "ADGUARD_PASSWORD|$__op_adguard_admin|password" \
     "NETBOX_API_TOKEN|$__op_netbox_admin|credential" \
     "SEMAPHOREUI_API_TOKEN|$__op_semaphore_admin|credential" \
-    "GITHUB_TOKEN|$__op_github_tf|credential"
+    "GITHUB_TOKEN|$__op_github_tf|token"
 
 # Each entry: "ENV_VAR|literal value"
 # Static (non-1P) env vars — written into the cache alongside 1P vars on
