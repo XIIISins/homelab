@@ -42,6 +42,31 @@ real usage is ~5–10 %. A surge pod needing ≥ ~300m can't schedule, so rollin
 updates of NetBox (500m) deadlock until the old pod is deleted. See
 [k8s-scheduling.md](../known-issues/k8s-scheduling.md).
 
+## Calico 3.30.7 → 3.31.7 → 3.32.2 — pre-flight research (2026-10-01)
+
+Researched after the [datastore-prune incident](../incidents/2026-10-01-calico-datastore-prune.md); sources: Calico release notes (latest + 3.31 versioned), the operator upgrade guide, the real `tigera-operator.yaml` / `operator-crds.yaml` of each release, our live Installation. Nothing applied.
+
+**Target is 3.32.2.** Kubernetes **1.36 support was added in 3.32** (3.32.1/3.32.2 also carry 1.36-specific fixes: IPReservation CRD warning, MutatingAdmissionPolicy). We run K8s 1.36.4 on Calico 3.30.7, i.e. outside Calico's tested range today. Go **3.30.7 → 3.31.7 → 3.32.2** (one minor per run; Calico documents no minor-skipping rule and no downgrade path, so don't skip).
+
+| Check | Result |
+|---|---|
+| Images (operator + 8 calico images) | all exist on quay for 3.31.7 (operator v1.40.15) and 3.32.2 (operator v1.42.6) |
+| K3s addon prune risk, `tigera-operator.yaml` | same 7 objects (Namespace, SA, 2 ClusterRoles, ClusterRoleBinding, RoleBinding, Deployment) in 3.30.7 / 3.31.7 / 3.32.2 → nothing to prune |
+| K3s addon prune risk, `operator-crds.yaml` | 3.30.7 → 3.31.7: identical 32 CRDs. 3.31.7 → 3.32.2: **removes** `adminnetworkpolicies` + `baselineadminnetworkpolicies` (`policy.networking.k8s.io`), **adds** `clusternetworkpolicies` + `istios.operator.tigera.io` |
+| Our Installation vs each CRD schema | `mtu`, `nodeAddressAutodetectionV4.cidrs`, `ipPools[blockSize,cidr,encapsulation,natOutgoing,nodeSelector]` and the `VXLANCrossSubnet` enum are unchanged in all three; APIServer CR spec is empty |
+| Calico-native policy/Felix/BGP CRs declared in the repo | none (so the 2026-10-01 wipe lost nothing we declare); live: 0 Calico policies, 5 plain k8s NetworkPolicies (unaffected), default FelixConfiguration only |
+
+**Breaking / behavioural changes that matter to us**
+- **3.32: AdminNetworkPolicy / BaselineAdminNetworkPolicy support removed** (replaced by ClusterNetworkPolicy); the two static tiers `adminnetworkpolicy` / `baselineadminnetworkpolicy` are removed. "These resources must be removed or replaced before upgrade" — **none exist** (`adminnetworkpolicies` = 0). The upgrade guard will flag the two CRDs: run 3.32 with `-e '{"calico_allow_crd_removal":["adminnetworkpolicies.policy.networking.k8s.io","baselineadminnetworkpolicies.policy.networking.k8s.io"]}'` after re-verifying `kubectl get adminnetworkpolicies,baselineadminnetworkpolicies -A` is empty.
+- **3.32: policy-name relaxation** — Calico auto-renames existing (Calico-native) policies on upgrade; we have none.
+- **3.32: aggregation API server (`calico-apiserver`, the `APIServer` CR we run) is deprecated**, still supported; "native v3 CRDs" is a tech preview. No action; plan the move later (it removes the metrics-API-style deadlock risk of an aggregated API).
+- **3.31:** only "breaking" item is a Helm-values move (`kubeletVolumePath`) — n/a (manifest install). New eBPF-install automation / nftables GA / HostEndpoint-controller changes only matter if enabled (we run `linuxDataplane: Iptables`, `bgp: Enabled`, VXLANCrossSubnet, MTU pinned 1450).
+- 3.31/3.32 add optional features (Whisker/Goldmane, Ingress Gateway, Istio ambient TP) — not enabled, not needed.
+
+**Procedure** (per hop, from the main checkout): bump `calico_version` → commit → `ansible-playbook playbooks/calico-upgrade.yml`. It exports the datastore, enforces the CRD-prune guard, applies `operator-crds.yaml` first, then the operator, then waits for version + TigeraStatus + calico-node rolled and checks IPPool/IPAMBlock/BlockAffinity counts. Expect a normal rolling restart of typha / kube-controllers / calico-node (one node at a time); this will be the first *normal* calico-node roll on this cluster since the rebuild. Verify with a **cross-node** probe (wiki / metric / NetBox / Authentik health), not just the smoketest. Rollback = no supported downgrade → the exported datastore (`/var/lib/rancher/k3s/calico-datastore-backup-*.yaml` on gondul) + etcd snapshot + the incident recovery.
+
+**Residual risks:** (1) first real calico-node roll on 3.30+ here — watch for the operator re-entering its "migrating" phase; (2) K8s 1.36 vs Calico 3.31 is unsupported-but-transient (one run); (3) the 3.32 hop depends on the allow-list being right.
+
 ## Inventory (pinned → latest as of 2026-09-30)
 
 | Chart | Pinned | Latest | Status |
