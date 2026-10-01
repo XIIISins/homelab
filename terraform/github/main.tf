@@ -22,6 +22,12 @@ import {
 resource "github_repository" "homelab" {
   name = var.repository
 
+  # Pinned to what GitHub has today: omitting an argument makes the provider
+  # plan it to null (first plan 2026-10-01 would have cleared the description).
+  description  = "Homelab 2.0"
+  has_issues   = true
+  has_projects = true
+
   allow_auto_merge       = true # lets a PR be set to merge itself once the required check is green
   delete_branch_on_merge = true # feat/ doc/ branches are single-use
 
