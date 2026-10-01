@@ -976,6 +976,7 @@ __vault_homelab_iac_map=(
     "semaphore_api_token|SEMAPHOREUI_API_TOKEN"
     "semaphore_api_base_url|SEMAPHOREUI_API_BASE_URL"
     "github_token|GITHUB_TOKEN"
+    "digitalocean_token|DIGITALOCEAN_TOKEN"
 )
 
 # Files written from Vault + the static SSH key path. Canonical, shared with
