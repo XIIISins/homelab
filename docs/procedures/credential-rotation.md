@@ -8,7 +8,7 @@ Step-by-step rotation for every homelab-env credential type. Written up 2026-09-
 
 - **Never let a raw secret value pass through a Claude tool call's output.** Capture into a shell variable, hash-compare (`shasum -a 256 | cut -c1-16`) to verify a write landed, `set -e`/`unset` when done. If a step *must* print the real value (a create-once API response, a Django-shell result), the operator runs it directly — Claude hands over the command, not the execution.
 - **`op item edit` can report success while silently not writing the value** (confirmed live, twice). Every 1Password write below is followed by an independent `op read` + hash-compare before anything downstream (deleting an old credential, etc.) happens. If the hashes don't match, paste into the 1Password **GUI** instead of retrying the CLI.
-- **Check every mirror, not just the "primary" one.** Several of these credentials live in more places than the obvious 1Password item — `secret/ansible/frigg/iac-env` in particular mirrors AWS, NetBox, Authentik, AdGuard, Cloudflare, and Semaphore's credentials for `vault-homelab-env` (Frigg's own env loader, and Claude's), and **no rotation helper syncs it automatically**. Skipping it doesn't break anything immediately — it just means Frigg/`vault-homelab-env` keeps authenticating with the old credential until it independently expires or gets revoked, which surfaces later as a confusing, disconnected failure. Sync it as part of every rotation below, not as an afterthought. **Detective backstop (landed 2026-09-22):** `infra-health-check.yml` check #8 catches a missed sync within one scheduled run instead of leaving it to surface as a disconnected failure days later — Cloudflare and AdGuard get direct Vault-value-equality checks (both have a second Vault mirror), NetBox/Authentik/Semaphore get a liveness probe of the iac-env copy itself against its real API. AWS isn't covered (STS needs SigV4 signing; no AWS SDK collection in this repo) — still purely manual discipline for that one field. This is detective, not preventive — the propagation step below still has to actually be run.
+- **Check every mirror, not just the "primary" one.** Several of these credentials live in more places than the obvious 1Password item — `secret/ansible/frigg/iac-env` in particular mirrors AWS, NetBox, Authentik, AdGuard, Cloudflare, Semaphore, and GitHub PAT credentials for `vault-homelab-env` (Frigg's own env loader, and Claude's), and **no rotation helper syncs it automatically**. Skipping it doesn't break anything immediately — it just means Frigg/`vault-homelab-env` keeps authenticating with the old credential until it independently expires or gets revoked, which surfaces later as a confusing, disconnected failure. Sync it as part of every rotation below, not as an afterthought. **Detective backstop (landed 2026-09-22):** `infra-health-check.yml` check #8 catches a missed sync within one scheduled run instead of leaving it to surface as a disconnected failure days later — Cloudflare and AdGuard get direct Vault-value-equality checks (both have a second Vault mirror), NetBox/Authentik/Semaphore get a liveness probe of the iac-env copy itself against its real API. AWS isn't covered (STS needs SigV4 signing; no AWS SDK collection in this repo) — still purely manual discipline for that one field. This is detective, not preventive — the propagation step below still has to actually be run.
 - **After rotating `ansible-local`'s AppRole specifically**, re-run `homelab-env --refresh && seed-vault-approle` (own machine) so `vault-homelab-env` keeps working — see the "two AppRoles" and `seed-vault-approle` gotchas in `known-issues/vault.md`.
 
 ## Vault root token
@@ -297,6 +297,34 @@ curl -s -o /dev/null -w "%{http_code}\n" https://smoketest.niflheim.xiiisins.com
 set -e NEW_ADGUARD_PASSWORD NEW_ADGUARD_HASH
 ```
 All four should be `200`.
+
+## GitHub fine-grained PAT (`terraform/github/`)
+
+**1Password item: `Terraform - GitHub - token`, UUID `mhazmcb4jfsstiuicjrowljmai`** (`credential` field → `GITHUB_TOKEN`). Fine-grained PAT scoped to *only* `XIIISins/homelab`, **Administration: Read and write + Metadata: Read**, **90-day expiry** — minted by hand in the GitHub UI (human-only; TF can't mint its own provider credential). Consumed solely by `terraform/github/` (the `main` ruleset + auto-merge settings); CI and Flux don't use it. Mirrors: 1Password (primary, via `homelab-env`) and `secret/ansible/frigg/iac-env` field `github_token` (via `vault-homelab-env`). First minted 2026-10-01 → **next expiry ~2027-01-01** (rotate a week early).
+
+```fish
+# 1. github.com → Settings → Developer settings → Fine-grained tokens: regenerate
+#    (or mint new) with the same repo + permissions + 90-day expiry. Paste into the
+#    1Password item above (credential field) — GUI if the CLI write doesn't stick.
+set GH_PAT (op read "op://Homelab 2.0/mhazmcb4jfsstiuicjrowljmai/credential")
+
+# 2. Verify BEFORE propagating: 200 + repo visible + admin permission.
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $GH_PAT" https://api.github.com/repos/XIIISins/homelab
+curl -s -H "Authorization: Bearer $GH_PAT" https://api.github.com/repos/XIIISins/homelab | jq '.permissions.admin'
+# expect 200 and true; anything else → STOP, wrong scope or the paste didn't land
+
+# 3. Propagate to the Vault mirror, hash-compare
+set-vault-token root
+vault kv patch secret/ansible/frigg/iac-env github_token="$GH_PAT"
+printf '%s' "$GH_PAT" | shasum -a 256 | cut -c1-16
+vault kv get -field=github_token secret/ansible/frigg/iac-env | shasum -a 256 | cut -c1-16
+set -e GH_PAT
+
+# 4. Prove end to end: a clean plan from the real consumer
+cd terraform/github && terraform plan   # via homelab-env / vault-homelab-env; expect "No changes"
+```
+
+The old PAT dies on its own at expiry; if you regenerated rather than minted a second one, the old value is already invalid. If minting a second token, revoke the old one in the GitHub UI after step 4. Then run the `vault-homelab-env --refresh` step at the bottom of this doc. **No detective backstop** — `infra-health-check.yml` check #8 doesn't cover this field, so a missed Vault sync (or an expired PAT) surfaces only as a 401 from `terraform plan` in `terraform/github/`.
 
 ## After any rotation involving `frigg/iac-env`
 

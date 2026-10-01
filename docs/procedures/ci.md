@@ -80,5 +80,5 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 
 ## Open follow-ups
 
-- ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Rotation: add a GitHub section to `credential-rotation.md` (90-day expiry — due ~2027-01-01).
+- ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Rotation: [`credential-rotation.md`](credential-rotation.md#github-fine-grained-pat-terraformgithub) (90-day expiry — due ~2027-01-01).
 - Optional later: required `CODEOWNERS`, signed commits, a weekly full-history gitleaks run, `terraform plan` on PRs once a read-only state role exists.
