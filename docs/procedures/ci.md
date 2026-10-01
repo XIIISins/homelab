@@ -17,7 +17,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 | `actionlint` | workflow syntax + embedded shell | `.github/workflows/**` changed |
 | `terraform fmt` / `terraform validate (<module>)` | `fmt -check -recursive`; per module `init -backend=false` + `validate` (no plan, no state) | a `terraform/**` module changed |
 | `kubernetes` | `kubectl kustomize` of every `kustomization.yaml` under `k8s/`, then kubeconform `-strict` with the datreeio CRD catalog | `k8s/**` changed |
-| `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` | `ansible/**` changed |
+| `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` (cached via `actions/cache`, keyed on `requirements.yml` + `ci-requirements.txt`; Galaxy is only hit when a pin changes) | `ansible/**` changed |
 | `docs links` | relative Markdown links + `#anchors` resolve | any `*.md` changed |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
 
