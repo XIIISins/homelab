@@ -165,7 +165,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: pip install --quiet -r .github/ci-requirements.txt
+      # Collections are concrete-pinned, so the installed tree is a pure function
+      # of requirements.yml: cache it and only hit Galaxy when a pin changes.
+      # Only a saved-on-success exact hit skips the install (a partial tree is
+      # never saved: the job fails before the post-step cache save).
+      - name: cache galaxy collections
+        id: galaxy-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ansible/collections
+          key: galaxy-${{ runner.os }}-${{ hashFiles('ansible/requirements.yml', '.github/ci-requirements.txt') }}
       - name: install pinned collections
+        if: steps.galaxy-cache.outputs.cache-hit != 'true'
         working-directory: ansible
         # Galaxy is slow/flaky: bound each request, retry the whole install.
         # Wipe collections/ between attempts: a 502 mid-install leaves a
