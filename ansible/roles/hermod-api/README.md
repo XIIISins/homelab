@@ -36,6 +36,7 @@ see the `caddy-reverse-proxy` role + `caddy_sites` group_var.
 | `secret/ansible/hermod/config-key` | `value` | TF (`random_password`) | Soft-auth in `/notify/<key>` URL |
 | `secret/ansible/hermod/discord/critical` | `url` | operator (Discord UI → `vault kv put`) | `tag: critical` routing |
 | `secret/ansible/hermod/discord/alert` | `url` | operator | `tag: alert` routing |
+| `secret/ansible/hermod/discord/info` | `url` | operator | `tag: info` routing (seed BEFORE running the role) |
 | `secret/ansible/hermod/discord/media` | `url` | operator | `tag: media` routing |
 | `secret/ansible/hermod/discord/untagged` | `url` | operator | Quarantine for tag-less POSTs |
 
@@ -53,6 +54,7 @@ name per-message. Defaults are the Valkyrie naming theme:
 |-----|--------------|---------|
 | `critical` | **Hrist** | "the shaker" — wake-everyone-now alerts |
 | `alert` | **Mist** | "cloud" — watchful, gathering trouble |
+| `info` | **Randgrid** | "shield-truce" — quiet FYI (canary / non-prod), never needs a response |
 | `media` | **Olrun** | "ale-rune" — feast/social |
 | `untagged` | **Hel** | underworld of lost messages — quarantine |
 

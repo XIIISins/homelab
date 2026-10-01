@@ -5,8 +5,8 @@
 #   /opt/do1/                 this role (compose project "do1")
 #   /opt/do1/ts3-data/        TS3 state (SQLite DB, files) — bind mount, uid 9987
 #   /opt/do1/plantnet-proxy/  HeyLeaf build context at the pinned commit
-#   /opt/gatus, /etc/gatus    reserved for the 10b3 `gatus` role (own unprivileged
-#                             user, systemd binary — deliberately NOT in compose)
+#   /opt/gatus, /etc/gatus    the 10b3 `gatus` role (own unprivileged user,
+#                             systemd binary — deliberately NOT in compose)
 offsite_root: /opt/do1
 offsite_compose_project: do1
 

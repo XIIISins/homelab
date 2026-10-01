@@ -45,6 +45,12 @@ host_tiers:
     - heimdall   # Tailscale LXC
     - gjallarbru # Tailscale LXC
     - hermod     # AppriseAPI + Caddy (stateless; alerts still land in VL when it is down)
+    # Disposable canary pool (10b1: LXCs 1190-1192, Urd only). Run nothing but the
+    # fleet baseline, so they are the only hosts 10f/10g may fault-inject. Never
+    # widen this to a wildcard/group: list each canary by name.
+    - canary-1
+    - canary-2
+    - canary-3
 
 actions:
   # === T0: read-only =========================================================
@@ -185,6 +191,9 @@ actions:
         heimdall: [tailscaled.service]
         gjallarbru: [tailscaled.service]
         hermod: [apprise-api.service, caddy.service]
+        canary-1: [vlagent.service, zabbix-agent2.service]
+        canary-2: [vlagent.service, zabbix-agent2.service]
+        canary-3: [vlagent.service, zabbix-agent2.service]
     verify:
       action: service-status
       vars:

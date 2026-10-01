@@ -16,6 +16,19 @@ callback sees — the wrapper:
                                   template, so no other mode needs to
                                   claim this filename)
 
+Non-prod wrappers (the canary pool, Phase 10b1) reuse the same two modes but
+are CAPPED at the lowest tier - they only ever post tag `info`:
+
+    playbooks/nonprod-drift-check.yml -> mode=drift, non-prod (failure ->
+                                  tag `info`; changes-only -> silent, since
+                                  fault injection is expected to drift)
+    playbooks/nonprod-apply.yml       -> mode=apply, non-prod (failure ->
+                                  tag `info`, NOT `critical`)
+
+Titles carry a `[non-prod] ` prefix so aiops/tools/normalize.py can label them
+(`aiops_canary`) and keep their fingerprints apart from the prod wrappers'.
+`info` is Hermod's FYI tier (Randgrid, no mention; docs/services/notifications.md).
+
 Any other wrapper is a no-op — the callback is meant for the Semaphore
 wrapper playbooks; per-host ad-hoc runs from the operator's MacBook
 should not POST to Hermod.
@@ -68,9 +81,17 @@ class CallbackModule(CallbackBase):
         "os-updates.yml": "apply",
     }
 
+    # Same modes, but notifications are capped at tag `info`. Keyed by the
+    # wrapper basename, exactly like _MODES.
+    _NONPROD_MODES = {
+        "nonprod-drift-check.yml": "drift",
+        "nonprod-apply.yml": "apply",
+    }
+
     def __init__(self):
         super().__init__()
         self.mode = None
+        self.nonprod = False
         self.wrapper_name = None
         # per-host: { host: {ok, changed, failed, unreachable} }
         self.totals = defaultdict(lambda: {"ok": 0, "changed": 0, "failed": 0, "unreachable": 0})
@@ -84,6 +105,9 @@ class CallbackModule(CallbackBase):
             return
         name = os.path.basename(playbook._file_name)
         self.mode = self._MODES.get(name)
+        if self.mode is None and name in self._NONPROD_MODES:
+            self.mode = self._NONPROD_MODES[name]
+            self.nonprod = True
         self.wrapper_name = name
 
     def v2_playbook_on_stats(self, stats):
@@ -96,16 +120,8 @@ class CallbackModule(CallbackBase):
 
     # --- POST ---
 
-    def _post_once(self):
-        if self.posted or self.mode is None:
-            return
-        self.posted = True
-
-        url = os.environ.get("HERMOD_URL", "").rstrip("/")
-        if not url:
-            self._display.warning("hermod_summary: HERMOD_URL unset, skipping notification")
-            return
-
+    def _build_payload(self):
+        """Return the Hermod payload for the aggregated run, or None for silence."""
         grand = {"ok": 0, "changed": 0, "failed": 0, "unreachable": 0}
         for host, s in self.totals.items():
             for k in grand:
@@ -122,21 +138,27 @@ class CallbackModule(CallbackBase):
         #   drift mode + clean           -> no notification
         #   apply mode + failure         -> critical
         #   apply mode + success         -> no notification
+        # Non-prod wrappers: same, except the tag is capped at `info` (never
+        # `alert`/`critical`) and changes-only drift is silent.
         if self.mode == "drift":
             if not (had_failure or had_changes):
-                return
-            tag = "alert"
+                return None
+            if self.nonprod and not had_failure:
+                return None
+            tag = "info" if self.nonprod else "alert"
             if had_failure:
                 title = "Drift check failed: {} host(s) failed/unreachable".format(failed_hosts)
             else:
                 title = "Drift detected: {} task(s) on {} host(s)".format(grand["changed"], changed_hosts)
         elif self.mode == "apply":
             if not had_failure:
-                return
-            tag = "critical"
+                return None
+            tag = "info" if self.nonprod else "critical"
             title = "Apply failed: {} host(s) failed/unreachable".format(failed_hosts)
         else:
-            return
+            return None
+        if self.nonprod:
+            title = "[non-prod] " + title
 
         per_host = sorted(
             ("- `{h}`: ok={ok} changed={changed} failed={failed} unreachable={unreachable}".format(h=h, **s)
@@ -149,13 +171,27 @@ class CallbackModule(CallbackBase):
             "**Per host:**",
         ] + per_host)
 
-        payload = {
+        return {
             "title": title,
             "body": body,
             "type": "failure" if had_failure else "warning",
             "tag": tag,
             "format": "markdown",
         }
+
+    def _post_once(self):
+        if self.posted or self.mode is None:
+            return
+        self.posted = True
+
+        url = os.environ.get("HERMOD_URL", "").rstrip("/")
+        if not url:
+            self._display.warning("hermod_summary: HERMOD_URL unset, skipping notification")
+            return
+
+        payload = self._build_payload()
+        if payload is None:
+            return
 
         try:
             req = urllib.request.Request(

@@ -1,0 +1,100 @@
+# ansible/roles/gatus/defaults/main.yml
+---
+# Gatus (https://github.com/TwiN/gatus) — the outside watcher (Phase 10b3, D1).
+# Host-agnostic: an unprivileged systemd service running a pinned single static
+# Go binary with SQLite history and a declarative YAML config rendered from git.
+# No container (keeps the do1 container->tailnet drop rule trivial). Re-point it
+# at another host by putting that host in a play with this role and setting
+# gatus_listen_address.
+#
+# Layout:
+#   /opt/gatus/bin/gatus-<version>   pinned binary (symlink /opt/gatus/bin/gatus)
+#   /etc/gatus/config.yaml           rendered config, no secrets (root:gatus 0640)
+#   /etc/gatus/gatus.env             secrets, 0600 gatus:gatus (EnvironmentFile)
+#   /var/lib/gatus/data.db           SQLite history (gatus-owned, only RW path)
+
+# ---- Pinned artifact --------------------------------------------------------
+# Upstream publishes NO release binaries (the GitHub release assets are empty;
+# the only official artifact is the container image ghcr.io/twin/gatus, a
+# FROM-scratch image whose binary layer holds /gatus, built with CGO_ENABLED=0
+# -> static amd64 ELF). We pull that one layer straight from the registry (no
+# Docker, no container) and verify content hashes:
+#   1. the image manifest body hashes to gatus_image_manifest_digest
+#   2. that manifest names gatus_binary_layer_digest as a layer
+#   3. the layer blob hashes to gatus_binary_layer_digest and the extracted
+#      binary to gatus_binary_sha256
+# Checksum source: the OCI digests of the v5.37.0 linux/amd64 image (index
+# sha256:094eb186e55235db367e90e9d56140e5897b7044c41de23cde4cc18e6da1242e),
+# read from the ghcr.io registry API on 2026-10-01; gatus_binary_sha256 was
+# computed from the extracted layer. To bump: new tag -> fetch the index, take
+# the linux/amd64 manifest digest and its first layer digest, extract the layer
+# and sha256sum the binary.
+gatus_version: v5.37.0
+gatus_image_repo: twin/gatus
+gatus_image_manifest_digest: "sha256:9dc46f6692694a4219b5ac05ba1159a151a7b28ff030844d24dd041d4374b45a"
+gatus_binary_layer_digest: "sha256:d20e87e818dd75483ecec9715e39c3d693b4b2b4113709780613d4bb410c0731"
+gatus_binary_sha256: "bcc8030a927c1370206b44b63680f5efe6e921160bbccc42c80f49c5ea482540"
+
+# ---- Identity / layout ------------------------------------------------------
+gatus_user: gatus
+gatus_group: gatus
+gatus_bin_dir: /opt/gatus/bin
+gatus_binary: "{{ gatus_bin_dir }}/gatus"
+gatus_config_dir: /etc/gatus
+gatus_config_path: "{{ gatus_config_dir }}/config.yaml"
+gatus_env_path: "{{ gatus_config_dir }}/gatus.env"
+gatus_data_dir: /var/lib/gatus
+
+# ---- Listener ---------------------------------------------------------------
+# REQUIRED, no default: the tailnet address of THIS host. The single Gatus
+# listener serves the UI, /metrics AND the external-endpoint push API, so it
+# binds ONLY the tailscale address, never 0.0.0.0 and never a public interface.
+# The role asserts it is in the Tailscale CGNAT range 100.64.0.0/10.
+gatus_listen_address: ""
+gatus_listen_port: 8080
+# Drop container-bridge-sourced traffic to the listener (INPUT chain). The
+# docker role's DOCKER-USER rule only covers FORWARDed traffic; a container
+# reaching the host's own tailnet address takes the INPUT path. Needs iptables.
+gatus_block_container_access: true
+gatus_container_cidr: 172.16.0.0/12 # same pool the docker role drops
+gatus_memory_max: 192M # box is s-1vcpu-1gb, ~100 MB budget (D1)
+
+# ---- Secrets (Vault KV v2, mount `secret`, read via the controller lookup) --
+# Seeded by the OPERATOR (never by this role, never in Terraform state):
+#   gatus-discord    field webhook_url  - the Discord webhook the operator creates
+#   gatus-heartbeat  field token        - bearer token Frigg presents
+# See docs/procedures/offsite-watcher.md ("Seed the secrets").
+gatus_discord_vault_path: ansible/do1/gatus-discord
+gatus_discord_vault_field: webhook_url
+gatus_heartbeat_vault_path: ansible/do1/gatus-heartbeat
+gatus_heartbeat_vault_field: token
+
+# ---- Dead-man's switch (Frigg heartbeat) ------------------------------------
+# Gatus records a failure each time `interval` passes without a push; the alert
+# fires after failure_threshold consecutive misses. Grace = interval x
+# threshold (900 s) and MUST exceed do1's own unattended-upgrade reboot
+# (offsite_unattended_reboot_time, ~2-3 min): the role asserts the product is
+# above gatus_reboot_grace_seconds.
+gatus_heartbeat_group: homelab
+gatus_heartbeat_name: frigg-heartbeat
+gatus_heartbeat_interval_seconds: 300
+gatus_heartbeat_failure_threshold: 3
+gatus_reboot_grace_seconds: 600
+# Push key = <group>_<name> (Gatus replaces space / _ , . # + & with -).
+gatus_heartbeat_key: "{{ gatus_heartbeat_group }}_{{ gatus_heartbeat_name }}"
+
+# ---- Probes -----------------------------------------------------------------
+# The probe lists themselves are host data: set them in group_vars (see
+# group_vars/offsite.yml for do1). Shapes:
+#   gatus_public_endpoints: [{name, group, url, extra_conditions: [..]}]  (HTTPS:
+#       status 200 + response time + certificate expiry + the extras)
+#   gatus_tcp_endpoints:    [{name, group, url: "tcp://ip:port"}]  ([CONNECTED])
+gatus_public_endpoints: []
+gatus_tcp_endpoints: []
+gatus_probe_user_agent: "Mozilla/5.0 (X11; Linux x86_64) HomelabOutsideWatcher/1.0 (gatus)"
+gatus_probe_interval: 60s
+gatus_alert_failure_threshold: 3
+gatus_alert_success_threshold: 2
+gatus_alert_reminder_interval: 1h
+gatus_cert_min_hours: 168 # 7 days: Cloudflare edge + Caddy LE renew well before
+gatus_response_time_max_ms: 5000

@@ -1,0 +1,10 @@
+# ansible/playbooks/nonprod-apply.yml
+#
+# Semaphore wrapper for the `asgard-nonprod-apply` template (Phase 10b1).
+# Full converge of the non-prod hosts (site-nonprod.yml, no --check). The
+# wrapper's filename is what makes the hermod_summary callback classify the
+# run as non-prod: a failure posts tag `info` (NEVER `alert`/`critical`), titled
+# "[non-prod] Apply failed ...". Success is silent.
+---
+- name: Non-prod apply - converge via site-nonprod.yml
+  ansible.builtin.import_playbook: site-nonprod.yml

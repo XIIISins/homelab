@@ -1,0 +1,26 @@
+# ansible/playbooks/gatus-heartbeat.yml
+---
+# Phase 10b3 — Frigg's half of the outside watcher's dead-man's switch: a
+# systemd timer that pushes a heartbeat to Gatus on do1 over the tailnet.
+#
+# Deliberately NOT imported from site.yml / asgard-control.yml: it needs the
+# operator-seeded Vault secret secret/ansible/do1/gatus-heartbeat and must not
+# be able to fail Frigg's reconcile loop before that exists. Fold it into
+# asgard-control.yml once the secret is seeded and the heartbeat is proven
+# (docs/procedures/offsite-watcher.md, open-questions).
+#
+# Run order (docs/procedures/offsite-watcher.md): do1.yml --tags gatus first
+# (so the push endpoint exists), then this. Always `--check --diff` first.
+#     ansible-playbook playbooks/gatus-heartbeat.yml --check --diff
+#     ansible-playbook playbooks/gatus-heartbeat.yml
+#
+# Vault env loaded as for any controller-side lookup (`vault-homelab-env`).
+
+- name: Frigg heartbeat to the Gatus outside watcher
+  hosts: control
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: gatus-heartbeat
+      tags: [gatus-heartbeat]

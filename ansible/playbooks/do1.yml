@@ -12,6 +12,8 @@
 #     commit), fronted by Caddy on 80/443
 #   - Outbound traffic sourced from the reserved IP (PlantNet allowlist)
 #   - DOCKER-USER drops container -> tailnet / DO-metadata traffic
+#   - Gatus outside watcher: unprivileged systemd binary, tailnet-only listener,
+#     direct Discord alerts, Frigg heartbeat dead-man's switch (10b3)
 #
 # NOT in site.yml / Semaphore: do1 is internet-facing and converged by hand.
 # Run from the operator workstation or Frigg, one playbook at a time.
@@ -32,7 +34,11 @@
 #     ansible-playbook playbooks/do1.yml -e do1_reserved_ip=<reserved ip>
 # Always `--check --diff` first.
 #
-# Reserved for later phases: the `gatus` role (10b3) slots in after `offsite-node`.
+# Phase 10b3: the `gatus` role (outside watcher) runs after Caddy. It needs the
+# operator-seeded Vault secrets secret/ansible/do1/gatus-discord and
+# gatus-heartbeat and FAILS EARLY with the seeding instructions if absent; skip
+# it until then with `--skip-tags gatus`. Frigg's half of the dead-man's switch
+# is playbooks/gatus-heartbeat.yml. Procedure: docs/procedures/offsite-watcher.md.
 
 - name: Configure do1 (offsite node)
   hosts: offsite
@@ -65,6 +71,8 @@
       tags: [offsite-node]
     - role: caddy-reverse-proxy
       tags: [caddy]
+    - role: gatus
+      tags: [gatus]
     - role: hardening
       tags: [hardening]
     # Last: repointing the default route can disturb sessions that arrived via

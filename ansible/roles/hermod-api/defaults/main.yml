@@ -58,6 +58,10 @@ hermod_api_discord_vault_paths:
   critical: "ansible/hermod/discord/critical"
   alert:    "ansible/hermod/discord/alert"
   media:    "ansible/hermod/discord/media"
+  # info: FYI-only channel (canary pool / non-prod, Phase 10b1). Fail-fast like
+  # the others: the operator MUST seed this path (field `url`) before the role
+  # runs against the live Hermod.
+  info:     "ansible/hermod/discord/info"
   untagged: "ansible/hermod/discord/untagged"
 
 # ---- Apprise config username overrides ----
@@ -68,4 +72,5 @@ hermod_api_usernames:
   critical: "Hrist"      # Valkyrie — "the shaker"; wake-everyone alert
   alert:    "Mist"       # Valkyrie — "cloud"; watchful
   media:    "Olrun"      # Valkyrie — "ale-rune"; feast/social
+  info:     "Randgrid"   # Valkyrie — "shield-truce"; quiet FYI, never needs a response
   untagged: "Hel"        # Underworld of lost messages — quarantine

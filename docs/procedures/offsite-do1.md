@@ -22,6 +22,10 @@ The new node is built **beside** the legacy droplet. Nothing below touches the l
 
 See the checklist in [`services/teamspeak.md`](../services/teamspeak.md) ("Offsite failover (do1)") and the PlantNet checks: `curl https://do1-next.xiiisins.com/health` (valid LE cert, 200), a real `identify` POST via `do1-next` (PlantNet 200, not 403), `curl -4 https://api.ipify.org` **on do1** equals the reserved IP, firewall probe from an independent vantage (a burst droplet, never the home network), and the reboot test (CLAUDE.md persistence rule): reboot, then confirm default route / DOCKER-USER rules / containers / tailnet tag all return unaided.
 
+## Phase B2 — outside watcher (10b3)
+
+The Gatus watcher (`gatus` role in `do1.yml`) and Frigg's heartbeat have their own gated procedure: [`offsite-watcher.md`](offsite-watcher.md). It needs two operator-seeded Vault secrets before the `gatus` role will run (`--skip-tags gatus` until then).
+
 ## Phase C — cutover (operator-gated)
 
 9. Cutover PR: flip `do1_serve_heyleaf: true` in `group_vars/offsite.yml` and re-run the `caddy` tag; set `offsite_ip` in `terraform/cloudflare/terraform.tfvars` to the new reserved IP and apply (moves `do-ts3` + `do1`); **operator** changes `plantnet.heyleaf.app` in its separate Cloudflare zone. Stop the homelab TS3 briefly and connect a TS3 client through the SRV fallback.

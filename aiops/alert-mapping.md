@@ -11,7 +11,7 @@ Every producer already POSTs Hermod's flat wire format ([`docs/services/notifica
 | Normalized field | Derived from |
 |---|---|
 | `source` | title prefix (`[Zabbix]`, `Infra health`, `Patroni:`, `Drift `/`Apply failed`, `Frigg:`), else `unknown` |
-| `severity` | Hermod `tag` verbatim: `critical` / `alert`; no tag = `untagged`; `media` is not an alert and normalizes to nothing |
+| `severity` | Hermod `tag` verbatim: `critical` / `alert` / `info` (FYI, the non-prod/canary cap tier); no tag = `untagged`; `media` is not an alert and normalizes to nothing |
 | `status` | `firing`/`resolved` for Zabbix; `event` for one-shot notifications; the S4 prober never posts an all-clear (see caveats) |
 | `host`, `service`, `check`, `runbook_id` | first matching route for that source in `alert-routing.yml` (host from the message when the route has none) |
 | `fingerprint` | `sha256("source\|host\|service\|check")[:16]` — recomputed by the validator |
@@ -66,6 +66,8 @@ Wire: title `Patroni: <host> promoted to LEADER|is REPLICA|now STANDBY LEADER (<
 ## Semaphore (hermod_summary callback)
 
 Wire: `Apply failed: N host(s) failed/unreachable` (critical), `Drift check failed: ...` and `Drift detected: N task(s) on M host(s)` (alert). Source: `ansible/callback_plugins/hermod_summary.py`. `host: fleet` (the per-host list stays in `detail`), `status: event`. Every failed apply shares one fingerprint (`apply-failed`), which is the intended dedupe. Fixtures: `semaphore-apply-failed`, `semaphore-drift-detected`.
+
+Non-prod wrappers (Phase 10b1) post tag `info` with a `[non-prod] ` title prefix (`nonprod-apply.yml` failure, `nonprod-drift-check.yml` failure; changes-only drift is silent). The normalizer strips the prefix before routing, emits severity `info`, host `nonprod` (distinct fingerprint from the prod `fleet` routes) and label `aiops_canary: "true"`. Likewise any alert from a `canary-N` host is emitted as `info` + `aiops_canary`, even if a producer tagged it higher. Fixtures: `semaphore-nonprod-apply-failed`, `zabbix-canary-high-capped`, `zabbix-canary-info`.
 
 ## Frigg re-auth listener
 

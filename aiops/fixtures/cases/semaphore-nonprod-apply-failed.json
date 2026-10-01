@@ -1,0 +1,33 @@
+{
+  "description": "hermod_summary nonprod-apply failure: tag info (lowest tier), labelled aiops_canary, host nonprod (not the prod 'fleet' fingerprint)",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "[non-prod] Apply failed: 1 host(s) failed/unreachable",
+    "body": "**Wrapper:** `nonprod-apply.yml`\n**Totals:** ok=30 changed=1 failed=0 unreachable=1\n\n**Per host:**\n- `canary-2`: ok=10 changed=0 failed=0 unreachable=1",
+    "type": "failure",
+    "tag": "info",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "semaphore",
+      "status": "event",
+      "severity": "info",
+      "host": "nonprod",
+      "service": "semaphore",
+      "check": "apply-failed",
+      "summary": "[non-prod] Apply failed: 1 host(s) failed/unreachable",
+      "detail": "**Wrapper:** `nonprod-apply.yml`\n**Totals:** ok=30 changed=1 failed=0 unreachable=1\n\n**Per host:**\n- `canary-2`: ok=10 changed=0 failed=0 unreachable=1",
+      "runbook_id": "RB-SEMAPHORE-RUN-FAILED",
+      "fingerprint": "5677de7dcd389526",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "info",
+        "apprise_type": "failure",
+        "aiops_canary": "true"
+      }
+    }
+  ]
+}

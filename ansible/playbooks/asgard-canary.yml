@@ -1,0 +1,50 @@
+# ansible/playbooks/asgard-canary.yml
+#
+# Provisions the AIOps canary pool (canary-1/2/3, LXCs 1190-1192, Urd only).
+# Baseline-only by design: the canaries must run nothing of value so they can
+# be destroyed and recreated freely (docs/procedures/canary-pool.md).
+#
+# End state:
+#   - Debian 13 LXC, fully patched, `ansible` + `recovery` users
+#   - vlagent shipping journald to VictoriaLogs, zabbix-agent2 registered in
+#     Zabbix (group "Asgard/LXCs/Canary")
+#   - Hardened SSH posture (AllowUsers ansible + recovery; root locked out)
+#
+# Run by site-nonprod.yml (NOT site.yml): the canaries stay out of the prod
+# reconcile and its `critical` notifications. Fleet-wide agent sweeps
+# (fleet-agents.yml) exclude them too.
+#
+# Bootstrap (first run — LXC has only root SSH, no ansible user yet):
+#     ansible-playbook -e 'ansible_user=root' --tags baseline --limit canary playbooks/asgard-canary.yml
+#
+# Subsequent runs (ansible_user: ansible from group_vars/all/vars.yml):
+#     ansible-playbook playbooks/asgard-canary.yml
+#
+# Tags: baseline, vlagent, zabbix-agent, hardening
+#
+# Required vars in group_vars/all/vault.yml:
+#     ansible_user_ssh_public_key, breakglass_ssh_public_key   (baseline)
+
+# Host groups: the canary agents register into "Asgard/LXCs/Canary"; the
+# bootstrap import guarantees that group exists even when this play is run
+# alone (the prod fleet plays exclude the canary group).
+- name: Canary pool - ensure Zabbix host groups
+  ansible.builtin.import_playbook: zabbix-host-groups.yml
+
+- name: Configure the canary pool
+  hosts: canary
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    - role: vlagent
+      tags: [vlagent]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

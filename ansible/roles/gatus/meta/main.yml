@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: gatus
+  author: XIIISins
+  description: >
+    Gatus outside watcher: pinned static binary as an unprivileged hardened systemd
+    service, SQLite history, declarative config, tailnet-only listener, direct Discord
+    webhook alerts and a Frigg heartbeat dead-man's switch (Phase 10b3).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+dependencies: []

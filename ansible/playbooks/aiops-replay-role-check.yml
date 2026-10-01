@@ -24,6 +24,13 @@
 - name: AIOps replay-role-check - converge via site.yml
   ansible.builtin.import_playbook: site.yml
 
+# The canary pool is NOT in site.yml (it must stay out of the prod reconcile and
+# its critical notifications), so a replay against a canary reaches it here.
+# Under the single-host --limit the guard enforces, exactly one of the two
+# imports matches the target; the other skips ("no hosts matched").
+- name: AIOps replay-role-check - converge non-prod hosts via site-nonprod.yml
+  ansible.builtin.import_playbook: site-nonprod.yml
+
 - name: AIOps replay-role-check - done
   hosts: all
   gather_facts: false

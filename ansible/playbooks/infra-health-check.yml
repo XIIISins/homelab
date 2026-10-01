@@ -43,6 +43,14 @@
 #      request signing, which needs an AWS SDK collection this repo
 #      doesn't otherwise depend on (IaC pin policy: no new dep for a
 #      probe); stays manual-discipline-only.
+#   9. do1 (offsite node) liveness — the homelab half of the 10b3 mutual
+#      watching: Gatus on do1 watches the homelab, this notices do1 dying
+#      (HTTPS /health through its public Caddy: proves droplet + Docker +
+#      proxy container + valid LE cert). Severity `alert`, not `critical`: do1
+#      is the failover/DR node, not a primary service. do1 is excluded from the
+#      fleet plays on purpose, so Zabbix/vlagent do not cover it. The prober's
+#      cadence is */12h, so this is the SLOW backstop; the fast path is Gatus'
+#      own Frigg heartbeat (docs/procedures/offsite-watcher.md).
 #
 # Severity -> Hermod tag routing (see docs/services/notifications.md):
 #   critical -> Hrist   alert -> Mist
@@ -134,6 +142,11 @@
       - ansible-frigg
       - ansible-awx
     approle_expiry_warn_days: 14
+
+    # do1 liveness (check #9). Public endpoint, reachable from the pod over the
+    # internet; flip to do1.xiiisins.com with do1_validation_host after the
+    # 10a3 cleanup (keep in step with group_vars/offsite.yml).
+    do1_health_url: "https://do1-next.xiiisins.com/health"
 
     # One representative served endpoint per cert-manager wildcard zone.
     # Each FQDN has a CoreDNS rewrite -> Traefik ClusterIP so the pod can
@@ -511,6 +524,32 @@
                      ~ ' per the Semaphore section of docs/procedures/credential-rotation.md.']
                     if (_semaphore_iac_probe.status | default(0)) != 200
                     else []) }}
+
+        # --- 9. do1 (offsite) liveness --------------------------------
+        # Retried so one dropped packet over the internet is not a finding.
+        - name: Probe do1 public /health
+          ansible.builtin.uri:
+            url: "{{ do1_health_url }}"
+            method: GET
+            timeout: 15
+            return_content: false
+            status_code: [200]
+          register: do1_probe
+          until: do1_probe.status | default(0) == 200
+          retries: 3
+          delay: 10
+          failed_when: false
+
+        - name: Record do1 liveness finding
+          ansible.builtin.set_fact:
+            warn_findings: >-
+              {{ warn_findings | default([])
+                 + (['do1 (offsite node) UNHEALTHY — `' ~ do1_health_url ~ '` returned '
+                     ~ (do1_probe.status | default('no response')) ~ ' ('
+                     ~ (do1_probe.msg | default('probe failed')) ~ ').'
+                     ~ ' Droplet, Docker, Caddy or its cert may be down; the Gatus'
+                     ~ ' watcher on it dies with it. See docs/procedures/offsite-watcher.md.']
+                    if (do1_probe.status | default(0)) != 200 else []) }}
 
         # --- POST findings to Hermod ----------------------------------
         - name: POST critical findings to Hermod

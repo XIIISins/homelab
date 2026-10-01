@@ -1,0 +1,69 @@
+# ansible/roles/gatus-heartbeat/tasks/main.yml
+---
+- name: Read the heartbeat token from Vault
+  ansible.builtin.set_fact:
+    gatus_heartbeat_token: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', gatus_heartbeat_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get(gatus_heartbeat_vault_field, '') }}
+  no_log: true
+  tags: [gatus-heartbeat, gatus-heartbeat:preflight]
+
+- name: Assert the token is present and well-formed
+  ansible.builtin.assert:
+    that:
+      - gatus_heartbeat_token | length >= 32
+      - gatus_heartbeat_token is match('^[A-Za-z0-9._~-]+$')
+    fail_msg: >-
+      Vault secret/{{ gatus_heartbeat_vault_path }} field {{ gatus_heartbeat_vault_field }}
+      is absent, too short or malformed (or Vault is unreachable: load
+      vault-homelab-env). The operator seeds it once, interactively, with the same
+      value the gatus role on the watcher host reads; see
+      docs/procedures/offsite-watcher.md ("Seed the secrets").
+    quiet: true
+  tags: [gatus-heartbeat, gatus-heartbeat:preflight]
+
+- name: Create the credential directory
+  ansible.builtin.file:
+    path: "{{ gatus_heartbeat_credential_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags: [gatus-heartbeat, gatus-heartbeat:config]
+
+- name: Render the curl header file (0600 root)
+  ansible.builtin.template:
+    src: header.j2
+    dest: "{{ gatus_heartbeat_credential_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: [gatus-heartbeat, gatus-heartbeat:config]
+
+- name: Install the heartbeat service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: gatus-heartbeat.service.j2, dest: "{{ gatus_heartbeat_unit }}.service" }
+    - { src: gatus-heartbeat.timer.j2, dest: "{{ gatus_heartbeat_unit }}.timer" }
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: Reload systemd (gatus-heartbeat)
+  tags: [gatus-heartbeat, gatus-heartbeat:service]
+
+- name: Flush handlers (units must exist before enabling)
+  ansible.builtin.meta: flush_handlers
+  tags: [gatus-heartbeat, gatus-heartbeat:service]
+
+# Skipped in check mode: on a fresh host the timer does not exist yet.
+- name: Enable + start the heartbeat timer
+  ansible.builtin.systemd:
+    name: "{{ gatus_heartbeat_unit }}.timer"
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+  tags: [gatus-heartbeat, gatus-heartbeat:service]

@@ -25,7 +25,7 @@
 #   - --check + --diff for the first dry-run
 
 - name: Roll out vlagent cluster-wide
-  hosts: all:!offsite # do1 is internet-facing + converged by hand (playbooks/do1.yml)
+  hosts: all:!offsite:!canary # do1: converged by hand (do1.yml); canary: site-nonprod.yml
   become: true
   gather_facts: true
   serial: "{{ vlagent_serial | default(1) }}"

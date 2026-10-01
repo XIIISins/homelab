@@ -1,0 +1,24 @@
+# ansible/roles/gatus-heartbeat/defaults/main.yml
+---
+# Frigg side of the Phase 10b3 dead-man's switch: a systemd timer that POSTs to
+# the outside watcher's external-endpoint push API over the tailnet every
+# minute. If Frigg (or its tailnet path, or this timer) stops, Gatus on do1
+# misses its heartbeat and alerts through its own Discord webhook.
+#
+# The target address/port/key come from the gatus role's variables (set in
+# group_vars/offsite.yml and read through hostvars of the watcher host), so
+# there is one source of truth.
+gatus_heartbeat_watcher_host: do1 # inventory name of the host running the gatus role
+gatus_heartbeat_url: >-
+  http://{{ hostvars[gatus_heartbeat_watcher_host].gatus_listen_address }}:{{ hostvars[gatus_heartbeat_watcher_host].gatus_listen_port | default(8080) }}/api/v1/endpoints/{{ hostvars[gatus_heartbeat_watcher_host].gatus_heartbeat_key }}/external?success=true
+
+# Token: Vault KV v2 `secret/ansible/do1/gatus-heartbeat`, field `token`. Same
+# secret the gatus role reads on the watcher host. Operator-seeded
+# (docs/procedures/offsite-watcher.md); the role fails clearly if it is absent.
+gatus_heartbeat_vault_path: ansible/do1/gatus-heartbeat
+gatus_heartbeat_vault_field: token
+
+gatus_heartbeat_unit: gatus-heartbeat
+gatus_heartbeat_credential_path: /etc/gatus-heartbeat/header # curl header file, 0600 root
+gatus_heartbeat_period: 60s
+gatus_heartbeat_timeout_seconds: 15
