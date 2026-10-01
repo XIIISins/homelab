@@ -101,7 +101,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 ## 10b — Test substrate + outside watcher
 
 - **10b1 — Canary pool on Urd.** 3 × 512 MB LXCs (`canary-*`, proposed IDs 1190–1192), ≤ ~2 GB total, via the `asgard-lxcs` module + NetBox declaration. **Not Skuld** (freezes would contaminate fault-injection results) and **not Verd** (Frigg lives there, least headroom). Live headroom on 2026-10-01: Urd ~7.7 GB, Verd ~5.6 GB, Skuld ~8.3 GB available (RAM is the only tight resource; CPU and thin-pool disk are plentiful).
-- **10b2 — Burst substrate.** Separate Terraform root `terraform/digitalocean-burst/` (own state; never in the `do1` root): ephemeral droplets tagged `tag:burst` joining the tailnet with ACL scoped to Frigg only (no path to prod). **K3s via the existing `k3s` role on plain droplets, not DOKS** — DOKS is not K3s (your invariant) and its node auto-repair would confound heal/rebuild tests. **Cost guard:** a TTL reaper on Frigg (destroys `tag:burst` droplets older than N hours; token from Vault) plus a DO billing alert — a forgotten cluster must not run for a month.
+- **10b2 — Burst substrate.** Separate Terraform root `terraform/digitalocean-burst/` (own state; never in the `do1` root): ephemeral droplets tagged `tag:burst` joining the tailnet with ACL scoped to Frigg only (no path to prod). **K3s via the existing `k3s` role on plain droplets, not DOKS** — DOKS is not K3s (your invariant) and its node auto-repair would confound heal/rebuild tests. **Cost guard:** a TTL reaper on Frigg (destroys `tag:burst` droplets older than N hours; token from Vault) plus a DO billing alert — a forgotten cluster must not run for a month. **Also hosts the restore drill** for the offsite backups ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md) marks it "pending 10b2"): restore the etcd snapshot, the Calico objects (CRDs → Installation → objects) and the Vault Raft snapshot onto a scratch cluster here, then destroy it.
 - **10b3 — Outside watcher: [Gatus](https://github.com/TwiN/gatus) on `do1`.** Declarative YAML (config in git, templated by a new `gatus` Ansible role), run as an **unprivileged systemd binary** — not a container, which keeps the container→tailnet drop rule (10a2) simple; single Go binary, SQLite history.
   - **Probes:** public endpoints (apex/WebFinger, `home.`, `paste.`), TLS-expiry, and tailnet-only checks of Frigg and Hermod.
   - **Dead-man's switch:** a Gatus *external endpoint* with a `heartbeat` interval that Frigg pings; silence alerts (grace window covers `do1`'s own reboot window).
@@ -144,7 +144,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10g — Stage 4: fleet rebuild loop
 
-- **10g1 — Prerequisites (pull-forward, not backlog):** offsite export of the Calico datastore + etcd snapshots (🔴 CRITICAL open question); **PBS off Skuld** and its datastore capacity fixed (215/252 GB used); restore drills passing (PBS restore of a canary and an LXC; Calico datastore restore onto a scratch cluster); Skuld watchdog proven or Skuld de-risked.
+- **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); still open: **PBS off Skuld** and its datastore capacity fixed (215/252 GB used); **restore drills passing** (the offsite-backup restore onto a scratch cluster in 10b2; PBS restore of a canary and an LXC); Skuld watchdog proven or Skuld de-risked.
 - **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
 - **10g3 — Gate for worker auto-rebuild.** Only after N consecutive successful approval-gated worker rebuilds and a passing restore drill.
 - **Exit:** a deliberately killed canary and a replica LXC are rebuilt from the repo without operator input; a worker rebuild is approval-gated and verified.
@@ -164,7 +164,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 | `do1` (`s-1vcpu-1gb`, reserved IP free while attached; hosts TS3, the proxy **and** the Gatus watcher) | ~$6 |
 | **Steady-state DO** | **~$6** (current: ~$12.10) |
 | Burst K3s test, 3 × `s-2vcpu-4gb`, 4 h | ~$0.43 per session (~$2–5/mo at light–medium use; always-on would be ~$72) |
-| Existing AWS (KMS + state bucket) | ~$1–2; cold small copies (Vault snapshots, Calico/etcd exports) cost cents |
+| Existing AWS (KMS + state bucket) + offsite backups bucket | ~$1–2 + ~$0.07 (`xiiisins-homelab-backups`, ~3 GB steady state, SSE-S3, no KMS key) |
 
 AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now billed; TS3 likely has no arm64 build) and Lightsail only ties DO — so DO stays. Keeping the offsite on a different provider than the Vault KMS key also keeps the outside view independent of the unseal dependency.
 
@@ -176,7 +176,7 @@ AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now 
 |---|---|---|
 | D1 | Outside watcher placement + tool | **Decided 2026-10-01:** Gatus (systemd binary) co-located on `do1`, direct Discord webhook; split out only on the conditions in 10b3. Not Uptime Kuma |
 | D2 | TS3 `do-ts3`/`hel-ts3`/SRV records into Terraform | Yes (overrides "leave hand-managed") |
-| D3 | Offsite location for Calico/etcd exports | S3 bucket/prefix in the existing AWS account (separate IAM, no droplet creds) — decision tracked in the CRITICAL open question |
+| D3 | Offsite location for Calico/etcd/Vault Raft exports | **Done 2026-10-01** (built in a separate session): S3 bucket `xiiisins-homelab-backups` (eu-west-1) in the existing AWS account — SSE-S3, versioned, private, TLS-only; separate IAM users (etcd R/W via K3s `etcd-s3-*` on all 3 CPs; PutObject-only writer for the Vault Raft + Calico CronJobs). See [`procedures/offsite-backups.md`](../procedures/offsite-backups.md). Restore drill still pending (10b2) |
 | D4 | Dedicated Terraform DO token scope | Least-privilege custom scopes; revoke the broad one after 10a |
 | D5 | Canary resource-ID range | 1190–1199 (free in the 1101–1199 LXC block) |
 | D6 | Phase numbering | AIOps = **Phase 10** (Phase 9 = Secrets runtime retrieval) |
@@ -188,7 +188,7 @@ AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now 
 1. **10c1–10c3** (software only) and **10a** (offsite rebuild) in parallel.
 2. **10b** (canaries, burst substrate, watcher).
 3. **10d** → **10e** sequentially; incident replays gate each.
-4. Close the **10g1 prerequisites** (offsite export, PBS move, restore drills) while 10e soaks — they are prerequisites, not backlog.
+4. Close the remaining **10g1 prerequisites** (PBS move, restore drills; the offsite export is done) while 10e soaks — they are prerequisites, not backlog.
 5. **10f**, then **10g**, then **10h**.
 
 ## Definition of done (Phase 10)
