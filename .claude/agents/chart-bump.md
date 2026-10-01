@@ -37,11 +37,13 @@ Helper scripts (read-only, in `.claude/scripts/chart-bump/`; they keep state in 
 - **Capacity:** workers are ~85–90 % CPU-*requested* (2 vCPU) — a surge pod > ~300m deadlocks a rolling update (`0/6 nodes… Insufficient cpu`). Plan to delete the old pod (outage accepted) or use `strategy: Recreate`. Check `kubectl describe node | grep -A5 Allocated`.
 - **Rollout semantics:** some StatefulSets are `OnDelete` (Vault) — the bump changes the spec but rolls nothing; roll pods yourself, standbys first, leader last. A crash-looping StatefulSet pod is not replaced automatically during a rolling update — delete it.
 - **PDBs / storage affinity:** local-path PVs are node-pinned (Vault Raft); iSCSI is per-PVC with a ~10-LUN DSM cap — never create throwaway PVCs on Volume2.
+- **Anything applied as a K3s addon file (Calico) or via Helm `crds/` / a manifest that carries CRDs:** removal from the file/chart = deletion of the CRD **and every object of that kind**. K3s prunes **per addon file**; Helm does not touch `crds/` on upgrade but a chart that stops templating a CRD it used to own can orphan or delete it. Before replacing such a file: diff the CRD names **per file** (old vs new counterpart, not the union), export the objects (`kubectl get <group resources> -A -o yaml`), and make the guard fail closed. Calico/CNI changes also need an IPAM/IPPool/BlockAffinity count before and after. Learned 2026-10-01 (cluster-wide pod-network outage, `docs/incidents/2026-10-01-calico-datastore-prune.md`).
+- **When the repo docs and the live cluster disagree (a file/object the docs say exists doesn't), STOP and reconcile first** — don't assume your change is equivalent to the documented one. (Calico's addon files were gone from every CP; the "replace the file" procedure was therefore not what had created the live state.)
 - **Defaults that changed meaning:** e.g. MetalLB 0.16 defaults to a bundled frr-k8s DaemonSet (we are L2-only → disable explicitly); Authentik 2026.8 trusted-proxy default (10/8 etc.) already covers pod/node ranges — do NOT set an override (it replaces the default); Authentik chart drops explicit `LISTEN__*` env (verify `bindv6only=0` + IPv6 in pod).
 
 ## Phase 3 — Plan
 
-Order by **blast radius, lowest first**, then fix dependencies. Current reference order: patch-level/no-diff charts → NetBox → cert-manager → MetalLB → ESO → Authentik → K3s (one minor per run) → Flux → Vault major. Majors go **one minor/major at a time** (cert-manager, Authentik, K3s, Calico, Vault 1→2.0→2.1). Present a short table: item, from→to, blast radius, pre-checks, test, rollback. Ask the owner only for decisions that are genuinely theirs (break-glass policy changes, holding an item, running something the permission classifier blocks) — otherwise pick, state the assumption, proceed.
+Order by **blast radius, lowest first**, then fix dependencies. Current reference order: patch-level/no-diff charts → NetBox → cert-manager → MetalLB → ESO → Authentik → K3s (one minor per run; K3s before Flux — Flux 2.9 needs K8s ≥ 1.34.1) → Calico (own playbook, one minor per run, after K3s) → Flux → Vault major. Majors go **one minor/major at a time** (cert-manager, Authentik, K3s, Calico, Vault 1→2.0→2.1). Present a short table: item, from→to, blast radius, pre-checks, test, rollback. Ask the owner only for decisions that are genuinely theirs (break-glass policy changes, holding an item, running something the permission classifier blocks) — otherwise pick, state the assumption, proceed.
 
 ## Phase 4 — Execute (one item at a time; the ritual)
 
@@ -63,6 +65,7 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 - **Authentik:** OIDC discovery issuer/authorize URLs are `https`, ForwardAuth 302s, NetBox/Vault OIDC redirect, SAML redirect (Hugin), `terraform plan` clean with the matching provider, no server/worker errors.
 - **NetBox:** `/api/status/` version, authenticated API reads, `terraform plan -parallelism=1` clean, dynamic inventory resolves hosts, OIDC redirect.
 - **Synology CSI:** node plugins/controller on the new driver, existing PV still Bound/attached, then a full re-mount (delete the consuming pod: NodeUnpublish→Unstage→Stage→Publish in the node-plugin logs; a single retried "Failed to remove target path" is benign).
+- **Calico:** `status.calicoVersion`, all TigeraStatus Available, `calico-node` rolled; IPPool / IPAMBlock / BlockAffinity counts ≥ before; a **cross-node** probe (an app on one node reaching a backend on another, e.g. wiki / metric / NetBox / Authentik health), not just the smoketest (same-node backend can mask a broken overlay).
 - **K3s:** every node at target + Ready, `flux get hr -A`, `kubectl get tigerastatus`, ExternalSecrets, Vault 3/3, smoketest.
 
 ## Guardrails
@@ -73,6 +76,8 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 - Don't merge two clusters' concerns, don't float versions (concrete pins only), don't touch Calico via `kubectl edit`.
 - Never roll two workers/CPs at once; keep Vault at ≥ 2/3 and etcd at ≥ 2/3.
 - If a step surprises you twice, stop and report instead of improvising around it.
+- **CNI / DNS / ingress / secrets-store changes get a restore point first** (datastore export, etcd snapshot, Raft snapshot) and a stated recovery plan; roll the *smallest* unit, verify with a cross-node probe (not just same-node), and keep an exit that doesn't depend on the thing you're changing (a terminating `calico-system` deadlocks on the metrics API that needs the pod network).
+- **Recovery steps may need owner approval** (finalizer patches, namespace finalize, pod deletes, forced cert renewals are classifier-gated). In an incident, list the exact approvals needed up front instead of discovering them one denial at a time.
 
 ## Environment quirks (tooling) that cost time before
 
