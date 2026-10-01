@@ -53,5 +53,5 @@
 | 10d — Stage 1: diagnosis-only chat-ops | 🔲 | Hermod/Zabbix → Frigg bridge, write-less toolbelt, Discord threads; acceptance = replay of the 2026-09-30 Skuld freeze and 2026-10-01 Calico prune. |
 | 10e — Stage 2: approval-gated actions | 🔲 | Allow-listed Semaphore executor, operator-only Discord approval, audit trail (VictoriaLogs + NetBox journal). |
 | 10f — Stage 3: autonomous T1 healing | 🔲 | Kill switch + rate limits + circuit breaker first; stateless/replicated classes only; soak on canaries. |
-| 10g — Stage 4: fleet rebuild loop | 🔲 | Prereqs: offsite Calico/etcd export, PBS off Skuld + capacity, restore drills. Canaries → replicas → workers (approval-gated); quorum members never autonomous. |
+| 10g — Stage 4: fleet rebuild loop | 🔲 | Prereqs: ~~offsite Calico/etcd export~~ (✅ live 2026-10-01; restore drill pending), PBS off Skuld + capacity, restore drills. Canaries → replicas → workers (approval-gated); quorum members never autonomous. |
 | 10h — Stage 5: predictive + agent-authored PRs | 🔲 | Forecast alerts, drift/incident → PR on the `chart-bump` pattern, incident-draft automation. |
