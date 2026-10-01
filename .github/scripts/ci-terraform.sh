@@ -16,6 +16,10 @@ cd "$(git rev-parse --show-toplevel)"
 export VAULT_ADDR="${VAULT_ADDR:-https://vault.invalid:8200}"
 export VAULT_TOKEN="${VAULT_TOKEN:-ci-validate-only}"
 
+# Provider plugin cache (set by CI): `init` reuses downloaded providers instead of
+# re-fetching them per module. Terraform requires the dir to exist.
+[ -z "${TF_PLUGIN_CACHE_DIR:-}" ] || mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
 rc=0
 for m in "$@"; do
   echo "::group::terraform validate $m"

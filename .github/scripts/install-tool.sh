@@ -8,6 +8,9 @@
 #   *.tar.gz / *.tgz -> extract <archive-member>   *.zip -> extract <archive-member>
 #   anything else    -> treated as the raw binary
 # Env: INSTALL_DIR (default /usr/local/bin), SUDO (default "sudo"; set empty if root).
+#      TOOL_CACHE (optional dir): verified downloads are kept there as <sha256> and
+#      reused. The hash is re-checked on every use, so a tampered/corrupt cache
+#      entry fails the job exactly like a swapped release asset would.
 set -euo pipefail
 
 url="$1"; sha="$2"; name="$3"; member="${4:-$3}"
@@ -17,11 +20,18 @@ sudo_cmd="${SUDO-sudo}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-curl -fsSL --retry 3 --retry-delay 2 -o "$tmp/dl" "$url"
+cache="${TOOL_CACHE:-}"
+if [ -n "$cache" ] && [ -f "$cache/$sha" ]; then
+  cp "$cache/$sha" "$tmp/dl"
+  echo "using cached download for $name"
+else
+  curl -fsSL --retry 3 --retry-delay 2 -o "$tmp/dl" "$url"
+fi
 echo "$sha  $tmp/dl" | sha256sum -c - >/dev/null || {
   echo "::error title=checksum mismatch::$name ($url) does not match the pinned sha256" >&2
   exit 1
 }
+if [ -n "$cache" ]; then mkdir -p "$cache" && cp "$tmp/dl" "$cache/$sha"; fi
 
 case "$url" in
   *.tar.gz|*.tgz) tar -xzf "$tmp/dl" -C "$tmp" "$member"; src="$tmp/$member" ;;

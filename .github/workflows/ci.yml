@@ -52,6 +52,14 @@ env:
   KUBECONFORM_SHA: 95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
   ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
   ACTIONLINT_SHA: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+  # Caches (docs/procedures/ci.md "Cache keys + bump checklist"). Keys are derived
+  # from the pins above / the files named in each key, so a bump busts them.
+  TOOL_CACHE: /home/runner/.cache/ci-tools                  # verified tool downloads, by sha256
+  TF_PLUGIN_CACHE_DIR: /home/runner/.cache/terraform-plugins
+  KUBECONFORM_CACHE: /home/runner/.cache/kubeconform
+  # The datreeio CRD catalog is fetched from its `main` branch (a float). Bump
+  # this when you bump a chart/operator whose CRD schema you need refreshed.
+  KUBECONFORM_SCHEMA_EPOCH: "1"
 
 jobs:
   changes:
@@ -81,6 +89,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOL_CACHE }}
+          key: tool-gitleaks-${{ env.GITLEAKS_SHA }}
       - run: .github/scripts/install-tool.sh "$GITLEAKS_URL" "$GITLEAKS_SHA" gitleaks
       - name: scan the commits this change adds
         env:
@@ -104,7 +116,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: pip install --quiet yamllint==1.35.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: pip-yamllint-${{ hashFiles('.github/ci-requirements.txt') }}
+      # single source of truth for the pin: the yamllint line of ci-requirements.txt
+      - run: pip install --quiet "$(grep '^yamllint==' .github/ci-requirements.txt)"
       - run: yamllint -f github .
 
   workflows:
@@ -115,6 +132,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOL_CACHE }}
+          key: tool-actionlint-${{ env.ACTIONLINT_SHA }}
       - run: .github/scripts/install-tool.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA" actionlint
       - run: actionlint -color
 
@@ -126,6 +147,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOL_CACHE }}
+          key: tool-terraform-${{ env.TERRAFORM_SHA }}
       - run: .github/scripts/install-tool.sh "$TERRAFORM_URL" "$TERRAFORM_SHA" terraform
       - run: terraform fmt -check -recursive -diff terraform
 
@@ -141,6 +166,20 @@ jobs:
         module: ${{ fromJSON(needs.changes.outputs.terraform_modules) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOL_CACHE }}
+          key: tool-terraform-${{ env.TERRAFORM_SHA }}
+      # Providers: lock files are gitignored, so key on the module's .tf files
+      # (required_providers pins live there). restore-keys reuses the previous
+      # set on any .tf edit; init only downloads what is missing, and the new
+      # key is saved. Same terraform version => same cache dir layout.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tfproviders-${{ env.TERRAFORM_SHA }}-${{ matrix.module }}-${{ hashFiles(format('{0}/*.tf', matrix.module)) }}
+          restore-keys: |
+            tfproviders-${{ env.TERRAFORM_SHA }}-${{ matrix.module }}-
       - run: .github/scripts/install-tool.sh "$TERRAFORM_URL" "$TERRAFORM_SHA" terraform
       - run: .github/scripts/ci-terraform.sh "${{ matrix.module }}"
 
@@ -152,6 +191,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TOOL_CACHE }}
+          key: tool-k8s-${{ env.KUBECTL_SHA }}-${{ env.KUBECONFORM_SHA }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.KUBECONFORM_CACHE }}
+          key: kubeconform-schemas-${{ env.KUBECONFORM_SCHEMA_EPOCH }}-${{ env.KUBECONFORM_SHA }}-${{ hashFiles('.github/scripts/ci-k8s.sh') }}
       - run: .github/scripts/install-tool.sh "$KUBECTL_URL" "$KUBECTL_SHA" kubectl
       - run: .github/scripts/install-tool.sh "$KUBECONFORM_URL" "$KUBECONFORM_SHA" kubeconform
       - run: .github/scripts/ci-k8s.sh
@@ -164,18 +211,25 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: pip-ansible-${{ hashFiles('.github/ci-requirements.txt') }}
       - run: pip install --quiet -r .github/ci-requirements.txt
       # Collections are concrete-pinned, so the installed tree is a pure function
-      # of requirements.yml: cache it and only hit Galaxy when a pin changes.
-      # Only a saved-on-success exact hit skips the install (a partial tree is
-      # never saved: the job fails before the post-step cache save).
-      - name: cache galaxy collections
+      # of requirements.yml (+ ansible-core): cache it and only hit Galaxy when a
+      # pin changes. Restore and save are split so the cache is saved as soon as
+      # the install succeeds, NOT at job end: a lint finding must not throw away
+      # a 6-minute download. Saving only after a successful install also means a
+      # partial tree (Galaxy 502 mid-install) is never cached.
+      - name: restore galaxy collections
         id: galaxy-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ansible/collections
           key: galaxy-${{ runner.os }}-${{ hashFiles('ansible/requirements.yml', '.github/ci-requirements.txt') }}
       - name: install pinned collections
+        id: galaxy-install
         if: steps.galaxy-cache.outputs.cache-hit != 'true'
         working-directory: ansible
         # Galaxy is slow/flaky: bound each request, retry the whole install.
@@ -188,6 +242,12 @@ jobs:
             echo "::warning title=galaxy install::attempt $attempt failed, retrying"; sleep 10
           done
           exit 1
+      - name: save galaxy collections
+        if: steps.galaxy-install.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ansible/collections
+          key: ${{ steps.galaxy-cache.outputs.cache-primary-key }}
       - name: ansible-lint
         working-directory: ansible
         run: ansible-lint
