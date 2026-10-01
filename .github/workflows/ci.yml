@@ -57,6 +57,7 @@ jobs:
   changes:
     name: changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       terraform_modules: ${{ steps.c.outputs.terraform_modules }}
       k8s: ${{ steps.c.outputs.k8s }}
@@ -75,6 +76,7 @@ jobs:
   secrets:
     name: secrets (gitleaks)
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,6 +101,7 @@ jobs:
   yamllint:
     name: yamllint
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: pip install --quiet yamllint==1.35.1
@@ -109,6 +112,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: .github/scripts/install-tool.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA" actionlint
@@ -119,6 +123,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.terraform_modules != '[]'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: .github/scripts/install-tool.sh "$TERRAFORM_URL" "$TERRAFORM_SHA" terraform
@@ -129,6 +134,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.terraform_modules != '[]'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +149,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.k8s == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: .github/scripts/install-tool.sh "$KUBECTL_URL" "$KUBECTL_SHA" kubectl
@@ -154,21 +161,29 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ansible == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: pip install --quiet -r .github/ci-requirements.txt
       - name: install pinned collections
         working-directory: ansible
-        run: ansible-galaxy collection install -r requirements.yml -p collections
+        # Galaxy is slow/flaky: bound each request, retry the whole install.
+        run: |
+          for attempt in 1 2 3; do
+            ansible-galaxy collection install -r requirements.yml -p collections --timeout 60 && exit 0
+            echo "::warning title=galaxy install::attempt $attempt failed, retrying"; sleep 10
+          done
+          exit 1
       - name: ansible-lint
         working-directory: ansible
-        run: ansible-lint --format github
+        run: ansible-lint
 
   docs:
     name: docs links
     needs: changes
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: python3 .github/scripts/ci-doc-links.py
@@ -189,6 +204,7 @@ jobs:
       - ansible
       - docs
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: all required jobs succeeded or were skipped
         env:
