@@ -6,6 +6,11 @@ Closes the 2026-10-01 gap from the [Calico datastore-prune incident](../incident
 cluster-recovery state existed only inside the homelab (the Calico export on gondul was the same failure
 domain as the thing it protected; K3s etcd snapshots were node-local).
 
+## Status (2026-10-01)
+
+- **Live + verified:** bucket/IAM (`terraform/aws` applied, 13 resources), both keys placed in Vault, `terraform/vault` role + policy, **etcd → S3 on all 3 CPs** (drop-in rolled one CP at a time; a forced snapshot from each CP landed under `etcd/`, ~21 MB each; the writer key can put but not list/read, the etcd key can list).
+- **Not yet live:** the two CronJobs — they deploy when `main` is pushed (Flux). Push is the operator's call; until then the `backups` namespace doesn't exist. Test objects in the bucket: `calico/probe.txt` (expires after 30 d via lifecycle) and three manual `etcd/s3-verify-*` snapshots (~63 MB total, one per CP — K3s retention only prunes its own scheduled names and `etcd/` has no current-version expiry, so delete them with `k3s etcd-snapshot delete s3-verify-<node>-<ts>` if you want them gone; ≈ $0.0015/mo otherwise).
+
 ## What lands where
 
 One bucket `xiiisins-homelab-backups` (eu-west-1, `terraform/aws/backups.tf`), SSE-S3, versioned, private, TLS-only.
@@ -54,8 +59,9 @@ A restore pulling everything is ~$0.30 egress, once.
 ## Verify (do all three — a backup never restored or listed is a hope)
 
 ```bash
-# etcd: force one snapshot per CP and confirm the objects appear (list needs the k3s-etcd-backup key)
-ssh ansible@10.0.21.11 'sudo k3s etcd-snapshot save --name s3-verify && sudo k3s etcd-snapshot list --s3 | tail -5'
+# etcd: force one snapshot per CP and confirm the objects appear (list needs the k3s-etcd-backup key).
+# Full path: `sudo`'s secure_path on the RHEL VMs has no /usr/local/bin, so bare `k3s` is "command not found".
+ssh ansible@10.0.21.11 'sudo /usr/local/bin/k3s etcd-snapshot save --name s3-verify && sudo /usr/local/bin/k3s etcd-snapshot ls | grep s3://'
 # CronJobs: trigger now, read the log, then list the prefix
 kubectl -n backups create job --from=cronjob/calico-datastore-export calico-now
 kubectl -n backups create job --from=cronjob/vault-raft-snapshot vault-now
