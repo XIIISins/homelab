@@ -1,0 +1,23 @@
+# ansible/inventory/group_vars/canary.yml
+---
+# AIOps canary pool (Phase 10b1) — canary-1/2/3, LXCs 1190-1192, Urd ONLY.
+# Disposable, baseline-only hosts: the sole fault-injection targets for the
+# 10f/10g loops. Procedure: docs/procedures/canary-pool.md.
+
+# resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/
+# asgard-lxcs/lxcs.tf writes the AdGuard VIP + UCG fallback at every container
+# start). Ansible stops managing it so the two don't fight on reboot. See
+# docs/known-issues/lxc-proxmox.md.
+baseline_manage_resolv_conf: false
+
+# AIOps targeting markers. The authoritative allow-list is aiops/actions.yml
+# (host_tiers.T1 + per-action guards); these vars are for loops/playbooks that
+# want to assert "this host is a canary" before injecting a fault.
+aiops_tier: T1
+aiops_canary: true
+
+zabbix_agent_host_groups:
+  - "Linux servers"
+  - "Asgard/LXCs/Canary"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"

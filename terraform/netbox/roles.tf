@@ -30,6 +30,8 @@ locals {
     # control-node: added Phase 6 Stage 2 (Frigg watchtower). No import_id —
     # role doesn't exist in NetBox yet, created on first apply.
     control-node = { vm_role = true, description = "Control node / watchtower (claude remote-control, IaC orchestration)" }
+    # canary: added Phase 10b1. No import_id — created on first apply.
+    canary = { vm_role = true, description = "AIOps canary (disposable T1 fault-injection target, Urd only)" }
   }
 
   # Import IDs sourced from /api/dcim/device-roles/ at retrofit time.

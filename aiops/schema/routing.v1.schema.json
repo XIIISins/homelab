@@ -20,7 +20,7 @@
           "source": { "enum": ["zabbix", "s4-prober", "patroni", "semaphore", "frigg", "unknown"] },
           "severity": {
             "description": "The Hermod tag this route applies to. `any` matches critical and alert (not untagged).",
-            "enum": ["critical", "alert", "any"]
+            "enum": ["critical", "alert", "info", "any"]
           },
           "match": {
             "description": "Regex (Python re.search, case-insensitive) applied to: zabbix -> trigger name; s4-prober -> one finding line (or the message title for prober-errored); patroni/semaphore/frigg/unknown -> message title. A named group `host` overrides `host`.",

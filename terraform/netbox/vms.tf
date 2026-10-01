@@ -39,6 +39,14 @@ locals {
     "db"                = "postgres"
     "service-frontend"  = "haproxy-etcd"
     "control-node"      = "control"
+    "canary"            = "canary"
+  }
+
+  # Extra (non-`ansible:`) tags per role. The AIOps loop (10f/10g) selects
+  # fault-injection / auto-heal targets by these; they do NOT project into an
+  # Ansible group (the keyed_groups regex only matches `^ansible`).
+  aiops_tags_for_role = {
+    "canary" = ["aiops:t1", "aiops:canary"]
   }
 
   vms = {
@@ -94,6 +102,13 @@ locals {
     # Non-K3s standalone VM (terraform/proxmox/asgard-vms), HA-on-NFS.
     # No import_id — created fresh on first apply.
     frigg = { vmid = "2900", role = "control-node", device = "verd", cpu = 2, memory = 6144, primary_iface = "eth0" }
+
+    # ── Canary pool (LXCs 1190-1192, Phase 10b1, Urd ONLY) ─────────
+    # terraform/proxmox/asgard-lxcs/lxcs.tf locals.canary_nodes. Disposable
+    # T1 fault-injection targets; see docs/procedures/canary-pool.md.
+    canary-1 = { vmid = "1190", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    canary-2 = { vmid = "1191", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+    canary-3 = { vmid = "1192", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
   }
 
   # Flat interface map keyed by "<vm>.<iface>". Workers + HAProxy/etcd
@@ -138,6 +153,11 @@ locals {
 
     # Frigg — control-node watchtower (single-homed VLAN 11)
     "frigg.eth0" = { vm = "frigg", name = "eth0", ip = "10.0.11.30/24" }
+
+    # Canary pool (single-homed VLAN 11)
+    "canary-1.eth0" = { vm = "canary-1", name = "eth0", ip = "10.0.11.190/24" }
+    "canary-2.eth0" = { vm = "canary-2", name = "eth0", ip = "10.0.11.191/24" }
+    "canary-3.eth0" = { vm = "canary-3", name = "eth0", ip = "10.0.11.192/24" }
   }
 
   # Import IDs sourced from /api/virtualization/virtual-machines/ +
@@ -249,7 +269,10 @@ resource "netbox_virtual_machine" "this" {
   # `keyed_groups` variant) and projects every `ansible:<group>` tag
   # as an Ansible group named `<group>`. Computed from `role` via the
   # local map above so the tag stays consistent with the NetBox role.
-  tags = ["ansible:${local.ansible_group_for_role[each.value.role]}"]
+  tags = concat(
+    ["ansible:${local.ansible_group_for_role[each.value.role]}"],
+    lookup(local.aiops_tags_for_role, each.value.role, []),
+  )
 
   depends_on = [netbox_custom_field.vmid, netbox_tag.this]
 }

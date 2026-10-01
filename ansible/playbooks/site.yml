@@ -31,6 +31,10 @@
 # scheduled daily via the asgard-fleet-agents Semaphore template
 # (defense-in-depth fleet reconverge).
 #
+# Non-prod / disposable hosts (the AIOps canary pool) are deliberately NOT
+# here: they live in site-nonprod.yml, run by the nonprod-* wrappers whose
+# Hermod notifications are capped below `critical`. See that file's header.
+#
 # Day-1 bring-up uses targeted plays (`--limit`), not site.yml. site.yml
 # is the steady-state converge tool.
 

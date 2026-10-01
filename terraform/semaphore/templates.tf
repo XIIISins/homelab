@@ -5,6 +5,9 @@
 #   - refresh-netbox-inventory  cron */4h  ansible-side: ad-hoc command
 #   - asgard-drift-check        cron */6h  --check --diff site.yml
 #   - asgard-apply              manual     site.yml (full converge)
+#   - asgard-nonprod-drift-check cron daily --check --diff site-nonprod.yml
+#   - asgard-nonprod-apply      manual     site-nonprod.yml (canary pool;
+#                                          notifications capped at alert)
 #   - asgard-os-updates         manual     os-updates.yml (fleet OS patch
 #                                          + reboot, serial per quorum
 #                                          group)
@@ -198,6 +201,60 @@ resource "semaphoreui_project_template" "asgard_fleet_agents" {
   # Defense-in-depth job — successful daily runs are background noise,
   # only surface failures (which also fire Hermod `critical` via the
   # callback's apply-mode classification).
+  suppress_success_alerts = true
+}
+
+# === asgard-nonprod-drift-check / asgard-nonprod-apply (Phase 10b1) ===
+#
+# The non-prod counterpart of drift-check/apply for the AIOps canary pool
+# (site-nonprod.yml; the canaries are deliberately NOT in site.yml). They run
+# the nonprod-* wrappers, which hermod_summary recognises by filename and CAPS
+# at tag `info`: a failed canary posts "[non-prod] ... failed" to the FYI channel, never
+# `critical`/Hrist, and changes-only drift is silent. See the callback header.
+resource "semaphoreui_project_template" "asgard_nonprod_drift_check" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "asgard-nonprod-drift-check"
+  description    = "Read-only converge check of non-prod hosts (canary pool). Notifications capped at info."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/nonprod-drift-check.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  arguments                   = ["--check", "--diff"]
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
+resource "semaphoreui_project_template" "asgard_nonprod_apply" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "asgard-nonprod-apply"
+  description    = "Full converge of non-prod hosts (canary pool). Manual trigger; failure posts info, never alert/critical."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/nonprod-apply.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
   suppress_success_alerts = true
 }
 
@@ -459,6 +516,18 @@ resource "semaphoreui_project_schedule" "asgard_drift_check" {
 }
 
 # asgard-apply has no schedule — manual-only.
+
+resource "semaphoreui_project_schedule" "asgard_nonprod_drift_check" {
+  project_id  = semaphoreui_project.asgard.id
+  template_id = semaphoreui_project_template.asgard_nonprod_drift_check.id
+  name        = "daily"
+  # 05:15 UTC daily: low frequency (canaries carry nothing), after the
+  # inventory-refresh at minute 0 of 04:00 and the 04:30 fleet-agents sweep.
+  cron_format = "15 5 * * *"
+  enabled     = true
+}
+
+# asgard-nonprod-apply has no schedule — manual-only.
 
 resource "semaphoreui_project_schedule" "asgard_fleet_agents" {
   project_id  = semaphoreui_project.asgard.id

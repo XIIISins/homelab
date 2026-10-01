@@ -31,6 +31,12 @@ DEFAULT_ROUTING = AIOPS_DIR / "alert-routing.yml"
 
 _KV = re.compile(r"^\*\*(?P<k>[^:*]+):\*\*\s*(?P<v>.*?)\s*$", re.MULTILINE)
 _ZBX_TITLE = re.compile(r"^\[Zabbix\]\s+(?P<lead>RESOLVED|[A-Za-z ]+?):\s+(?P<name>.*)$")
+# Non-prod (canary pool, Phase 10b1): origin markers. A "[non-prod] " title prefix
+# comes from the hermod_summary nonprod-* wrappers; a canary-<n> host from the
+# Zabbix webhook. Keep the host pattern in lockstep with
+# ansible/roles/zabbix-server/templates/hermod-webhook.js.
+NONPROD_PREFIX = "[non-prod] "
+_NONPROD_HOST = re.compile(r"^canary-[0-9]+$")
 _ZBX_DATE = re.compile(r"^(?P<d>\d{4}\.\d{2}\.\d{2})\s+(?P<t>\d{2}:\d{2}:\d{2})$")
 
 
@@ -78,6 +84,8 @@ def _severity(tag: str | None) -> str | None:
         return "critical"
     if "alert" in tags:
         return "alert"
+    if "info" in tags:
+        return "info"  # FYI tier: the cap for non-prod/canary origins
     if not tags:
         return "untagged"
     return None  # e.g. media: a notification, not an alert
@@ -134,6 +142,9 @@ def _iso_or(value: str | None, default: str) -> str:
 def normalize(wire: dict, received_at: str, routes: list[dict]) -> list[dict]:
     """One Hermod POST -> zero or more alerts (the S4 prober bundles findings)."""
     title = str(wire.get("title", "")).strip()
+    nonprod_title = title.startswith(NONPROD_PREFIX)
+    if nonprod_title:
+        title = title[len(NONPROD_PREFIX):]  # route on the underlying message
     body = str(wire.get("body", ""))
     severity = _severity(wire.get("tag"))
     if severity is None:
@@ -180,21 +191,28 @@ def normalize(wire: dict, received_at: str, routes: list[dict]) -> list[dict]:
         service = route["service"]
         check = _expand_check(route["check"], m, subject)
         alert_status = "event" if route.get("status") == "event" else status
+        # Non-prod origin: label it, keep its fingerprint apart from the prod
+        # twin ("fleet" -> "nonprod"), and never let it out above `info` even if
+        # a producer tagged it critical/alert (defence in depth behind the producer caps).
+        nonprod = nonprod_title or bool(_NONPROD_HOST.match(host))
+        if nonprod_title and host == "fleet":
+            host = "nonprod"
+        out_severity = "info" if (nonprod and severity in ("critical", "alert")) else severity
         a: dict = {
             "schema_version": "aiops.alert/v1",
             "source": source,
             "status": alert_status,
-            "severity": severity,
+            "severity": out_severity,
             "host": host,
             "service": service,
             "check": check,
-            "summary": summary,
+            "summary": (NONPROD_PREFIX + summary) if nonprod_title else summary,
             "detail": detail,
             "runbook_id": route["runbook_id"],
             "fingerprint": fingerprint(source, host, service, check),
             "fired_at": fired_at,
             "received_at": received_at,
-            "labels": labels,
+            "labels": dict(labels, aiops_canary="true") if nonprod else dict(labels),
         }
         if native_sev:
             a["native_severity"] = native_sev
