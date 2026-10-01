@@ -140,7 +140,7 @@
                 filter:
                   evaltype: 0
                   conditions:
-                    - { macro: "{#RESOURCE.TYPE}", value: "{{ zbx_qemu_nomatch }}", operator: 8 }
+                    - { macro: !unsafe "{#RESOURCE.TYPE}", value: "{{ zbx_qemu_nomatch }}", operator: 8 }
               id: 1
           register: _neuter
           no_log: true

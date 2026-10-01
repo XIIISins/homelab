@@ -1,0 +1,68 @@
+# ansible/.ansible-lint-ignore — BASELINE of pre-existing ansible-lint violations (moderate profile).
+# Generated 2026-10-01 when ansible-lint became a CI gate (docs/procedures/ci.md).
+# Each line is "<path> <rule>" and mutes that rule for that whole file (reported as a warning).
+# So: a NEW file, or a NEW rule in a listed file, fails CI; another violation of a rule that is
+# already listed for the same file is NOT caught — fix files and delete their lines to tighten.
+# Never add lines to make a new change pass — fix the change.
+# Tracked in docs/operations/open-questions.md ("ansible-lint baseline").
+inventory/group_vars/haproxy_etcd.yml yaml[colons]
+inventory/group_vars/haproxy_etcd.yml yaml[commas]
+playbooks/apply.yml name[play]
+playbooks/asgard-zabbix.yml name[play]
+playbooks/calico-upgrade.yml name[casing]
+playbooks/drift-check.yml name[play]
+playbooks/fleet-agents.yml name[play]
+playbooks/pbs-repo-fix.yml name[casing]
+playbooks/site.yml name[casing]
+playbooks/site.yml name[play]
+playbooks/tasks/approle-expiry-check.yml name[template]
+playbooks/zabbix-agent.yml name[play]
+roles/adguard/handlers/main.yml name[casing]
+roles/adguard/tasks/install.yml command-instead-of-module
+roles/adguardhome-sync role-name
+roles/adguardhome-sync/handlers/main.yml name[casing]
+roles/adguardhome-sync/meta/main.yml schema[meta]
+roles/baseline/defaults/main.yml var-naming[no-role-prefix]
+roles/baseline/tasks/debian.yml name[template]
+roles/caddy-reverse-proxy/handlers/main.yml name[casing]
+roles/control-node/handlers/main.yml name[casing]
+roles/control-node/tasks/claude.yml partial-become[task]
+roles/control-node/tasks/repo.yml partial-become[task]
+roles/control-node/tasks/toolchain.yml name[template]
+roles/etcd/handlers/main.yml name[casing]
+roles/factorio/handlers/main.yml name[casing]
+roles/factorio/tasks/initial-install.yml partial-become[task]
+roles/haproxy/handlers/main.yml name[casing]
+roles/hardening/defaults/main.yml var-naming[no-role-prefix]
+roles/hardening/handlers/main.yml name[casing]
+roles/hermod-api/defaults/main.yml yaml[colons]
+roles/hermod-api/handlers/main.yml name[casing]
+roles/hermod-api/tasks/main.yml partial-become[task]
+roles/iscsi-orphan-prune role-name
+roles/k3s/defaults/main.yml var-naming[no-role-prefix]
+roles/k3s/handlers/main.yml name[casing]
+roles/k3s/tasks/detect-state.yml command-instead-of-module
+roles/keepalived/handlers/main.yml name[casing]
+roles/local-path-disk role-name
+roles/os-updates role-name
+roles/os-updates/handlers/main.yml name[casing]
+roles/patroni/handlers/main.yml name[casing]
+roles/pg-backup role-name
+roles/pg-backup/handlers/main.yml name[casing]
+roles/postgres-common role-name
+roles/postgres/handlers/main.yml name[casing]
+roles/postgres/tasks/cluster.yml name[template]
+roles/postgres/tasks/packages.yml name[casing]
+roles/postgres/tasks/packages.yml name[template]
+roles/proxmox-host role-name
+roles/proxmox-host/handlers/main.yml name[casing]
+roles/sftpgo/handlers/main.yml name[casing]
+roles/tailscale/handlers/main.yml name[casing]
+roles/vlagent/handlers/main.yml name[casing]
+roles/zabbix-agent role-name
+roles/zabbix-agent/handlers/main.yml name[casing]
+roles/zabbix-agent/meta/main.yml schema[meta]
+roles/zabbix-agent/tasks/install-rhel.yml command-instead-of-module
+roles/zabbix-server role-name
+roles/zabbix-server/handlers/main.yml name[casing]
+roles/zabbix-server/meta/main.yml schema[meta]
