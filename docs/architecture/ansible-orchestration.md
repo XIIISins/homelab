@@ -164,6 +164,8 @@ The drift-check template runs `ansible-playbook site.yml --check --diff` against
 - **Drift detected** (`changed=N` for any host): `tag: alert` POST to Hermod with title `"Drift detected: <N> tasks would change on <M> host(s)"`, body containing the host-task summary, `format: markdown`.
 - **Hard failure** (`failed=N`): `tag: alert` POST with title `"Drift check failed: <playbook> on <host>"`, body containing the error message.
 
+**Platform version drift (K3s + Calico vs git)** — `playbooks/platform-version-drift.yml` is imported into `site.yml` right after `asgard-k3s.yml` with `platform_drift_check_only: true`, so it runs only under `--check` (the drift-check template) and is skipped by `asgard-apply`. It compares `k3s --version` per node and the live Calico `status.calicoVersion` + IPPool CIDR against `k3s_version` / `calico_version` / `k3s_pod_cidr` in `roles/k3s/defaults/main.yml`. A mismatch is an `assert` **failure** → the existing "Drift check failed" Hermod alert, whose body carries the fix (`run playbooks/k3s-upgrade.yml` / `calico-upgrade.yml`). Those versions are never auto-converged — drift here means "a git bump hasn't been rolled out yet" or "something moved the cluster outside git". Standalone: `ansible-playbook playbooks/platform-version-drift.yml` (always runs; `--tags platform-drift` selects it inside `site.yml`).
+
 **`--check` mode caveats** — patterns that emerged during the 5h.3 baselining sweep (clean drift-check across the asgard fleet, 2026-05-27):
 
 - `--check` doesn't validate file ownership/mode, only existence. Bugs that only surface on real apply are invisible to drift-check.

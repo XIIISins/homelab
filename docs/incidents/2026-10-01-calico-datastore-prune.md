@@ -39,5 +39,5 @@
 ## Follow-ups
 
 - 3.31.7 passes the guard; **3.32.2 needs `calico_allow_crd_removal`** for `adminnetworkpolicies.policy.networking.k8s.io` and `baselineadminnetworkpolicies.policy.networking.k8s.io` (no such objects exist in the cluster today — re-verify before allowing).
-- Wire `platform-version-drift.yml` into the Semaphore drift job.
-- Consider an etcd/PBS-independent periodic export of the Calico datastore.
+- ~~Wire `platform-version-drift.yml` into the Semaphore drift job.~~ Done (imported into `site.yml`, check-mode only).
+- **CRITICAL (open):** export the Calico datastore + etcd snapshots to an out-of-homelab location — tracked in [open-questions](../operations/open-questions.md) (top of the high-priority list).
