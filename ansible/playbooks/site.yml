@@ -62,6 +62,12 @@
           Inventory has {{ groups['all'] | length }} hosts — proceeding.
 
 - import_playbook: asgard-k3s.yml
+# K3s + Calico versions vs git (read-only). Runs only under --check, i.e. the
+# `asgard-drift-check` Semaphore template; `asgard-apply` skips it (it cannot fix a
+# version drift — that is playbooks/k3s-upgrade.yml / calico-upgrade.yml).
+- import_playbook: platform-version-drift.yml
+  vars:
+    platform_drift_check_only: true
 - import_playbook: asgard-adguard.yml
 - import_playbook: asgard-tailscale.yml
 - import_playbook: asgard-postgres.yml

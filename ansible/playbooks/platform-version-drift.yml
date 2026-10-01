@@ -2,58 +2,77 @@
 ---
 # READ-ONLY drift check: are K3s and Calico running the versions git says they should?
 #
-#   ansible-playbook playbooks/platform-version-drift.yml
+#   ansible-playbook playbooks/platform-version-drift.yml            # standalone: always runs
+#
+# Also imported by site.yml (right after asgard-k3s.yml) so the Semaphore `asgard-drift-check`
+# template (`site.yml --check --diff`, every 6h) covers it. When imported it passes
+# `platform_drift_check_only: true`, which limits the checks to --check runs — so the
+# `asgard-apply` template (same site.yml, no --check) is not failed by a version drift it
+# cannot fix. A drift is a hard FAILURE of the check (assert) -> the drift-check's "Drift check
+# failed: <playbook> on <host>" Hermod alert carries the fail_msg below.
 #
 # Source of truth = roles/k3s/defaults/main.yml (`k3s_version`, `calico_version`). Those versions
 # are applied to a LIVE cluster only by playbooks/k3s-upgrade.yml and playbooks/calico-upgrade.yml
 # (explicit, health-gated, one minor per run) — never by a routine run of the k3s role, so a drift
 # report is a prompt to run the matching upgrade playbook, not something to auto-converge.
-# Fails (non-zero) when anything drifts so it can be wired into a scheduled drift job.
+# The commands run with check_mode: false (they only read), so they execute under --check too.
 
 - name: K3s version per node
   hosts: k3s
   gather_facts: false
+  tags: [platform-drift]
   vars_files:
     - ../roles/k3s/defaults/main.yml
+  vars:
+    _run: "{{ not (platform_drift_check_only | default(false) | bool) or ansible_check_mode }}"
   tasks:
-    - name: Running K3s version
-      ansible.builtin.shell: /usr/local/bin/k3s --version | head -1 | cut -d' ' -f3
-      register: running
-      changed_when: false
-      check_mode: false
+    - name: Check K3s against git
+      when: _run | bool
+      block:
+        - name: Running K3s version
+          ansible.builtin.shell: /usr/local/bin/k3s --version | head -1 | cut -d' ' -f3
+          register: running
+          changed_when: false
+          check_mode: false
 
-    - name: K3s matches git
-      ansible.builtin.assert:
-        that: running.stdout == k3s_version
-        fail_msg: "{{ inventory_hostname }}: running {{ running.stdout }}, git says {{ k3s_version }} -> playbooks/k3s-upgrade.yml"
-        success_msg: "{{ inventory_hostname }}: {{ running.stdout }}"
+        - name: K3s matches git
+          ansible.builtin.assert:
+            that: running.stdout == k3s_version
+            fail_msg: "{{ inventory_hostname }}: K3s running {{ running.stdout }}, git says {{ k3s_version }} -> run playbooks/k3s-upgrade.yml (one minor per run)"
+            success_msg: "{{ inventory_hostname }}: {{ running.stdout }}"
 
 - name: Calico version
   hosts: k3s_cp[0]
   gather_facts: false
   become: true
+  tags: [platform-drift]
   vars_files:
     - ../roles/k3s/defaults/main.yml
+  vars:
+    _run: "{{ not (platform_drift_check_only | default(false) | bool) or ansible_check_mode }}"
   tasks:
-    - name: Running Calico version
-      ansible.builtin.command: /usr/local/bin/k3s kubectl get installation default -o jsonpath={.status.calicoVersion}
-      register: cal
-      changed_when: false
-      check_mode: false
+    - name: Check Calico against git
+      when: _run | bool
+      block:
+        - name: Running Calico version
+          ansible.builtin.command: /usr/local/bin/k3s kubectl get installation default -o jsonpath={.status.calicoVersion}
+          register: cal
+          changed_when: false
+          check_mode: false
 
-    - name: Live pod CIDR of the default IPPool
-      ansible.builtin.command: /usr/local/bin/k3s kubectl get ippools.crd.projectcalico.org default-ipv4-ippool -o jsonpath={.spec.cidr}
-      register: cidr
-      changed_when: false
-      check_mode: false
-      failed_when: false
+        - name: Live pod CIDR of the default IPPool
+          ansible.builtin.command: /usr/local/bin/k3s kubectl get ippools.crd.projectcalico.org default-ipv4-ippool -o jsonpath={.spec.cidr}
+          register: cidr
+          changed_when: false
+          check_mode: false
+          failed_when: false
 
-    - name: Calico matches git
-      ansible.builtin.assert:
-        that:
-          - cal.stdout == calico_version
-          - cidr.stdout == k3s_pod_cidr
-        fail_msg: >-
-          calico running {{ cal.stdout }} (git {{ calico_version }}), IPPool cidr '{{ cidr.stdout }}' (git {{ k3s_pod_cidr }})
-          -> playbooks/calico-upgrade.yml / re-render roles/k3s/templates/calico-installation.yaml.j2
-        success_msg: "calico {{ cal.stdout }}, pool {{ cidr.stdout }}"
+        - name: Calico matches git
+          ansible.builtin.assert:
+            that:
+              - cal.stdout == calico_version
+              - cidr.stdout == k3s_pod_cidr
+            fail_msg: >-
+              Calico running {{ cal.stdout }} (git {{ calico_version }}), IPPool cidr '{{ cidr.stdout }}' (git {{ k3s_pod_cidr }})
+              -> run playbooks/calico-upgrade.yml / re-render roles/k3s/templates/calico-installation.yaml.j2
+            success_msg: "calico {{ cal.stdout }}, pool {{ cidr.stdout }}"
