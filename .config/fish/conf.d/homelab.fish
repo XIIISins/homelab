@@ -92,7 +92,7 @@ set -g __homelab_env_map \
     "ADGUARD_USERNAME|$__op_adguard_admin|username" \
     "ADGUARD_PASSWORD|$__op_adguard_admin|password" \
     "NETBOX_API_TOKEN|$__op_netbox_admin|credential" \
-    "SEMAPHOREUI_API_TOKEN|$__op_semaphore_admin|credential"
+    "SEMAPHOREUI_API_TOKEN|$__op_semaphore_admin|credential" \
     "GITHUB_TOKEN|$__op_github_tf|credential"
 
 # Each entry: "ENV_VAR|literal value"
