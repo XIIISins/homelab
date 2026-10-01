@@ -168,8 +168,11 @@ jobs:
       - name: install pinned collections
         working-directory: ansible
         # Galaxy is slow/flaky: bound each request, retry the whole install.
+        # Wipe collections/ between attempts: a 502 mid-install leaves a
+        # partial tree and the retry would say "Nothing to do" and exit 0.
         run: |
           for attempt in 1 2 3; do
+            rm -rf collections
             ansible-galaxy collection install -r requirements.yml -p collections --timeout 60 && exit 0
             echo "::warning title=galaxy install::attempt $attempt failed, retrying"; sleep 10
           done
