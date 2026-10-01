@@ -19,7 +19,7 @@ k3s_flannel_backend: "none"
 
 # Calico version — desired version. Changed on a live cluster ONLY via playbooks/calico-upgrade.yml
 # (one minor per run, with datastore backup + CRD-prune guard); the install path below is first-install only.
-calico_version: "v3.31.7"
+calico_version: "v3.32.2"
 
 # kubeconfig location on MacBook
 kubeconfig_local_path: "~/.kube/niflheim-asgard.yaml"
