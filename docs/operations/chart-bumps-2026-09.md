@@ -150,6 +150,8 @@ vault-k8s tags don't matter here. CSI provider likewise off.
 
 ## 3. Vault chart 0.32.0 → 0.34.1 (and Vault 1.21 → 2.0) — do separately
 
+> **Vault 2.x:** the investigation is done — see [vault-2x-assessment.md](vault-2x-assessment.md) (what actually changes, what affects us, decisions needed). The generate-root/`rekey` change below is the only one that hits our usage; the "unauthenticated" and path claims in this older section are superseded by that doc.
+
 Do the **chart** bump while keeping the image at 1.21.2; treat Vault 2.0 as its
 own upgrade afterwards. Chart 0.33/0.34 changelog (read): default versions bump
 to 2.0.x, adds Gateway API HTTPRoute support and Enterprise redundancy zones —
