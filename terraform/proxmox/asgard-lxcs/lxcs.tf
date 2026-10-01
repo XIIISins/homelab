@@ -803,3 +803,122 @@ resource "proxmox_virtual_environment_container" "hermod" {
     ]
   }
 }
+
+# ----------------------------------------------------------------------------
+# LXCs 1190/1191/1192 — canary pool (Urd ONLY) — Phase 10b1
+# ----------------------------------------------------------------------------
+# Disposable T1 test substrate for the AIOps loop (aiops-roadmap.md 10b1):
+# fault-injection, heal and rebuild tests (10f/10g) run against these, never
+# against a real service. They run nothing but the fleet baseline (baseline,
+# vlagent, zabbix-agent, hardening) so a destroy + recreate is lossless.
+#
+# Placement is deliberately NOT spread (the rule everywhere else): all three
+# on Urd. Skuld is excluded because its hard freezes would contaminate
+# fault-injection results; Verd because Frigg lives there and it has the least
+# RAM headroom. Urd also hosts PBS, Hugin, Saga, Factorio, Vör, Hlin, Bifrost
+# and the K3s worker + CP, so every fault injected here MUST stay scoped to
+# `canary-*` (see docs/procedures/canary-pool.md).
+#
+# Sizing: 1 vCPU / 512 MB / 4 GB disk each (1.5 GB total commit). `dedicated`
+# is a cgroup cap, not a reservation: real use is ~60-100 MB each.
+#
+# Nothing here is stateful or has a VIP, so there is no failover-symmetry
+# concern. `tags` carries `canary` + `aiops-t1` so the PVE UI shows the intent.
+# ----------------------------------------------------------------------------
+
+locals {
+  canary_nodes = {
+    canary-1 = { vmid = 1190, ip = "10.0.11.190" }
+    canary-2 = { vmid = 1191, ip = "10.0.11.191" }
+    canary-3 = { vmid = 1192, ip = "10.0.11.192" }
+  }
+}
+
+resource "random_password" "canary_root" {
+  for_each = local.canary_nodes
+
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "canary" {
+  for_each = local.canary_nodes
+
+  description = "AIOps canary (${each.key}) - disposable T1 fault-injection target"
+
+  node_name = "urd" # Urd only — see header
+  vm_id     = each.value.vmid
+  tags      = ["asgard", "lxc", "canary", "aiops-t1", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  cpu {
+    cores = 1
+  }
+
+  memory {
+    dedicated = 512 # MB
+    swap      = 256
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 4 # GB
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = each.key
+
+    ip_config {
+      ipv4 {
+        address = "${each.value.ip}/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block; ansible baseline stops
+    # managing it (baseline_manage_resolv_conf=false in group_vars/canary.yml).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.canary_root[each.key].result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 — see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+
+  # bpg/proxmox doesn't return template_file_id or user_account from the API
+  # on read — see Hugin's identical block above for the gotcha details.
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+    ]
+  }
+}

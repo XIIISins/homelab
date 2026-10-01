@@ -41,6 +41,7 @@ locals {
     # documentation without polluting the inventory graph.
     "ansible:adguard"      = { slug = "ansibleadguard", color_hex = "00bcd4" }
     "ansible:apprise"      = { slug = "ansibleapprise", color_hex = "ff9800" }
+    "ansible:canary"       = { slug = "ansiblecanary", color_hex = "ffeb3b" }
     "ansible:control"      = { slug = "ansiblecontrol", color_hex = "673ab7" }
     "ansible:gameserver"   = { slug = "ansiblegameserver", color_hex = "795548" }
     "ansible:haproxy-etcd" = { slug = "ansiblehaproxy-etcd", color_hex = "8bc34a" }
@@ -51,6 +52,11 @@ locals {
     "ansible:semaphore"    = { slug = "ansiblesemaphore", color_hex = "9c27b0" }
     "ansible:synology"     = { slug = "ansiblesynology", color_hex = "009688" }
     "ansible:zabbix"       = { slug = "ansiblezabbix", color_hex = "d32f2f" }
+
+    # AIOps targeting (Phase 10b1). Not `ansible:*`, so they never become
+    # Ansible groups; the 10f/10g loops read them to pick T1 canary targets.
+    "aiops:t1"     = { slug = "aiopst1", color_hex = "ffc107" }
+    "aiops:canary" = { slug = "aiopscanary", color_hex = "ffeb3b" }
 
     # Provenance + container-vs-VM
     "iac:manual"    = { slug = "iacmanual", color_hex = "f44336" }
