@@ -1,8 +1,10 @@
 ---
 # ansible/roles/k3s/defaults/main.yml
 
-# K3s version — pin to a specific version, Renovate will update this via PR
-k3s_version: "v1.33.1+k3s1"
+# K3s version — pin to a specific version. Desired version: a bump here does NOTHING on a running
+# cluster (install is skipped on healthy nodes) — run playbooks/k3s-upgrade.yml (one minor per run).
+# playbooks/platform-version-drift.yml reports drift between this and what is running.
+k3s_version: "v1.36.4+k3s1"
 
 # Cluster token — used to join nodes to the cluster
 # Set this in group_vars/all.vault.yml
@@ -15,8 +17,9 @@ k3s_service_cidr: "10.43.0.0/16"
 # CNI — we disable K3s built-in Flannel and install Calico separately
 k3s_flannel_backend: "none"
 
-# Calico version
-calico_version: "v3.29.3"
+# Calico version — desired version. Changed on a live cluster ONLY via playbooks/calico-upgrade.yml
+# (one minor per run, with datastore backup + CRD-prune guard); the install path below is first-install only.
+calico_version: "v3.30.7"
 
 # kubeconfig location on MacBook
 kubeconfig_local_path: "~/.kube/niflheim-asgard.yaml"

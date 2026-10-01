@@ -11,6 +11,13 @@
     state: directory
     mode: "0755"
 
+- name: Download Calico operator CRDs (v3.30+ ships them separately; the operator manifest no longer carries them)
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/operator-crds.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/tigera-operator-crds.yaml
+    mode: "0644"
+  when: (calico_version | regex_replace('^v', '')) is version('3.30.0', '>=')
+
 - name: Download Calico operator manifest
   # The Tigera operator manages the Calico installation
   ansible.builtin.get_url:

@@ -1,0 +1,59 @@
+# ansible/playbooks/platform-version-drift.yml
+---
+# READ-ONLY drift check: are K3s and Calico running the versions git says they should?
+#
+#   ansible-playbook playbooks/platform-version-drift.yml
+#
+# Source of truth = roles/k3s/defaults/main.yml (`k3s_version`, `calico_version`). Those versions
+# are applied to a LIVE cluster only by playbooks/k3s-upgrade.yml and playbooks/calico-upgrade.yml
+# (explicit, health-gated, one minor per run) — never by a routine run of the k3s role, so a drift
+# report is a prompt to run the matching upgrade playbook, not something to auto-converge.
+# Fails (non-zero) when anything drifts so it can be wired into a scheduled drift job.
+
+- name: K3s version per node
+  hosts: k3s
+  gather_facts: false
+  vars_files:
+    - ../roles/k3s/defaults/main.yml
+  tasks:
+    - name: Running K3s version
+      ansible.builtin.shell: /usr/local/bin/k3s --version | head -1 | cut -d' ' -f3
+      register: running
+      changed_when: false
+      check_mode: false
+
+    - name: K3s matches git
+      ansible.builtin.assert:
+        that: running.stdout == k3s_version
+        fail_msg: "{{ inventory_hostname }}: running {{ running.stdout }}, git says {{ k3s_version }} -> playbooks/k3s-upgrade.yml"
+        success_msg: "{{ inventory_hostname }}: {{ running.stdout }}"
+
+- name: Calico version
+  hosts: k3s_cp[0]
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../roles/k3s/defaults/main.yml
+  tasks:
+    - name: Running Calico version
+      ansible.builtin.command: /usr/local/bin/k3s kubectl get installation default -o jsonpath={.status.calicoVersion}
+      register: cal
+      changed_when: false
+      check_mode: false
+
+    - name: Live pod CIDR of the default IPPool
+      ansible.builtin.command: /usr/local/bin/k3s kubectl get ippools.crd.projectcalico.org default-ipv4-ippool -o jsonpath={.spec.cidr}
+      register: cidr
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Calico matches git
+      ansible.builtin.assert:
+        that:
+          - cal.stdout == calico_version
+          - cidr.stdout == k3s_pod_cidr
+        fail_msg: >-
+          calico running {{ cal.stdout }} (git {{ calico_version }}), IPPool cidr '{{ cidr.stdout }}' (git {{ k3s_pod_cidr }})
+          -> playbooks/calico-upgrade.yml / re-render roles/k3s/templates/calico-installation.yaml.j2
+        success_msg: "calico {{ cal.stdout }}, pool {{ cidr.stdout }}"

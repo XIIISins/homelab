@@ -1,55 +1,72 @@
 # ansible/playbooks/calico-upgrade.yml
 ---
-# Rolling Calico (tigera-operator) upgrade on a LIVE asgard cluster — ONE MINOR PER RUN.
+# Live Calico (tigera-operator) upgrade — ONE MINOR PER RUN, git-driven.
 #
-#   ansible-playbook playbooks/calico-upgrade.yml -e calico_target_version=v3.30.7
+#   1. bump `calico_version` in roles/k3s/defaults/main.yml (commit it)
+#   2. ansible-playbook playbooks/calico-upgrade.yml            # target defaults to calico_version
+#      (or -e calico_target_version=v3.NN.N to override)
 #
-# Calico is NOT Flux-managed: the operator manifest is an addon file in the init
-# node's /var/lib/rancher/k3s/server/manifests/ that K3s applies (roles/k3s/tasks/calico.yml
-# does the same on first install, only when the node is not yet healthy). So an upgrade is:
-# replace that file with the target version's manifests/tigera-operator.yaml, let K3s apply
-# it, and the operator then rolls calico-node / typha / kube-controllers itself.
-# (The Installation CR — calico-installation.yaml — is unchanged between versions.)
+# Calico is NOT Flux-managed: its manifests are K3s *addon files* on the init node
+# (/var/lib/rancher/k3s/server/manifests/). K3s's addon controller PRUNES any object that
+# disappears from an addon's file. That bit us on 2026-10-01: the 3.29 operator manifest
+# contained Calico's datastore CRDs (crd.projectcalico.org), the 3.30 one does not (the operator
+# manages them), so replacing the file deleted the CRDs and with them every IPPool / IPAMBlock /
+# BlockAffinity — pod networking broke cluster-wide
+# (docs/incidents/2026-10-01-calico-datastore-prune.md).
 #
-# Safety: pre-flight needs every TigeraStatus Available and every node Ready; the run then
-# waits for status.calicoVersion == target AND the same health again. Existing pod
-# networking keeps working while calico-node restarts (dataplane rules persist).
-# Re-runnable; skips when already at the target. After the FINAL hop set `calico_version`
-# in roles/k3s/defaults/main.yml. Run ONE ansible-playbook at a time (CLAUDE.md).
+# Safeguards here:
+#   * export the whole crd.projectcalico.org datastore to a file on the init node first;
+#   * REFUSE to proceed if, for either addon file, the target's counterpart drops a
+#     CustomResourceDefinition the current file carries (K3s prunes per addon file; that is what
+#     deleted 24 CRDs on 2026-10-01). Deliberate removals need -e '{"calico_allow_crd_removal":[...]}'
+#     (3.31 -> 3.32 drops the two k8s AdminNetworkPolicy CRDs: verify none exist, then allow);
+#   * apply operator-crds.yaml (its own addon file) BEFORE the operator, and verify the
+#     projectcalico CRD count + IPPool/IPAMBlock/BlockAffinity counts did not shrink;
+#   * wait for status.calicoVersion == target, every TigeraStatus Available, calico-node rolled.
+#
+# Run ONE ansible-playbook at a time (CLAUDE.md).
 
 - name: Calico upgrade
   hosts: k3s_cp[0]
   gather_facts: false
   become: true
+  vars_files:
+    - ../roles/k3s/defaults/main.yml # calico_version = desired version (git is the source of truth)
   vars:
     kc: /usr/local/bin/k3s kubectl
     manifest_dir: /var/lib/rancher/k3s/server/manifests
+    target: "{{ calico_target_version | default(calico_version) }}"
+    work: "/root/calico-upgrade-{{ target }}"
+    raw: "https://raw.githubusercontent.com/projectcalico/calico/{{ target }}/manifests"
   tasks:
-    - name: Require calico_target_version
+    - name: Validate target
       ansible.builtin.assert:
-        that:
-          - calico_target_version is defined
-          - calico_target_version is match('^v3\.[0-9]+\.[0-9]+$')
-        fail_msg: "Pass -e calico_target_version=v3.NN.N (one minor above the running version)"
+        that: target is match('^v3\.[0-9]+\.[0-9]+$')
+        fail_msg: "target '{{ target }}' is not v3.NN.N"
 
     - name: Current Calico version
       ansible.builtin.command: "{{ kc }} get installation default -o jsonpath={.status.calicoVersion}"
-      register: calico_current
+      register: cur
       changed_when: false
 
-    - name: Already at target?
+    - name: One minor at a time
+      ansible.builtin.assert:
+        that:
+          - (target | regex_replace('^v3\.([0-9]+)\..*', '\1') | int) - (cur.stdout | regex_replace('^v3\.([0-9]+)\..*', '\1') | int) in [0, 1]
+        fail_msg: "{{ cur.stdout }} -> {{ target }} skips a minor; upgrade one minor per run"
+
+    - name: Plan
       ansible.builtin.debug:
-        msg: "running {{ calico_current.stdout }} -> target {{ calico_target_version }}"
+        msg: "running {{ cur.stdout }} -> target {{ target }}"
 
     - name: Upgrade
-      when: calico_current.stdout != calico_target_version
+      when: cur.stdout != target
       block:
-        - name: Pre-flight — all TigeraStatus Available, not Progressing/Degraded
+        - name: Pre-flight — every TigeraStatus Available (not Progressing/Degraded)
           ansible.builtin.shell: |
             set -o pipefail
             {{ kc }} get tigerastatus --no-headers | awk '!($2=="True" && $3=="False" && $4=="False")' | wc -l
-          args:
-            executable: /bin/bash
+          args: {executable: /bin/bash}
           register: ts_pre
           changed_when: false
           failed_when: ts_pre.stdout | trim != '0'
@@ -58,52 +75,142 @@
           ansible.builtin.shell: |
             set -o pipefail
             {{ kc }} get nodes --no-headers | awk '$2!="Ready"' | wc -l
-          args:
-            executable: /bin/bash
+          args: {executable: /bin/bash}
           register: nodes_pre
           changed_when: false
           failed_when: nodes_pre.stdout | trim != '0'
 
-        - name: Replace the tigera-operator addon manifest with the target version
-          ansible.builtin.get_url:
-            url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_target_version }}/manifests/tigera-operator.yaml"
-            dest: "{{ manifest_dir }}/tigera-operator.yaml"
+        - name: Work dir
+          ansible.builtin.file: {path: "{{ work }}", state: directory, mode: "0700"}
+
+        - name: Download target manifests (operator + operator-crds when the release ships it)
+          ansible.builtin.shell: |
+            rm -f "{{ work }}/{{ item }}"
+            curl -fsSL -o "{{ work }}/{{ item }}" "{{ raw }}/{{ item }}" || rm -f "{{ work }}/{{ item }}"
+          loop: [tigera-operator.yaml, operator-crds.yaml]
+          changed_when: false
+          # operator-crds.yaml exists from v3.30; a 404 on older releases just leaves no file
+
+        - name: Which manifests did the release ship?
+          ansible.builtin.stat:
+            path: "{{ work }}/{{ item }}"
+          loop: [tigera-operator.yaml, operator-crds.yaml]
+          register: shipped
+
+        - name: tigera-operator.yaml is mandatory
+          ansible.builtin.assert:
+            that: (shipped.results | selectattr('item', 'equalto', 'tigera-operator.yaml') | map(attribute='stat.exists') | first)
+            fail_msg: "{{ raw }}/tigera-operator.yaml could not be downloaded"
+
+        # K3s prunes PER ADDON FILE: an object that disappears from the file it was applied from is
+        # deleted (CRDs take their data with them). So compare file by file, not the union.
+        - name: CRDs dropped per addon file (current on-disk file vs the target's counterpart)
+          ansible.builtin.shell: |
+            names() { [ -f "$1" ] && awk '/^kind: CustomResourceDefinition/{f=1} f&&/^  name:/{print $2; f=0}' "$1" | sort -u; }
+            names {{ manifest_dir }}/tigera-operator.yaml       > /tmp/_old_op;   names {{ work }}/tigera-operator.yaml > /tmp/_new_op
+            names {{ manifest_dir }}/tigera-operator-crds.yaml  > /tmp/_old_crd;  names {{ work }}/operator-crds.yaml   > /tmp/_new_crd
+            touch /tmp/_old_op /tmp/_new_op /tmp/_old_crd /tmp/_new_crd
+            { comm -23 /tmp/_old_op /tmp/_new_op; comm -23 /tmp/_old_crd /tmp/_new_crd; } | sort -u
+            rm -f /tmp/_old_op /tmp/_new_op /tmp/_old_crd /tmp/_new_crd
+          args: {executable: /bin/bash}
+          register: crds_dropped
+          changed_when: false
+
+        - name: GUARD — no CRD may disappear from an addon file (unless explicitly allowed)
+          ansible.builtin.assert:
+            that: (crds_dropped.stdout_lines | difference(calico_allow_crd_removal | default([]))) | length == 0
+            fail_msg: >-
+              Refusing: K3s would PRUNE these CRDs (and ALL their objects) when it re-applies the addon:
+              {{ crds_dropped.stdout_lines | difference(calico_allow_crd_removal | default([])) }}.
+              If a removal is deliberate and the objects are verified absent, re-run with
+              -e '{"calico_allow_crd_removal": ["<crd name>", ...]}'.
+
+        - name: Datastore counts BEFORE
+          ansible.builtin.shell: |
+            for r in ippools ipamblocks blockaffinities ipamhandles; do echo "$r=$({{ kc }} get $r.crd.projectcalico.org --no-headers 2>/dev/null | wc -l)"; done
+            echo "projectcalico_crds=$({{ kc }} get crd -o name | grep -c 'crd.projectcalico.org')"
+          args: {executable: /bin/bash}
+          register: before
+          changed_when: false
+
+        - name: Export the whole Calico datastore (restore point)
+          ansible.builtin.shell: |
+            set -o pipefail
+            out=/var/lib/rancher/k3s/calico-datastore-backup-$(date -u +%Y%m%dT%H%M%SZ).yaml
+            res=$({{ kc }} api-resources --api-group=crd.projectcalico.org -o name | paste -sd, -)
+            {{ kc }} get "$res" -A -o yaml > "$out"
+            chmod 600 "$out"; ls -l "$out"
+          args: {executable: /bin/bash}
+          register: backup
+          changed_when: true
+
+        - name: Backup file
+          ansible.builtin.debug: {msg: "{{ backup.stdout }}"}
+
+        - name: Install operator CRDs as their own addon FIRST (3.30+)
+          ansible.builtin.copy:
+            src: "{{ work }}/operator-crds.yaml"
+            dest: "{{ manifest_dir }}/tigera-operator-crds.yaml"
+            remote_src: true
             mode: "0644"
-            owner: root
-            group: root
-            force: true
+          when: shipped.results | selectattr('item', 'equalto', 'operator-crds.yaml') | map(attribute='stat.exists') | first
+
+        - name: Give K3s a moment to apply the CRDs
+          ansible.builtin.pause: {seconds: 20}
+
+        - name: Datastore CRDs must still be there
+          ansible.builtin.shell: "{{ kc }} get crd -o name | grep -c 'crd.projectcalico.org'"
+          register: crd_mid
+          changed_when: false
+          failed_when: crd_mid.stdout | trim | int < (before.stdout_lines | select('match', '^projectcalico_crds=') | first | regex_replace('.*=', '') | int)
+
+        - name: Replace the operator addon with the target version
+          ansible.builtin.copy:
+            src: "{{ work }}/tigera-operator.yaml"
+            dest: "{{ manifest_dir }}/tigera-operator.yaml"
+            remote_src: true
+            mode: "0644"
 
         - name: Wait until Calico reports the target version
           ansible.builtin.command: "{{ kc }} get installation default -o jsonpath={.status.calicoVersion}"
-          register: calico_now
-          until: calico_now.stdout == calico_target_version
+          register: now
+          until: now.stdout == target
           retries: 90
           delay: 10
           changed_when: false
 
-        - name: Wait until every TigeraStatus is Available again and calico-node is fully rolled
+        - name: Wait until every TigeraStatus is Available and calico-node is rolled
           ansible.builtin.shell: |
             set -o pipefail
             bad=$({{ kc }} get tigerastatus --no-headers | awk '!($2=="True" && $3=="False" && $4=="False")' | wc -l)
             ds=$({{ kc }} -n calico-system get ds calico-node -o jsonpath='{.status.desiredNumberScheduled}/{.status.numberReady}/{.status.updatedNumberScheduled}')
             echo "tigera-not-ok=$bad calico-node(desired/ready/updated)=$ds"
             [ "$bad" -eq 0 ] && [ "$(echo $ds | awk -F/ '{print ($1==$2 && $1==$3)}')" = 1 ]
-          args:
-            executable: /bin/bash
+          args: {executable: /bin/bash}
           register: healthy
           until: healthy.rc == 0
           retries: 90
           delay: 10
           changed_when: false
 
+        - name: Datastore counts AFTER (must not have shrunk)
+          ansible.builtin.shell: |
+            for r in ippools ipamblocks blockaffinities ipamhandles; do echo "$r=$({{ kc }} get $r.crd.projectcalico.org --no-headers 2>/dev/null | wc -l)"; done
+            echo "projectcalico_crds=$({{ kc }} get crd -o name | grep -c 'crd.projectcalico.org')"
+          args: {executable: /bin/bash}
+          register: after
+          changed_when: false
+
+        - name: Compare
+          ansible.builtin.debug:
+            msg: "before: {{ before.stdout_lines }} | after: {{ after.stdout_lines }}"
+
     - name: Result
       ansible.builtin.shell: |
         {{ kc }} get installation default -o jsonpath='calicoVersion={.status.calicoVersion}{"\n"}'
         {{ kc }} get tigerastatus
-        {{ kc }} -n tigera-operator get deploy tigera-operator -o jsonpath='operator={.spec.template.spec.containers[0].image}{"\n"}'
       register: result
       changed_when: false
 
     - name: Show result
-      ansible.builtin.debug:
-        var: result.stdout_lines
+      ansible.builtin.debug: {var: result.stdout_lines}
