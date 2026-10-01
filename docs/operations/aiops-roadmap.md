@@ -54,11 +54,11 @@ The directional intent is already on record: drift converges automatically, and 
 | Tier | Meaning | Examples | Autonomy |
 |---|---|---|---|
 | **T0** | Read-only | diagnosis, queries, forecasts | always |
-| **T1** | Stateless / replicated / rebuildable from IaC with no data loss | AdGuard replicas (Mimir/Kvasir), Tailscale LXCs, Hermod, canaries, `do1`/`do-watch`, stalled `HelmRelease` resets, known-condition cleanups | auto, notify after (10f) |
+| **T1** | Stateless / replicated / rebuildable from IaC with no data loss | AdGuard replicas (Mimir/Kvasir), Tailscale LXCs, Hermod, canaries, `do1`, stalled `HelmRelease` resets, known-condition cleanups | auto, notify after (10f) |
 | **T2** | Stateful, user-visible, or single-instance | Factorio, workers (until proven), Postgres replicas, Hugin/Zabbix, NetBox, Authentik | approval-gated (10e); some graduate to T1 after soak |
 | **T3** | Quorum members, control plane, hypervisors, state stores, the agent host itself | CPs/etcd, Vault, Patroni leader, HAProxy/etcd trio, PBS, PVE hosts, Synology, UCG, Frigg | human only; agent may diagnose |
 
-Frigg is a single control point: if it dies the loop dies. The outside watcher (10b3) is what notices that; rebuilding Frigg stays human (T3) until a second control node exists.
+Frigg is a single control point: if it dies the loop dies. The outside watcher (Gatus on `do1`, 10b3) is what notices that; rebuilding Frigg stays human (T3) until a second control node exists.
 
 ---
 
@@ -83,10 +83,10 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 **Why:** the existing DigitalOcean droplet is an unmanaged, years-old Docker box (hand-built NPM/Portainer/Kuma, EOL-ish OS, a stale firewall binding, an abandoned OpenTAKServer remnant). It carries two live duties: the **TeamSpeak failover** (SRV priority 99 → `do-ts3`) and **HeyLeaf's PlantNet proxy** (`plantnet.heyleaf.app`; PlantNet allowlists a fixed IPv4 — the reason this is a droplet and not App Platform, where a dedicated egress IP adds ~$25/mo). Wipe-and-rebuild, not patch-in-place; build beside, validate, cut over, destroy.
 
-**Footprint (deliberately minimal — one purpose):** `s-1vcpu-1gb` (~$6/mo), Debian 13, ams3, a reserved IP, Docker + Caddy + two containers (`teamspeak`, `plantnet-proxy`). **No** Portainer, Nginx Proxy Manager, Uptime Kuma or other admin UIs on this box.
+**Footprint (deliberately minimal — two duties):** `s-1vcpu-1gb` (~$6/mo), Debian 13, ams3, a reserved IP, Docker + Caddy + two containers (`teamspeak`, `plantnet-proxy`) plus the **Gatus outside watcher** as a small systemd binary (10b3). The box serves the failover/proxy and watches the homelab; nothing else. **No** Portainer, Nginx Proxy Manager, Uptime Kuma or other admin UIs.
 
 - **10a1 — Terraform `terraform/digitalocean/`.** Provider with a **new least-privilege token** (Vault, via the shim; the old broad token is revoked at cleanup); project `homelab-offsite`; droplet; reserved IP; **one explicit cloud firewall bound by droplet ID** (see [`known-issues/digitalocean.md`](../known-issues/digitalocean.md): firewalls are additive and tag-bound); SSH keys declared explicitly. In `terraform/tailscale/`: new `tag:offsite` in `policy.hujson` + `tagOwners`, a tagged pre-authorized key minted to Vault (existing `authkeys.tf` pattern) so the node joins tagged from first boot (no key expiry), and **scoped grants replacing the allow-all `* → *`** for this tag. NetBox declaration in `terraform/netbox/vms.tf` (standing TF→NetBox rule). Cloudflare: bring `do-ts3` / `hel-ts3` / the `_ts3._udp` SRV into `terraform/cloudflare/` (overrides the "leave hand-managed" note in [`services/teamspeak.md`](../services/teamspeak.md)).
-- **10a2 — Ansible `do1.yml`.** Existing roles: `baseline`, `hardening`, `tailscale`, `os-updates`, `caddy-reverse-proxy`, optionally `vlagent`/`zabbix-agent` over the tailnet. New: `docker` role; compose deployment for `teamspeak` and `plantnet-proxy`. The proxy image is **built on the host from the HeyLeaf repo source** (`plantnet-proxy-docker/`, pinned commit) — there is no registry and no CI; the old image was a local build. PlantNet API key from Vault `secret/ansible/do1/plantnet` (already seeded 2026-10-01; 1P mirror is the operator's). Firewall: 22, 80, 443, 9987/udp, tailscale 41641/udp — TS3 query (10011) and file-transfer/TSDNS (30033/41144) stay closed publicly.
+- **10a2 — Ansible `do1.yml`.** Existing roles: `baseline`, `hardening`, `tailscale`, `os-updates`, `caddy-reverse-proxy`, optionally `vlagent`/`zabbix-agent` over the tailnet. New: `docker` role; compose deployment for `teamspeak` and `plantnet-proxy`. The proxy image is **built on the host from the HeyLeaf repo source** (`plantnet-proxy-docker/`, pinned commit) — there is no registry and no CI; the old image was a local build. PlantNet API key from Vault `secret/ansible/do1/plantnet` (already seeded 2026-10-01; 1P mirror is the operator's). Firewall: 22, 80, 443, 9987/udp, tailscale 41641/udp — TS3 query (10011) and file-transfer/TSDNS (30033/41144) stay closed publicly. **Co-location mitigations** (the box is the internet-facing one *and* hosts the watcher): a `DOCKER-USER` rule drops traffic from the container bridges to the tailnet range, so a compromised proxy container cannot inherit the host's tailnet reach; the `tag:offsite` ACL allows only the Gatus probe/heartbeat ports on Frigg/Hermod (one node = one combined permission set — tags cannot split watcher from proxy); the `gatus` role (10b3) runs as its own unprivileged user; unattended-upgrade reboots run in a fixed window with a matching heartbeat grace period.
 - **10a3 — Restore, cutover, cleanup.**
   1. Restore the TS3 SQLite DB from the dump held on Frigg (`~/do1-ts3-dump/`, integrity-checked; taken via the SQLite backup API because the live DB is WAL-mode — a plain file copy misses data).
   2. Operator adds the **new reserved IP** to the PlantNet allowlist (my.plantnet.org) **before** cutover; keep the old IP until validated.
@@ -94,7 +94,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
   4. DNS: xiiisins.com records via Terraform; `plantnet.heyleaf.app` is in a separate Cloudflare zone, **changed manually by the operator**.
   5. Soak ~7 days, then destroy: old droplet, the powered-off `do-tailscale-p01`, both stale firewalls, the unused `startpage` registry and stale SSH keys; delete the pre-hardening snapshot; revoke the old API token.
 - **Exit:** TS3 failover + proxy serve from `do1` built entirely by `terraform apply` + `ansible-playbook`; nothing hand-configured; old resources gone; monthly spend ≤ today's.
-- **Risks:** PlantNet allowlist lag (mitigated by dual-IP window); HeyLeaf proxy base image `node:18-alpine` is EOL — flag to the HeyLeaf repo, don't fix here; TS3 DB restore fidelity (rehearse on a burst droplet first).
+- **Risks:** PlantNet allowlist lag (mitigated by dual-IP window); HeyLeaf proxy base image `node:18-alpine` is EOL — flag to the HeyLeaf repo, don't fix here; TS3 DB restore fidelity (rehearse on a burst droplet first); the co-located watcher shares fate and attack surface with the public proxy (mitigations in 10a2/10b3; `do1` itself is watched from the homelab so its death is noticed).
 
 ---
 
@@ -102,8 +102,15 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 - **10b1 — Canary pool on Urd.** 3 × 512 MB LXCs (`canary-*`, proposed IDs 1190–1192), ≤ ~2 GB total, via the `asgard-lxcs` module + NetBox declaration. **Not Skuld** (freezes would contaminate fault-injection results) and **not Verd** (Frigg lives there, least headroom). Live headroom on 2026-10-01: Urd ~7.7 GB, Verd ~5.6 GB, Skuld ~8.3 GB available (RAM is the only tight resource; CPU and thin-pool disk are plentiful).
 - **10b2 — Burst substrate.** Separate Terraform root `terraform/digitalocean-burst/` (own state; never in the `do1` root): ephemeral droplets tagged `tag:burst` joining the tailnet with ACL scoped to Frigg only (no path to prod). **K3s via the existing `k3s` role on plain droplets, not DOKS** — DOKS is not K3s (your invariant) and its node auto-repair would confound heal/rebuild tests. **Cost guard:** a TTL reaper on Frigg (destroys `tag:burst` droplets older than N hours; token from Vault) plus a DO billing alert — a forgotten cluster must not run for a month.
-- **10b3 — Outside watcher `do-watch`.** A *separate*, always-on, single-purpose droplet (`s-1vcpu-512mb-10gb`, ~$4/mo; no Docker): systemd-timer probes of public endpoints and tailnet-only checks of Frigg/Hermod, plus a **dead-man's switch** (Frigg heartbeats; silence alerts). It alerts through an **independent channel** (a direct Discord webhook), never via Hermod — Hermod lives in the thing being watched. Answers "who watches the watcher". *Proposed; see decision D1.*
-- **Exit:** blocking Frigg's heartbeat raises an alert through the independent path within the configured window; a burst K3s cluster can be created and reaped by script; canaries are inventoried and destroyable.
+- **10b3 — Outside watcher: [Gatus](https://github.com/TwiN/gatus) on `do1`.** Declarative YAML (config in git, templated by a new `gatus` Ansible role), run as an **unprivileged systemd binary** — not a container, which keeps the container→tailnet drop rule (10a2) simple; single Go binary, SQLite history.
+  - **Probes:** public endpoints (apex/WebFinger, `home.`, `paste.`), TLS-expiry, and tailnet-only checks of Frigg and Hermod.
+  - **Dead-man's switch:** a Gatus *external endpoint* with a `heartbeat` interval that Frigg pings; silence alerts (grace window covers `do1`'s own reboot window).
+  - **Independent alert channel:** a direct Discord webhook (secret from Vault, mode 0600, readable only by the `gatus` user) — never via Hermod, which lives in the thing being watched. Answers "who watches the watcher".
+  - **Metrics:** Gatus exposes Prometheus `/metrics`; vmagent scrapes it over the tailnet into VictoriaMetrics.
+  - **Inside view:** no second UI. Zabbix, the S4 prober and VictoriaMetrics already cover inside checks and are pointed at `do1` as well (mutual watching — the homelab notices `do1` dying). An optional Gatus in asgard via Flux is a later add if an internal status page is wanted.
+  - **Not Uptime Kuma:** its monitors are click-ops state in a database (not in git, no official declarative path), memory use varies widely, and the old droplet's Kuma sat unhealthy for weeks.
+  - **Split it back out** to its own droplet if it ever needs Docker, outgrows ~100 MB, needs a public status page, or makes `do1` hard to patch (the role is host-agnostic; this is just re-pointing it).
+- **Exit:** blocking Frigg's heartbeat raises an alert through the independent path within the configured window; `do1`'s own death is alerted from the homelab side; a burst K3s cluster can be created and reaped by script; canaries are inventoried and destroyable.
 
 ---
 
@@ -138,7 +145,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 ## 10g — Stage 4: fleet rebuild loop
 
 - **10g1 — Prerequisites (pull-forward, not backlog):** offsite export of the Calico datastore + etcd snapshots (🔴 CRITICAL open question); **PBS off Skuld** and its datastore capacity fixed (215/252 GB used); restore drills passing (PBS restore of a canary and an LXC; Calico datastore restore onto a scratch cluster); Skuld watchdog proven or Skuld de-risked.
-- **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`/`do-watch`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
+- **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
 - **10g3 — Gate for worker auto-rebuild.** Only after N consecutive successful approval-gated worker rebuilds and a passing restore drill.
 - **Exit:** a deliberately killed canary and a replica LXC are rebuilt from the repo without operator input; a worker rebuild is approval-gated and verified.
 
@@ -154,9 +161,8 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 | Item | Monthly |
 |---|---|
-| `do1` (`s-1vcpu-1gb`, reserved IP free while attached) | ~$6 |
-| `do-watch` (`s-1vcpu-512mb-10gb`) | ~$4 |
-| **Steady-state DO** | **~$10** (current: ~$12.10) |
+| `do1` (`s-1vcpu-1gb`, reserved IP free while attached; hosts TS3, the proxy **and** the Gatus watcher) | ~$6 |
+| **Steady-state DO** | **~$6** (current: ~$12.10) |
 | Burst K3s test, 3 × `s-2vcpu-4gb`, 4 h | ~$0.43 per session (~$2–5/mo at light–medium use; always-on would be ~$72) |
 | Existing AWS (KMS + state bucket) | ~$1–2; cold small copies (Vault snapshots, Calico/etcd exports) cost cents |
 
@@ -168,7 +174,7 @@ AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now 
 
 | # | Decision | Default |
 |---|---|---|
-| D1 | Outside watcher placement | Separate `do-watch` droplet (~$4) + independent Discord webhook; alternative is a free hosted heartbeat service |
+| D1 | Outside watcher placement + tool | **Decided 2026-10-01:** Gatus (systemd binary) co-located on `do1`, direct Discord webhook; split out only on the conditions in 10b3. Not Uptime Kuma |
 | D2 | TS3 `do-ts3`/`hel-ts3`/SRV records into Terraform | Yes (overrides "leave hand-managed") |
 | D3 | Offsite location for Calico/etcd exports | S3 bucket/prefix in the existing AWS account (separate IAM, no droplet creds) — decision tracked in the CRITICAL open question |
 | D4 | Dedicated Terraform DO token scope | Least-privilege custom scopes; revoke the broad one after 10a |

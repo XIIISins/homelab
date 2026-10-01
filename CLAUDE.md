@@ -265,7 +265,7 @@ Runtime quick-reference only. Full K3s install/VM detail in [`docs/services/asga
 - 🔲 Remaining asgard LXCs (Jellyfin — privileged LXC on Urd, QuickSync passthrough)
 - 🔲 **Phase 7 — Jotunheim K3s**
 - 🔲 Phase 8b — vm-operator migration (VLSingle/VMSingle CRDs + VMServiceScrape)
-- 🔲 **Phase 10 — AIOps & self-healing** (planned 2026-10-01; plan: [`docs/operations/aiops-roadmap.md`](docs/operations/aiops-roadmap.md)). 10a = rebuild the unmanaged DigitalOcean droplet from IaC (minimal TS3 failover + HeyLeaf PlantNet proxy; DO stays the offsite, AWS stays KMS/state/cold copies; offsite is DR + watcher + burst, never a quorum member). Prerequisites pulled forward in [`open-questions.md`](docs/operations/open-questions.md): offsite Calico/etcd export, PBS off Skuld + capacity, Skuld watchdog.
+- 🔲 **Phase 10 — AIOps & self-healing** (planned 2026-10-01; plan: [`docs/operations/aiops-roadmap.md`](docs/operations/aiops-roadmap.md)). 10a = rebuild the unmanaged DigitalOcean droplet from IaC (minimal TS3 failover + HeyLeaf PlantNet proxy + a Gatus outside watcher, no Uptime Kuma; DO stays the offsite, AWS stays KMS/state/cold copies; offsite is DR + watcher + burst, never a quorum member). Prerequisites pulled forward in [`open-questions.md`](docs/operations/open-questions.md): offsite Calico/etcd export, PBS off Skuld + capacity, Skuld watchdog.
 
 ---
 
