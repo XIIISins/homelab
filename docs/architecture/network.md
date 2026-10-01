@@ -50,6 +50,9 @@
 | `10.0.11.201` | 1110 | Urd | AdGuard Home — Saga ✅ |
 | `10.0.11.202` | 1111 | Verd | AdGuard Home — Mimir ✅ |
 | `10.0.11.203` | 1112 | Skuld | AdGuard Home — Kvasir ✅ |
+| `10.0.11.190` | 1190 | Urd | AIOps canary `canary-1` (10b1, disposable) |
+| `10.0.11.191` | 1191 | Urd | AIOps canary `canary-2` |
+| `10.0.11.192` | 1192 | Urd | AIOps canary `canary-3` |
 | `10.0.11.213` | 1113 | Urd | Tailscale 1 |
 | `10.0.11.214` | 1114 | Verd | Tailscale 2 |
 | `10.0.11.215` | 1115 | Skuld | Tailscale 3 |
@@ -127,6 +130,7 @@ NFS traffic only — no static assignments needed.
 | 1110–1119 | Network infrastructure (AdGuard ×3, Tailscale ×3) |
 | 1120–1129 | Services (Factorio; Teamspeak pivoted to a K3s app — no longer an LXC) |
 | 1130–1139 | Database (PostgreSQL ×3, HAProxy ×3) |
+| 1190–1199 | AIOps canary pool (1190–1192 in use; Urd only, disposable — [`procedures/canary-pool.md`](../procedures/canary-pool.md)) |
 
 ## DNS naming
 
