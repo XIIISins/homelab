@@ -52,9 +52,9 @@
 
 locals {
   tailscale_nodes = {
-    bifrost    = { node = "urd",   vmid = 1113, ip = "10.0.11.213" }
+    bifrost    = { node = "urd", vmid = 1113, ip = "10.0.11.213" }
     heimdall   = { node = "skuld", vmid = 1114, ip = "10.0.11.214" }
-    gjallarbru = { node = "verd",  vmid = 1115, ip = "10.0.11.215" }
+    gjallarbru = { node = "verd", vmid = 1115, ip = "10.0.11.215" }
   }
 }
 
@@ -90,13 +90,13 @@ resource "proxmox_virtual_environment_container" "tailscale" {
   }
 
   memory {
-    dedicated = 512     # MB
+    dedicated = 512 # MB
     swap      = 1024
   }
 
   disk {
     datastore_id = var.lxc_storage
-    size         = 4     # GB
+    size         = 4 # GB
   }
 
   network_interface {
@@ -129,7 +129,7 @@ resource "proxmox_virtual_environment_container" "tailscale" {
   }
 
   features {
-    nesting = true     # systemd 257 on Debian 13 — see gotchas
+    nesting = true # systemd 257 on Debian 13 — see gotchas
   }
 
   # /dev/net/tun passthrough for tailscaled inside an unprivileged
