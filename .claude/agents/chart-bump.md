@@ -54,6 +54,7 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 5. `flux reconcile kustomization <infrastructure|apps> --with-source`, then watch: `kubectl get hr`, pods, events. No `kubectl apply`. Stuck after a timeout → `flux reconcile hr <name> --force` / `--reset`; a bad bump → revert commit, push, then fix any wedged StatefulSet pod.
 6. **Test what the change actually touches** (below). Write results down with numbers, not "looks fine".
 7. Docs (post-flight): progress in `docs/operations/chart-bumps-2026-09.md`-style log, gotchas into `docs/known-issues/<subject>.md`, decisions row if architectural, tick `open-questions.md`.
+8. **CI cache check — whenever the bump touches a CI-cached pin** (`ansible/requirements.yml` collections, `.github/ci-requirements.txt` ansible-core/ansible-lint/yamllint, a Terraform provider/`required_providers` in a module, a tool `*_URL`/`*_SHA` in `ci.yml`, or a chart whose CRD schema kubeconform needs → bump `KUBECONFORM_SCHEMA_EPOCH`): follow [`docs/procedures/ci.md`](../../docs/procedures/ci.md#cache-keys--bump-checklist) — the PR's first CI run is an expected cold miss; confirm the cache was *saved*, then confirm a second run *hits* and skips the install. Record the result in the bump log.
 
 ### Targeted tests (pick what the item changes)
 
