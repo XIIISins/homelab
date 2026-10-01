@@ -62,6 +62,8 @@ Auto-merge is for docs and routine bumps. Anything touching `terraform/`, `ansib
 
 ## Applying the ruleset (the last step — operator, from the main checkout)
 
+**Status: applied 2026-10-01** (ruleset id `24308920`). Surprises on the way: (1) the first `main` push run failed — a Galaxy 502 poisoned the retry loop, fixed in #10; (2) the first plan wanted to null `description` / `has_issues` / `has_projects` on the imported repo (provider plans omitted args as null) — pinned in #11 before applying. Applied with `gh auth token` injected inline (broad `repo` scope) rather than the fine-grained PAT below; **mint the PAT and store it in 1P before this credential is needed again.**
+
 Module: [`terraform/github/`](../../terraform/github/). **Order matters** — requiring a check that has never reported blocks every PR, including the one that would fix it.
 
 1. Merge the CI PR to `main` and confirm `CI gate` reported green on the `push` run.
@@ -78,5 +80,5 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 
 ## Open follow-ups
 
-- Add the PAT to the `vault-homelab-env` / `homelab-env` shim so it stops being a manual `op read`.
+- Mint the fine-grained PAT (step 2 above — not yet done; the apply used the `gh` login token) and add it to the `vault-homelab-env` / `homelab-env` shim so it stops being a manual `op read`.
 - Optional later: required `CODEOWNERS`, signed commits, a weekly full-history gitleaks run, `terraform plan` on PRs once a read-only state role exists.
