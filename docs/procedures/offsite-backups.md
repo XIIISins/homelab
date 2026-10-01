@@ -9,7 +9,7 @@ domain as the thing it protected; K3s etcd snapshots were node-local).
 ## Status (2026-10-01)
 
 - **Live + verified:** bucket/IAM (`terraform/aws` applied, 13 resources), both keys placed in Vault, `terraform/vault` role + policy, **etcd → S3 on all 3 CPs** (drop-in rolled one CP at a time; a forced snapshot from each CP landed under `etcd/`, ~21 MB each; the writer key can put but not list/read, the etcd key can list).
-- **Not yet live:** the two CronJobs — they deploy when `main` is pushed (Flux). Push is the operator's call; until then the `backups` namespace doesn't exist. Test objects in the bucket: `calico/probe.txt` (expires after 30 d via lifecycle) and three manual `etcd/s3-verify-*` snapshots (~63 MB total, one per CP — K3s retention only prunes its own scheduled names and `etcd/` has no current-version expiry, so delete them with `k3s etcd-snapshot delete s3-verify-<node>-<ts>` if you want them gone; ≈ $0.0015/mo otherwise).
+- **CronJobs live + verified (pushed, Flux-applied, ExternalSecret synced):** one manual run of each succeeded — `calico/calico-datastore-<ts>.yaml` (99 KiB, `ippools=1`) and `vault-raft/vault-raft-<ts>.snap` (135 KiB, uploaded via the Kubernetes-auth `vault-snapshot` role) are in the bucket. First scheduled runs: 02:30 / 02:45 UTC. Test objects in the bucket: `calico/probe.txt` (expires after 30 d via lifecycle) and three manual `etcd/s3-verify-*` snapshots (~63 MB total, one per CP — K3s retention only prunes its own scheduled names and `etcd/` has no current-version expiry, so delete them with `k3s etcd-snapshot delete s3-verify-<node>-<ts>` if you want them gone; ≈ $0.0015/mo otherwise).
 
 ## What lands where
 
