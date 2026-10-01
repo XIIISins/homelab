@@ -61,6 +61,19 @@
   notify: reload caddy
   tags: [caddy, caddy:config]
 
+# `caddy validate` above runs as root and opens the configured log files,
+# creating them root-owned AFTER the log-dir task ran — on a fresh host that
+# makes the very first start fail with `permission denied`. Re-assert.
+- name: Re-assert Caddy log directory ownership after config validation
+  ansible.builtin.file:
+    path: "{{ caddy_log_dir }}"
+    state: directory
+    owner: "{{ caddy_log_owner }}"
+    group: "{{ caddy_log_group }}"
+    mode: "{{ caddy_log_mode }}"
+    recurse: true
+  tags: [caddy, caddy:logs]
+
 - name: Ensure Caddy service is enabled and started
   ansible.builtin.systemd:
     name: caddy

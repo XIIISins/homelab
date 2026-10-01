@@ -103,6 +103,39 @@
   when: offsite_plantnet_needs_source | bool and not ansible_check_mode
   tags: [offsite-node, offsite-node:plantnet]
 
+# The pinned commit has no package-lock.json (HeyLeaf .gitignores it), and the
+# Dockerfile runs `npm ci`. Ship the controller's lockfile, pinned by hash.
+- name: Stat the controller PlantNet lockfile
+  ansible.builtin.stat:
+    path: "{{ offsite_plantnet_lockfile_src }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  register: offsite_plantnet_lockfile_local
+  check_mode: false
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Assert the controller lockfile exists and matches the pinned hash
+  ansible.builtin.assert:
+    that:
+      - offsite_plantnet_lockfile_local.stat.exists
+      - offsite_plantnet_lockfile_local.stat.checksum == offsite_plantnet_lockfile_sha256
+    fail_msg: >-
+      {{ offsite_plantnet_lockfile_src }} is missing or does not match
+      offsite_plantnet_lockfile_sha256; review the lockfile change, then bump the pin.
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Ship the pinned PlantNet package-lock.json
+  ansible.builtin.copy:
+    src: "{{ offsite_plantnet_lockfile_src }}"
+    dest: "{{ offsite_root }}/plantnet-proxy/package-lock.json"
+    owner: root
+    group: root
+    mode: "0644"
+  register: offsite_plantnet_lockfile
+  when: not ansible_check_mode
+  tags: [offsite-node, offsite-node:plantnet]
+
 # ---- Compose project ----
 - name: Fetch PlantNet API key from Vault
   ansible.builtin.set_fact:
@@ -130,10 +163,27 @@
   register: offsite_compose_file
   tags: [offsite-node, offsite-node:compose]
 
+# A failed build leaves nothing "changed" on the next run, so also build when
+# the image for the pinned commit simply does not exist.
+- name: Check whether the PlantNet image for the pinned commit exists
+  ansible.builtin.command:
+    cmd: docker image inspect plantnet-proxy:{{ offsite_plantnet_commit[:12] }}
+  register: offsite_plantnet_image
+  failed_when: false
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [offsite-node, offsite-node:compose]
+
 - name: Build the PlantNet proxy image on the host
   ansible.builtin.command:
     cmd: docker compose --project-directory {{ offsite_root }} build plantnet-proxy
-  when: (offsite_plantnet_unpacked is changed or offsite_compose_file is changed) and not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - >-
+      offsite_plantnet_unpacked is changed
+      or offsite_plantnet_lockfile is changed
+      or offsite_compose_file is changed
+      or offsite_plantnet_image.rc != 0
   changed_when: true
   tags: [offsite-node, offsite-node:compose]
 
