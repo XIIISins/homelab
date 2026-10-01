@@ -49,8 +49,7 @@ A restore pulling everything is ~$0.30 egress, once.
      access_key_id="$(terraform output -raw backup_writer_access_key_id)" \
      secret_access_key="$(terraform output -raw backup_writer_secret_access_key)"
    ```
-   Then mirror both into 1Password per the offline-mirror rule (`AWS - Terraform - Backups etcd`, `AWS - Terraform - Backups writer`;
-   username = access key, credential = secret).
+   Then mirror both into 1Password per the offline-mirror rule (`[Asgard] - Mirror - Backups - K3s etcd-s3 IAM key`, `[Asgard] - Mirror - Backups - CronJob writer IAM key`; API Credential, username = access key, credential = secret). ✅ Mirrored 2026-10-01.
 3. **Vault policy + role** — `terraform/vault` (root token): `terraform apply` creates `vault-snapshot`.
 4. **etcd → S3** — `ansible-playbook playbooks/asgard-k3s.yml --tags k3s_etcd_s3 --limit k3s_cp` (the play is `serial: 1`; each CP restarts K3s and
    waits for Ready before the next). One playbook at a time across agents.
