@@ -187,6 +187,28 @@ routes:
     runbook_id: RB-SEMAPHORE-RUN-FAILED
     status: event
 
+  - id: semaphore-nonprod-apply-failed
+    source: semaphore
+    severity: info
+    match: '^Apply failed'
+    host: fleet
+    service: semaphore
+    check: apply-failed
+    runbook_id: RB-SEMAPHORE-RUN-FAILED
+    status: event
+    note: The nonprod-apply wrapper (canary pool) posts tag info, never critical/alert. The "[non-prod] " title prefix is stripped before routing and the normalizer rewrites host fleet -> nonprod, so this never shares a fingerprint with the prod apply-failed route above.
+
+  - id: semaphore-nonprod-drift-failed
+    source: semaphore
+    severity: info
+    match: '^Drift check failed'
+    host: fleet
+    service: semaphore
+    check: drift-check-failed
+    runbook_id: RB-SEMAPHORE-RUN-FAILED
+    status: event
+    note: Same as above for nonprod-drift-check (changes-only drift is silent for non-prod, so only the failed form exists).
+
   - id: semaphore-drift-failed
     source: semaphore
     severity: alert

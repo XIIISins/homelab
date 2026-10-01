@@ -14,6 +14,13 @@
 //   Average (3)            → "alert"    → Mist channel
 //   Warning (2), Info (1), Not classified (0) → suppressed (logs only)
 //
+// Non-prod cap (10b1): hosts named canary-<n> (the AIOps canary pool, Zabbix
+// host group "Asgard/LXCs/Canary") are CAPPED at "info": Disaster, High and
+// Average all go to the FYI channel (Randgrid), never Hrist or Mist. Enforced here, in the IaC'd script,
+// because the trigger action itself is not IaC; it applies to every path
+// through this media type. Keep the pattern in lockstep with
+// aiops/tools/normalize.py (_NONPROD_HOST) and docs/procedures/canary-pool.md.
+//
 // event_value → type:
 //   1 (PROBLEM)  → "failure" → red embed
 //   0 (RECOVERY) → "success" → green embed
@@ -32,6 +39,10 @@ try {
         'Not classified':  null
     };
     var tag = tagMap[params.severity];
+
+    if (/^canary-[0-9]+$/.test(params.host_name || '') && tag) {
+        tag = 'info';
+    }
 
     if (tag === undefined || tag === null) {
         // Severity below threshold — VL audit trail captures these via

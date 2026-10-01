@@ -17,8 +17,7 @@
 #   3. Database tier (asgard-postgres, asgard-haproxy-etcd) — back-end
 #      for Authentik / NetBox / Outline / Hermod consumers.
 #   4. Application LXCs (asgard-factorio, asgard-hermod, asgard-zabbix)
-#      — services that depend on the layers above — plus the disposable
-#      AIOps canary pool (asgard-canary, baseline only).
+#      — services that depend on the layers above.
 #   5. Substrate (asgard-proxmox, asgard-pbs) — PVE hosts + PBS LXC,
 #      agent-only converge (operator-managed at the OS level — see
 #      group_vars/proxmox.yml + group_vars/pbs.yml for the
@@ -31,6 +30,10 @@
 # standalones are kept runnable ad-hoc (e.g. `--limit factorio`) and
 # scheduled daily via the asgard-fleet-agents Semaphore template
 # (defense-in-depth fleet reconverge).
+#
+# Non-prod / disposable hosts (the AIOps canary pool) are deliberately NOT
+# here: they live in site-nonprod.yml, run by the nonprod-* wrappers whose
+# Hermod notifications are capped below `critical`. See that file's header.
 #
 # Day-1 bring-up uses targeted plays (`--limit`), not site.yml. site.yml
 # is the steady-state converge tool.
@@ -76,7 +79,6 @@
 - import_playbook: asgard-factorio.yml
 - import_playbook: asgard-hermod.yml
 - import_playbook: asgard-zabbix.yml
-- import_playbook: asgard-canary.yml
 - import_playbook: asgard-proxmox.yml
 - import_playbook: asgard-pbs.yml
 # Control node last — Frigg consumes the whole stack (Vault / NetBox /

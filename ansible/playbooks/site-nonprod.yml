@@ -1,0 +1,32 @@
+# ansible/playbooks/site-nonprod.yml
+---
+# Non-prod counterpart of site.yml: the converge entry point for disposable /
+# test hosts that must NEVER raise a high-severity alert (today: the AIOps
+# canary pool, canary-1/2/3, Phase 10b1).
+#
+# Why a separate file instead of a line in site.yml: site.yml is what the
+# prod Semaphore templates run (`asgard-drift-check` every 6h, `asgard-apply`),
+# and their wrappers (drift-check.yml / apply.yml) make the hermod_summary
+# callback post `critical` on a failed host. A canary under fault injection
+# fails or vanishes ON PURPOSE, so it must not be in that blast path.
+# Non-prod runs go through the nonprod-* wrappers (nonprod-drift-check.yml /
+# nonprod-apply.yml), which the callback caps at tag `info`, the FYI tier (never `alert`/`critical`).
+#
+# Used by:
+#   - Semaphore templates `asgard-nonprod-drift-check` (--check --diff, daily)
+#     and `asgard-nonprod-apply` (manual) via the nonprod-* wrappers
+#   - aiops-replay-role / aiops-replay-role-check, which import this after
+#     site.yml so replay-role can reach a canary (the guard still enforces one
+#     T1 host, one allow-listed tag, and the check-mode)
+#   - manual: ansible-playbook playbooks/site-nonprod.yml [--limit canary-1]
+#
+# To add another non-prod host group: write its asgard-<group>.yml play, import
+# it below, keep the group OUT of site.yml, and (if the fleet-wide agent plays
+# should skip it) append `:!<group>` to their `hosts:` patterns.
+#
+# Every play here is baseline-only for the canaries; agents (vlagent,
+# zabbix-agent) are part of asgard-canary.yml, so the prod `fleet-agents.yml`
+# sweep excludes the canary group.
+
+- name: Non-prod - AIOps canary pool
+  ansible.builtin.import_playbook: asgard-canary.yml

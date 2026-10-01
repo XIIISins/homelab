@@ -18,7 +18,7 @@
 - import_playbook: zabbix-host-groups.yml
 
 - name: Roll out zabbix-agent2 cluster-wide
-  hosts: all:!zabbix:!offsite # do1 is internet-facing + converged by hand
+  hosts: all:!zabbix:!offsite:!canary # do1: by hand; canary: site-nonprod.yml (non-prod, capped alerts)
   become: true
   gather_facts: true
 
