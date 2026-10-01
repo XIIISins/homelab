@@ -4,7 +4,7 @@
 
 | LXC | ID | Node | IP | Role | Status |
 |-----|----|------|----|------|--------|
-| PBS | 1101 | Skuld | `10.0.11.20` | Proxmox Backup Server | ✅ |
+| PBS | 1101 | Urd | `10.0.11.20` | Proxmox Backup Server | ✅ |
 | Zabbix (Hugin) | 1102 | Urd | `10.0.11.21` | Infrastructure monitoring (Zabbix 7.0 LTS) | ✅ |
 | Hermod (Notifications) | 1103 | Verd | `10.0.11.22` | AppriseAPI aggregator → Discord (Phase 5h.2). Tag-driven routing (`critical`/`alert`/`media`); routine notifications stay in VL via vlagent. See [`notifications.md`](notifications.md). | ✅ |
 | Saga (AdGuard 1) | 1110 | Urd | `10.0.11.201` | DNS primary | ✅ |

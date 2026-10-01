@@ -7,8 +7,8 @@ deliberately **excludes** — a host reboot takes every VM/LXC on it down —
 so it gets its own deliberately-triggered, health-gated playbook:
 [`ansible/playbooks/proxmox-host-patching.yml`](../../ansible/playbooks/proxmox-host-patching.yml).
 
-> **PBS** (the LXC on Skuld) is patched separately by `os-updates.yml`
-> (it's in the standalone-LXC group). Its *host* (Skuld) rebooting here
+> **PBS** (the LXC on Urd since 2026-10-01) is patched separately by `os-updates.yml`
+> (it's in the standalone-LXC group). Its *host* (Urd) rebooting here
 > takes PBS down regardless — so run the host roll **outside any backup /
 > verify / GC window**. Repo posture for PBS is `pbs-repo-fix.yml`; for the
 > PVE hosts it's the [`proxmox-host`](../../ansible/roles/proxmox-host/) role.
@@ -70,7 +70,7 @@ Hands-off scheduling from Frigg/Semaphore is **phase 2** (see bottom).
 - LAN reach to Patroni REST (`10.0.11.x:8008`) and etcd (`:2379`).
 - The cluster is **already fully healthy** — the playbook's first two
   plays refuse to start otherwise (see "Pre-flight gate" below).
-- No PBS backup/verify/GC running (matters for the Skuld step).
+- No PBS backup/verify/GC running (matters for the Urd step).
 - Optional but recommended before a big upgrade: a Vault Raft snapshot
   (`kubectl exec -n vault vault-0 -c vault -- … raft snapshot save`) —
   not automated here; a reboot isn't storage-touching, this is just

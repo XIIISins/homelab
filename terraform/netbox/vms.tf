@@ -7,7 +7,7 @@
 # Sources of truth (cross-reference, don't duplicate):
 #   - K3s VMs: terraform/proxmox/asgard-k3s/main.tf locals.{control_planes,workers}
 #   - IaC LXCs: terraform/proxmox/asgard-lxcs/lxcs.tf locals.{postgres,haproxy_etcd,tailscale}_nodes + factorio
-#   - PBS LXC: no IaC, hand-managed on Skuld
+#   - PBS LXC: no IaC, hand-managed; on Urd since 2026-10-01 (moved off Skuld)
 #   - AGH LXCs (Saga/Mimir/Kvasir): terraform/proxmox/asgard-lxcs/lxcs.tf (TF-managed since Phase 5b.2, vmids 1110/1111/1112)
 #
 # Three NetBox-side placement corrections land with this commit (the
@@ -53,7 +53,7 @@ locals {
     einherjar-skuld = { vmid = "2103", role = "k3s-worker", device = "skuld", cpu = 2, memory = 8192, primary_iface = "eth0" }
 
     # ── PBS (Proxmox Backup Server, privileged LXC, no IaC) ────────
-    pbs = { vmid = "1101", role = "backup-server", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
+    pbs = { vmid = "1101", role = "backup-server", device = "urd", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
     # ── Hugin — Zabbix server (LXC 1102, Phase 7c) ─────────────────
     hugin = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }

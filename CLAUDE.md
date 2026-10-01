@@ -49,7 +49,7 @@ Each rule cross-refs [`docs/operations/decisions.md`](docs/operations/decisions.
 - **Jellyfin: privileged LXC on Urd.** Intel QuickSync `/dev/dri` passthrough. Not in K3s.
 - **Monitoring: Zabbix LXC (outside K3s) + VictoriaMetrics/Logs in asgard K3s.** Zabbix stays LXC for monitoring independence (separate failure domain from K3s). VM + VL live in asgard rather than jotunheim — keeps the log-ingest path in-cluster for the workloads producing logs + sidesteps the jotunheim-deploy timing dependency. VictoriaLogs replaces Loki; VictoriaMetrics replaces Prometheus. **No Grafana** — vmui (built into vmsingle) + the native VictoriaLogs UI cover homelab-scale dashboards; revisit only if cross-source dashboards-as-code becomes a real need. Log shipping via **vlagent** (the official VictoriaLogs project shipper) — DaemonSet on K3s nodes via the `victoria-logs-collector` Helm chart (vlagent with `-kubernetesCollector`, native pod-log discovery), plus an Ansible role deploying vlagent as a systemd binary on LXCs/VMs. Vector + Fluent Bit deliberately NOT used — both have file-rotation correctness issues + the 2026 benchmark shows vlagent at 4-10× lower CPU. Off-cluster shippers (LXCs, VMs) reach VL via an HTTPRoute on the niflheim Gateway (cleaner than a MetalLB LoadBalancer + matches the K8s-fronted-FQDN pattern). vm-operator (`VLSingle` / `VMSingle` CRDs) is the Phase 8b refactor target — Helm chart for now.
 - **Ansible: AWX in jotunheim K3s.** 30-min scheduled reconciliation. Vault-backed credentials.
-- **PBS: privileged LXC on Skuld.** NFS bind-mounted via Proxmox host.
+- **PBS: privileged LXC (1101) on Urd** (moved off Skuld 2026-10-01 — Skuld hard-freezes; never put PBS back on Skuld). The Munin NFS datastore is mounted **inside the LXC** (`features: mount=nfs` + LXC `/etc/fstab` `10.0.254.20:/volume1/proxmox-backup` → `/mnt/proxmox-backup`), NOT a bind mount from the host, so it is host-independent; rootfs is on `local-lvm` (move = `pct migrate --restart`, no TF resource owns it). (decisions: "PBS placement")
 
 ### Secrets — three stores, one rule
 *Homelab human lookup → Vault UI (post-Phase 6) with 1Password as offline mirror. Bootstrap + non-homelab human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
@@ -252,7 +252,7 @@ Runtime quick-reference only. Full K3s install/VM detail in [`docs/services/asga
 
 *Full phase narratives in [`docs/operations/build-sequence.md`](docs/operations/build-sequence.md). Incident retros in [`docs/incidents/`](docs/incidents/). This list is the at-a-glance state.*
 
-**Foundation:** ✅ UCG-Ultra (VLANs/zones/firewall) · ✅ KPN DMZ → UCG · ✅ Synology (Munin) · ✅ Proxmox `niflheim` (Urd/Verd/Skuld, PVE 9.x) · ✅ PBS (LXC 1101 on Skuld)
+**Foundation:** ✅ UCG-Ultra (VLANs/zones/firewall) · ✅ KPN DMZ → UCG · ✅ Synology (Munin) · ✅ Proxmox `niflheim` (Urd/Verd/Skuld, PVE 9.x) · ✅ PBS (LXC 1101 on Urd)
 
 **Asgard K3s — core:** ✅ cluster (fully IaC, teardown+rebuild validated) · ✅ Sealed Secrets (keys in 1P) · ✅ Synology CSI (iSCSI) · ✅ Vault (3-node Raft HA, KMS auto-unseal) · ✅ ESO · ✅ MetalLB (L2) · ✅ tigera-operator · ✅ 4a CP NoSchedule taint · ✅ 4b/4c CP topology + Urd/Verd hardware refresh (all three nodes now identical MSI Cubi)
 
