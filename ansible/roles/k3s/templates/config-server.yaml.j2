@@ -2,8 +2,11 @@
 # K3s config for additional control plane nodes ({{ inventory_hostname }})
 # These nodes join the existing cluster started by {{ k3s_init_node }}
 
-server: "https://{{ hostvars[k3s_init_node]['ansible_host'] }}:6443"
+server: "https://{{ k3s_join_host }}:6443"
 token: "{{ k3s_token }}"
+{% if k3s_node_ip is defined %}
+node-ip: "{{ k3s_node_ip }}"
+{% endif %}
 
 # Disable built-in components — must match init node
 flannel-backend: "none"
@@ -21,6 +24,9 @@ service-cidr: "{{ k3s_service_cidr }}"
 tls-san:
   - "{{ ansible_host }}"
   - "{{ inventory_hostname }}.niflheim.xiiisins.com"
+{% for san in k3s_extra_tls_san %}
+  - "{{ san }}"
+{% endfor %}
 
 write-kubeconfig-mode: "0644"
 
@@ -29,5 +35,5 @@ write-kubeconfig-mode: "0644"
 # this taint (calico-node, kube-proxy).
 node-taint:
   - "node-role.kubernetes.io/control-plane=:NoSchedule"
-selinux: true
+selinux: {{ k3s_selinux | bool | lower }}
 

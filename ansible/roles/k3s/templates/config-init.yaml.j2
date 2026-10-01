@@ -3,6 +3,9 @@
 # This node initialises the etcd cluster with --cluster-init
 
 cluster-init: true
+{% if k3s_node_ip is defined %}
+node-ip: "{{ k3s_node_ip }}"
+{% endif %}
 token: "{{ k3s_token }}"
 
 # Disable built-in components — we use our own
@@ -21,6 +24,9 @@ service-cidr: "{{ k3s_service_cidr }}"
 tls-san:
   - "{{ ansible_host }}"
   - "{{ inventory_hostname }}.niflheim.xiiisins.com"
+{% for san in k3s_extra_tls_san %}
+  - "{{ san }}"
+{% endfor %}
 
 # Write kubeconfig with readable permissions
 write-kubeconfig-mode: "0644"
@@ -33,5 +39,5 @@ node-taint:
   - "node-role.kubernetes.io/control-plane=:NoSchedule"
 
 # SELinux support
-selinux: true
+selinux: {{ k3s_selinux | bool | lower }}
 

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# scripts/burst/burst-up — create the ephemeral burst K3s cluster (Phase 10b2).
+#
+#   burst-up [-n COUNT] [-c CP_COUNT] [-t TTL_HOURS] [--yes]
+#
+#   -n  droplets            default 3   (s-2vcpu-4gb ~ $0.036/h each)
+#   -c  control planes      default 1   (1 or 3; the rest are workers)
+#   -t  TTL hours           default 4   (stamped as a DO tag; the Frigg reaper enforces it)
+#   --yes                   skip the confirmation prompt (terraform apply -auto-approve)
+#   -- ARGS...              pass the rest to ansible-playbook (restore drill: prod CIDRs + prod token)
+#
+# Run from Frigg (or a main checkout) with the Vault-backed env already loaded
+# (`. homelab-env` on Frigg): DIGITALOCEAN_TOKEN, AWS_* (state backend), ANSIBLE_PRIVATE_KEY_FILE,
+# ANSIBLE_HASHI_VAULT_* (tailscale authkey lookup). Never put those on the command line.
+# `terraform apply` runs from a MAIN checkout only (CLAUDE.md), not from a worktree.
+#
+# Steps: terraform apply -> generated inventory -> per-run k3s token -> ansible burst-k3s.yml.
+# Procedure, cost and the restore drill: docs/procedures/burst-substrate.md.
+set -euo pipefail
+
+count=3 cp=1 ttl=4 yes=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n) count="$2"; shift 2 ;;
+    -c) cp="$2"; shift 2 ;;
+    -t) ttl="$2"; shift 2 ;;
+    --yes) yes=1; shift ;;
+    --) shift; break ;; # everything after -- goes to ansible-playbook (e.g. -e k3s_pod_cidr=10.42.0.0/16)
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    *) echo "burst-up: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+for v in DIGITALOCEAN_TOKEN AWS_ACCESS_KEY_ID ANSIBLE_PRIVATE_KEY_FILE; do
+  if [ -z "${!v:-}" ]; then
+    echo "burst-up: \$$v is unset — load the Vault env first (Frigg: '. homelab-env')." >&2
+    exit 1
+  fi
+done
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+tf="$root/terraform/digitalocean-burst"
+state_dir="${BURST_STATE_DIR:-$HOME/.cache/homelab/burst}"
+inv="$root/ansible/inventory-burst/hosts.generated.json"
+mkdir -p "$state_dir"; chmod 700 "$state_dir"
+
+# $0.0357/h per s-2vcpu-4gb (list $24/mo); the number printed is the worst case if the reaper were dead.
+awk -v n="$count" -v t="$ttl" 'BEGIN { printf "burst-up: %d droplets, ttl %dh -> about $%.2f for the TTL ($%.2f/h; ~$%.0f if forgotten for a month)\n", n, t, n*0.0357*t, n*0.0357, n*24 }'
+
+terraform -chdir="$tf" init -input=false >/dev/null
+apply_args=(-input=false -var "burst_count=$count" -var "control_plane_count=$cp" -var "ttl_hours=$ttl")
+[ "$yes" = 1 ] && apply_args+=(-auto-approve)
+terraform -chdir="$tf" apply "${apply_args[@]}"
+
+terraform -chdir="$tf" output -json | python3 "$root/scripts/burst/burst-inventory.py" "$inv"
+
+# Per-run K3s token: stable across re-runs (repair/re-converge), removed by burst-down. 0600, never in git.
+vars="$state_dir/vars.yml"
+if [ ! -s "$vars" ]; then
+  ( umask 077; printf 'k3s_token: "%s"\n' "$(openssl rand -hex 32)" > "$vars" )
+fi
+
+cd "$root/ansible"
+ansible-playbook -i inventory-burst/hosts.generated.json playbooks/burst-k3s.yml -e "@$vars" "$@"
+
+kubeconfig="$HOME/.kube/burst-k3s.yaml"
+[ -f "$kubeconfig" ] && chmod 600 "$kubeconfig"
+echo
+echo "burst cluster is up. From this host (tailnet):  KUBECONFIG=$kubeconfig kubectl get nodes"
+echo "TTL ${ttl}h: the Frigg reaper destroys these droplets after that. Tear down now with scripts/burst/burst-down."

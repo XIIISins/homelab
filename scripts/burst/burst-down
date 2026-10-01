@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# scripts/burst/burst-down — destroy the burst cluster and clean the local leftovers (Phase 10b2).
+#
+#   burst-down [--yes]
+#
+# `terraform destroy` on the burst root only (own state — can never touch do1). Also use it AFTER
+# the Frigg TTL reaper fired: the reaper deletes droplets behind Terraform's back, and a destroy
+# here reconciles the state (and removes the tag + firewall). Ephemeral tailnet nodes disappear
+# from the tailnet on their own once offline.
+set -euo pipefail
+
+yes=0
+case "${1:-}" in
+  --yes) yes=1 ;;
+  -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+esac
+
+for v in DIGITALOCEAN_TOKEN AWS_ACCESS_KEY_ID; do
+  if [ -z "${!v:-}" ]; then
+    echo "burst-down: \$$v is unset — load the Vault env first (Frigg: '. homelab-env')." >&2
+    exit 1
+  fi
+done
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+tf="$root/terraform/digitalocean-burst"
+state_dir="${BURST_STATE_DIR:-$HOME/.cache/homelab/burst}"
+
+terraform -chdir="$tf" init -input=false >/dev/null
+destroy_args=(-input=false)
+[ "$yes" = 1 ] && destroy_args+=(-auto-approve)
+terraform -chdir="$tf" destroy "${destroy_args[@]}"
+
+rm -f "$state_dir/vars.yml" "$root/ansible/inventory-burst/hosts.generated.json" "$HOME/.kube/burst-k3s.yaml"
+echo "burst-down: destroyed; local token, inventory and kubeconfig removed."
+echo "Check the DO console / 'doctl compute droplet list --tag-name burst' shows nothing."

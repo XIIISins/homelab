@@ -2,6 +2,9 @@
 # ansible/roles/k3s/tasks/prerequisites.yml
 
 # Phase 1: Install packages and configure the OS for K3s
+#
+# The asgard nodes are RHEL (dnf + k3s-selinux + iSCSI for the Synology CSI). The 10b2 burst
+# droplets are Debian 13: no SELinux, no iSCSI, plain apt prerequisites.
 
 - name: Add Rancher K3s SELinux repo
   ansible.builtin.yum_repository:
@@ -11,6 +14,7 @@
     enabled: true
     gpgcheck: true
     gpgkey: https://rpm.rancher.io/public.key
+  when: ansible_facts['os_family'] == 'RedHat'
 
 - name: Install K3s prerequisites
   ansible.builtin.dnf:
@@ -22,12 +26,25 @@
       - k3s-selinux
       - iscsi-initiator-utils
     state: present
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Install K3s prerequisites (Debian)
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - iptables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Enable and start iscsid
   ansible.builtin.systemd:
     name: iscsid
     enabled: true
     state: started
+  when: ansible_facts['os_family'] == 'RedHat'
 
 # firewalld isn't in the package list above + isn't on the minimal RHEL image,
 # so the disable below would error ("Could not find the requested service") —

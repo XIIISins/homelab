@@ -1,0 +1,30 @@
+{# ansible/roles/burst-reaper/templates/burst-reaper.service.j2 #}
+# Managed by Ansible — do not edit by hand.
+# Source: roles/burst-reaper/templates/burst-reaper.service.j2
+
+[Unit]
+Description=Reap burst droplets past their TTL (DigitalOcean cost guard, Phase 10b2)
+Documentation=https://github.com/XIIISins/homelab/blob/main/docs/procedures/burst-substrate.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Non-secret config only — the DO token is read from Vault at run time (AppRole, in memory).
+Environment=VAULT_ADDR={{ burst_reaper_vault_addr }}
+Environment=BURST_REAPER_APPROLE_ENV_PATH={{ burst_reaper_approle_env_path }}
+Environment=BURST_REAPER_TAG={{ burst_reaper_tag }}
+Environment=BURST_REAPER_DEFAULT_HOURS={{ burst_reaper_default_hours }}
+Environment=BURST_REAPER_HARD_CAP_HOURS={{ burst_reaper_hard_cap_hours }}
+Environment=BURST_REAPER_DRY_RUN={{ '1' if burst_reaper_dry_run | bool else '0' }}
+Environment=BURST_REAPER_DO_TOKEN_VAULT_PATH={{ burst_reaper_do_token_vault_path }}
+Environment=BURST_REAPER_DO_TOKEN_FIELD={{ burst_reaper_do_token_field }}
+Environment=BURST_REAPER_HERMOD_KEY_VAULT_PATH={{ burst_reaper_hermod_key_vault_path }}
+Environment=BURST_REAPER_HERMOD_BASE_URL={{ burst_reaper_hermod_base_url }}
+ExecStart=/usr/bin/env python3 {{ burst_reaper_script_path }}
+TimeoutStartSec=120
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

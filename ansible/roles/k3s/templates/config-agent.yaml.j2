@@ -2,9 +2,12 @@
 # K3s config for worker nodes ({{ inventory_hostname }})
 # Worker nodes run workloads but don't participate in etcd or the control plane
 
-server: "https://{{ hostvars[k3s_init_node]['ansible_host'] }}:6443"
+server: "https://{{ k3s_join_host }}:6443"
 token: "{{ k3s_token }}"
+{% if k3s_node_ip is defined %}
+node-ip: "{{ k3s_node_ip }}"
+{% endif %}
 
 # SELinux support
-selinux: true
+selinux: {{ k3s_selinux | bool | lower }}
 

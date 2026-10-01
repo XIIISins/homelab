@@ -33,6 +33,12 @@
         // failover + later the Gatus watcher). Gets NO blanket reach — see
         // the scoped grants below.
         "tag:offsite":             ["tag:terraform-tag-owner", "autogroup:admin"],
+        // --- 10b2 burst substrate (tag:burst) -----------------------------
+        // tag:burst — ephemeral DigitalOcean test clusters (terraform/digitalocean-burst).
+        // Reachable FROM Frigg (tag:server) only; the node itself gets NO grant
+        // anywhere, i.e. no path to prod. See docs/procedures/burst-substrate.md.
+        "tag:burst":               ["tag:terraform-tag-owner", "autogroup:admin"],
+        // --- end 10b2 ------------------------------------------------------
     },
 
     // ---------------------------------------------------------------
@@ -75,6 +81,19 @@
             "dst": ["*"],
             "ip":  ["*"],
         },
+        // --- 10b2 burst substrate (tag:burst) -----------------------------
+        // Frigg drives the burst clusters (kubectl :6443, SSH). Already covered by
+        // the wide rule above; stated explicitly so the intent survives if that
+        // rule is ever narrowed. tag:burst is deliberately NOT a src anywhere: a
+        // burst node (a throwaway box for restore drills and fault injection)
+        // can reach nothing, not prod and not other burst nodes. Cluster
+        // traffic rides the DO VPC, never the tailnet.
+        {
+            "src": ["tag:server"],
+            "dst": ["tag:burst"],
+            "ip":  ["*"],
+        },
+        // --- end 10b2 ------------------------------------------------------
         // do1 -> Frigg: liveness probe for the outside watcher (Gatus, 10b3).
         // Port 22 is answered by tailscaled (Tailscale SSH) on Frigg; the ssh
         // block below only admits autogroup:member, so a probe can connect

@@ -9,13 +9,13 @@ metadata:
   name: default
 spec:
   calicoNetwork:
-    # Pin node IP autodetection to the VLAN 21 cluster subnet.
+    # Pin node IP autodetection to the cluster subnet (k3s_calico_node_cidr; asgard = VLAN 21).
     # Workers have a second NIC on VLAN 20 (eth1, MetalLB pool); the default
     # firstFound autodetection bound the overlay to eth1 on the workers,
     # breaking cross-node vxlan. Pinning by CIDR forces the VLAN 21 address.
     nodeAddressAutodetectionV4:
       cidrs:
-        - "10.0.21.0/24"
+        - "{{ k3s_calico_node_cidr }}"
     # Set MTU explicitly to work around projectcalico/calico#7851:
     # tigera-operator can't read /var/lib/calico/mtu under SELinux Enforcing
     # (MCS category mismatch — file written by privileged calico-node, read

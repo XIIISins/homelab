@@ -1,0 +1,5 @@
+# All optional — the defaults are the 10b2 footprint (burst_count = 0 → plain apply is a no-op).
+# scripts/burst/burst-up passes burst_count / control_plane_count / ttl_hours itself.
+#
+# Close SSH to Frigg's public egress IP only (do NOT commit it; this file is gitignored):
+# ssh_source_cidrs = ["203.0.113.7/32"]
