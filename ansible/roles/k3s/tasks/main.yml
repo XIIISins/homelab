@@ -45,3 +45,13 @@
   ansible.builtin.import_tasks: taint.yml
   when: not ansible_check_mode
   tags: k3s_taint
+
+- name: Ship etcd snapshots off-homelab (K3s etcd-s3, control planes only)
+  # Last on purpose: needs a running K3s (restart + Ready wait). Skipped in
+  # --check (the Vault lookup + restart are real side effects of a real run).
+  ansible.builtin.import_tasks: etcd-s3.yml
+  when:
+    - k3s_etcd_s3_enabled | bool
+    - inventory_hostname in groups['k3s_cp']
+    - not ansible_check_mode
+  tags: k3s_etcd_s3

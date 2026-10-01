@@ -1,0 +1,8 @@
+# k8s/asgard/apps/backups/namespace.yaml
+#
+# Off-homelab recovery backups (Vault Raft snapshot + Calico datastore export → S3).
+# Bucket/IAM: terraform/aws/backups.tf. Procedure: docs/procedures/offsite-backups.md.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backups

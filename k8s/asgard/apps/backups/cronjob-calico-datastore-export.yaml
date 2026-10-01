@@ -1,0 +1,71 @@
+# k8s/asgard/apps/backups/cronjob-calico-datastore-export.yaml
+#
+# Daily export of Calico's whole datastore (crd.projectcalico.org: IPPools, IPAMBlocks,
+# BlockAffinities, IPAMHandles, Felix/KubeControllers config) plus the operator's
+# Installation/APIServer CRs (operator.tigera.io) → s3://<bucket>/calico/.
+# Same export shape as playbooks/calico-upgrade.yml's pre-upgrade restore point, but
+# OFF the CP node. Contains no secrets (IPAM + config only) — SSE-S3 is enough.
+#
+# Fails (and uploads nothing) if the export has zero IPPools: an empty datastore is the
+# 2026-10-01 wipe signature, and a "successful" upload of it would be a false comfort.
+# Restore order: docs/procedures/offsite-backups.md.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: calico-datastore-export
+  namespace: backups
+spec:
+  schedule: "30 2 * * *" # 02:30 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: calico-export
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: export
+              image: alpine/k8s:1.36.4
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+                  out="/tmp/calico-datastore-${ts}.yaml"
+                  res="$(kubectl api-resources --api-group=crd.projectcalico.org -o name | paste -sd, -)"
+                  op="$(kubectl api-resources --api-group=operator.tigera.io -o name | paste -sd, -)"
+                  kubectl get "${res},${op}" -A -o yaml > "${out}"
+                  pools="$(kubectl get ippools.crd.projectcalico.org --no-headers | wc -l)"
+                  if [ "${pools}" -lt 1 ]; then
+                    echo "REFUSING to upload: export has ${pools} IPPools (datastore looks wiped)" >&2
+                    exit 1
+                  fi
+                  ls -l "${out}"
+                  aws s3 cp "${out}" "s3://${BACKUP_BUCKET}/calico/calico-datastore-${ts}.yaml" \
+                    --sse AES256 --only-show-errors
+                  echo "uploaded s3://${BACKUP_BUCKET}/calico/calico-datastore-${ts}.yaml (ippools=${pools})"
+              env:
+                - {name: BACKUP_BUCKET, value: xiiisins-homelab-backups}
+                - {name: AWS_DEFAULT_REGION, value: eu-west-1}
+                - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+                - {name: HOME, value: /tmp}
+              envFrom:
+                - secretRef:
+                    name: aws-backup-writer
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 512Mi}

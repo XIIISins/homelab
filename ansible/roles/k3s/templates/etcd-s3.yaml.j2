@@ -1,0 +1,11 @@
+# ansible/roles/k3s/templates/etcd-s3.yaml.j2
+# Managed by Ansible (roles/k3s/tasks/etcd-s3.yml) — drop-in merged over config.yaml.
+# Kept in its own 0600 file so the S3 secret key never lands in the world-readable
+# /etc/rancher/k3s/config.yaml.
+etcd-s3: true
+etcd-s3-endpoint: "{{ k3s_etcd_s3_endpoint }}"
+etcd-s3-region: "{{ k3s_etcd_s3_region }}"
+etcd-s3-bucket: "{{ k3s_etcd_s3_bucket }}"
+etcd-s3-folder: "{{ k3s_etcd_s3_folder }}"
+etcd-s3-access-key: "{{ k3s_etcd_s3_creds.secret.access_key_id }}"
+etcd-s3-secret-key: "{{ k3s_etcd_s3_creds.secret.secret_access_key }}"

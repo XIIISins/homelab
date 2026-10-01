@@ -1,0 +1,10 @@
+# k8s/asgard/apps/backups/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - externalsecret.yaml
+  - cronjob-vault-raft-snapshot.yaml
+  - cronjob-calico-datastore-export.yaml

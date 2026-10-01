@@ -27,3 +27,38 @@ output "terraform_state_secret_access_key" {
   value       = aws_iam_access_key.terraform_state.secret
   sensitive   = true
 }
+
+# -----------------------------------------------------------------------------
+# Off-homelab backups (backups.tf)
+# -----------------------------------------------------------------------------
+# After apply, place the two key pairs in Vault WITHOUT echoing them — see
+# docs/procedures/offsite-backups.md ("Mint + place credentials").
+
+output "backup_bucket_name" {
+  description = "Bucket holding etcd/ vault-raft/ calico/ recovery backups."
+  value       = aws_s3_bucket.backups.id
+}
+
+output "k3s_etcd_backup_access_key_id" {
+  description = "K3s etcd-s3 IAM user access key ID → Vault secret/ansible/backups/etcd-s3."
+  value       = aws_iam_access_key.k3s_etcd_backup.id
+  sensitive   = true
+}
+
+output "k3s_etcd_backup_secret_access_key" {
+  description = "K3s etcd-s3 IAM user secret → Vault secret/ansible/backups/etcd-s3."
+  value       = aws_iam_access_key.k3s_etcd_backup.secret
+  sensitive   = true
+}
+
+output "backup_writer_access_key_id" {
+  description = "CronJob writer IAM user access key ID → Vault secret/k8s/backups/aws-writer."
+  value       = aws_iam_access_key.backup_writer.id
+  sensitive   = true
+}
+
+output "backup_writer_secret_access_key" {
+  description = "CronJob writer IAM user secret → Vault secret/k8s/backups/aws-writer."
+  value       = aws_iam_access_key.backup_writer.secret
+  sensitive   = true
+}

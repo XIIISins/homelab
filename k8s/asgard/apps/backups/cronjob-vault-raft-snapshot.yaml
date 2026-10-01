@@ -1,0 +1,95 @@
+# k8s/asgard/apps/backups/cronjob-vault-raft-snapshot.yaml
+#
+# Daily Vault Raft snapshot → s3://<bucket>/vault-raft/. The snapshot is already
+# barrier-encrypted by Vault (needs the unseal/KMS path to restore), SSE-S3 on top.
+#
+# Two steps sharing an emptyDir:
+#   1. init `snapshot` (hashicorp/vault, same version as the server): log in with this
+#      pod's SA token (Kubernetes auth, role vault-snapshot — terraform/vault/backups.tf),
+#      `vault operator raft snapshot save` against vault-active over the internal CA.
+#   2. `upload` (aws-cli): PutObject with the homelab-backup-writer key.
+# The Vault token only ever lives in the init container's shell env (never printed).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-raft-snapshot
+  namespace: backups
+spec:
+  schedule: "45 2 * * *" # 02:45 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: vault-snapshot
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: snapshot
+              image: hashicorp/vault:1.21.2
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  export VAULT_ADDR=https://vault-active.vault.svc.cluster.local:8200
+                  export VAULT_CACERT=/etc/vault-ca/ca.crt
+                  VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login \
+                    role=vault-snapshot \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)"
+                  export VAULT_TOKEN
+                  vault operator raft snapshot save /snap/vault.snap
+                  test -s /snap/vault.snap
+                  ls -l /snap/vault.snap
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 256Mi}
+              volumeMounts:
+                - {name: snap, mountPath: /snap}
+                - {name: vault-ca, mountPath: /etc/vault-ca, readOnly: true}
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2.37.7
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  key="vault-raft/vault-raft-$(date -u +%Y%m%dT%H%M%SZ).snap"
+                  aws s3 cp /snap/vault.snap "s3://${BACKUP_BUCKET}/${key}" \
+                    --sse AES256 --only-show-errors
+                  echo "uploaded s3://${BACKUP_BUCKET}/${key}"
+              env:
+                - {name: BACKUP_BUCKET, value: xiiisins-homelab-backups}
+                - {name: AWS_DEFAULT_REGION, value: eu-west-1}
+                - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+                - {name: HOME, value: /tmp}
+              envFrom:
+                - secretRef:
+                    name: aws-backup-writer
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 10m, memory: 64Mi}
+                limits: {memory: 512Mi}
+              volumeMounts:
+                - {name: snap, mountPath: /snap, readOnly: true}
+          volumes:
+            - name: snap
+              emptyDir: {}
+            - name: vault-ca
+              configMap:
+                name: vault-ca-bundle

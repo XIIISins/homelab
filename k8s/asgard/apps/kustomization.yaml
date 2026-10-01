@@ -66,3 +66,8 @@ resources:
   # helmrelease.yaml + open-questions.md "Immich"). External apex +
   # midgard alias, no niflheim route.
   - immich
+  # Off-homelab recovery backups — daily Vault Raft snapshot + Calico datastore
+  # export CronJobs → S3 (etcd snapshots go via K3s etcd-s3 config in the k3s
+  # Ansible role instead). Bucket/IAM in terraform/aws/backups.tf, Vault policy
+  # in terraform/vault/backups.tf, docs/procedures/offsite-backups.md.
+  - backups

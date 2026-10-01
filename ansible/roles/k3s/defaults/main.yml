@@ -26,3 +26,14 @@ kubeconfig_local_path: "~/.kube/niflheim-asgard.yaml"
 
 # First control plane node — cluster is initialised here first
 k3s_init_node: "gondul"
+
+# Off-homelab etcd snapshots (K3s native etcd-s3-*), CPs only. Bucket + IAM user come from
+# terraform/aws/backups.tf; the key pair is read from Vault at play time (never in git/TF state).
+# Retention is NOT set here: K3s keeps its default 5 snapshots/node locally and prunes S3 to match;
+# the bucket's versioning + lifecycle keeps the pruned ones for ~14 days (see docs/procedures/offsite-backups.md).
+k3s_etcd_s3_enabled: true
+k3s_etcd_s3_endpoint: "s3.eu-west-1.amazonaws.com"
+k3s_etcd_s3_region: "eu-west-1"
+k3s_etcd_s3_bucket: "xiiisins-homelab-backups"
+k3s_etcd_s3_folder: "etcd"
+k3s_etcd_s3_vault_path: "ansible/backups/etcd-s3" # fields: access_key_id, secret_access_key

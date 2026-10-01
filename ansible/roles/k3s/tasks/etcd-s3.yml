@@ -1,0 +1,50 @@
+---
+# ansible/roles/k3s/tasks/etcd-s3.yml
+#
+# Ship K3s etcd snapshots (scheduled, every 12 h by K3s default) off-homelab to S3.
+# Control planes only. The drop-in is read at K3s start, so a change restarts k3s —
+# restart + wait-for-Ready happens HERE, per node, so a serial:1 play never moves on
+# to the next CP before etcd has this member back (3 CPs: lose 1, keep 2/3).
+#
+# Credentials come from Vault (secret/ansible/backups/etcd-s3), minted by terraform/aws
+# (IAM user k3s-etcd-backup) and placed by the operator — see docs/procedures/offsite-backups.md.
+
+- name: Read etcd S3 credentials from Vault
+  ansible.builtin.set_fact:
+    k3s_etcd_s3_creds: "{{ lookup('community.hashi_vault.vault_kv2_get', k3s_etcd_s3_vault_path) }}"
+  no_log: true
+
+- name: Create K3s config drop-in directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s/config.yaml.d
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Template etcd S3 snapshot drop-in (0600 — holds the secret key)
+  ansible.builtin.template:
+    src: etcd-s3.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml.d/10-etcd-s3.yaml
+    mode: "0600"
+    owner: root
+    group: root
+  register: k3s_etcd_s3_config
+  no_log: true
+  notify: restart k3s
+
+- name: Restart K3s now (this node only) when the drop-in changed
+  ansible.builtin.meta: flush_handlers
+  when: k3s_etcd_s3_config.changed
+
+- name: Wait until this node is Ready again before the play moves to the next CP
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/k3s kubectl get node {{ inventory_hostname }}
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  register: k3s_etcd_s3_ready
+  until: k3s_etcd_s3_ready.stdout == 'True'
+  retries: 30
+  delay: 10
+  changed_when: false
+  when: k3s_etcd_s3_config.changed
