@@ -73,6 +73,7 @@ set -g __op_authentik_admin '4pxuhyvygrqqeo3vro24bjrhwa' # [Asgard] - Terraform 
 set -g __op_adguard_admin 'hvh3d7hlivcsbjqqye34f3d7a4' # [Asgard] - Terraform - AdGuard - Admin login
 set -g __op_netbox_admin 'lsqb4z5mbeijeqbxx43y5pkl5q' # [Asgard] - Terraform - NetBox - Admin API token
 set -g __op_semaphore_admin '24fmbstdhqzwk6eeru4vvaixsm' # [Asgard] - Terraform - Semaphore - Admin API token
+set -g __op_github_tf 'mhazmcb4jfsstiuicjrowljmai' # Terraform - GitHub - token (terraform/github/)
 set -g __op_aws_tf_bootstrap 'lhf4xzp3uqehkkease5gidthci' # [Asgard] - Terraform - AWS - Bootstrap access key
 set -g __op_aws_tf_state 'jnvf6aokgml7vkjj4ho2xlcvua' # [Asgard] - Terraform - AWS - State access key
 set -g __op_proxmox_root '6vv32uzlahikgmkvkiqfnkgshy' # [Infra] - Terraform - Proxmox - Root password
@@ -92,6 +93,7 @@ set -g __homelab_env_map \
     "ADGUARD_PASSWORD|$__op_adguard_admin|password" \
     "NETBOX_API_TOKEN|$__op_netbox_admin|credential" \
     "SEMAPHOREUI_API_TOKEN|$__op_semaphore_admin|credential"
+    "GITHUB_TOKEN|$__op_github_tf|credential"
 
 # Each entry: "ENV_VAR|literal value"
 # Static (non-1P) env vars — written into the cache alongside 1P vars on
@@ -1084,7 +1086,8 @@ set -g __vault_homelab_iac_map \
     "cloudflare_api_token|CLOUDFLARE_API_TOKEN" \
     "proxmox_api_token|TF_VAR_proxmox_api_token" \
     "semaphore_api_token|SEMAPHOREUI_API_TOKEN" \
-    "semaphore_api_base_url|SEMAPHOREUI_API_BASE_URL"
+    "semaphore_api_base_url|SEMAPHOREUI_API_BASE_URL" \
+    "github_token|GITHUB_TOKEN"
 
 # Files written from Vault + the static SSH key path. Canonical, shared with
 # homelab-env (single cluster / single secret) so kubectl + ansible behave
