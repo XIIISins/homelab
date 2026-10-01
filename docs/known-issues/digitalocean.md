@@ -31,6 +31,11 @@
 - **`doctl compute droplet list --format` uses different column names than the API** (`Size` is rejected; use `Memory`), and `doctl compute project list` is `doctl projects list`.
 - **The name `do1.xiiisins.com` already exists** (A → the legacy droplet). `terraform/cloudflare/ts3.tf` adopts it unchanged; the new node is reached pre-cutover as `do1-next.xiiisins.com`. Ansible's `do1.yml` asserts the target hostname is `do1` so a wrong `ansible_host` can never harden the legacy droplet.
 
+## do1 build (PlantNet proxy)
+
+- **HeyLeaf `.gitignore`s `package-lock.json`, so the pinned commit has none and `npm ci` (the Dockerfile) cannot build from a `git archive`.** Symptom (2026-10-01, first `do1.yml` run): `docker compose build plantnet-proxy` fails at `RUN npm ci --only=production` with `npm error code EUSAGE ... can only install with an existing package-lock.json`. The `offsite-node` role now ships the controller checkout's untracked lockfile (`offsite_plantnet_lockfile_src`) next to the exported source, **pinned by `offsite_plantnet_lockfile_sha256`** (a mismatch fails the play: review the lockfile change, then bump the pin). Cleaner end state: commit the lockfile in HeyLeaf, bump `offsite_plantnet_commit`, and drop the shipping task. Also: the build task now runs when the image for the pinned commit is absent, because a *failed* build leaves nothing "changed" and was never retried.
+- **A first apply can report ok while Caddy is `failed`** — see the same-run ownership variant in [`caddy.md`](caddy.md). Verify `systemctl is-active caddy` and a listener on 443, not just the play recap.
+
 ## Outside watcher on do1 (Gatus, 10b3)
 
 *Procedure: [`../procedures/offsite-watcher.md`](../procedures/offsite-watcher.md). Decision row: [`decisions.md`](../operations/decisions.md) ("Outside watcher: pinned binary ...").*

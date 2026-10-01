@@ -370,6 +370,7 @@ Cluster CIDRs: Pod `10.42.0.0/16` (`k3s_pod_cidr` — K3s `cluster-cidr` AND Cal
 - `1101–1199` — Asgard LXCs (1101-1109 backup+mon, 1110-1119 net, 1120-1129 services, 1130-1139 DB+HAProxy)
 - `2001–2999` — Asgard K3s VMs
 - `3001–3999` — Jotunheim K3s VMs
+- `9900–9999` — DigitalOcean offsite nodes (NetBox `VMID` cross-reference only; `do1` = 9900)
 - `10001+` — Templates
 
 Full per-LXC IP table + DNS naming + firewall posture + physical topology: [`docs/architecture/network.md`](docs/architecture/network.md).
