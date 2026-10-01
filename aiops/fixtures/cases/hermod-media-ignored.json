@@ -1,0 +1,12 @@
+{
+  "description": "tag media is a notification, not an alert: normalizes to nothing",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "New episode available",
+    "body": "S01E02",
+    "type": "info",
+    "tag": "media",
+    "format": "text"
+  },
+  "expected": []
+}

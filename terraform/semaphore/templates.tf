@@ -16,6 +16,9 @@
 #                                          roles in site.yml)
 #   - infra-health-check        cron */12h active prober (Cloudflare,
 #                                          certs, Patroni, etcd)
+#   - aiops-*                   manual     Phase 10c3 action registry
+#                                          (aiops/actions.yml); see the
+#                                          "AIOps action templates" block
 #
 # The drift-check + apply + fleet-agents templates run *wrapper*
 # playbooks (drift-check.yml / apply.yml / fleet-agents.yml) rather
@@ -231,6 +234,207 @@ resource "semaphoreui_project_template" "infra_health_check" {
   # The playbook POSTs its own findings to Hermod; Semaphore's own
   # success/failure alert is redundant noise on a clean run.
   suppress_success_alerts = true
+}
+
+# === AIOps action templates (Phase 10c3) ===
+#
+# One template per entry in aiops/actions.yml (the action registry); that file
+# is the source of truth for tier, typed extra-vars, guard and verify step, and
+# `python3 aiops/tools/lint.py` checks that every registry template name and
+# playbook below matches. Manual-trigger only: no schedules. The 10e executor
+# will trigger ONLY these (allow-listed-template key); extra-vars arrive as the
+# task `environment` (JSON), which Semaphore honours even with
+# allow_override_args_in_task = false.
+#
+# NOT YET APPLIED (operator gate): `terraform apply` from the main checkout,
+# then flip `semaphore.applied: true` in aiops/actions.yml.
+#
+# No wrapper-file concern: the new playbook filenames are absent from
+# hermod_summary's _MODES map, so they generate no Hermod traffic of their own.
+
+# --- T0: read-only ---
+
+resource "semaphoreui_project_template" "aiops_service_status" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-service-status"
+  description    = "AIOps T0: read one systemd unit's state on one host (extra-vars target_host, unit)."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-service-status.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  allow_override_args_in_task = false
+
+  # Same vaults shape as the other ansible templates (inventory parse touches
+  # group_vars/all/vault.yml).
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
+resource "semaphoreui_project_template" "aiops_vault_status" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-vault-status"
+  description    = "AIOps T0: unauthenticated Vault seal/HA status via the vault CLI on Frigg."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-vault-status.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
+resource "semaphoreui_project_template" "aiops_patroni_status" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-patroni-status"
+  description    = "AIOps T0: Patroni cluster state from the open GET /cluster endpoint on the PG trio."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-patroni-status.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
+# replay-role-check and replay-role are the two templates that need CLI args
+# per run (--limit is a task field; --tags must come as task `arguments`), so
+# they are the only ones with allow_override_args_in_task = true. The authority
+# is NOT this flag but the in-playbook guard (aiops-replay-guard.yml): it fails
+# the run unless the limit is one T1 host, the tag is allow-listed and the
+# check-mode matches. check variant bakes --check --diff as the default args.
+resource "semaphoreui_project_template" "aiops_replay_role_check" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-replay-role-check"
+  description    = "AIOps T0: --check --diff of site.yml for ONE T1 host and ONE allow-listed role tag. Always precedes aiops-replay-role."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-replay-role-check.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  arguments                   = ["--check", "--diff"]
+  allow_override_args_in_task = true
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
+# --- T1: mutating, approval-gated until the 10f1 guards exist ---
+
+resource "semaphoreui_project_template" "aiops_restart_unit" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-restart-unit"
+  description    = "AIOps T1: restart one allow-listed systemd unit on one T1 host and wait for active."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-restart-unit.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
+}
+
+resource "semaphoreui_project_template" "aiops_replay_role" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-replay-role"
+  description    = "AIOps T1: converge ONE allow-listed role tag on ONE T1 host via site.yml --limit/--tags. Requires a clean aiops-replay-role-check first."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-replay-role.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  # No baked args: the executor supplies --tags; the guard rejects --check.
+  allow_override_args_in_task = true
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
+}
+
+# Shared by the registry actions flux-reconcile (reset=false) and
+# flux-reconcile-reset (reset=true); the executor sets the fixed var.
+# Runs on Frigg (flux CLI + operator kubeconfig live there).
+resource "semaphoreui_project_template" "aiops_flux_reconcile" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-flux-reconcile"
+  description    = "AIOps T1: flux reconcile hr <hr_name> -n <hr_namespace> [--reset] on Frigg; stateful-release deny-list + reset allow-list enforced in the playbook."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-flux-reconcile.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
 }
 
 # === Schedules ===

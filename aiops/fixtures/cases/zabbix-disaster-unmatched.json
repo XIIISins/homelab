@@ -1,0 +1,34 @@
+{
+  "description": "A Disaster trigger no specific route knows: the catch-all still carries a runbook_id",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "[Zabbix] Disaster: FS [/]: Space is critically low (used > 90%)",
+    "body": "**Host:** hlokk\n**Severity:** Disaster\n\n**Status:** PROBLEM\n**Trigger:** FS [/]: Space is critically low (used > 90%)\n**Severity:** Disaster\n**Host:** hlokk\n**Started at:** 2026.10.01 12:20:00\n**Event ID:** 48400\n\nSpace used: 91.2%",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "critical",
+      "host": "hlokk",
+      "service": "zabbix",
+      "check": "fs-space-is-critically-low-used-90",
+      "summary": "[Zabbix] Disaster: FS [/]: Space is critically low (used > 90%)",
+      "detail": "**Host:** hlokk\n**Severity:** Disaster\n\n**Status:** PROBLEM\n**Trigger:** FS [/]: Space is critically low (used > 90%)\n**Severity:** Disaster\n**Host:** hlokk\n**Started at:** 2026.10.01 12:20:00\n**Event ID:** 48400\n\nSpace used: 91.2%",
+      "runbook_id": "RB-ZBX-TRIAGE",
+      "fingerprint": "abd8488ee185d02b",
+      "fired_at": "2026-10-01T12:20:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      },
+      "native_severity": "Disaster",
+      "event_id": "48400"
+    }
+  ]
+}

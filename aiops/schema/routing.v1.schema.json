@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/XIIISins/homelab/aiops/schema/routing.v1.schema.json",
+  "title": "Alert to runbook routing table (aiops.routing/v1)",
+  "description": "Ordered match rules the normalizer uses to turn a producer message into (host, service, check, runbook_id). First match per source wins; each source ends in a catch-all so every critical alert resolves to a runbook_id (enforced by lint.py).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routes"],
+  "properties": {
+    "schema_version": { "const": "aiops.routing/v1" },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "severity", "match", "service", "check", "runbook_id"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "source": { "enum": ["zabbix", "s4-prober", "patroni", "semaphore", "frigg", "unknown"] },
+          "severity": {
+            "description": "The Hermod tag this route applies to. `any` matches critical and alert (not untagged).",
+            "enum": ["critical", "alert", "any"]
+          },
+          "match": {
+            "description": "Regex (Python re.search, case-insensitive) applied to: zabbix -> trigger name; s4-prober -> one finding line (or the message title for prober-errored); patroni/semaphore/frigg/unknown -> message title. A named group `host` overrides `host`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "host": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "service": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "check": { "description": "Literal slug, or a template: {group} expands a named regex group, @slug expands to the slug of the matched subject (used by catch-alls).", "type": "string", "pattern": "^(@slug|[a-z0-9{][a-z0-9._{}-]*)$" },
+          "runbook_id": { "type": ["string", "null"], "pattern": "^RB-[A-Z0-9]+(-[A-Z0-9]+)*$" },
+          "status": { "enum": ["event"], "description": "Set for one-shot notifications with no recovery counterpart." },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "description": "One S4 prober POST bundling three critical findings; split into three alerts",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Infra health: 3 critical finding(s)",
+    "body": "**Infra health check — CRITICAL**\n\n- Cloudflare API token INVALID — `/user/tokens/verify` status=unknown (HTTP 401). TF applies will 401.\n- TLS cert for **niflheim** (`netbox.niflheim.xiiisins.com`) expires in 2d (<3d) — renewal stuck?\n- Vault AppRole `ansible-frigg` SecretID expires in 9 day(s) (2026-10-10) — rotate via docs/procedures/credential-rotation.md.",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "api.cloudflare.com",
+      "service": "cloudflare",
+      "check": "cf-token",
+      "summary": "Cloudflare API token INVALID — /user/tokens/verify status=unknown (HTTP 401). TF applies will 401.",
+      "detail": "Cloudflare API token INVALID — `/user/tokens/verify` status=unknown (HTTP 401). TF applies will 401.",
+      "runbook_id": "RB-CF-TOKEN-INVALID",
+      "fingerprint": "eeb34336f923864f",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    },
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "netbox.niflheim.xiiisins.com",
+      "service": "tls",
+      "check": "cert-expiry",
+      "summary": "TLS cert for niflheim (netbox.niflheim.xiiisins.com) expires in 2d (<3d) — renewal stuck?",
+      "detail": "TLS cert for **niflheim** (`netbox.niflheim.xiiisins.com`) expires in 2d (<3d) — renewal stuck?",
+      "runbook_id": "RB-TLS-CERT-EXPIRY",
+      "fingerprint": "8014d303877f6d95",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    },
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "ansible-frigg",
+      "service": "vault",
+      "check": "approle-expiry",
+      "summary": "Vault AppRole ansible-frigg SecretID expires in 9 day(s) (2026-10-10) — rotate via docs/procedures/credential-rotation.md.",
+      "detail": "Vault AppRole `ansible-frigg` SecretID expires in 9 day(s) (2026-10-10) — rotate via docs/procedures/credential-rotation.md.",
+      "runbook_id": "RB-VAULT-APPROLE-EXPIRY",
+      "fingerprint": "001ae8535429d6cc",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@
 #   kubernetes  kustomize build of every kustomization + kubeconform (schema)
 #   ansible     ansible-lint (profile in ansible/.ansible-lint) with the pinned collections
 #   docs        relative Markdown links + anchors resolve
+#   aiops       Phase 10c: alert/runbook/action schemas, cross-file consistency, tests
 #   CI gate     the ONE job a branch ruleset requires (see terraform/github/)
 #
 # Why a single gate job: jobs are skipped when their paths didn't change
@@ -64,6 +65,7 @@ jobs:
       ansible: ${{ steps.c.outputs.ansible }}
       docs: ${{ steps.c.outputs.docs }}
       workflows: ${{ steps.c.outputs.workflows }}
+      aiops: ${{ steps.c.outputs.aiops }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,6 +193,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: python3 .github/scripts/ci-doc-links.py
 
+  aiops:
+    name: aiops (schemas + consistency + tests)
+    needs: changes
+    if: needs.changes.outputs.aiops == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pip install --quiet -r aiops/requirements.txt
+      - run: python3 aiops/tools/lint.py
+      - run: python3 -m unittest discover -s aiops/tests -v
+
   # The single required status check. Always runs; fails if any needed job
   # failed or was cancelled. "skipped" (path-filtered out) counts as passing.
   ci-gate:
@@ -206,6 +220,7 @@ jobs:
       - kubernetes
       - ansible
       - docs
+      - aiops
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

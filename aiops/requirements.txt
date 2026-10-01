@@ -1,0 +1,4 @@
+# aiops/requirements.txt — Python deps for aiops/tools + aiops/tests (CI job `aiops`).
+# Concrete pins per the IaC pin policy. Everything else is stdlib.
+PyYAML==6.0.2
+jsonschema==4.23.0

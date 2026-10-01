@@ -1,0 +1,41 @@
+# ansible/playbooks/aiops-replay-role.yml
+---
+# Phase 10c3 action `replay-role` (T1, mutating, max_autonomy: approval) —
+# registry entry in aiops/actions.yml. Converges ONE allow-listed role tag on
+# ONE T1 host by running the same site.yml path asgard-apply uses, narrowed
+# by `--limit <target_host> --tags <role_tag>` (task fields).
+#
+# Always preceded by `replay-role-check` (registry guard.requires_prior): the
+# executor must have read a clean, in-scope diff for the same host + tag.
+# This playbook cannot verify that itself; what it DOES enforce (shared guard)
+# is single host, T1, allow-listed tag, and NOT check mode.
+#
+# Idempotent by construction: site.yml is the fleet's converge (drift-check
+# runs it every 6h with --check, asgard-apply for real). Roles that carry
+# their own destructive-change guards (calico-upgrade, k3s-upgrade) are not
+# tags in the allow-list and are not reachable from here.
+
+- ansible.builtin.import_playbook: aiops-replay-guard.yml
+  vars:
+    aiops_expect_check_mode: false
+    aiops_action: replay-role
+
+- ansible.builtin.import_playbook: site.yml
+
+- name: AIOps replay-role - done
+  hosts: all
+  gather_facts: false
+  become: false
+  run_once: true
+  tasks:
+    - name: Emit machine-readable end marker (failed/changed come from the PLAY RECAP)
+      tags: [always] # --tags <role> would skip an untagged task
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: replay-role
+          phase: complete
+          ok: true
+          check_mode: "{{ ansible_check_mode }}"
+          target_host: "{{ target_host }}"
