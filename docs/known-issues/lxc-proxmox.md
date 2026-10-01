@@ -25,6 +25,7 @@
 - **`--check` makes the `reboot` module report `changed` without actually rebooting**, so a `_rebooted` fact derived from `reboot.changed` goes true under `--check` → the post-reboot gates (whose `pvesh`/`kubectl` reads are check-skipped → empty stdout → `from_json` errors) wrongly fire. Gate `_rebooted` with `and (not ansible_check_mode)` so a dry-run skips the inherently-post-reboot gates. Read-only *discovery* tasks instead get `check_mode: false` so `--check` still gathers + prints the plan. Surfaced 2026-06-18.
 - **`pvecm status` prints `Quorate:` with variable whitespace before `Yes`** — match with a regex (`_pvecm.stdout is search('Quorate:\s+Yes')`), not a literal `'Quorate: Yes'` substring (which never matches → always-false-fails).
 
+<!-- runbook: RB-LXC-BOOT-DRIFT -->
 ## LXC reboot persistence — config that doesn't survive a container restart
 
 *A fleet-wide reboot (PVE-host patching, 2026-06-18) re-initialises each LXC's netns/veth and re-runs container-startup file management, resetting provision-time config that VMs keep. Surfaced as 48 drift items, LXC-only — VMs + bare-metal came back clean. Retro: [`../incidents/2026-06-18-lxc-reboot-persistence-drift.md`](../incidents/2026-06-18-lxc-reboot-persistence-drift.md). Diagnostic for "drift is LXC-only after a reboot": the config was applied live at provision time but isn't re-asserted (or is overwritten) at container start.*
@@ -35,6 +36,7 @@
 - **PVE rewrites a container's `/etc/resolv.conf` from its config at every start** — so ansible-managed resolv.conf is clobbered on reboot (perpetual drift). Without a `dns {}` block the container inherits the *Proxmox host's* `/etc/resolv.conf`. **Fix: own resolv.conf at the provision layer, not ansible.** Add `initialization { dns { servers, domain } }` to each `proxmox_virtual_environment_container` (`terraform/proxmox/asgard-lxcs/lxcs.tf`) and set `baseline_manage_resolv_conf: false` (drop the adguard role's resolv copy task for AGH). bpg applies the dns block **in-place** via `pct set` (0 replacements — confirmed by plan) but it only takes effect on the **next container start**, so reboot to validate. AGH trio gets `127.0.0.1` + a Quad9 bootstrap fallback (local resolver survives an all-AGH-down window); everyone else gets the AdGuard VIP + UCG fallback (mirrors the old `baseline_nameservers`, no redundancy downgrade). Decision row: [`../operations/decisions.md`](../operations/decisions.md) "LXC resolv.conf ownership".
 
 
+<!-- runbook: RB-HOST-HARD-FREEZE -->
 ## PVE HA watchdog (softdog vs hardware)
 
 - **PVE's `watchdog-mux` defaults to `softdog` — a kernel-timer watchdog that cannot fire if the kernel itself freezes.** On a full-system hard freeze (no panic, no log) a `softdog`-backed node neither resets itself nor fences: HA can restart its guests elsewhere while the frozen node is still running. Fleet state until 2026-09-30: all three hosts on `softdog` (`/sys/class/watchdog/watchdog0/identity` = `Software Watchdog`).

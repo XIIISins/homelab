@@ -44,3 +44,5 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 ## Maintenance
 
 New gotchas land in the matching file (create one if the subject is new, add a row above). Keep `CLAUDE.md` carrying only the **index pointer**, not the gotcha text — that's the whole point of this directory. When a gotcha generalises across subjects, put it in the most-specific file and cross-link with a one-liner from the others.
+
+**Runbook markers (Phase 10c2).** A few entries carry an invisible `<!-- runbook: RB-XXX -->` line directly above them. It is the anchor for that runbook's machine-readable metadata (tier, `automatable`, verify, preconditions) in [`aiops/runbooks.yml`](../../aiops/runbooks.yml); the entry's text and format are unchanged. Don't delete, move to another file or duplicate a marker without updating the sidecar — `python3 aiops/tools/lint.py` (CI job `aiops`) fails on a missing, duplicated or orphaned marker. Adding a marker to a new entry is optional; see [`aiops/README.md`](../../aiops/README.md).

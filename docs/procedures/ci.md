@@ -19,6 +19,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 | `kubernetes` | `kubectl kustomize` of every `kustomization.yaml` under `k8s/`, then kubeconform `-strict` with the datreeio CRD catalog | `k8s/**` changed |
 | `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` | `ansible/**` changed |
 | `docs links` | relative Markdown links + `#anchors` resolve | any `*.md` changed |
+| `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or known-issues/procedures/services docs changed |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
 
 Changes to `.github/**`, `.yamllint.yml`, `.gitleaks.toml`, `ansible/.ansible-lint` or `ansible/requirements.yml` run everything.
@@ -34,6 +35,7 @@ Every step is a script; versions + sha256 are the `env:` block of `ci.yml`.
 .github/scripts/ci-terraform.sh terraform/vault        # needs terraform; one or more module dirs
 terraform fmt -check -recursive terraform
 python3 .github/scripts/ci-doc-links.py
+pip install -r aiops/requirements.txt && python3 aiops/tools/lint.py && python3 -m unittest discover -s aiops/tests
 yamllint .                                              # pip install -r .github/ci-requirements.txt
 gitleaks git --no-banner --redact .                     # >= 8.29.1 — see known-issues
 .github/scripts/ci-changes.sh origin/main HEAD          # which jobs would run
