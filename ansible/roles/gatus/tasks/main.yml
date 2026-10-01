@@ -1,0 +1,233 @@
+# ansible/roles/gatus/tasks/main.yml
+---
+# ---- Preconditions (fail early, with the fix in the message) ----------------
+- name: Assert the listener address is a tailnet (CGNAT) address
+  ansible.builtin.assert:
+    that:
+      - gatus_listen_address | length > 0
+      - gatus_listen_address is match('^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}$')
+    fail_msg: >-
+      gatus_listen_address must be this host's Tailscale address (100.64.0.0/10;
+      `tailscale ip -4` on the host). The Gatus listener serves the push API and
+      UI and must never bind a public interface.
+    quiet: true
+  tags: [gatus, gatus:preflight]
+
+- name: Assert the heartbeat grace covers the unattended-upgrade reboot
+  ansible.builtin.assert:
+    that:
+      - (gatus_heartbeat_interval_seconds | int) >= 10
+      - (gatus_heartbeat_interval_seconds | int) * (gatus_heartbeat_failure_threshold | int) > (gatus_reboot_grace_seconds | int)
+    fail_msg: >-
+      Heartbeat grace ({{ gatus_heartbeat_interval_seconds }}s x
+      {{ gatus_heartbeat_failure_threshold }}) must exceed gatus_reboot_grace_seconds
+      ({{ gatus_reboot_grace_seconds }}s), the time do1 may be down for its own
+      unattended-upgrade reboot, or every reboot raises a false dead-man alert.
+    quiet: true
+  tags: [gatus, gatus:preflight]
+
+# Both secrets are seeded by the OPERATOR (docs/procedures/offsite-watcher.md).
+# errors='ignore' turns "absent / Vault unreachable" into an empty value so the
+# assert below can fail with an actionable message instead of a lookup trace.
+- name: Read the Discord webhook and the heartbeat token from Vault
+  ansible.builtin.set_fact:
+    gatus_discord_webhook_url: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', gatus_discord_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get(gatus_discord_vault_field, '') }}
+    gatus_heartbeat_token: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', gatus_heartbeat_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get(gatus_heartbeat_vault_field, '') }}
+  no_log: true
+  tags: [gatus, gatus:preflight]
+
+- name: Assert the secrets are present and well-formed
+  ansible.builtin.assert:
+    that:
+      - gatus_discord_webhook_url | length > 0
+      - gatus_discord_webhook_url is match('^https://(discord|discordapp)\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$')
+      - gatus_heartbeat_token | length >= 32
+      - gatus_heartbeat_token is match('^[A-Za-z0-9._~-]+$')
+    fail_msg: >-
+      Missing or malformed Vault secret. Seed (operator, interactive shell, never
+      inline a value): secret/{{ gatus_discord_vault_path }} field
+      {{ gatus_discord_vault_field }} = a Discord webhook URL you create in the
+      alert channel (Channel settings -> Integrations -> Webhooks), and
+      secret/{{ gatus_heartbeat_vault_path }} field {{ gatus_heartbeat_vault_field }}
+      = a random token of >= 32 chars [A-Za-z0-9._~-]. Also check Vault is
+      reachable (vault-homelab-env loaded). See docs/procedures/offsite-watcher.md.
+    quiet: true
+  tags: [gatus, gatus:preflight]
+
+# ---- Identity + layout ------------------------------------------------------
+- name: Install tools used by the installer and the container guard
+  ansible.builtin.apt:
+    name: "{{ ['curl', 'ca-certificates', 'iproute2'] + (['iptables'] if gatus_block_container_access | bool else []) }}"
+    state: present
+  tags: [gatus, gatus:packages]
+
+- name: Create the gatus group
+  ansible.builtin.group:
+    name: "{{ gatus_group }}"
+    system: true
+  tags: [gatus, gatus:user]
+
+- name: Create the gatus user (no shell, no home)
+  ansible.builtin.user:
+    name: "{{ gatus_user }}"
+    group: "{{ gatus_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: "{{ gatus_data_dir }}"
+  tags: [gatus, gatus:user]
+
+- name: Create gatus directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /opt/gatus, owner: root, group: root, mode: "0755" }
+    - { path: "{{ gatus_bin_dir }}", owner: root, group: root, mode: "0755" }
+    - { path: "{{ gatus_config_dir }}", owner: root, group: "{{ gatus_group }}", mode: "0750" }
+    - { path: "{{ gatus_data_dir }}", owner: "{{ gatus_user }}", group: "{{ gatus_group }}", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+  tags: [gatus, gatus:layout]
+
+# ---- Pinned binary ----------------------------------------------------------
+- name: Check the installed pinned binary
+  ansible.builtin.stat:
+    path: "{{ gatus_bin_dir }}/gatus-{{ gatus_version }}"
+    checksum_algorithm: sha256
+  register: gatus_binary_stat
+  tags: [gatus, gatus:install]
+
+# Pull the single binary layer from the official image straight off the
+# registry (anonymous pull token), verify every pin, extract. See the pin notes
+# in defaults/main.yml for why this and not a release asset.
+- name: Fetch the pinned gatus layer from ghcr.io and install the binary
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      work="$(mktemp -d)"
+      trap 'rm -rf "$work"' EXIT
+      reg=https://ghcr.io/v2/{{ gatus_image_repo }}
+      token="$(curl -fsS --max-time 30 'https://ghcr.io/token?service=ghcr.io&scope=repository:{{ gatus_image_repo }}:pull' \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+      # Bearer token via curl config on stdin: never on the command line.
+      auth() { printf 'header = "Authorization: Bearer %s"\n' "$token" | curl -fsSL --max-time 300 -K - "$@"; }
+      auth -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+        -o "$work/manifest.json" "$reg/manifests/{{ gatus_image_manifest_digest }}"
+      echo "{{ gatus_image_manifest_digest | regex_replace('^sha256:') }}  $work/manifest.json" | sha256sum -c --quiet -
+      grep -q '{{ gatus_binary_layer_digest }}' "$work/manifest.json"
+      auth -o "$work/layer.tgz" "$reg/blobs/{{ gatus_binary_layer_digest }}"
+      echo "{{ gatus_binary_layer_digest | regex_replace('^sha256:') }}  $work/layer.tgz" | sha256sum -c --quiet -
+      tar -xzf "$work/layer.tgz" -C "$work" gatus
+      echo "{{ gatus_binary_sha256 }}  $work/gatus" | sha256sum -c --quiet -
+      install -o root -g root -m 0755 "$work/gatus" "{{ gatus_bin_dir }}/gatus-{{ gatus_version }}"
+    executable: /bin/bash
+  when: not gatus_binary_stat.stat.exists or gatus_binary_stat.stat.checksum != gatus_binary_sha256
+  changed_when: true
+  notify: Restart gatus
+  tags: [gatus, gatus:install]
+
+- name: Point the stable path at the pinned binary
+  ansible.builtin.file:
+    src: "{{ gatus_bin_dir }}/gatus-{{ gatus_version }}"
+    dest: "{{ gatus_binary }}"
+    state: link
+    owner: root
+    group: root
+  notify: Restart gatus
+  tags: [gatus, gatus:install]
+
+# ---- Config + secrets -------------------------------------------------------
+- name: Render the Gatus config (no secrets)
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ gatus_config_path }}"
+    owner: root
+    group: "{{ gatus_group }}"
+    mode: "0640"
+  notify: Restart gatus
+  tags: [gatus, gatus:config]
+
+- name: Render the secrets env file (0600, gatus only)
+  ansible.builtin.template:
+    src: gatus.env.j2
+    dest: "{{ gatus_env_path }}"
+    owner: "{{ gatus_user }}"
+    group: "{{ gatus_group }}"
+    mode: "0600"
+  no_log: true
+  notify: Restart gatus
+  tags: [gatus, gatus:config]
+
+# ---- systemd ----------------------------------------------------------------
+- name: Install the container guard unit
+  ansible.builtin.template:
+    src: gatus-container-guard.service.j2
+    dest: /etc/systemd/system/gatus-container-guard.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: gatus_block_container_access | bool
+  notify:
+    - Reload systemd (gatus)
+    - Restart gatus
+  tags: [gatus, gatus:service]
+
+- name: Install gatus.service
+  ansible.builtin.template:
+    src: gatus.service.j2
+    dest: /etc/systemd/system/gatus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd (gatus)
+    - Restart gatus
+  tags: [gatus, gatus:service]
+
+- name: Flush handlers (units must exist before enabling)
+  ansible.builtin.meta: flush_handlers
+  tags: [gatus, gatus:service]
+
+# Skipped in check mode: on a fresh host the units do not exist until the
+# templates above are really applied, and the systemd module would hard-fail.
+- name: Enable + start the container guard
+  ansible.builtin.systemd:
+    name: gatus-container-guard.service
+    enabled: true
+    state: started
+  when:
+    - gatus_block_container_access | bool
+    - not ansible_check_mode
+  tags: [gatus, gatus:service]
+
+- name: Enable + start gatus.service
+  ansible.builtin.systemd:
+    name: gatus.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+  tags: [gatus, gatus:service]
+
+# ---- Smoke test (read-only) -------------------------------------------------
+- name: Wait for the listener on the tailnet address
+  ansible.builtin.wait_for:
+    host: "{{ gatus_listen_address }}"
+    port: "{{ gatus_listen_port }}"
+    timeout: 60
+  when: not ansible_check_mode
+  tags: [gatus, gatus:verify]
+
+- name: Verify /health and /metrics answer on the tailnet address
+  ansible.builtin.uri:
+    url: "http://{{ gatus_listen_address }}:{{ gatus_listen_port }}{{ item }}"
+    status_code: 200
+  loop: [/health, /metrics]
+  when: not ansible_check_mode
+  changed_when: false
+  tags: [gatus, gatus:verify]

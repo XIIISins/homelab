@@ -1,0 +1,5 @@
+# ansible/roles/gatus-heartbeat/handlers/main.yml
+---
+- name: Reload systemd (gatus-heartbeat)
+  ansible.builtin.systemd:
+    daemon_reload: true

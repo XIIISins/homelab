@@ -1,0 +1,83 @@
+# Managed by Ansible — roles/gatus. Do not edit by hand.
+# Contains NO secrets: ${GATUS_*} are substituted by Gatus from the unit's
+# EnvironmentFile ({{ gatus_env_path }}, 0600 {{ gatus_user }}).
+#
+# One listener serves the UI, /metrics and the external-endpoint push API, so it
+# is bound to the tailscale address only (never a public interface).
+web:
+  address: {{ gatus_listen_address }}
+  port: {{ gatus_listen_port }}
+
+metrics: true
+
+storage:
+  type: sqlite
+  path: {{ gatus_data_dir }}/data.db
+  caching: true
+
+ui:
+  title: "Homelab outside watcher | Gatus"
+  header: "Homelab outside watcher"
+  dashboard-heading: "Outside watcher"
+  dashboard-subheading: "Public endpoints, tailnet reachability and the Frigg heartbeat, probed from do1"
+
+# INDEPENDENT alert channel: a direct Discord webhook. Deliberately NOT Hermod —
+# Hermod lives inside the thing being watched (docs/services/notifications.md).
+alerting:
+  discord:
+    webhook-url: ${GATUS_DISCORD_WEBHOOK_URL}
+    title: ":satellite: Homelab outside watcher"
+    default-alert:
+      failure-threshold: {{ gatus_alert_failure_threshold }}
+      success-threshold: {{ gatus_alert_success_threshold }}
+      send-on-resolved: true
+      minimum-reminder-interval: {{ gatus_alert_reminder_interval }}
+
+endpoints:
+{% for ep in gatus_public_endpoints %}
+  - name: {{ ep.name }}
+    group: {{ ep.group }}
+    url: "{{ ep.url }}"
+    interval: {{ ep.interval | default(gatus_probe_interval) }}
+    headers:
+      User-Agent: "{{ gatus_probe_user_agent }}"
+    conditions:
+      - "[STATUS] == 200"
+      - "[RESPONSE_TIME] < {{ gatus_response_time_max_ms }}"
+      - "[CERTIFICATE_EXPIRATION] > {{ gatus_cert_min_hours }}h"
+{% for cond in ep.extra_conditions | default([]) %}
+      - "{{ cond }}"
+{% endfor %}
+    alerts:
+      - type: discord
+        description: "{{ ep.name }} is failing (HTTP status, latency, TLS expiry or body check)"
+{% endfor %}
+{% for ep in gatus_tcp_endpoints %}
+  - name: {{ ep.name }}
+    group: {{ ep.group }}
+    url: "{{ ep.url }}"
+    interval: {{ ep.interval | default(gatus_probe_interval) }}
+    conditions:
+      - "[CONNECTED] == true"
+    alerts:
+      - type: discord
+        description: "{{ ep.name }}: TCP connect over the tailnet failed"
+{% endfor %}
+
+# Dead-man's switch. Frigg POSTs to
+#   /api/v1/endpoints/{{ gatus_heartbeat_key }}/external?success=true
+# every minute (roles/gatus-heartbeat). If nothing arrives within `interval`
+# Gatus records a failure; {{ gatus_heartbeat_failure_threshold }} consecutive misses
+# ({{ gatus_heartbeat_interval_seconds * gatus_heartbeat_failure_threshold }} s grace) raise the alert. The grace covers do1's own
+# unattended-upgrade reboot window.
+external-endpoints:
+  - name: {{ gatus_heartbeat_name }}
+    group: {{ gatus_heartbeat_group }}
+    token: ${GATUS_HEARTBEAT_TOKEN}
+    heartbeat:
+      interval: {{ gatus_heartbeat_interval_seconds }}s
+    alerts:
+      - type: discord
+        description: "No heartbeat from Frigg: Frigg, its tailnet path or its timer is down"
+        failure-threshold: {{ gatus_heartbeat_failure_threshold }}
+        send-on-resolved: true

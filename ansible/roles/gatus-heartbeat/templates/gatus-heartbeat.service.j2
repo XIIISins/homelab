@@ -1,0 +1,27 @@
+# Managed by Ansible — roles/gatus-heartbeat. Do not edit by hand.
+[Unit]
+Description=Frigg heartbeat to the Gatus outside watcher (dead-man's switch)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# DynamicUser: runs unprivileged; systemd hands it the header file as a
+# credential (%d), so the token never appears on a command line or in the env.
+DynamicUser=yes
+LoadCredential=header:{{ gatus_heartbeat_credential_path }}
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time {{ gatus_heartbeat_timeout_seconds }} --request POST --header @%d/header --output /dev/null "{{ gatus_heartbeat_url }}"
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077

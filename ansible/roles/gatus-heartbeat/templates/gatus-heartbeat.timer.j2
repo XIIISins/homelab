@@ -1,0 +1,11 @@
+# Managed by Ansible — roles/gatus-heartbeat. Do not edit by hand.
+[Unit]
+Description=Frigg heartbeat to the Gatus outside watcher (every {{ gatus_heartbeat_period }})
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec={{ gatus_heartbeat_period }}
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

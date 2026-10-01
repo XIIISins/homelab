@@ -44,3 +44,13 @@ tailscale_up_reset: true
 # is down. accept-dns=false keeps resolution on the direct LAN AdGuard path,
 # independent of tailscaled health.
 tailscale_accept_dns: true
+
+# Whether to accept the subnet routes other tailnet nodes advertise (the
+# homelab 10.0.0.0/16 from the subnet routers). Default false = tailscale's
+# default and no change for any existing host (the flag is only emitted when
+# true). Needed ONLY on do1 (tag:offsite): the 10b3 Gatus watcher reaches
+# Hermod (10.0.11.22) through the subnet routers, and without this the grant
+# `tag:offsite -> 10.0.11.22 tcp:80` in policy.hujson is unusable. The ACL still
+# denies everything but that one grant. NEVER set it on Synology (see
+# docs/known-issues/tailscale.md: the NAS would lose its own LAN).
+tailscale_accept_routes: false

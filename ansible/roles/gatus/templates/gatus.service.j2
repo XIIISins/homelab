@@ -1,0 +1,61 @@
+# Managed by Ansible — roles/gatus. Do not edit by hand.
+[Unit]
+Description=Gatus outside watcher (tailnet-only listener)
+Documentation=https://github.com/TwiN/gatus
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+{% if gatus_block_container_access | bool %}
+Wants=gatus-container-guard.service
+After=gatus-container-guard.service
+{% endif %}
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User={{ gatus_user }}
+Group={{ gatus_group }}
+EnvironmentFile={{ gatus_env_path }}
+Environment=GATUS_CONFIG_PATH={{ gatus_config_path }}
+Environment=GATUS_LOG_LEVEL=INFO
+WorkingDirectory={{ gatus_data_dir }}
+
+# The listener binds the tailscale address only; at boot tailscaled may not
+# have assigned it yet. Wait (max 90 s), then fail and let Restart= retry.
+ExecStartPre=/bin/sh -c 'i=0; while [ "$i" -lt 90 ]; do ip -4 -o addr show dev tailscale0 | grep -q " {{ gatus_listen_address }}/" && exit 0; i=$((i+1)); sleep 1; done; echo "tailscale0 has no {{ gatus_listen_address }}" >&2; exit 1'
+ExecStart={{ gatus_binary }}
+Restart=always
+RestartSec=10
+
+# Hardening: unprivileged, no capabilities, read-only filesystem except the
+# SQLite directory, no ability to gain privileges or touch the host.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths={{ gatus_data_dir }}
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+MemoryMax={{ gatus_memory_max }}
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target
