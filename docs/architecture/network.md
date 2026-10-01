@@ -120,6 +120,7 @@ NFS traffic only — no static assignments needed.
 | 1101–1199 | Asgard LXCs (sub-grouped by function) |
 | 2001–2999 | Asgard K3s VMs |
 | 3001–3999 | Jotunheim K3s VMs |
+| 9900–9999 | DigitalOcean offsite nodes (NetBox `VMID` cross-reference only; not Proxmox guests — `do1` = 9900) |
 | 10001+ | Templates |
 
 ## LXC ID grouping
