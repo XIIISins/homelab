@@ -1,0 +1,96 @@
+# ansible/roles/docker/tasks/main.yml
+---
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - iptables # DOCKER-USER rule below; absent on minimal cloud images
+    state: present
+  tags: [docker, docker:repo]
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [docker, docker:repo]
+
+- name: Install Docker apt signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_gpg_key_url }}"
+    dest: "{{ docker_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+  when: not ansible_check_mode
+  tags: [docker, docker:repo]
+
+- name: Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by={{ docker_keyring_path }}] {{ docker_repo_url }} {{ docker_repo_codename }} stable"
+    filename: docker
+    state: present
+    update_cache: true
+  tags: [docker, docker:repo]
+
+- name: Install Docker Engine + compose/buildx plugins (pinned)
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ docker_ce_version }}"
+      - "docker-ce-cli={{ docker_ce_version }}"
+      - "containerd.io={{ docker_containerd_version }}"
+      - "docker-compose-plugin={{ docker_compose_plugin_version }}"
+      - "docker-buildx-plugin={{ docker_buildx_plugin_version }}"
+    state: present
+    allow_downgrade: true
+  tags: [docker, docker:install]
+
+- name: Configure Docker daemon (log rotation, no userland proxy)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "{{ docker_log_max_size }}", "max-file": "{{ docker_log_max_file }}" },
+        "userland-proxy": false
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker
+  tags: [docker, docker:config]
+
+- name: Ensure Docker is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+  tags: [docker, docker:service]
+
+# Persist the DOCKER-USER drop rules across reboots. Docker (re)creates the
+# DOCKER-USER chain at start; this oneshot runs after it and is idempotent
+# (`-C` check before `-I`). PartOf= re-runs it whenever docker restarts.
+- name: Install DOCKER-USER tailnet/metadata drop unit
+  ansible.builtin.template:
+    src: docker-user-drop.service.j2
+    dest: /etc/systemd/system/docker-user-drop.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart docker-user-drop
+  tags: [docker, docker:firewall]
+
+- name: Enable + start DOCKER-USER drop unit
+  ansible.builtin.systemd:
+    name: docker-user-drop.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  # Not in check mode: the unit file doesn't exist yet on a first dry run.
+  when: not ansible_check_mode
+  tags: [docker, docker:firewall]

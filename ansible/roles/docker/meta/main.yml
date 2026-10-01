@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: docker
+  author: XIIISins
+  description: >
+    Docker CE (pinned, official apt repo) + compose/buildx plugins for
+    Debian 13, with log rotation and a DOCKER-USER rule dropping container
+    traffic to the tailnet and DO metadata service.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

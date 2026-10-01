@@ -10,14 +10,18 @@
     name: qemu-guest-agent
     state: present
   register: qemu_agent_install
-  when: ansible_virtualization_type != 'lxc'
+  when:
+    - ansible_virtualization_type != 'lxc'
+    - baseline_install_qemu_agent | bool
 
 - name: Enable and start qemu-guest-agent (VMs only)
   ansible.builtin.systemd:
     name: qemu-guest-agent
     enabled: true
     state: started
-  when: ansible_virtualization_type != 'lxc'
+  when:
+    - ansible_virtualization_type != 'lxc'
+    - baseline_install_qemu_agent | bool
 
 - name: Ensure locales package is installed
   ansible.builtin.apt:

@@ -18,7 +18,7 @@
 - import_playbook: zabbix-host-groups.yml
 
 - name: Roll out zabbix-agent2 cluster-wide
-  hosts: all:!zabbix
+  hosts: all:!zabbix:!offsite # do1 is internet-facing + converged by hand
   become: true
   gather_facts: true
 

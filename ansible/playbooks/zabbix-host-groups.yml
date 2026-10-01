@@ -17,7 +17,7 @@
 # global, not per-host.
 
 - name: Bootstrap Zabbix host groups (declarative, from inventory)
-  hosts: all
+  hosts: all:!offsite # do1 is not zabbix-monitored via this loop
   become: false
   gather_facts: false
 

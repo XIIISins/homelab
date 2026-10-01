@@ -1,0 +1,15 @@
+#!/bin/sh
+# Managed by Ansible — roles/do-reserved-egress. Do not edit by hand.
+# Point the default route at the reserved IP's anchor gateway so outbound
+# traffic is sourced from the reserved IP. No-op if no reserved IP is active.
+set -eu
+base="{{ do_egress_metadata_base }}"
+active=$(curl -fsS --retry 10 --retry-delay 2 --retry-connrefused "$base/reserved_ip/ipv4/active")
+if [ "$active" != "true" ]; then
+  echo "no active reserved IP on this droplet; leaving default route alone"
+  exit 0
+fi
+gw=$(curl -fsS --retry 5 "$base/interfaces/public/0/anchor_ipv4/gateway")
+[ -n "$gw" ] || { echo "empty anchor gateway from metadata" >&2; exit 1; }
+ip route replace default via "$gw" dev {{ do_egress_interface }}
+echo "default route -> anchor gateway $gw"

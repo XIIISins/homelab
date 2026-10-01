@@ -1,0 +1,158 @@
+# ansible/roles/offsite-node/tasks/main.yml
+---
+# ---- Unattended security upgrades, fixed reboot window ----
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  tags: [offsite-node, offsite-node:updates]
+
+- name: Enable periodic unattended upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [offsite-node, offsite-node:updates]
+
+- name: Confine unattended reboots to a fixed window
+  ansible.builtin.template:
+    src: 50unattended-upgrades-do1.j2
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-do1
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [offsite-node, offsite-node:updates]
+
+# ---- Layout ----
+- name: Create /opt/do1 layout
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ offsite_root }}", mode: "0750" }
+    - { path: "{{ offsite_root }}/ts3-data", mode: "0750", owner: "{{ offsite_ts3_uid }}", group: "{{ offsite_ts3_uid }}" }
+  loop_control:
+    label: "{{ item.path }}"
+  tags: [offsite-node, offsite-node:layout]
+
+# ---- PlantNet proxy source: pinned HeyLeaf commit, exported on the controller ----
+- name: Read currently-deployed PlantNet source commit
+  ansible.builtin.slurp:
+    src: "{{ offsite_root }}/plantnet-proxy/.source-commit"
+  register: offsite_plantnet_marker
+  failed_when: false
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Decide whether the PlantNet source needs (re)deploying
+  ansible.builtin.set_fact:
+    offsite_plantnet_needs_source: >-
+      {{ offsite_plantnet_marker.content is not defined
+         or (offsite_plantnet_marker.content | b64decode | trim) != offsite_plantnet_commit }}
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Export plantnet-proxy-docker at the pinned commit (controller)
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ offsite_plantnet_local_repo }}"
+      - archive
+      - --format=tar
+      - --prefix=plantnet-proxy/
+      - -o
+      - "/tmp/plantnet-proxy-{{ offsite_plantnet_commit[:12] }}.tar"
+      - "{{ offsite_plantnet_commit }}:{{ offsite_plantnet_subdir }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  when: offsite_plantnet_needs_source | bool
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Replace the build context with the pinned source
+  ansible.builtin.file:
+    path: "{{ offsite_root }}/plantnet-proxy"
+    state: absent
+  when: offsite_plantnet_needs_source | bool
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Unpack the PlantNet source on the host
+  ansible.builtin.unarchive:
+    src: "/tmp/plantnet-proxy-{{ offsite_plantnet_commit[:12] }}.tar"
+    dest: "{{ offsite_root }}"
+    owner: root
+    group: root
+  register: offsite_plantnet_unpacked
+  when: offsite_plantnet_needs_source | bool and not ansible_check_mode
+  tags: [offsite-node, offsite-node:plantnet]
+
+- name: Record the deployed source commit
+  ansible.builtin.copy:
+    dest: "{{ offsite_root }}/plantnet-proxy/.source-commit"
+    content: "{{ offsite_plantnet_commit }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: offsite_plantnet_needs_source | bool and not ansible_check_mode
+  tags: [offsite-node, offsite-node:plantnet]
+
+# ---- Compose project ----
+- name: Fetch PlantNet API key from Vault
+  ansible.builtin.set_fact:
+    offsite_plantnet_api_key: "{{ lookup('community.hashi_vault.vault_kv2_get', offsite_plantnet_vault_path).secret.api_key }}"
+  no_log: true
+  tags: [offsite-node, offsite-node:compose]
+
+- name: Render compose environment (API key, mode 0600)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ offsite_root }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: [offsite-node, offsite-node:compose]
+
+- name: Render docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ offsite_root }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  register: offsite_compose_file
+  tags: [offsite-node, offsite-node:compose]
+
+- name: Build the PlantNet proxy image on the host
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ offsite_root }} build plantnet-proxy
+  when: (offsite_plantnet_unpacked is changed or offsite_compose_file is changed) and not ansible_check_mode
+  changed_when: true
+  tags: [offsite-node, offsite-node:compose]
+
+- name: Converge the compose stack
+  ansible.builtin.command:
+    cmd: docker compose --project-directory {{ offsite_root }} up -d --remove-orphans
+  register: offsite_compose_up
+  # `up -d` prints Created/Recreated/Started only when it acted.
+  changed_when: "offsite_compose_up.stderr is search('Creat|Recreat|Start')"
+  when: not ansible_check_mode
+  tags: [offsite-node, offsite-node:compose]
+
+- name: Wait for the PlantNet proxy health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ offsite_plantnet_loopback_port }}/health"
+    status_code: 200
+  register: offsite_plantnet_health
+  retries: 12
+  delay: 5
+  until: offsite_plantnet_health.status == 200
+  when: not ansible_check_mode
+  tags: [offsite-node, offsite-node:compose]

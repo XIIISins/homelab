@@ -1,0 +1,9 @@
+// Managed by Ansible — roles/offsite-node. Do not edit by hand.
+// Debian security updates only (the stock Origins pattern). Docker's apt repo
+// is not an allowed origin, so Docker/containerd move only via the role pin.
+// Reboots are confined to a fixed window; the Gatus heartbeat grace (10b3)
+// must cover it.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ offsite_unattended_reboot_time }}";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

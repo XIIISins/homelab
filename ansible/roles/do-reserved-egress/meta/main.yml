@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: do_reserved_egress
+  author: XIIISins
+  description: >
+    Route a DigitalOcean droplet's outbound traffic via its reserved IP's
+    anchor gateway (reserved IPs are inbound-only by default) and assert the
+    observed egress IP.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []
