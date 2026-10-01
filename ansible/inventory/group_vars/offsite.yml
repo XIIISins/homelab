@@ -17,6 +17,20 @@ baseline_install_qemu_agent: false
 # the 10b3 watcher addresses tailnet peers by IP.
 tailscale_tag: offsite
 tailscale_accept_dns: false
+# Phase 10b3: reach Hermod (10.0.11.22) through the homelab subnet routers for
+# the Gatus tailnet probe. Without it the tag:offsite -> 10.0.11.22 tcp:80 grant
+# is unusable (RouteAll=false, verified on the live node 2026-10-01). Blast
+# radius is bounded by the tailnet ACL (deny-by-default: only that one grant +
+# tcp:22 to tag:server); do1's own VPC ranges (10.18/16, 10.133/16) do not
+# overlap 10.0.0.0/16. Flip to false to drop the route (and the hermod-http probe).
+tailscale_accept_routes: true
+# ...and keep the 10a2 co-location mitigation whole: with the homelab supernet
+# now routable via tailscale0, containers must not reach it either (the docker
+# role's default only drops the tailnet CGNAT range + DO metadata).
+docker_user_drop_dst:
+  - 100.64.0.0/10 # Tailscale CGNAT range
+  - 169.254.169.254/32 # DO metadata service
+  - 10.0.0.0/16 # homelab supernet (reachable via accept-routes)
 
 # Apply Caddyfile changes with a restart: the Caddyfile sets `admin off`,
 # which makes `reload` impossible (see roles/caddy-reverse-proxy defaults).
@@ -40,3 +54,55 @@ caddy_sites:
     allowed_cidrs:
       - "0.0.0.0/0"
       - "::/0"
+
+# ---------------------------------------------------------------------------
+# Phase 10b3 — Gatus outside watcher (roles/gatus; Frigg half: roles/gatus-heartbeat)
+# ---------------------------------------------------------------------------
+# These are group vars (not role defaults) because the Frigg heartbeat role
+# reads the watcher's address/key through hostvars['do1'].
+# do1's own tailnet address (`tailscale ip -4` on the node). The Gatus listener
+# binds ONLY this address; the DO firewall never exposes it.
+gatus_listen_address: 100.102.131.126
+gatus_listen_port: 8080
+gatus_heartbeat_group: homelab
+gatus_heartbeat_name: frigg-heartbeat
+gatus_heartbeat_key: "{{ gatus_heartbeat_group }}_{{ gatus_heartbeat_name }}"
+# Grace = 300 s x 3 = 900 s (15 min) > the ~2-3 min unattended-upgrade reboot at
+# offsite_unattended_reboot_time (04:30); the role asserts this.
+gatus_heartbeat_interval_seconds: 300
+gatus_heartbeat_failure_threshold: 3
+
+# Frigg's tailnet address (`tailscale ip -4` on Frigg), probed over tag:offsite
+# -> tag:server tcp:22 (terraform/tailscale/policy.hujson).
+gatus_frigg_tailnet_ip: 100.120.118.45
+
+# Public endpoints, from terraform/cloudflare (apex WebFinger skip-rule, home. =
+# Startpage, paste. = MicroBin) + do1's own validation name (flip do1-next ->
+# do1 after the 10a3 cleanup). The apex WebFinger body check proves the apex
+# static pod answers, not just that Cloudflare does.
+gatus_public_endpoints:
+  - name: apex-webfinger
+    group: public
+    url: "https://xiiisins.com/.well-known/webfinger?resource=acct:probe@xiiisins.com"
+    extra_conditions:
+      - "[BODY] == pat(*openid.net/specs/connect/1.0/issuer*)"
+  - name: home
+    group: public
+    url: "https://home.xiiisins.com/"
+  - name: paste
+    group: public
+    url: "https://paste.xiiisins.com/"
+  - name: do1-proxy-health
+    group: offsite
+    url: "https://{{ do1_validation_host }}/health"
+
+# Tailnet-only, by tailnet IP (do1 does not use MagicDNS). TCP connect only:
+# Hermod's Caddy 403s any HTTP request from a non-allowlisted source (do1 arrives
+# via a subnet router), so an HTTP probe would test the allowlist, not liveness.
+gatus_tcp_endpoints:
+  - name: frigg-tailnet-ssh
+    group: homelab
+    url: "tcp://{{ gatus_frigg_tailnet_ip }}:22"
+  - name: hermod-http
+    group: homelab
+    url: "tcp://10.0.11.22:80"

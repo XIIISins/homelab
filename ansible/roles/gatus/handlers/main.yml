@@ -1,0 +1,10 @@
+# ansible/roles/gatus/handlers/main.yml
+---
+- name: Reload systemd (gatus)
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart gatus
+  ansible.builtin.systemd:
+    name: gatus.service
+    state: restarted
