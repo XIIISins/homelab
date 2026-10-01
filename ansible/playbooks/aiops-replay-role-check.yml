@@ -15,12 +15,14 @@
 # that must run under --check carry check_mode: false and are read-only by
 # repo convention (known-issues/semaphore.md).
 
-- ansible.builtin.import_playbook: aiops-replay-guard.yml
+- name: AIOps replay-role-check - registry guard
+  ansible.builtin.import_playbook: aiops-replay-guard.yml
   vars:
     aiops_expect_check_mode: true
     aiops_action: replay-role-check
 
-- ansible.builtin.import_playbook: site.yml
+- name: AIOps replay-role-check - converge via site.yml
+  ansible.builtin.import_playbook: site.yml
 
 - name: AIOps replay-role-check - done
   hosts: all

@@ -15,12 +15,14 @@
 # their own destructive-change guards (calico-upgrade, k3s-upgrade) are not
 # tags in the allow-list and are not reachable from here.
 
-- ansible.builtin.import_playbook: aiops-replay-guard.yml
+- name: AIOps replay-role - registry guard
+  ansible.builtin.import_playbook: aiops-replay-guard.yml
   vars:
     aiops_expect_check_mode: false
     aiops_action: replay-role
 
-- ansible.builtin.import_playbook: site.yml
+- name: AIOps replay-role - converge via site.yml
+  ansible.builtin.import_playbook: site.yml
 
 - name: AIOps replay-role - done
   hosts: all
