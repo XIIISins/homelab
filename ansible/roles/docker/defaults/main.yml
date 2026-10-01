@@ -1,0 +1,31 @@
+# ansible/roles/docker/defaults/main.yml
+---
+# Docker CE from Docker's official apt repo (Debian 13 / trixie), exact-version
+# pinned per the IaC pin policy. Verified against the repo's Packages index
+# 2026-10-01. Docker's repo is NOT in unattended-upgrades' allowed origins, so
+# these only move when this pin moves (bump deliberately, check the candidate
+# list first: `apt-cache madison docker-ce`).
+docker_repo_url: https://download.docker.com/linux/debian
+docker_gpg_key_url: https://download.docker.com/linux/debian/gpg
+docker_keyring_path: /etc/apt/keyrings/docker.asc
+docker_repo_codename: trixie
+
+docker_ce_version: "5:29.8.2-1~debian.13~trixie"
+docker_containerd_version: "2.3.6-1~debian.13~trixie"
+docker_compose_plugin_version: "5.5.1-1~debian.13~trixie"
+docker_buildx_plugin_version: "0.37.1-1~debian.13~trixie"
+
+# Container json-file logs are rotated: a 25 GB droplet disk must not be
+# filled by a chatty container.
+docker_log_max_size: 10m
+docker_log_max_file: "3"
+
+# ---- Container -> tailnet isolation (co-location mitigation, 10a2) ----
+# do1 is the internet-facing node AND a tailnet member. A compromised
+# container must not inherit the host's tailnet reach, so forwarded traffic
+# from container bridges to the tailnet range is dropped in DOCKER-USER
+# (the chain Docker guarantees it will not touch).
+docker_user_drop_src: 172.16.0.0/12 # docker0 + compose bridge default pools
+docker_user_drop_dst:
+  - 100.64.0.0/10 # Tailscale CGNAT range
+  - 169.254.169.254/32 # DO metadata service (user-data/droplet info)

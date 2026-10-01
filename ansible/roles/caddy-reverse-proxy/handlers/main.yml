@@ -3,5 +3,5 @@
 - name: reload caddy
   ansible.builtin.systemd:
     name: caddy
-    state: reloaded
+    state: "{{ caddy_reload_method }}"
     daemon_reload: false

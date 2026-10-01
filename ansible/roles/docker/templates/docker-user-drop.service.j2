@@ -1,0 +1,21 @@
+# Managed by Ansible — roles/docker. Do not edit by hand.
+# Drops forwarded container traffic to the tailnet + DO metadata service so a
+# compromised container cannot use the host's tailnet reach (10a2 co-location
+# mitigation). Packets from the container bridges to these destinations are
+# FORWARDed through DOCKER-USER; host-originated traffic is unaffected.
+[Unit]
+Description=Drop container -> tailnet/metadata traffic in DOCKER-USER
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+{% for dst in docker_user_drop_dst %}
+ExecStart=/bin/sh -c '/usr/sbin/iptables -C DOCKER-USER -s {{ docker_user_drop_src }} -d {{ dst }} -j DROP 2>/dev/null || /usr/sbin/iptables -I DOCKER-USER 1 -s {{ docker_user_drop_src }} -d {{ dst }} -j DROP'
+{% endfor %}
+ExecStop=/bin/true
+
+[Install]
+WantedBy=multi-user.target

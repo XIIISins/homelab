@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: offsite_node
+  author: XIIISins
+  description: >
+    do1 service layer: docker compose stack (TS3 failover + HeyLeaf PlantNet
+    proxy built on-host from a pinned commit) and the unattended-upgrade reboot
+    window. Requires the docker role.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []

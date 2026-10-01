@@ -266,7 +266,7 @@ Runtime quick-reference only. Full K3s install/VM detail in [`docs/services/asga
 - 🔲 Remaining asgard LXCs (Jellyfin — privileged LXC on Urd, QuickSync passthrough)
 - 🔲 **Phase 7 — Jotunheim K3s**
 - 🔲 Phase 8b — vm-operator migration (VLSingle/VMSingle CRDs + VMServiceScrape)
-- 🔲 **Phase 10 — AIOps & self-healing** (planned 2026-10-01; plan: [`docs/operations/aiops-roadmap.md`](docs/operations/aiops-roadmap.md)). **10c (Stage 0) ✅ code landed 2026-10-01** — `aiops/` (alert schema + routing, 20 runbook ids, 8-action registry, linter in CI); its 7 Semaphore templates await an operator `terraform apply` in `terraform/semaphore/`. 10a = rebuild the unmanaged DigitalOcean droplet from IaC (minimal TS3 failover + HeyLeaf PlantNet proxy + a Gatus outside watcher, no Uptime Kuma; DO stays the offsite, AWS stays KMS/state/cold copies; offsite is DR + watcher + burst, never a quorum member). Prerequisites pulled forward in [`open-questions.md`](docs/operations/open-questions.md): PBS off Skuld + capacity, Skuld watchdog, and the offsite-backup restore drill (the backups themselves are live — see [`docs/procedures/offsite-backups.md`](docs/procedures/offsite-backups.md)).
+- 🔲 **Phase 10 — AIOps & self-healing** (planned 2026-10-01; plan: [`docs/operations/aiops-roadmap.md`](docs/operations/aiops-roadmap.md)). **10c (Stage 0) ✅ code landed 2026-10-01** — `aiops/` (alert schema + routing, 20 runbook ids, 8-action registry, linter in CI); its 7 Semaphore templates await an operator `terraform apply` in `terraform/semaphore/`. 10a = rebuild the unmanaged DigitalOcean droplet from IaC (**code written 2026-10-01, awaiting apply + cutover — [`procedures/offsite-do1.md`](docs/procedures/offsite-do1.md)**; minimal TS3 failover + HeyLeaf PlantNet proxy + a Gatus outside watcher, no Uptime Kuma; DO stays the offsite, AWS stays KMS/state/cold copies; offsite is DR + watcher + burst, never a quorum member). Prerequisites pulled forward in [`open-questions.md`](docs/operations/open-questions.md): PBS off Skuld + capacity, Skuld watchdog, and the offsite-backup restore drill (the backups themselves are live — see [`docs/procedures/offsite-backups.md`](docs/procedures/offsite-backups.md)).
 
 ---
 
@@ -401,7 +401,7 @@ homelab/
 ├── CLAUDE.md          docs/ (→ docs/homelab-design.md index)   .github/workflows/   docker/
 ├── aiops/             Phase 10c: alert/runbook/action schemas, registry (actions.yml), routing, fixtures, linter (see aiops/README.md)
 ├── terraform/         proxmox/{asgard-k3s,asgard-lxcs,asgard-lxcs-root,asgard-vms} · vault · cloudflare ·
-│                       authentik · tailscale · netbox · adguard · garage · semaphore · github (ruleset) · aws (bootstrap)
+│                       authentik · tailscale · netbox · adguard · garage · semaphore · github (ruleset) · aws (bootstrap) · digitalocean (do1)
 ├── ansible/           inventory/ (hosts.yml + group_vars/, NetBox dyn-inv) · playbooks/ · roles/
 └── k8s/asgard/        flux-system/ · infrastructure/ (HelmReleases) · <component>-config/ (CRD-dependent,
                         dependsOn: infrastructure) · apps/ (leaf workloads)   |   k8s/jotunheim/ (not yet deployed)

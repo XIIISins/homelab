@@ -1,0 +1,14 @@
+# Managed by Ansible — roles/do-reserved-egress. Do not edit by hand.
+[Unit]
+Description=Route default egress via the DigitalOcean reserved-IP anchor gateway
+After=network-online.target
+Wants=network-online.target
+Before=docker.service tailscaled.service caddy.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/do-reserved-egress
+
+[Install]
+WantedBy=multi-user.target

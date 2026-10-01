@@ -1087,7 +1087,8 @@ set -g __vault_homelab_iac_map \
     "proxmox_api_token|TF_VAR_proxmox_api_token" \
     "semaphore_api_token|SEMAPHOREUI_API_TOKEN" \
     "semaphore_api_base_url|SEMAPHOREUI_API_BASE_URL" \
-    "github_token|GITHUB_TOKEN"
+    "github_token|GITHUB_TOKEN" \
+    "digitalocean_token|DIGITALOCEAN_TOKEN"
 
 # Files written from Vault + the static SSH key path. Canonical, shared with
 # homelab-env (single cluster / single secret) so kubectl + ansible behave

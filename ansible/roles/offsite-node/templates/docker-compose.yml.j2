@@ -1,0 +1,36 @@
+# Managed by Ansible — roles/offsite-node. Do not edit by hand.
+name: {{ offsite_compose_project }}
+
+services:
+  teamspeak:
+    image: {{ offsite_ts3_image }}
+    container_name: teamspeak
+    restart: unless-stopped
+    environment:
+      TS3SERVER_LICENSE: accept
+    # Voice only. ServerQuery (10011), file transfer (30033) and TSDNS (41144)
+    # are intentionally NOT published; the DO cloud firewall also keeps them closed.
+    ports:
+      - "{{ offsite_ts3_voice_port }}:9987/udp"
+    volumes:
+      - {{ offsite_root }}/ts3-data:/var/ts3server
+    # No cap_drop here: the official image's entrypoint behaviour is untested
+    # under cap_drop ALL and a broken failover is worse than a few caps.
+    security_opt: ["no-new-privileges:true"]
+
+  plantnet-proxy:
+    build:
+      context: {{ offsite_root }}/plantnet-proxy
+    image: plantnet-proxy:{{ offsite_plantnet_commit[:12] }}
+    container_name: plantnet-proxy
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PLANTNET_API_KEY: ${PLANTNET_API_KEY}
+    # Loopback only: Caddy (host) terminates TLS and proxies here. The image's
+    # own HEALTHCHECK (127.0.0.1) is used; the upstream compose file's
+    # `localhost` healthcheck is known-broken and deliberately not carried over.
+    ports:
+      - "127.0.0.1:{{ offsite_plantnet_loopback_port }}:3000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

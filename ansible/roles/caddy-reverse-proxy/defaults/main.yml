@@ -55,6 +55,14 @@ caddy_version: "2.11.4"
 # is a no-op).
 caddy_sites: []
 
+# ---- Config-change handler ----
+# The rendered Caddyfile sets `admin off`, and `systemctl reload caddy`
+# (`caddy reload`) talks to the admin API — so once admin is off a reload
+# cannot work. `reloaded` is kept as the default so existing hosts (Hermod)
+# behave exactly as before; hosts that must apply config changes reliably
+# (do1) set `restarted` (a sub-second restart; certs persist on disk).
+caddy_reload_method: reloaded
+
 # ---- Log directory ----
 # All site access logs live under this directory. Owned by the caddy
 # system user (created by the apt package).

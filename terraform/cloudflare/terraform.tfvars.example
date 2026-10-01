@@ -1,3 +1,10 @@
 # Cloudflare account ID. Find under Cloudflare dashboard → any zone landing
 # page → right sidebar "Account ID". Not a secret, but env-specific.
 cloudflare_account_id = "<your-cloudflare-account-id>"
+
+# ts3.tf (Phase 10a). IPs stay out of git — the home IP especially.
+hel_ts3_ip = "<home KPN public IPv4>"
+# Legacy droplet IP until the 10a3 cutover; then the new reserved IP.
+offsite_ip = "<legacy droplet IPv4, later the do1 reserved IP>"
+# Optional, set after terraform/digitalocean is applied (pre-cutover validation name).
+# do1_next_ip = "<do1 reserved IP>"

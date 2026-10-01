@@ -1,0 +1,42 @@
+# ansible/inventory/group_vars/offsite.yml
+---
+# do1 — the DigitalOcean offsite node (Phase 10a). Public-internet-facing,
+# NOT a Proxmox guest and NOT in the Semaphore reconcile loop (see the
+# `:!offsite` exclusions in vlagent.yml / zabbix-agent.yml /
+# zabbix-host-groups.yml, and docs/known-issues/digitalocean.md).
+# Converged by hand: playbooks/do1.yml.
+
+# resolv.conf belongs to the droplet (DO resolvers). The baseline default points
+# at the homelab AdGuard VIP, which is unreachable from DigitalOcean.
+baseline_manage_resolv_conf: false
+# No Proxmox guest-agent channel on a droplet.
+baseline_install_qemu_agent: false
+
+# Tailnet membership: tag:offsite (scoped grants in terraform/tailscale/policy.hujson).
+# Do not accept MagicDNS — public resolution must not depend on the tailnet;
+# the 10b3 watcher addresses tailnet peers by IP.
+tailscale_tag: offsite
+tailscale_accept_dns: false
+
+# Apply Caddyfile changes with a restart: the Caddyfile sets `admin off`,
+# which makes `reload` impossible (see roles/caddy-reverse-proxy defaults).
+caddy_reload_method: restarted
+
+# Pre-cutover the proxy answers only on the validation name; the production
+# hostname is added at the 10a3 cutover (flip this to true in the cutover PR) —
+# a cert request for a name that still resolves to the legacy droplet would
+# just fail ACME validation and burn rate limit.
+do1_serve_heyleaf: false
+do1_validation_host: do1-next.xiiisins.com
+do1_production_host: plantnet.heyleaf.app
+
+# The proxy is intentionally world-reachable (guest-mode HeyLeaf users); abuse
+# is bounded by the app's per-IP rate limit, which relies on Caddy setting
+# X-Forwarded-For (trust proxy = 1).
+caddy_sites:
+  - name: plantnet
+    listen: "{{ ([do1_validation_host] + ([do1_production_host] if do1_serve_heyleaf | bool else [])) | join(', ') }}"
+    upstream: "127.0.0.1:{{ offsite_plantnet_loopback_port }}"
+    allowed_cidrs:
+      - "0.0.0.0/0"
+      - "::/0"

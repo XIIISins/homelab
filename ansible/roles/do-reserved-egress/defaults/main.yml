@@ -1,0 +1,17 @@
+# ansible/roles/do-reserved-egress/defaults/main.yml
+---
+# A DigitalOcean reserved IP carries INBOUND traffic only. Outbound still
+# leaves with the droplet's own public IP unless the default route points at
+# the reserved IP's "anchor gateway" (DO docs: "Send outbound traffic via a
+# reserved IP"). For do1 that matters: PlantNet allowlists the reserved IP, so
+# the proxy's egress must come from it. This role installs a boot-time unit
+# that repoints the default route (read from the metadata service) and
+# asserts the observable egress IP.
+do_egress_metadata_base: http://169.254.169.254/metadata/v1
+do_egress_interface: eth0
+
+# Optional: the reserved IP, to assert against the observed egress IP. Pass
+# with -e do1_reserved_ip=<ip> (terraform/digitalocean output `reserved_ip`);
+# deliberately not committed. When unset the role only reports the egress IP.
+# do1_reserved_ip: ""
+do_egress_ip_probe_url: https://api.ipify.org

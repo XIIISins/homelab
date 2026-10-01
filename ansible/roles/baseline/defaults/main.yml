@@ -32,3 +32,8 @@ baseline_dns_search:
 # resolution, so we accept the drift). Cloud-init's manage_resolv_conf flag is
 # still flipped off — only the template task is gated.
 baseline_manage_resolv_conf: true
+
+# Install + enable qemu-guest-agent on VMs (Proxmox guests). Set false on
+# non-Proxmox hosts with no guest-agent channel (the DigitalOcean droplet do1),
+# where it would only add a package + a reboot for nothing.
+baseline_install_qemu_agent: true

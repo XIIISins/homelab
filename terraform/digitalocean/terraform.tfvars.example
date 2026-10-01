@@ -1,0 +1,5 @@
+# Public keys only. ansible_niflheim (day-1 root bootstrap) + the operator key.
+ssh_public_keys = {
+  ansible  = "ssh-ed25519 <ansible-runtime-public-key>"
+  operator = "ssh-ed25519 <operator-public-key>"
+}

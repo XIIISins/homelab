@@ -1,0 +1,73 @@
+# ansible/playbooks/do1.yml
+---
+# Phase 10a2 — converge `do1`, the DigitalOcean offsite node.
+#
+# End state:
+#   - Debian 13 droplet, fully patched, security updates automatic with a
+#     fixed reboot window
+#   - `ansible` + `recovery` users; hardened sshd (AllowUsers = those two)
+#   - Joined to the tailnet as tag:offsite (scoped grants, no blanket reach)
+#   - Docker (pinned) + compose stack: TeamSpeak 3 failover (9987/udp) and the
+#     HeyLeaf PlantNet proxy (loopback :3000, built on the host from a pinned
+#     commit), fronted by Caddy on 80/443
+#   - Outbound traffic sourced from the reserved IP (PlantNet allowlist)
+#   - DOCKER-USER drops container -> tailnet / DO-metadata traffic
+#
+# NOT in site.yml / Semaphore: do1 is internet-facing and converged by hand.
+# Run from the operator workstation or Frigg, one playbook at a time.
+#
+# Prereqs (in order): terraform/digitalocean applied; terraform/tailscale
+# applied (mints secret/ansible/tailscale/authkeys/do1); the HeyLeaf repo
+# checked out on the control node at offsite_plantnet_local_repo; Vault env
+# loaded (`vault-homelab-env`).
+#
+# Connect via the RESERVED IP (inventory ansible_host = do1-next.xiiisins.com
+# once do1_next_ip is set, or `-e ansible_host=<reserved ip>`): the egress
+# route change moves replies for the droplet's own public IP off-path.
+#
+# Day-1 (fresh droplet, only root + the injected keys):
+#     ansible-playbook playbooks/do1.yml -e ansible_user=root --tags baseline \
+#         -e ansible_host=<reserved ip>
+# Then the full play as `ansible` (hardening locks root out at the end):
+#     ansible-playbook playbooks/do1.yml -e do1_reserved_ip=<reserved ip>
+# Always `--check --diff` first.
+#
+# Reserved for later phases: the `gatus` role (10b3) slots in after `offsite-node`.
+
+- name: Configure do1 (offsite node)
+  hosts: offsite
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    # Guard against pointing this play at the LEGACY droplet (hardening it
+    # would lock the operator out of a live production box). The new droplet's
+    # hostname is its Terraform name; the legacy one is docker-ubuntu-....
+    - name: Refuse to run against anything but the new do1 droplet
+      ansible.builtin.assert:
+        that: ansible_facts['hostname'] == 'do1'
+        fail_msg: >-
+          Target hostname is '{{ ansible_facts['hostname'] }}', not 'do1'.
+          Wrong ansible_host? (the legacy droplet must never be converged
+          by this playbook)
+      tags: [always]
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: os-updates
+      tags: [os-updates]
+    - role: tailscale
+      tags: [tailscale]
+    - role: docker
+      tags: [docker]
+    - role: offsite-node
+      tags: [offsite-node]
+    - role: caddy-reverse-proxy
+      tags: [caddy]
+    - role: hardening
+      tags: [hardening]
+    # Last: repointing the default route can disturb sessions that arrived via
+    # the droplet's own public IP; everything above is already converged.
+    - role: do-reserved-egress
+      tags: [do-egress]

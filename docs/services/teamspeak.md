@@ -15,8 +15,8 @@ Lives in `k8s/asgard/apps/teamspeak/`. Pivoted from a planned LXC (1121 on Verd)
 | Data | PVC `data-teamspeak-0`, 5Gi, `synology-csi-iscsi-retain` | Logs + `files/` (file transfers); DB lives in PG. Expandable to 20Gi. |
 | Database | PG role + DB `teamspeak3` on Patroni cluster | Via HAProxy VIP `10.0.10.210`, `sslmode=require`, scram-sha-256 |
 | MetalLB VIP | `10.0.20.12` | Shared across two LB Services via `metallb.universe.tf/allow-shared-ip: teamspeak` |
-| External DNS | `hel-ts3.xiiisins.com` → KPN public IPv4 | **Pre-existing**, currently outside TF. See "DNS" below. |
-| SRV ring | `_ts3._udp.ts3.xiiisins.com` → `hel-ts3` (priority 1, homelab) + `do-ts3` (priority 99, DigitalOcean failover) | Pre-existing, outside TF. |
+| External DNS | `hel-ts3.xiiisins.com` → KPN public IPv4 | Terraform-managed (`terraform/cloudflare/ts3.tf`, 10a1). See "DNS" below. |
+| SRV ring | `_ts3._udp.ts3.xiiisins.com` → `hel-ts3` (priority 1, homelab) + `do-ts3` (priority 99, DigitalOcean failover) | Terraform-managed (`terraform/cloudflare/ts3.tf`, 10a1); `do-ts3` = the offsite node, see "Offsite failover (do1)". |
 
 ### Traffic flow
 
@@ -52,12 +52,15 @@ ServerQuery (`10011/TCP`, `10022/TCP`) deliberately NOT forwarded — admin only
 
 ## DNS
 
-Pre-existing setup; **outside TF**. Two options for the future:
-
-1. **Leave as legacy** — `_ts3._udp.ts3.xiiisins.com` SRV records and the `hel-ts3.xiiisins.com` / `do-ts3.xiiisins.com` A records stay hand-managed in the Cloudflare dashboard. They rarely change. Recommended for now — low touch, lowest IaC drift cost.
-2. **Import into TF** — add `import {}` blocks in `terraform/cloudflare/main.tf` for 2 SRV records + 2 A records (4 resources total). Pattern mirrors NetBox 5i.3. Defer until a record actually needs editing.
+**Terraform-managed since Phase 10a1** (decision D2; supersedes the earlier "leave hand-managed" stance): `terraform/cloudflare/ts3.tf` adopts the pre-existing `hel-ts3` / `do-ts3` / `do1` A records and both `_ts3._udp.ts3.xiiisins.com` SRV records via `import {}` blocks, unchanged. The IPs are variables in the gitignored `terraform.tfvars` (the home IP is never committed); `offsite_ip` is the cutover lever for `do-ts3` + `do1`. Edit DNS there, not in the dashboard.
 
 LAN/tailnet clients currently trombone via the public IP (DNS resolves `hel-ts3.xiiisins.com` to the KPN IP, packets exit out the WAN and re-enter via UCG). If this becomes a real cost (latency, bandwidth, conntrack pressure), add an AGH rewrite for `hel-ts3.xiiisins.com` → `10.0.20.12` (same pattern as the existing `factorio.xiiisins.com` apex bypass). Deferred — friends overwhelmingly connect from outside the LAN.
+
+## Offsite failover (do1)
+
+The priority-99 SRV target (`do-ts3.xiiisins.com`) is the DigitalOcean node `do1` (Phase 10a; procedure [`procedures/offsite-do1.md`](../procedures/offsite-do1.md)). It runs its **own** `teamspeak:3.13.7` container (same version as the K3s server) with an independent **SQLite** DB — it does not share the homelab's PG, since it exists precisely for when the homelab is down. Only `9987/udp` is published (DO cloud firewall + compose); ServerQuery 10011, file transfer 30033 and TSDNS 41144 stay closed. State lives in the bind mount `/opt/do1/ts3-data` (owned by uid 9987); the stack is `/opt/do1/docker-compose.yml`, rendered by the `offsite-node` role. The DB is restored from a SQLite-backup-API dump of the legacy droplet's server (the live DB is WAL-mode — a plain file copy misses data); `PRAGMA integrity_check` must return `ok` before restoring.
+
+**Validation once do1 exists:** (1) stop the homelab TS3 briefly (`kubectl scale statefulset/teamspeak -n teamspeak --replicas=0` — via the operator's normal flow, restore to 1 after), (2) connect a TS3 client to `ts3.xiiisins.com` and confirm it lands on do1 via the SRV fallback with the restored channels/permissions, (3) from an independent vantage confirm `9987/udp` answers and `10011/30033/41144` do not.
 
 ## Deploy runbook
 
