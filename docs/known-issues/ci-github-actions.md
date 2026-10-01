@@ -1,0 +1,16 @@
+<!-- docs/known-issues/ci-github-actions.md -->
+
+# Known gotchas — CI / GitHub Actions / branch rulesets
+
+*Procedure: [`../procedures/ci.md`](../procedures/ci.md). Decision: [`decisions.md`](../operations/decisions.md) "CI gate + branch ruleset".*
+
+- **gitleaks must be ≥ 8.29.1 or the repo's allowlists silently don't apply.** `.gitleaks.toml` uses `[[allowlists]]` with `regexTarget = "line"` + `condition = "AND"`. On 8.24–8.28 the file parses but the allowlists are ignored: the scan reports 6–9 "leaks" that are SealedSecret ciphertext, ExternalSecret Vault *paths* and a 1Password item ID. 8.18 additionally has no `git` subcommand. CI pins **8.30.0** (sha in `ci.yml`); full history is clean on it. Symptom of a too-old local binary: false positives only in `k8s/**/*secret*.yaml` + `.config/scripts/homelab.sh`.
+- **gitleaks on a shallow clone** treats the grafted boundary commit as "adds every file" and re-reports the whole tree. CI checks out with `fetch-depth: 0`; locally `git fetch --unshallow` before judging a scan.
+- **kubeconform silently skips files without a `.yaml`/`.yml`/`.json` extension** — a validator fed `mktemp` output validates nothing and exits 0. `ci-k8s.sh` uses `mktemp --suffix=.yaml` and fails if it schema-checked 0 resources. When adding validators to CI: **always negative-test** (inject a known-bad field, confirm exit ≠ 0).
+- **`workflow_dispatch` returns 404 until the workflow file exists on the default branch.** To test a new workflow before merging, open a (draft) PR — `pull_request` runs use the PR branch's copy.
+- **A required check that is skipped by a workflow-level `paths:` filter never reports → the PR is blocked forever.** `ci.yml` always runs; per-job `if:` skips; `CI gate` (`if: always()`) folds `skipped` into pass. Don't "optimise" this away.
+- **`terraform validate` still needs required provider arguments** (hashicorp/vault wants `address` even though validate never connects). `ci-terraform.sh` exports placeholder `VAULT_ADDR`/`VAULT_TOKEN`; if another provider fails validate with "Missing required argument", add a placeholder env there, not a real credential.
+- **`terraform fmt -check` fails on hand-aligned HCL** (tables aligned with extra spaces, `# comment` columns). Run `terraform fmt -recursive terraform` before pushing; don't hand-align.
+- **ruleset `required_check.integration_id = 15368` is the GitHub Actions app.** Omitting it lets *any* app satisfy the check name; a wrong id makes the check unsatisfiable. Check name = the job's `name:` (`CI gate`), not its key.
+- **Imported `github_repository`:** the first plan can show unrelated attribute diffs (provider defaults vs real settings). Read it before applying; never apply a plan that flips `has_*`, visibility or topics.
+- **Sandboxed sessions can't run everything locally:** Galaxy and the Terraform registry are egress-blocked in Claude Code remote sessions, so `ansible-lint` and `terraform validate` first run for real in Actions. Use a draft PR to iterate.
