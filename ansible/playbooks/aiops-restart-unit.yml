@@ -1,0 +1,88 @@
+# ansible/playbooks/aiops-restart-unit.yml
+---
+# Phase 10c3 action `restart-unit` (T1, mutating, max_autonomy: approval) —
+# registry entry in aiops/actions.yml. Restarts ONE systemd unit on ONE T1
+# host and waits for it to report active.
+#
+# The guard lives HERE as well as in the executor: the allow-list is read from
+# aiops/actions.yml (host_tiers.T1 + actions.restart-unit.guard.allowed_units),
+# so a misbehaving caller cannot widen it by passing different extra-vars.
+# Anything off the list fails in the first play, before any change.
+#
+# Extra-vars: target_host (single inventory hostname), unit (<name>.service)
+# Result line: AIOPS_RESULT {"action": "restart-unit", "ok": ..., "active_state": ...}
+#
+# Idempotent: a restart converges to the same running state on replay. Not
+# applied in --check (the systemd module reports `changed` without acting).
+
+- name: AIOps restart-unit - guard
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # control-node ansible.cfg defaults become: true
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _allowed_hosts: "{{ _registry.host_tiers.T1 }}"
+    _allowed_units: "{{ _registry.actions['restart-unit'].guard.allowed_units }}"
+  tasks:
+    - name: Assert well-formed extra-vars
+      ansible.builtin.assert:
+        that:
+          - target_host is defined
+          - unit is defined
+          - target_host is match('^[a-z0-9][a-z0-9-]*$')
+          - unit is match('^[A-Za-z0-9@:._-]+\.service$')
+        fail_msg: "restart-unit needs target_host and unit (<name>.service)."
+        quiet: true
+
+    - name: Assert the host is a known T1 inventory host and the unit is allow-listed for it
+      ansible.builtin.assert:
+        that:
+          - target_host in groups['all']
+          - target_host in _allowed_hosts
+          - unit in (_allowed_units[target_host] | default([]))
+        fail_msg: >-
+          restart-unit refused: {{ unit }} on {{ target_host }} is not allow-listed
+          (host must be in host_tiers.T1 and the unit in guard.allowed_units;
+          see aiops/actions.yml).
+        quiet: true
+
+- name: AIOps restart-unit - restart and verify
+  hosts: "{{ target_host | default('aiops-no-target') }}" # default only keeps --syntax-check/ansible-lint parseable; the guard play fails first when unset
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Restart the unit
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+        state: restarted
+
+    - name: Wait until the unit reports active
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+      register: _aiops_unit
+      until: _aiops_unit.status.ActiveState | default('unknown') == 'active'
+      retries: 10
+      delay: 3
+      failed_when: false
+      check_mode: false
+      changed_when: false
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _status: "{{ _aiops_unit.status | default({}) }}"
+        _aiops_result:
+          action: restart-unit
+          ok: "{{ (_status.get('ActiveState', '') == 'active') }}"
+          target_host: "{{ target_host }}"
+          unit: "{{ unit }}"
+          active_state: "{{ _status.get('ActiveState', 'unknown') }}"
+          n_restarts: "{{ _status.get('NRestarts', '') }}"
+
+    - name: Fail the run if the unit did not come back active
+      ansible.builtin.assert:
+        that: _aiops_unit.status.ActiveState | default('unknown') == 'active'
+        fail_msg: "{{ unit }} on {{ target_host }} is not active after restart; escalate."
+        quiet: true

@@ -24,6 +24,7 @@ Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rat
 | Routine notifications NOT routed via Hermod | vlagent already ships every host's syslog/journald to VictoriaLogs. Routine event = log line. No reason to double-route through Hermod just to write to VL. |
 | Config on root disk, Ansible-managed | Matches every other Ansible-managed service in the homelab (AdGuard, Postgres, Factorio). PBS backs up the LXC root disk = config covered. |
 
+<!-- runbook: RB-ALERT-UNCLASSIFIED -->
 ## Severity taxonomy + routing
 
 | Tag | Response expectation | Producer examples | Discord destination |
@@ -153,6 +154,8 @@ The policy artifact. Every alert producer in the homelab maps its native severit
 | **Sonarr / Radarr** (future) | All releases | `media` |
 
 Changes to this table are policy decisions worth a PR. The Apprise yaml is just the mechanical realization.
+
+**Machine-readable form (Phase 10c).** The same producers, normalized into a versioned alert (`host`, `service`, `check`, `severity` = the tag above, `runbook_id`, fingerprint, timestamps) live in [`aiops/`](../../aiops/README.md): schema, per-source mapping ([`alert-mapping.md`](../../aiops/alert-mapping.md)), a routing table that guarantees every `critical` path resolves to a `runbook_id`, and fixtures. Producers are unchanged; they keep POSTing the wire format above. A new producer or a changed message shape means a new route in `aiops/alert-routing.yml` (until then it lands on `RB-ALERT-UNCLASSIFIED`).
 
 ## Vault layout
 

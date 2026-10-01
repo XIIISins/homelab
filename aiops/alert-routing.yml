@@ -1,0 +1,261 @@
+# aiops/alert-routing.yml — which runbook a producer message belongs to.
+#
+# Schema: schema/routing.v1.schema.json. Consumed by tools/normalize.py (the
+# reference for the 10d1 webhook bridge) and checked by tools/lint.py.
+#
+# Why a table and not a producer-side change: every producer already POSTs
+# Hermod's flat wire format (title/body/type/tag/format) and some of them
+# (Zabbix triggers) are live stateful config. Stamping a runbook_id into each
+# producer would touch the Zabbix media type, the Patroni callback, the prober
+# and the Frigg listener on live hosts. A single routing table in Git gives the
+# same "every critical alert carries a runbook_id" guarantee at the
+# normalization layer with zero live change; producers can adopt the id later
+# (open question for 10d1).
+#
+# Semantics: first matching route per source wins (file order). Every source
+# ends in a catch-all (`match: .*`, severity any|critical) so a critical alert
+# can never come out without a runbook_id — lint enforces that.
+#
+# `host` is a literal, or omitted when the host comes from the message itself
+# (Zabbix body `**Host:**`, Patroni title) or from a named `host` regex group.
+# `check` may use {group} expansion; @slug = slug of the matched subject.
+# check must NOT embed values that vary between occurrences (days left, counts)
+# because it feeds the fingerprint.
+
+schema_version: aiops.routing/v1
+
+routes:
+  # --- Zabbix (Disaster/High -> critical, Average -> alert; Hermod tag) ---------
+  # Patterns are derived from stock-template trigger names and have NOT been
+  # checked against the live trigger list (needs the read-only Zabbix API pass
+  # in 10d2). Anything they miss lands in the catch-all, still with a runbook.
+  - id: zbx-host-unavailable
+    source: zabbix
+    severity: any
+    match: '(agent is not available|is not available|unreachable|host is down|no data from)'
+    service: host
+    check: agent-unavailable
+    runbook_id: RB-HOST-HARD-FREEZE
+    note: A silent host. Classify the layer first; Skuld froze twice (RB-HOST-HARD-FREEZE covers the watchdog + dead-host reasoning).
+
+  - id: zbx-pg-ha
+    source: zabbix
+    severity: any
+    match: '(postgres|patroni|etcd)'
+    service: pg-ha
+    check: '@slug'
+    runbook_id: RB-PG-HA-DEGRADED
+
+  - id: zbx-catchall
+    source: zabbix
+    severity: any
+    match: '.*'
+    service: zabbix
+    check: '@slug'
+    runbook_id: RB-ZBX-TRIAGE
+    note: Includes disk-space triggers; on a K3s control plane see RB-ETCD-RAFT-SYSLOG-FLOOD.
+
+  # --- S4 infra-health prober (one route per finding line) ----------------------
+  - id: s4-cf-token
+    source: s4-prober
+    severity: critical
+    match: 'Cloudflare API token INVALID'
+    host: api.cloudflare.com
+    service: cloudflare
+    check: cf-token
+    runbook_id: RB-CF-TOKEN-INVALID
+
+  - id: s4-cert-expiry
+    source: s4-prober
+    severity: any
+    match: 'TLS cert for \*\*[^*]+\*\* \(`(?P<host>[^`]+)`\)'
+    service: tls
+    check: cert-expiry
+    runbook_id: RB-TLS-CERT-EXPIRY
+    note: Critical (<3d or unreachable) and alert (<14d) share one check on purpose - same condition escalating, same fingerprint.
+
+  - id: s4-patroni
+    source: s4-prober
+    severity: critical
+    match: 'Patroni cluster'
+    host: niflheim-pg
+    service: patroni
+    check: cluster-health
+    runbook_id: RB-PG-HA-DEGRADED
+
+  - id: s4-etcd-quorum
+    source: s4-prober
+    severity: critical
+    match: 'etcd quorum LOST'
+    host: haproxy-etcd
+    service: etcd
+    check: dcs-quorum
+    runbook_id: RB-PG-HA-DEGRADED
+
+  - id: s4-pbs-auth
+    source: s4-prober
+    severity: critical
+    match: 'PBS auth FAILED'
+    host: pbs
+    service: pbs
+    check: monitoring-token
+    runbook_id: RB-PBS-BACKUP-FAILURE
+
+  - id: s4-pbs-tasks
+    source: s4-prober
+    severity: critical
+    match: 'PBS: \d+ failed task'
+    host: pbs
+    service: pbs
+    check: backup-failed
+    runbook_id: RB-PBS-BACKUP-FAILURE
+
+  - id: s4-approle
+    source: s4-prober
+    severity: critical
+    match: 'Vault AppRole `(?P<host>[^`]+)`'
+    service: vault
+    check: approle-expiry
+    runbook_id: RB-VAULT-APPROLE-EXPIRY
+    note: host = the AppRole name (ansible-local / ansible-frigg / ansible-awx).
+
+  - id: s4-frigg-rc
+    source: s4-prober
+    severity: critical
+    match: 'claude-remote-control\.service on frigg'
+    host: frigg
+    service: frigg-rc
+    check: rc-service
+    runbook_id: RB-FRIGG-RC-LOGIN
+
+  - id: s4-iac-env
+    source: s4-prober
+    severity: critical
+    match: 'frigg/iac-env `(?P<cred>[a-z_]+)`'
+    host: frigg
+    service: iac-env
+    check: 'iac-env-{cred}'
+    runbook_id: RB-CRED-IAC-ENV-SYNC
+
+  - id: s4-prober-errored
+    source: s4-prober
+    severity: critical
+    match: 'Infra health check ERRORED'
+    host: semaphore
+    service: s4-prober
+    check: prober-errored
+    runbook_id: RB-S4-PROBER-ERRORED
+
+  - id: s4-catchall
+    source: s4-prober
+    severity: any
+    match: '.*'
+    host: fleet
+    service: s4-prober
+    check: '@slug'
+    runbook_id: RB-ALERT-UNCLASSIFIED
+    note: A new prober check without a route above lands here.
+
+  # --- Patroni callback (alert-only role changes; the critical branch is the
+  #     "all replicas lost" row of the severity table, not yet emitted) ---------
+  - id: patroni-role-change
+    source: patroni
+    severity: alert
+    match: '^Patroni: (?P<host>[a-z0-9-]+) '
+    service: patroni
+    check: role-change
+    runbook_id: RB-PG-HA-DEGRADED
+    status: event
+
+  - id: patroni-catchall
+    source: patroni
+    severity: any
+    match: '.*'
+    host: niflheim-pg
+    service: patroni
+    check: cluster-critical
+    runbook_id: RB-PG-HA-DEGRADED
+
+  # --- Semaphore (hermod_summary callback) -------------------------------------
+  - id: semaphore-apply-failed
+    source: semaphore
+    severity: critical
+    match: '^Apply failed'
+    host: fleet
+    service: semaphore
+    check: apply-failed
+    runbook_id: RB-SEMAPHORE-RUN-FAILED
+    status: event
+
+  - id: semaphore-drift-failed
+    source: semaphore
+    severity: alert
+    match: '^Drift check failed'
+    host: fleet
+    service: semaphore
+    check: drift-check-failed
+    runbook_id: RB-SEMAPHORE-RUN-FAILED
+    status: event
+
+  - id: semaphore-drift-detected
+    source: semaphore
+    severity: alert
+    match: '^Drift detected'
+    host: fleet
+    service: semaphore
+    check: drift-detected
+    runbook_id: RB-LXC-BOOT-DRIFT
+    status: event
+    note: Not every drift is LXC boot drift, but it is the largest known class; the diagnosis session refines it.
+
+  - id: semaphore-catchall
+    source: semaphore
+    severity: any
+    match: '.*'
+    host: fleet
+    service: semaphore
+    check: '@slug'
+    runbook_id: RB-SEMAPHORE-RUN-FAILED
+    status: event
+
+  # --- Frigg re-auth listener ---------------------------------------------------
+  - id: frigg-reauth-needed
+    source: frigg
+    severity: critical
+    match: 'needs re-auth'
+    host: frigg
+    service: frigg-rc
+    check: reauth-needed
+    runbook_id: RB-FRIGG-RC-LOGIN
+    status: event
+
+  - id: frigg-reauth-failed
+    source: frigg
+    severity: critical
+    match: 're-auth failed'
+    host: frigg
+    service: frigg-rc
+    check: reauth-failed
+    runbook_id: RB-FRIGG-RC-LOGIN
+    status: event
+
+  - id: frigg-catchall
+    source: frigg
+    severity: any
+    match: '.*'
+    host: frigg
+    service: frigg-rc
+    check: '@slug'
+    runbook_id: RB-FRIGG-RC-LOGIN
+    status: event
+
+  # --- Anything else that POSTs to Hermod ----------------------------------------
+  - id: unknown-catchall
+    source: unknown
+    severity: any
+    match: '.*'
+    host: fleet
+    service: unknown
+    check: '@slug'
+    runbook_id: RB-ALERT-UNCLASSIFIED
+    status: event

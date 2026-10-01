@@ -1,0 +1,52 @@
+# ansible/playbooks/aiops-patroni-status.yml
+---
+# Phase 10c3 action `patroni-status` (T0, read-only) — registry entry in
+# aiops/actions.yml. Reads Patroni's open GET /cluster endpoint on the PG trio
+# (the same probe infra-health-check.yml uses; reachable from the Semaphore pod
+# over VLAN 11) and reports members, roles, states and lag.
+#
+# GET only. The mutating endpoints (/switchover, /failover, /restart) need
+# restapi auth and are never called here.
+#
+# Result line: AIOPS_RESULT {"action": "patroni-status", "ok": ..., "leader_present": ...,
+#                            "running_members": N, "members": [...]}
+
+- name: AIOps patroni-status
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # Semaphore pod / control-node ansible.cfg defaults become: true
+  vars:
+    patroni_restapi_port: 8008
+  tasks:
+    - name: Probe /cluster on each PG node (read-only)
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[item].ansible_host | default(item) }}:{{ patroni_restapi_port }}/cluster"
+        method: GET
+        return_content: true
+        status_code: [200, 503]
+        timeout: 5
+      loop: "{{ groups['postgres'] | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: _patroni_probe
+      failed_when: false
+      check_mode: false
+
+    - name: Summarize the first node that answered
+      ansible.builtin.set_fact:
+        _aiops_result:
+          action: patroni-status
+          ok: "{{ _answered | length > 0 }}"
+          answered_by: "{{ _answered[0].item if _answered | length > 0 else '' }}"
+          leader_present: "{{ (_members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | length) > 0 }}"
+          running_members: "{{ _members | selectattr('state', 'in', ['running', 'streaming']) | list | length }}"
+          total_members: "{{ _members | length }}"
+          members: "{{ _members | map(attribute='name') | zip(_members | map(attribute='role'), _members | map(attribute='state')) | map('join', ':') | list }}"
+      vars:
+        _answered: "{{ _patroni_probe.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
+        _members: "{{ (_answered[0].json.members | default([])) if _answered | length > 0 else [] }}"
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"

@@ -1,0 +1,32 @@
+{
+  "description": "hermod_summary callback: asgard-apply failure (critical)",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Apply failed: 1 host(s) failed/unreachable",
+    "body": "**Wrapper:** `apply.yml`\n**Totals:** ok=412 changed=3 failed=1 unreachable=0\n\n**Per host:**\n- `mimir`: ok=20 changed=1 failed=1 unreachable=0",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "semaphore",
+      "status": "event",
+      "severity": "critical",
+      "host": "fleet",
+      "service": "semaphore",
+      "check": "apply-failed",
+      "summary": "Apply failed: 1 host(s) failed/unreachable",
+      "detail": "**Wrapper:** `apply.yml`\n**Totals:** ok=412 changed=3 failed=1 unreachable=0\n\n**Per host:**\n- `mimir`: ok=20 changed=1 failed=1 unreachable=0",
+      "runbook_id": "RB-SEMAPHORE-RUN-FAILED",
+      "fingerprint": "c9d228b5d3b31771",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    }
+  ]
+}

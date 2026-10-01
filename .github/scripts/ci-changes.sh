@@ -3,7 +3,7 @@
 #
 # Prints key=value lines (appended to $GITHUB_OUTPUT when set):
 #   terraform_modules  JSON array of module dirs to validate ([] = none)
-#   k8s | ansible | docs | workflows   true/false
+#   k8s | ansible | docs | workflows | aiops   true/false
 #
 # No base (push to main, workflow_dispatch) or a change to CI itself/shared
 # lint config => run everything. This exists so the single required check
@@ -47,3 +47,6 @@ emit k8s       "$(has '^k8s/' && echo true || echo false)"
 emit ansible   "$(has '^ansible/' && echo true || echo false)"
 emit docs      "$(has '\.md$' && echo true || echo false)"
 emit workflows "$(has '^\.github/workflows/' && echo true || echo false)"
+# aiops/ is cross-linked into the docs (runbook markers), the Semaphore templates and
+# the aiops-* playbooks, so a change to any of those can break its consistency checks.
+emit aiops     "$(has '^(aiops/|ansible/playbooks/aiops-|terraform/semaphore/|docs/(known-issues|procedures|services)/)' && echo true || echo false)"

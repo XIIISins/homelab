@@ -18,6 +18,13 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 CRD_SCHEMAS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+# Schema download cache (set by CI via KUBECONFORM_CACHE): the CRD catalog is
+# otherwise fetched file-by-file from raw.githubusercontent.com on every run.
+cache_args=()
+if [ -n "${KUBECONFORM_CACHE:-}" ]; then
+  mkdir -p "$KUBECONFORM_CACHE"
+  cache_args=(-cache "$KUBECONFORM_CACHE")
+fi
 # Vendored upstream manifests that are not ours to lint.
 SKIP_RE='^k8s/asgard/flux-system/flux-system$'
 
@@ -37,7 +44,7 @@ while IFS= read -r dir; do
   fi
   rendered=$((rendered + 1))
   rc=0
-  out="$(kubeconform -strict -ignore-missing-schemas -summary \
+  out="$(kubeconform -strict -ignore-missing-schemas -summary ${cache_args[@]+"${cache_args[@]}"} \
         -schema-location default -schema-location "$CRD_SCHEMAS" "$tmp" 2>&1)" || rc=$?
   n="$(sed -n 's/^Summary: \([0-9]*\) resources found.*/\1/p' <<<"$out")"
   resources=$((resources + ${n:-0}))

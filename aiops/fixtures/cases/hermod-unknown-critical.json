@@ -1,0 +1,32 @@
+{
+  "description": "A critical POST from a producer the routing table does not know: RB-ALERT-UNCLASSIFIED",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Backup job exploded",
+    "body": "nightly-dump failed with exit 2",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "unknown",
+      "status": "event",
+      "severity": "critical",
+      "host": "fleet",
+      "service": "unknown",
+      "check": "backup-job-exploded",
+      "summary": "Backup job exploded",
+      "detail": "nightly-dump failed with exit 2",
+      "runbook_id": "RB-ALERT-UNCLASSIFIED",
+      "fingerprint": "12bdd7ac651eb0c9",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    }
+  ]
+}

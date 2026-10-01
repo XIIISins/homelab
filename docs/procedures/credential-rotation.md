@@ -15,6 +15,7 @@ Step-by-step rotation for every homelab-env credential type. Written up 2026-09-
 
 **1Password item: `[Bootstrap] - Manual - Vault - Root token`, UUID `7g4grolyien2yqkm7me2jficmy`** (renamed from `Asgard - Vault - Root Token` during the S1 reorg — always reference by UUID). Interactive-only (needs a real terminal for the confirm-before-revoke prompt): `rotate-vault-root-token` in either shim dialect. Full mechanism + the `op item edit` silent-fail history: `known-issues/vault.md`. Recovery path if it goes wrong: `vault operator generate-root` (documented inline in `2026-09-03-vault-root-token-recovery.md`; a standalone runbook is still an open item).
 
+<!-- runbook: RB-VAULT-APPROLE-EXPIRY -->
 ## Vault AppRole (`ansible-local`, `ansible-frigg`, `ansible-awx`)
 
 - `ansible-local`: **1Password item `[Asgard] - Ansible - Vault - AppRole (ansible-local)`, UUID `4srpqv2mt2vditxo7g5rqjquti`.** `rotate-approle ansible-local` — prints the new SecretID for the operator to paste into that item, hash-verifies, prompts before revoking the old one. **Only `username` = RoleID, never touch it; `password`/`secret_id_accessor`/`expires_at` are what change.**
@@ -58,6 +59,7 @@ end
 set -e TF_HASH OP_HASH
 ```
 
+<!-- runbook: RB-CF-TOKEN-INVALID -->
 ## Cloudflare
 
 **There are (at least) three separate Cloudflare API tokens in the account**, not one — check the dashboard (My Profile → API Tokens) before assuming which one you're rolling:

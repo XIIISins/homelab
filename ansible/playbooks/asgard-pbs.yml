@@ -1,6 +1,6 @@
 # ansible/playbooks/asgard-pbs.yml
 ---
-# PBS (Proxmox Backup Server, LXC 1101 on Skuld) — agent-only converge.
+# PBS (Proxmox Backup Server, LXC 1101 on Urd) — agent-only converge.
 #
 # PBS was installed via the upstream PBS installer outside Ansible
 # (see group_vars/pbs.yml — root-only SSH, no `ansible` user, no

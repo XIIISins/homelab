@@ -1,0 +1,51 @@
+{
+  "description": "S4 iac-env findings: one fingerprint per credential",
+  "received_at": "2026-10-01T12:40:00Z",
+  "wire": {
+    "title": "Infra health: 2 critical finding(s)",
+    "body": "**Infra health check — CRITICAL**\n\n- frigg/iac-env `cloudflare_api_token` is OUT OF SYNC with `secret/ansible/cloudflare/api-token` — Frigg is authenticating with a stale/different token. Re-sync per the Cloudflare section of docs/procedures/credential-rotation.md.\n- frigg/iac-env `netbox_api_token` does NOT authenticate against NetBox (HTTP 403) — Frigg TF applies against terraform/netbox will fail. Rotate/re-sync per the NetBox section of docs/procedures/credential-rotation.md.",
+    "type": "failure",
+    "tag": "critical",
+    "format": "markdown"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "frigg",
+      "service": "iac-env",
+      "check": "iac-env-cloudflare-api-token",
+      "summary": "frigg/iac-env cloudflare_api_token is OUT OF SYNC with secret/ansible/cloudflare/api-token — Frigg is authenticating with a stale/different token. Re-sync per the Cloudflare section of docs/procedures",
+      "detail": "frigg/iac-env `cloudflare_api_token` is OUT OF SYNC with `secret/ansible/cloudflare/api-token` — Frigg is authenticating with a stale/different token. Re-sync per the Cloudflare section of docs/procedures/credential-rotation.md.",
+      "runbook_id": "RB-CRED-IAC-ENV-SYNC",
+      "fingerprint": "33d16067b82c9f9f",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    },
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "s4-prober",
+      "status": "firing",
+      "severity": "critical",
+      "host": "frigg",
+      "service": "iac-env",
+      "check": "iac-env-netbox-api-token",
+      "summary": "frigg/iac-env netbox_api_token does NOT authenticate against NetBox (HTTP 403) — Frigg TF applies against terraform/netbox will fail. Rotate/re-sync per the NetBox section of docs/procedures/credentia",
+      "detail": "frigg/iac-env `netbox_api_token` does NOT authenticate against NetBox (HTTP 403) — Frigg TF applies against terraform/netbox will fail. Rotate/re-sync per the NetBox section of docs/procedures/credential-rotation.md.",
+      "runbook_id": "RB-CRED-IAC-ENV-SYNC",
+      "fingerprint": "2d25353c50879bd5",
+      "fired_at": "2026-10-01T12:40:00Z",
+      "received_at": "2026-10-01T12:40:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure"
+      }
+    }
+  ]
+}

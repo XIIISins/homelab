@@ -1,0 +1,43 @@
+# ansible/playbooks/aiops-replay-role-check.yml
+---
+# Phase 10c3 action `replay-role-check` (T0 — runs with --check) — registry
+# entry in aiops/actions.yml. Step one of `replay-role`: shows what replaying
+# an allow-listed role tag on ONE T1 host would change.
+#
+# Semaphore template `aiops-replay-role-check` bakes `--check --diff` and the
+# executor adds `--limit <target_host> --tags <role_tag>` (task fields, see the
+# registry). The guard import FAILS the run unless check mode is really on, so
+# dropping --check by accident cannot turn this into an apply (same idea as
+# drift-check.yml's self-enforcing preflight).
+#
+# `changed` for the verify step is read from this run's PLAY RECAP line for the
+# target host: a playbook cannot see its own stats. Probe tasks in the roles
+# that must run under --check carry check_mode: false and are read-only by
+# repo convention (known-issues/semaphore.md).
+
+- name: AIOps replay-role-check - registry guard
+  ansible.builtin.import_playbook: aiops-replay-guard.yml
+  vars:
+    aiops_expect_check_mode: true
+    aiops_action: replay-role-check
+
+- name: AIOps replay-role-check - converge via site.yml
+  ansible.builtin.import_playbook: site.yml
+
+- name: AIOps replay-role-check - done
+  hosts: all
+  gather_facts: false
+  become: false
+  run_once: true
+  tasks:
+    - name: Emit machine-readable end marker (changed= comes from the PLAY RECAP)
+      tags: [always] # --tags <role> would skip an untagged task
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: replay-role-check
+          phase: complete
+          ok: true
+          check_mode: "{{ ansible_check_mode }}"
+          target_host: "{{ target_host }}"

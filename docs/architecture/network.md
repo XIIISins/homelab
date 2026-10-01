@@ -45,7 +45,7 @@
 
 | Address | LXC ID | Node | Role |
 |---------|--------|------|------|
-| `10.0.11.20` | 1101 | Skuld | PBS ✅ |
+| `10.0.11.20` | 1101 | Urd | PBS ✅ (moved from Skuld 2026-10-01) |
 | `10.0.11.21` | 1102 | Urd | Zabbix — Hugin ✅ |
 | `10.0.11.201` | 1110 | Urd | AdGuard Home — Saga ✅ |
 | `10.0.11.202` | 1111 | Verd | AdGuard Home — Mimir ✅ |
