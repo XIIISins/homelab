@@ -1,0 +1,109 @@
+# ansible/playbooks/calico-upgrade.yml
+---
+# Rolling Calico (tigera-operator) upgrade on a LIVE asgard cluster — ONE MINOR PER RUN.
+#
+#   ansible-playbook playbooks/calico-upgrade.yml -e calico_target_version=v3.30.7
+#
+# Calico is NOT Flux-managed: the operator manifest is an addon file in the init
+# node's /var/lib/rancher/k3s/server/manifests/ that K3s applies (roles/k3s/tasks/calico.yml
+# does the same on first install, only when the node is not yet healthy). So an upgrade is:
+# replace that file with the target version's manifests/tigera-operator.yaml, let K3s apply
+# it, and the operator then rolls calico-node / typha / kube-controllers itself.
+# (The Installation CR — calico-installation.yaml — is unchanged between versions.)
+#
+# Safety: pre-flight needs every TigeraStatus Available and every node Ready; the run then
+# waits for status.calicoVersion == target AND the same health again. Existing pod
+# networking keeps working while calico-node restarts (dataplane rules persist).
+# Re-runnable; skips when already at the target. After the FINAL hop set `calico_version`
+# in roles/k3s/defaults/main.yml. Run ONE ansible-playbook at a time (CLAUDE.md).
+
+- name: Calico upgrade
+  hosts: k3s_cp[0]
+  gather_facts: false
+  become: true
+  vars:
+    kc: /usr/local/bin/k3s kubectl
+    manifest_dir: /var/lib/rancher/k3s/server/manifests
+  tasks:
+    - name: Require calico_target_version
+      ansible.builtin.assert:
+        that:
+          - calico_target_version is defined
+          - calico_target_version is match('^v3\.[0-9]+\.[0-9]+$')
+        fail_msg: "Pass -e calico_target_version=v3.NN.N (one minor above the running version)"
+
+    - name: Current Calico version
+      ansible.builtin.command: "{{ kc }} get installation default -o jsonpath={.status.calicoVersion}"
+      register: calico_current
+      changed_when: false
+
+    - name: Already at target?
+      ansible.builtin.debug:
+        msg: "running {{ calico_current.stdout }} -> target {{ calico_target_version }}"
+
+    - name: Upgrade
+      when: calico_current.stdout != calico_target_version
+      block:
+        - name: Pre-flight — all TigeraStatus Available, not Progressing/Degraded
+          ansible.builtin.shell: |
+            set -o pipefail
+            {{ kc }} get tigerastatus --no-headers | awk '!($2=="True" && $3=="False" && $4=="False")' | wc -l
+          args:
+            executable: /bin/bash
+          register: ts_pre
+          changed_when: false
+          failed_when: ts_pre.stdout | trim != '0'
+
+        - name: Pre-flight — all nodes Ready
+          ansible.builtin.shell: |
+            set -o pipefail
+            {{ kc }} get nodes --no-headers | awk '$2!="Ready"' | wc -l
+          args:
+            executable: /bin/bash
+          register: nodes_pre
+          changed_when: false
+          failed_when: nodes_pre.stdout | trim != '0'
+
+        - name: Replace the tigera-operator addon manifest with the target version
+          ansible.builtin.get_url:
+            url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_target_version }}/manifests/tigera-operator.yaml"
+            dest: "{{ manifest_dir }}/tigera-operator.yaml"
+            mode: "0644"
+            owner: root
+            group: root
+            force: true
+
+        - name: Wait until Calico reports the target version
+          ansible.builtin.command: "{{ kc }} get installation default -o jsonpath={.status.calicoVersion}"
+          register: calico_now
+          until: calico_now.stdout == calico_target_version
+          retries: 90
+          delay: 10
+          changed_when: false
+
+        - name: Wait until every TigeraStatus is Available again and calico-node is fully rolled
+          ansible.builtin.shell: |
+            set -o pipefail
+            bad=$({{ kc }} get tigerastatus --no-headers | awk '!($2=="True" && $3=="False" && $4=="False")' | wc -l)
+            ds=$({{ kc }} -n calico-system get ds calico-node -o jsonpath='{.status.desiredNumberScheduled}/{.status.numberReady}/{.status.updatedNumberScheduled}')
+            echo "tigera-not-ok=$bad calico-node(desired/ready/updated)=$ds"
+            [ "$bad" -eq 0 ] && [ "$(echo $ds | awk -F/ '{print ($1==$2 && $1==$3)}')" = 1 ]
+          args:
+            executable: /bin/bash
+          register: healthy
+          until: healthy.rc == 0
+          retries: 90
+          delay: 10
+          changed_when: false
+
+    - name: Result
+      ansible.builtin.shell: |
+        {{ kc }} get installation default -o jsonpath='calicoVersion={.status.calicoVersion}{"\n"}'
+        {{ kc }} get tigerastatus
+        {{ kc }} -n tigera-operator get deploy tigera-operator -o jsonpath='operator={.spec.template.spec.containers[0].image}{"\n"}'
+      register: result
+      changed_when: false
+
+    - name: Show result
+      ansible.builtin.debug:
+        var: result.stdout_lines
