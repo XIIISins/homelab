@@ -14,12 +14,16 @@
 | [`alert-mapping.md`](alert-mapping.md) | Per-source mapping: Zabbix, S4 prober, Patroni, Semaphore, Frigg, anything else via Hermod |
 | [`alert-routing.yml`](alert-routing.yml) | Ordered match rules: message -> `host`/`service`/`check`/`runbook_id`; every source ends in a catch-all |
 | [`tools/normalize.py`](tools/normalize.py) | Reference normalizer (Hermod wire payload -> alerts), pure functions |
+| [`schema/zabbix-event.v1.schema.json`](schema/zabbix-event.v1.schema.json), [`tools/zabbix_event.py`](tools/zabbix_event.py), [`fixtures/zabbix-native/`](fixtures/zabbix-native/) | (10d2) The native event the Zabbix `n8n` media type POSTs straight to the agent, its adapter into the same alert pipeline (same routing, same fingerprint as the Hermod path), and worked cases. The sender script and the schema are checked against each other |
+| [`n8n/workflows/`](n8n/workflows/) | (10d) The agent's n8n workflows as JSON: git is the source of truth, the `n8n-agent` role imports them; linted for node allow-list, inline secrets, authenticated webhooks |
 | [`fixtures/cases/`](fixtures/cases/), [`fixtures/invalid/`](fixtures/invalid/) | Worked examples (raw wire + expected alerts) and must-fail cases |
 | [`runbooks.yml`](runbooks.yml) | Runbook sidecar metadata (10c2): `runbook_id`, tier, `automatable`, preconditions, verify, selection rationale |
 | [`actions.yml`](actions.yml) | Action registry (10c3): named action -> Semaphore template, typed extra-vars, tier, guard, verify, rollback |
 | [`schema/runbooks.v1.schema.json`](schema/runbooks.v1.schema.json), [`schema/actions.v1.schema.json`](schema/actions.v1.schema.json), [`schema/routing.v1.schema.json`](schema/routing.v1.schema.json) | JSON Schemas for the three YAML files |
 | [`tools/lint.py`](tools/lint.py), [`tests/test_aiops.py`](tests/test_aiops.py) | Cross-file consistency linter and its tests (the linter is itself tested against deliberately broken inputs) |
 | [`requirements.txt`](requirements.txt) | `PyYAML` + `jsonschema`, pinned; everything else is stdlib |
+
+The Zabbix sender (`ansible/roles/zabbix-server/templates/n8n-webhook.js`, ES5/Duktape) has its own behavioural test, `tests/zabbix-n8n-webhook.test.js`, run in CI with `TZ=Europe/Amsterdam node`.
 
 Playbooks for the registry actions live where the repo already keeps them (`ansible/playbooks/aiops-*.yml`) and their Semaphore templates in `terraform/semaphore/templates.tf`; the linter checks every registry reference against both.
 

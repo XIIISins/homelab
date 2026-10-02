@@ -80,6 +80,20 @@ The analysis path must never affect the notify path, in either direction.
 
 Record the result in the 10d1 incident/retro note.
 
+## Cut over Zabbix (10d2) — direct Zabbix -> n8n
+
+Code: `roles/zabbix-server` (`tasks/n8n-mediatype.yml`, `templates/n8n-webhook.js`, `zabbix_n8n_*` defaults). The new media type is added **beside** Hermod's on the Admin user, so every High/Disaster trigger sends two independent alerts: Hermod (humans, unchanged) and n8n (analysis). Until 10d3 the n8n side only creates a "STUB" thread in `#diagnoses`.
+
+1. Precondition: Gná applied and the plumbing test passed; `secret/ansible/aiops/n8n-ingest-token/zabbix` exists; Hugin is in Gná's Caddy allow-list (it is).
+2. Apply from the main checkout (one playbook at a time): `ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:n8n-mediatype,zabbix:hermod-user-media`. The second tag matters: `zabbix_user` **replaces** the Admin media list, so it rewrites Hermod + n8n together; Hermod's severity bitmask (56) must stay unchanged — check the Admin user's media in the UI afterwards (Hermod: Average+High+Disaster; n8n: High+Disaster).
+3. Re-run it: `changed=0` (the tasks skip under `--check`; they are API writes).
+4. **Independence test (gate for relying on this path)**, on a canary (never a real service), per [`canary-pool.md`](canary-pool.md):
+   - A. n8n down: `systemctl stop n8n` on Gná; stop `zabbix-agent2` on `canary-1`; when the "agent not available" trigger fires, the Hermod/Discord alert **still arrives** (info tier for a canary) and Zabbix's *Reports -> Action log* shows **only the n8n operation failed**. Start n8n, start the agent; the problem recovers with no backlog flood.
+   - B. Hermod down: stop AppriseAPI on Hermod; repeat; a `[High] canary-1 ...` thread appears in `#diagnoses`; Discord alert absent (expected). Restore Hermod.
+   - C. Both up: one canary fault -> one Discord alert **and** one thread; the recovery updates/creates the RESOLVED stub.
+   Record the outcome in the 10d2 retro; do not enable further sources until A and B pass.
+5. Disable: `zabbix_n8n_enabled: false` (re-run the same tags): the n8n entry leaves the Admin media list, Hermod is untouched, the media type stays defined but inert.
+
 ## Operate
 
 | Task | How |

@@ -32,7 +32,21 @@ Wire: title `[Zabbix] <Severity>: <trigger name>` (problem) or `[Zabbix] RESOLVE
 
 `host` is the `**Host:**` value, `check` is the route's check or the slug of the trigger name for the catch-all. Event id is carried as `event_id`. Fixtures: `zabbix-high-problem`, `zabbix-high-resolved`, `zabbix-average-host-unavailable`, `zabbix-disaster-unmatched`.
 
-Caveats: (1) `{EVENT.DATE} {EVENT.TIME}` render in the Zabbix server's timezone with no offset; the normalizer assumes UTC — verify against Hugin in 10d. (2) The route regexes are written from stock-template trigger names and have **not** been checked against the live trigger list (needs the read-only Zabbix API pass in 10d2); the final catch-all (`zbx-catchall` -> `RB-ZBX-TRIAGE`) guarantees a `runbook_id` regardless.
+Caveats: (1) `{EVENT.DATE} {EVENT.TIME}` render in the Zabbix server's **local** timezone with no offset. **Resolved 2026-10-02:** Hugin runs `Europe/Amsterdam` (CEST/CET), so the normalizer now converts from that zone to UTC (it assumed UTC before, which put Hermod-path timestamps 1-2 h in the future); the native path converts at the sender. (2) The route regexes are written from stock-template trigger names and have **not** been checked against the live trigger list (needs the read-only Zabbix API pass in 10d2); the final catch-all (`zbx-catchall` -> `RB-ZBX-TRIAGE`) guarantees a `runbook_id` regardless.
+
+### Zabbix, native path (10d2)
+
+The Zabbix `n8n (AIOps agent)` media type POSTs a richer event **straight to the agent** (no Hermod hop): `aiops.zabbix-event/v1` ([schema](schema/zabbix-event.v1.schema.json)), built by `ansible/roles/zabbix-server/templates/n8n-webhook.js`, adapted by [`tools/zabbix_event.py`](tools/zabbix_event.py) into the same `aiops.alert/v1` through `normalize()`. High and Disaster only (media bitmask 48).
+
+| Native field | Becomes |
+|---|---|
+| `status` PROBLEM / RESOLVED | `status` firing / resolved (same fingerprint on both halves) |
+| `severity` High/Disaster | `critical`; canary hosts capped at `info` + `aiops_canary` (the agent still gets them, at info priority) |
+| `fired_at`, `resolved_at` | verbatim: already UTC, converted by the sender in the server's own zone |
+| `runbook_id` (from a trigger tag `runbook_id`) | overrides the routing table **only if it names a known runbook**; otherwise ignored and recorded in `labels.runbook_id_tag_ignored` |
+| `host_id`, `host_ip`, `host_groups`, `trigger_id/expression/description/url`, `tags`, first 3 `items`, `opdata`, `sent_at` | string `labels` (`zabbix_*`), clipped at 500 chars |
+
+**The fingerprint is identical to the Hermod path's** for the same problem (tested), so while both paths exist the agent dedupes them and the resolved half closes the thread. `labels.ingest_path=direct` marks the native copy. Fixtures: [`fixtures/zabbix-native/`](fixtures/zabbix-native/).
 
 ## S4 infra-health prober
 
