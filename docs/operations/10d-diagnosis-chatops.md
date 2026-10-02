@@ -2,7 +2,7 @@
 
 # Phase 10d — Diagnosis-only chat-ops: implementation plan
 
-*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; dual-path alerting). Status: 🟡 planned, nothing built. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](decisions.md) until the operator confirms.*
+*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; direct monitoring→n8n path). Status: 🟡 10d0 decided; **10d1 (Gná) code in review, not applied**. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](decisions.md) until the operator confirms.*
 
 ---
 
@@ -74,7 +74,7 @@ Toolbelt API (systemd on Frigg, user `aiops-toolbelt`, internal-only)
 
 ### n8n placement
 
-**Proposed:** a **new, dedicated n8n on a small LXC** on Urd (services block 1120–1129; Norse name TBD; NetBox declaration in `terraform/netbox/vms.tf` per the standing rule; `asgard-lxcs` TF module; Ansible role + playbook; PBS-backed; SQLite). Internal-only: Caddy allowlist to operator subnets + n8n owner login; **no public routes, no cloudflared, no webhook exposure beyond Hermod's and Frigg's IPs**. Egress allow-listed (PVE/UCG firewall) to the Anthropic API, Discord, and the Toolbelt API only.
+**Proposed:** a **new, dedicated n8n on a small LXC** on Urd (**Gná**, LXC 1121, `10.0.11.221`, services block; NetBox declaration in `terraform/netbox/vms.tf` per the standing rule; `asgard-lxcs` TF module; Ansible role + playbook; PBS-backed; SQLite). Internal-only: Caddy allowlist to operator subnets + n8n owner login; **no public routes, no cloudflared, no webhook exposure beyond Hermod's and Frigg's IPs**. Egress allow-listed (PVE/UCG firewall) to the Anthropic API, Discord, and the Toolbelt API only.
 
 Why not the existing asgard instance: it is inside the failure domain being diagnosed (asgard down ⇒ diagnosis down — the case it matters most) and its public webhook paths would sit beside the agent's credentials. Why not offsite (`do1`): n8n can execute arbitrary code (Code/Execute-Command nodes), `do1` is the internet-facing box that also hosts the watcher, it is `s-1vcpu-1gb`, and everything the agent investigates is on the home network anyway. Cost of the LXC: ~1 GB RAM on Urd (≈7.7 GB headroom; canaries already there).
 
@@ -92,13 +92,13 @@ n8n's agent loop gives less hard control than a harness-enforced allow-list woul
 
 Defaults are picked; flag any to flip.
 
-- [ ] **D-a. Anthropic key.** Dedicated API key for the n8n agent in Vault (`secret/ansible/aiops/anthropic-api-key`) — not the operator's subscription login (separate rate limits, no coupling to `frigg-reauth-listener`, spend separately visible). Est. 5–15 k tokens in + a few k out per execution; bounded by the daily cap.
-- [ ] **D-b. Discord shape.** A **forum channel `#diagnoses`** + webhook (`secret/ansible/aiops/discord-diagnosis`): one post per incident group (`thread_name`), updates via `?thread_id=`. Webhooks can't create threads in ordinary text channels; a bot could, but 10e needs a bot anyway. *Operator step: create the channel + webhook.*
-- [ ] **D-c. Producer-side changes (reverses part of 10c).** Operator decision 2026-10-02: monitoring systems send to n8n directly. Cutover per source in the order above; Zabbix stamps `runbook_id` via trigger tags (closes 10c follow-up 3 for Zabbix); the 10c routing table remains the fallback. **Confirmed by the operator 2026-10-02: touching producers is fine because the change is additive.** Still ship Patroni/Frigg as separate small PRs.
-- [ ] **D-d. Model.** Sonnet-class default; Opus-class for groups of ≥ 3 alerts or `critical` + unknown layer. A workflow setting, not hard-coded.
-- [ ] **D-e. Which alerts reach the agent.** Zabbix: an action on `critical`/`alert`-severity triggers (and `info` for canary hosts only). Everything else still goes to Discord as today; no execution.
-- [ ] **D-f. n8n placement:** dedicated LXC (above) vs reuse of the asgard instance. Default dedicated; asgard reuse is cheaper but inherits its failure domain and public webhook surface.
-- [ ] Verify Urd RAM headroom for the LXC and Frigg headroom for the API (concurrency 1–2) — read-only check.
+- [x] **D-a. Anthropic key.** Dedicated API key for the n8n agent in Vault (`secret/ansible/aiops/anthropic-api-key`) — not the operator's subscription login (separate rate limits, no coupling to `frigg-reauth-listener`, spend separately visible). Est. 5–15 k tokens in + a few k out per execution; bounded by the daily cap. ✅ **Decided 2026-10-02:** dedicated key in its own Console workspace with a spend limit; stored by the operator at `secret/ansible/aiops/anthropic-api-key` (field `key`), 1P-mirrored. Used from 10d3.
+- [x] **D-b. Discord shape.** A **forum channel `#diagnoses`** + webhook (`secret/ansible/aiops/discord-diagnosis`): one post per incident group (`thread_name`), updates via `?thread_id=`. Webhooks can't create threads in ordinary text channels; a bot could, but 10e needs a bot anyway. *Operator step: create the channel + webhook.* ✅ **Decided 2026-10-02** ("Slack" = the homelab's Discord): forum channel created; webhook at `secret/ansible/aiops/discord-diagnosis` (field `url`), 1P-mirrored, presence verified.
+- [x] **D-c. Producer-side changes (reverses part of 10c).** Operator decision 2026-10-02: monitoring systems send to n8n directly. Cutover per source in the order above; Zabbix stamps `runbook_id` via trigger tags (closes 10c follow-up 3 for Zabbix); the 10c routing table remains the fallback. **Confirmed by the operator 2026-10-02: touching producers is fine because the change is additive.** Still ship Patroni/Frigg as separate small PRs. ✅
+- [x] **D-d. Model.** Sonnet-class default; Opus-class for groups of ≥ 3 alerts or `critical` + unknown layer. A workflow setting, not hard-coded. ✅ **Agreed 2026-10-02.**
+- [x] **D-e. Which alerts reach the agent.** Zabbix: an action on `critical`/`alert`-severity triggers (and `info` for canary hosts only). Everything else still goes to Discord as today; no execution. ✅ **Refined 2026-10-02:** High and Disaster triggers always reach the agent; **canary hosts also send High/Disaster but the agent treats them as `info` priority** (queued behind real alerts, cheaper model, never escalated). In 10d the agent only diagnoses, so "act" means investigate at lower priority.
+- [x] **D-f. n8n placement:** dedicated LXC (above) vs reuse of the asgard instance. Default dedicated; asgard reuse is cheaper but inherits its failure domain and public webhook surface. ✅ **Decided 2026-10-02: dedicated LXC — Gná, ID 1121, `10.0.11.221`, Urd.** The asgard-K3s instance becomes a cleanup candidate (open-questions: check what it runs first).
+- [x] Urd headroom: ~7.7 GB on 2026-10-01 per the 10b1 measurement; Gná is capped at 1 GB. Re-check live before the apply (read-only `pvesh`/`free`). Frigg headroom is checked in 10d2 when the Toolbelt API lands.
 
 ---
 

@@ -1,0 +1,83 @@
+{
+  "id": "aiopsIngestStub01",
+  "name": "aiops-ingest-stub",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aiops/zabbix",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Zabbix ingest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "aiops-zabbix-ingest",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsIngestZabbix01",
+          "name": "aiops-ingest-zabbix"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a2000000-0000-4000-8000-000000000001",
+              "name": "thread_name",
+              "type": "string",
+              "value": "={{ ('[' + ($json.body.severity || '?') + '] ' + ($json.body.host || '?') + ' - ' + ($json.body.trigger_name || 'alert') + ' (' + ($json.body.status || '?') + ')').slice(0, 95) }}"
+            },
+            {
+              "id": "a2000000-0000-4000-8000-000000000002",
+              "name": "content",
+              "type": "string",
+              "value": "={{ ('**STUB (10d1): no analysis yet.** Plumbing check - the agent received this alert directly from Zabbix.\\n```json\\n' + JSON.stringify($json.body, null, 2)).slice(0, 1900) + '\\n```' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Render stub post",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread_name: $json.thread_name, content: $json.content, allowed_mentions: { parse: [] } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Post to #diagnoses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 0]
+    }
+  ],
+  "connections": {
+    "Zabbix ingest": {
+      "main": [[{ "node": "Render stub post", "type": "main", "index": 0 }]]
+    },
+    "Render stub post": {
+      "main": [[{ "node": "Post to #diagnoses", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -57,6 +57,7 @@
 | `10.0.11.214` | 1114 | Verd | Tailscale 2 |
 | `10.0.11.215` | 1115 | Skuld | Tailscale 3 |
 | `10.0.11.220` | 1120 | Urd | Factorio + SFTPGo |
+| `10.0.11.221` | 1121 | Urd | Gná — AIOps agent host (n8n), 10d1 |
 | `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
 | `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
 | `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |

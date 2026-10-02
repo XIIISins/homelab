@@ -40,6 +40,7 @@ locals {
     "service-frontend"  = "haproxy-etcd"
     "control-node"      = "control"
     "canary"            = "canary"
+    "aiops-agent"       = "n8n-agent"
   }
 
   # Extra (non-`ansible:`) tags per role. The AIOps loop (10f/10g) selects
@@ -109,6 +110,10 @@ locals {
     canary-1 = { vmid = "1190", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
     canary-2 = { vmid = "1191", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
     canary-3 = { vmid = "1192", role = "canary", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+
+    # ── Gna — AIOps agent host, n8n (LXC 1121, Phase 10d1, Urd) ────
+    # terraform/proxmox/asgard-lxcs/lxcs.tf. New `aiops-agent` role (roles.tf).
+    gna = { vmid = "1121", role = "aiops-agent", device = "urd", cpu = 2, memory = 1024, primary_iface = "eth0" }
   }
 
   # Flat interface map keyed by "<vm>.<iface>". Workers + HAProxy/etcd
@@ -158,6 +163,7 @@ locals {
     "canary-1.eth0" = { vm = "canary-1", name = "eth0", ip = "10.0.11.190/24" }
     "canary-2.eth0" = { vm = "canary-2", name = "eth0", ip = "10.0.11.191/24" }
     "canary-3.eth0" = { vm = "canary-3", name = "eth0", ip = "10.0.11.192/24" }
+    "gna.eth0"      = { vm = "gna", name = "eth0", ip = "10.0.11.221/24" }
   }
 
   # Import IDs sourced from /api/virtualization/virtual-machines/ +

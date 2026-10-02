@@ -49,4 +49,6 @@ emit docs      "$(has '\.md$' && echo true || echo false)"
 emit workflows "$(has '^\.github/workflows/' && echo true || echo false)"
 # aiops/ is cross-linked into the docs (runbook markers), the Semaphore templates and
 # the aiops-* playbooks, so a change to any of those can break its consistency checks.
-emit aiops     "$(has '^(aiops/|ansible/playbooks/aiops-|terraform/semaphore/|docs/(known-issues|procedures|services)/)' && echo true || echo false)"
+# The n8n workflow check (aiops/n8n/) also reads the n8n-agent role defaults and the
+# ingest-token locals in terraform/vault.
+emit aiops     "$(has '^(aiops/|ansible/playbooks/aiops-|ansible/roles/n8n-agent/|terraform/(semaphore|vault)/|docs/(known-issues|procedures|services)/)' && echo true || echo false)"

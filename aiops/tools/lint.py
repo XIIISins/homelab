@@ -22,6 +22,12 @@ Checks, in order:
              runbook_id (the 10c exit criterion "every critical alert path
              carries a runbook_id")
   fixtures   normalize(wire) == expected, fingerprints recompute
+  n8n        (10d) every aiops/n8n/workflows/*.json: valid JSON with a fixed id, only
+             allow-listed node types (no Code / Execute-Command / SSH), no inline
+             secrets (the repo is public), credentials are id+name references,
+             HTTP URLs are $env.AIOPS_* or a known host, `aiops/<source>` webhooks
+             are header-authenticated and respond immediately, and each ingest
+             source agrees across the workflow, the n8n-agent role and terraform/vault
 
 Needs PyYAML + jsonschema (aiops/requirements.txt). Run from anywhere:
     python3 aiops/tools/lint.py
@@ -330,6 +336,126 @@ def check_fixtures(root: Path, routes: list[dict]) -> list[str]:
     return errs
 
 
+# --- n8n workflows (Phase 10d) -------------------------------------------------
+# The agent runs on a host that holds the Discord webhook (and, from 10d3, the
+# Anthropic key) and n8n can execute code, so a workflow is reviewed like code:
+# only allow-listed node types, no inline secrets, no URL that is not an env
+# reference or a known internal host, authenticated webhooks, and every ingest
+# source consistent across the workflow, the role and the Vault TF.
+N8N_NODE_ALLOW = {
+    "n8n-nodes-base.webhook", "n8n-nodes-base.respondToWebhook", "n8n-nodes-base.set",
+    "n8n-nodes-base.if", "n8n-nodes-base.switch", "n8n-nodes-base.merge", "n8n-nodes-base.noOp",
+    "n8n-nodes-base.wait", "n8n-nodes-base.httpRequest", "n8n-nodes-base.splitInBatches",
+    "n8n-nodes-base.stopAndError", "n8n-nodes-base.stickyNote",
+}
+N8N_NODE_ALLOW_PREFIX = ("@n8n/n8n-nodes-langchain.",)  # agent / model / tools (10d3)
+N8N_NODE_DENY = {  # defence in depth: also excluded at runtime via NODES_EXCLUDE
+    "n8n-nodes-base.executeCommand", "n8n-nodes-base.ssh", "n8n-nodes-base.ftp",
+    "n8n-nodes-base.readWriteFile", "n8n-nodes-base.localFileTrigger", "n8n-nodes-base.code",
+}
+N8N_URL_HOSTS = {"aiops-toolbelt.niflheim.xiiisins.com"}  # literal URLs may only point here
+N8N_SECRET_PATTERNS = [
+    (re.compile(r"discord(?:app)?\.com/api/webhooks/\d+/[\w-]+"), "a Discord webhook URL"),
+    (re.compile(r"sk-ant-[\w-]{10,}"), "an Anthropic API key"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
+    (re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}"), "a bearer token"),
+    (re.compile(r"\bhvs\.[A-Za-z0-9]{20,}"), "a Vault token"),
+]
+
+
+def check_n8n_workflows(root: Path) -> list[str]:
+    errs: list[str] = []
+    wf_dir = root / "aiops" / "n8n" / "workflows"
+    files = sorted(wf_dir.glob("*.json")) if wf_dir.is_dir() else []
+    role_defaults = root / "ansible" / "roles" / "n8n-agent" / "defaults" / "main.yml"
+    vault_tf = root / "terraform" / "vault" / "main.tf"
+    role_sources: set[str] = set()
+    tf_sources: set[str] = set()
+    if role_defaults.exists():
+        role_sources = set(load_yaml(role_defaults).get("n8n_ingest_sources") or [])
+    if vault_tf.exists():
+        m = re.search(r"n8n_ingest_sources\s*=\s*toset\(\[([^\]]*)\]\)", vault_tf.read_text())
+        tf_sources = set(re.findall(r'"([\w-]+)"', m.group(1))) if m else set()
+    if role_sources != tf_sources:
+        errs.append(
+            f"n8n: role n8n_ingest_sources {sorted(role_sources)} != terraform/vault "
+            f"n8n_ingest_sources {sorted(tf_sources)} (a source needs a minted token AND a role entry)"
+        )
+
+    seen_ids: dict[str, str] = {}
+    for f in files:
+        rel = f.relative_to(root)
+        text = f.read_text()
+        try:
+            wf = json.loads(text)
+        except json.JSONDecodeError as e:
+            errs.append(f"n8n: {rel}: invalid JSON: {e}")
+            continue
+        for pat, what in N8N_SECRET_PATTERNS:
+            if pat.search(text):
+                errs.append(f"n8n: {rel}: contains {what} (workflows are committed to a PUBLIC repo)")
+        wid = wf.get("id")
+        if not wid or not wf.get("name"):
+            errs.append(f"n8n: {rel}: needs a fixed top-level `id` and `name` (import is by id)")
+        elif wid in seen_ids:
+            errs.append(f"n8n: {rel}: id {wid} also used by {seen_ids[wid]}")
+        else:
+            seen_ids[wid] = str(rel)
+        if wf.get("active"):
+            errs.append(f"n8n: {rel}: `active` must be false (the role publishes workflows with the CLI)")
+        nodes = wf.get("nodes") or []
+        names = [n.get("name") for n in nodes]
+        if len(set(names)) != len(names):
+            errs.append(f"n8n: {rel}: duplicate node names")
+        for n in nodes:
+            ntype, nname = n.get("type", ""), n.get("name", "?")
+            if ntype in N8N_NODE_DENY:
+                errs.append(f"n8n: {rel}: node {nname!r} uses denied type {ntype}")
+            elif ntype not in N8N_NODE_ALLOW and not ntype.startswith(N8N_NODE_ALLOW_PREFIX):
+                errs.append(f"n8n: {rel}: node {nname!r} type {ntype} is not in the allow-list (aiops/tools/lint.py)")
+            creds = n.get("credentials") or {}
+            for ctype, c in creds.items():
+                if set(c) - {"id", "name"}:
+                    errs.append(f"n8n: {rel}: node {nname!r} credential {ctype} must be a reference (id+name) only")
+            params = n.get("parameters") or {}
+            if ntype == "n8n-nodes-base.webhook":
+                path = str(params.get("path", ""))
+                hc = creds.get("httpHeaderAuth") or {}
+                cname = str(hc.get("name", ""))
+                if not path.startswith("aiops/"):
+                    errs.append(f"n8n: {rel}: webhook {nname!r} path must start with `aiops/`")
+                if params.get("authentication") != "headerAuth" or not cname.startswith("aiops-ingest-"):
+                    errs.append(f"n8n: {rel}: webhook {nname!r} must use headerAuth with an `aiops-ingest-<source>` credential")
+                else:
+                    source = cname.removeprefix("aiops-ingest-")
+                    if path != f"aiops/{source}":
+                        errs.append(f"n8n: {rel}: webhook path {path!r} must be aiops/{source} to match its credential")
+                    if source not in role_sources:
+                        errs.append(f"n8n: {rel}: source {source!r} is not in n8n-agent n8n_ingest_sources")
+                if params.get("responseMode") != "onReceived":
+                    errs.append(
+                        f"n8n: {rel}: webhook {nname!r} must respond immediately (responseMode onReceived) so a slow "
+                        f"agent can never make a monitoring system's send fail"
+                    )
+            if ntype == "n8n-nodes-base.httpRequest":
+                url = str(params.get("url", ""))
+                if url.startswith("="):
+                    if "$env.AIOPS_" not in url and not any(h in url for h in N8N_URL_HOSTS):
+                        errs.append(f"n8n: {rel}: node {nname!r} URL expression must use $env.AIOPS_* or a known host")
+                else:
+                    host = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0]
+                    if host not in N8N_URL_HOSTS:
+                        errs.append(f"n8n: {rel}: node {nname!r} literal URL host {host!r} is not allowed {sorted(N8N_URL_HOSTS)}")
+        for src, outs in (wf.get("connections") or {}).items():
+            if src not in names:
+                errs.append(f"n8n: {rel}: connection from unknown node {src!r}")
+            for branch in outs.get("main", []):
+                for link in branch or []:
+                    if link.get("node") not in names:
+                        errs.append(f"n8n: {rel}: connection to unknown node {link.get('node')!r}")
+    return errs
+
+
 def run(root: Path = ROOT) -> list[str]:
     errs: list[str] = []
     docs = {
@@ -349,6 +475,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_runbooks(rb, reg, root)
     errs += check_routing(rt, rb)
     errs += check_fixtures(root, rt["routes"])
+    errs += check_n8n_workflows(root)
     return errs
 
 

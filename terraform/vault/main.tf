@@ -197,6 +197,78 @@ resource "vault_kv_secret_v2" "hermod_config_key" {
   })
 }
 
+# -----------------------------------------------------------------------------
+# Gna (AIOps agent host, n8n) — Phase 10d1
+# -----------------------------------------------------------------------------
+# Consumer is the `n8n-agent` Ansible role (AppRole policy
+# `secret/data/ansible/*`), so the paths live under ansible/aiops/.
+#
+#   - n8n-encryption-key        encrypts credentials inside n8n's SQLite DB.
+#                               Losing it makes every credential stored in n8n
+#                               unreadable. It lives only in Vault (plus the
+#                               operator's 1P mirror); PBS backs up the DB, not
+#                               this key. Rotate = re-import the credentials.
+#   - n8n-ingest-token/<source> one shared secret per alert source, sent as the
+#                               X-AIOPS-Token header by that source's n8n
+#                               media type / POST. Per-source so one leaked
+#                               token can be rotated without touching the rest.
+#
+# The Discord forum webhook (ansible/aiops/discord-diagnosis) and the Anthropic
+# API key (ansible/aiops/anthropic-api-key) are deliberately NOT TF-managed:
+# operator-minted (Discord UI / Anthropic Console), same model as the Hermod
+# Discord URLs, so an apply can never overwrite the real values.
+resource "random_password" "n8n_encryption_key" {
+  length  = 48
+  special = false
+}
+
+resource "vault_kv_secret_v2" "n8n_encryption_key" {
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/n8n-encryption-key"
+  data_json = jsonencode({
+    value = random_password.n8n_encryption_key.result
+  })
+}
+
+# Editor login for the n8n owner account (created from env on first start; the
+# editor is reachable only through an SSH tunnel). The operator reads it from
+# Vault to log in; the role stores only a deterministic bcrypt hash of it.
+resource "random_password" "n8n_owner_password" {
+  length  = 32
+  special = false
+}
+
+resource "vault_kv_secret_v2" "n8n_owner_password" {
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/n8n-owner-password"
+  data_json = jsonencode({
+    value = random_password.n8n_owner_password.result
+  })
+}
+
+# Add a source here as it is cut over (zabbix first; prober, semaphore, patroni,
+# frigg follow). for_each keeps one resource shape per source.
+locals {
+  n8n_ingest_sources = toset(["zabbix"])
+}
+
+resource "random_password" "n8n_ingest_token" {
+  for_each = local.n8n_ingest_sources
+
+  length  = 40
+  special = false # sent in an HTTP header and pasted into producer config
+}
+
+resource "vault_kv_secret_v2" "n8n_ingest_token" {
+  for_each = local.n8n_ingest_sources
+
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/n8n-ingest-token/${each.key}"
+  data_json = jsonencode({
+    value = random_password.n8n_ingest_token[each.key].result
+  })
+}
+
 # NOTE (Wave S3): the SFTPGo admin password (secret/ansible/sftpgo/admin-password)
 # and the Factorio operator password (secret/ansible/factorio/operator-password)
 # are NOT TF-managed. Both were *preserved* existing values lifted into Vault
