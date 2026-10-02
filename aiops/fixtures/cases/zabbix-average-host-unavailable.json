@@ -21,7 +21,7 @@
       "detail": "**Host:** skuld\n**Severity:** Average\n\n**Status:** PROBLEM\n**Trigger:** Linux: Zabbix agent is not available (for 3m)\n**Severity:** Average\n**Host:** skuld\n**Started at:** 2026.10.01 12:30:01\n**Event ID:** 48300",
       "runbook_id": "RB-HOST-HARD-FREEZE",
       "fingerprint": "4ee0075fc39cd1f2",
-      "fired_at": "2026-10-01T12:30:01Z",
+      "fired_at": "2026-10-01T10:30:01Z",
       "received_at": "2026-10-01T12:40:00Z",
       "labels": {
         "apprise_tag": "alert",

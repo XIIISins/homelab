@@ -1,0 +1,72 @@
+{
+  "description": "Disaster disk trigger whose trigger tag stamps a known runbook: the tag beats the catch-all",
+  "received_at": "2026-10-01T09:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "50001",
+    "recovery_event_id": "",
+    "severity": "Disaster",
+    "host": "sigrun",
+    "host_id": "10412",
+    "host_ip": "10.0.21.13",
+    "host_groups": "Linux servers,Asgard/K3s",
+    "trigger_id": "23456",
+    "trigger_name": "/: Disk space is critically low (used > 95%)",
+    "trigger_description": "",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "runbook_id",
+        "value": "RB-ETCD-RAFT-SYSLOG-FLOOD"
+      }
+    ],
+    "runbook_id": "RB-ETCD-RAFT-SYSLOG-FLOOD",
+    "items": [
+      {
+        "name": "/: Space utilization",
+        "key": "vfs.fs.size[/,pused]",
+        "value": "96.4"
+      }
+    ],
+    "opdata": "",
+    "fired_at": "2026-10-01T09:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T09:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "critical",
+      "host": "sigrun",
+      "service": "zabbix",
+      "check": "disk-space-is-critically-low-used-95",
+      "summary": "[Zabbix] Disaster: /: Disk space is critically low (used > 95%)",
+      "detail": "**Host:** sigrun\n**Severity:** Disaster\n\n**Status:** PROBLEM\n**Trigger:** /: Disk space is critically low (used > 95%)\n**Severity:** Disaster\n**Host:** sigrun\n**Started at:** 2026.10.01 11:00:00\n**Event ID:** 50001",
+      "runbook_id": "RB-ETCD-RAFT-SYSLOG-FLOOD",
+      "fingerprint": "02031f2ee1d3ed52",
+      "fired_at": "2026-10-01T09:00:00Z",
+      "received_at": "2026-10-01T09:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10412",
+        "zabbix_host_ip": "10.0.21.13",
+        "zabbix_host_groups": "Linux servers,Asgard/K3s",
+        "zabbix_trigger_id": "23456",
+        "zabbix_tags": "[{\"tag\":\"runbook_id\",\"value\":\"RB-ETCD-RAFT-SYSLOG-FLOOD\"}]",
+        "zabbix_items": "[{\"key\":\"vfs.fs.size[/,pused]\",\"name\":\"/: Space utilization\",\"value\":\"96.4\"}]",
+        "zabbix_sent_at": "2026-10-01T09:00:01Z",
+        "runbook_id_routed": "RB-ZBX-TRIAGE",
+        "runbook_id_source": "trigger-tag"
+      },
+      "native_severity": "Disaster",
+      "event_id": "50001"
+    }
+  ]
+}

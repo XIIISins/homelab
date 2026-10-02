@@ -21,7 +21,7 @@
       "detail": "**Host:** canary-3\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Linux: Zabbix agent is not available\n**Severity:** High\n**Host:** canary-3\n**Started at:** 2026.10.01 12:34:56\n**Event ID:** 50002\n\nno data",
       "runbook_id": "RB-HOST-HARD-FREEZE",
       "fingerprint": "f761a5553e14eb76",
-      "fired_at": "2026-10-01T12:34:56Z",
+      "fired_at": "2026-10-01T10:34:56Z",
       "received_at": "2026-10-01T12:40:00Z",
       "labels": {
         "apprise_tag": "info",

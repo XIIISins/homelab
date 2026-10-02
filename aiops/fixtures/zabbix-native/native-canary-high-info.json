@@ -1,0 +1,59 @@
+{
+  "description": "A canary host fires High: the agent still receives it, capped at info and marked non-prod",
+  "received_at": "2026-10-01T11:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "51000",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "canary-1",
+    "host_id": "10412",
+    "host_ip": "10.0.11.190",
+    "host_groups": "Linux servers,Asgard/LXCs/Canary",
+    "trigger_id": "23456",
+    "trigger_name": "Zabbix agent is not available (for 3m)",
+    "trigger_description": "",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [],
+    "runbook_id": "",
+    "items": [],
+    "opdata": "",
+    "fired_at": "2026-10-01T11:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T11:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "info",
+      "host": "canary-1",
+      "service": "host",
+      "check": "agent-unavailable",
+      "summary": "[Zabbix] High: Zabbix agent is not available (for 3m)",
+      "detail": "**Host:** canary-1\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Zabbix agent is not available (for 3m)\n**Severity:** High\n**Host:** canary-1\n**Started at:** 2026.10.01 13:00:00\n**Event ID:** 51000",
+      "runbook_id": "RB-HOST-HARD-FREEZE",
+      "fingerprint": "cc3481d4cc1db735",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "received_at": "2026-10-01T11:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "aiops_canary": "true",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10412",
+        "zabbix_host_ip": "10.0.11.190",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs/Canary",
+        "zabbix_trigger_id": "23456",
+        "zabbix_sent_at": "2026-10-01T11:00:01Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "51000"
+    }
+  ]
+}

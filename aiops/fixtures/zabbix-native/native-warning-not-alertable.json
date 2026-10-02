@@ -1,0 +1,29 @@
+{
+  "description": "A Warning never becomes an alert (the media bitmask keeps it out; the adapter agrees)",
+  "received_at": "2026-10-01T11:05:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "51001",
+    "recovery_event_id": "",
+    "severity": "Warning",
+    "host": "hlin",
+    "host_id": "10412",
+    "host_ip": "10.0.11.233",
+    "host_groups": "Linux servers,Asgard/LXCs",
+    "trigger_id": "23456",
+    "trigger_name": "High swap usage",
+    "trigger_description": "",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [],
+    "runbook_id": "",
+    "items": [],
+    "opdata": "",
+    "fired_at": "2026-10-01T11:05:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T11:05:01Z"
+  },
+  "expected": []
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/XIIISins/homelab/aiops/schema/zabbix-event.v1.schema.json",
+  "title": "aiops.zabbix-event/v1",
+  "description": "The native event the Zabbix 'n8n (AIOps agent)' media type POSTs to the agent's ingest webhook (Phase 10d2). Built by ansible/roles/zabbix-server/templates/n8n-webhook.js; mapped to aiops.alert/v1 by aiops/tools/zabbix_event.py. Unlike the Hermod wire payload it keeps the full event context. Timestamps are already UTC (the script converts from the Zabbix server's local zone). Empty string means 'not available' (an unresolved Zabbix macro).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "status", "event_id", "severity", "host", "trigger_name", "sent_at"],
+  "properties": {
+    "schema_version": { "const": "aiops.zabbix-event/v1" },
+    "source": { "const": "zabbix" },
+    "status": { "enum": ["PROBLEM", "RESOLVED"] },
+    "event_id": { "type": "string", "minLength": 1, "description": "{EVENT.ID}: the problem event; the same id on the PROBLEM and RESOLVED halves of one problem." },
+    "recovery_event_id": { "type": "string", "description": "{EVENT.RECOVERY.ID}; empty on a PROBLEM." },
+    "severity": {
+      "enum": ["Not classified", "Information", "Warning", "Average", "High", "Disaster"],
+      "description": "{EVENT.SEVERITY}, the label. The media type's severity bitmask only lets High and Disaster through."
+    },
+    "host": { "type": "string", "minLength": 1, "description": "{HOST.NAME}" },
+    "host_id": { "type": "string" },
+    "host_ip": { "type": "string" },
+    "host_groups": { "type": "string", "description": "{TRIGGER.HOSTGROUP.NAME}, comma-separated." },
+    "trigger_id": { "type": "string" },
+    "trigger_name": { "type": "string", "minLength": 1, "description": "{EVENT.NAME}" },
+    "trigger_description": { "type": "string" },
+    "trigger_expression": { "type": "string" },
+    "trigger_url": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "description": "{EVENT.TAGSJSON}",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tag", "value"],
+        "properties": { "tag": { "type": "string" }, "value": { "type": "string" } }
+      }
+    },
+    "runbook_id": {
+      "type": "string",
+      "pattern": "^(RB-[A-Z0-9]+(-[A-Z0-9]+)*)?$",
+      "description": "Lifted from a trigger tag named runbook_id (empty if absent or malformed). Stamps the runbook at the source; the 10c routing table is the fallback."
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "key", "value"],
+        "properties": { "name": { "type": "string" }, "key": { "type": "string" }, "value": { "type": "string" } }
+      }
+    },
+    "opdata": { "type": "string", "description": "{EVENT.OPDATA}" },
+    "fired_at": { "type": "string", "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$" },
+    "resolved_at": { "type": "string", "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$" },
+    "sent_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "RESOLVED" } } },
+      "then": { "required": ["recovery_event_id"] }
+    }
+  ]
+}

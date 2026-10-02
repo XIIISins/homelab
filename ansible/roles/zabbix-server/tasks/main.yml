@@ -30,6 +30,14 @@
   tags: [zabbix, zabbix:saml]
   when: zabbix_saml_enabled
 
+# Must come BEFORE the Hermod import: the Admin user-media task there attaches
+# BOTH media in one write (zabbix_user replaces the list), and resolves the
+# n8n media type by name.
+- name: Wire n8n (AIOps agent) webhook media type (10d2)
+  ansible.builtin.import_tasks: n8n-mediatype.yml
+  tags: [zabbix, zabbix:n8n]
+  when: zabbix_n8n_enabled
+
 - name: Wire Hermod webhook media type + Admin user-media (5h.2.i)
   ansible.builtin.import_tasks: hermod-mediatype.yml
   tags: [zabbix, zabbix:hermod]

@@ -275,6 +275,9 @@ jobs:
       - run: pip install --quiet -r aiops/requirements.txt
       - run: python3 aiops/tools/lint.py
       - run: python3 -m unittest discover -s aiops/tests -v
+      # The Zabbix -> n8n sender runs in Zabbix's Duktape engine inside the server (Europe/Amsterdam).
+      # Node is preinstalled on the runner; the test shims HttpRequest/Zabbix.log.
+      - run: TZ=Europe/Amsterdam node aiops/tests/zabbix-n8n-webhook.test.js
 
   # The single required status check. Always runs; fails if any needed job
   # failed or was cancelled. "skipped" (path-filtered out) counts as passing.
