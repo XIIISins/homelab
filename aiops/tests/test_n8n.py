@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO / "aiops" / "tools"))
 
 import lint  # noqa: E402
 
-STUB = REPO / "aiops" / "n8n" / "workflows" / "ingest-stub.json"
+STUB = REPO / "aiops" / "n8n" / "workflows" / "ingest-zabbix.json"
 
 
 class N8nWorkflowLint(unittest.TestCase):
@@ -72,7 +72,7 @@ class N8nWorkflowLint(unittest.TestCase):
         self.assertFinding(errs, "Discord webhook URL")
 
     def test_inline_anthropic_key_rejected(self):
-        raw = json.dumps(self.wf).replace("aiops-ingest-stub", "sk-ant-api03-abcdefghijklmnop")
+        raw = json.dumps(self.wf).replace("aiops-ingest-zabbix", "sk-ant-api03-abcdefghijklmnop")
         self.assertFinding(self.check(raw=raw), "Anthropic API key")
 
     def test_credential_with_data_rejected(self):
@@ -112,6 +112,18 @@ class N8nWorkflowLint(unittest.TestCase):
         self.node(wf, "httpRequest")["parameters"]["url"] = "={{ $env.PATH }}"
         self.assertFinding(self.check(wf), "must use $env.AIOPS_*")
 
+    def test_toolbelt_call_without_its_credential_rejected(self):
+        wf = copy.deepcopy(self.wf)
+        node = next(n for n in wf["nodes"] if n["name"] == "Toolbelt ingest")
+        del node["credentials"]
+        self.assertFinding(self.check(wf), "without the `aiops-toolbelt` credential")
+
+    def test_toolbelt_call_with_another_credential_rejected(self):
+        wf = copy.deepcopy(self.wf)
+        node = next(n for n in wf["nodes"] if n["name"] == "Get group")
+        node["credentials"]["httpHeaderAuth"]["name"] = "aiops-ingest-zabbix"
+        self.assertFinding(self.check(wf), "without the `aiops-toolbelt` credential")
+
     def test_active_workflow_rejected(self):
         wf = copy.deepcopy(self.wf)
         wf["active"] = True
@@ -119,7 +131,7 @@ class N8nWorkflowLint(unittest.TestCase):
 
     def test_dangling_connection_rejected(self):
         wf = copy.deepcopy(self.wf)
-        wf["connections"]["Render stub post"]["main"][0][0]["node"] = "Nope"
+        wf["connections"]["Toolbelt ingest"]["main"][0][0]["node"] = "Nope"
         self.assertFinding(self.check(wf), "connection to unknown node")
 
     def test_role_and_terraform_sources_must_agree(self):

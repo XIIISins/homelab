@@ -1,0 +1,787 @@
+{
+  "id": "aiopsIngestStub01",
+  "name": "aiops-ingest-zabbix",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aiops/zabbix",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Zabbix ingest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "aiops-zabbix-ingest",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsIngestZabbix01",
+          "name": "aiops-ingest-zabbix"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/ingest/zabbix' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Zabbix ingest').item.json.body) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Toolbelt ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000003",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "leader",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "leader"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000004",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "resolved",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000005",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "escalated",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000006",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "reopened",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "update"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000007",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "orphan_resolved",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "orphan"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "a1000000-0000-4000-8000-000000000008",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "dropped",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "dropped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Route action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Wait for the window",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        0
+      ],
+      "webhookId": "aiops-zabbix-window"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Toolbelt ingest').item.json.incident_id }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "a1000000-0000-4000-8000-000000000011",
+      "name": "Get group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Toolbelt ingest').item.json.incident_id + '/state' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'running' }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000012",
+      "name": "Mark running",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000013",
+              "name": "thread_name",
+              "type": "string",
+              "value": "={{ ('[' + $('Get group').item.json.alerts[0].severity + '] ' + $('Get group').item.json.alerts[0].host + ' - ' + $('Get group').item.json.alerts[0].check + ($('Get group').item.json.alert_count > 1 ? ' (+' + ($('Get group').item.json.alert_count - 1) + ' more)' : '')).slice(0, 95) }}"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000014",
+              "name": "content",
+              "type": "string",
+              "value": "={{ ('**STUB (10d2): grouped, no analysis yet.**\\nincident #' + $('Get group').item.json.incident_id + ' - ' + $('Get group').item.json.alert_count + ' alert(s) - priority ' + $('Get group').item.json.priority + ' - model hint ' + $('Get group').item.json.model_hint + ' - hypervisors ' + ($('Get group').item.json.hypervisors.join(', ') || 'unknown') + '\\n' + $('Get group').item.json.alerts.slice(0, 10).map(a => '- ' + a.host + ': ' + a.summary).join('\\n')).slice(0, 1900) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000015",
+      "name": "Render thread",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1580,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread_name: $json.thread_name, content: $json.content, allowed_mentions: { parse: [] } }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000016",
+      "name": "Post thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Toolbelt ingest').item.json.incident_id + '/state' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'posted', thread_id: $json.channel_id }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000017",
+      "name": "Mark posted",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        -80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000018",
+              "leftValue": "={{ String($json.error && $json.error.message) }}",
+              "rightValue": "first",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000019",
+      "name": "First breach today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1580,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000020",
+              "name": "thread_name",
+              "type": "string",
+              "value": "Diagnosis budget exhausted"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000021",
+              "name": "content",
+              "type": "string",
+              "value": "The daily diagnosis cap was reached. Alerts still arrive in Discord via Hermod; further incidents today are not analysed."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000022",
+      "name": "Render budget notice",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1840,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000023",
+              "leftValue": "={{ $json.thread_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000024",
+      "name": "Thread exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000025",
+              "name": "thread_id",
+              "type": "string",
+              "value": "={{ $json.thread_id }}"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000026",
+              "name": "content",
+              "type": "string",
+              "value": "={{ ('**' + $json.action.toUpperCase() + '**: ' + $json.alert.host + ' - ' + $json.alert.check + ' - ' + $json.alert.summary).slice(0, 1900) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000027",
+      "name": "Render update",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1060,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true&thread_id=' + $json.thread_id }}",
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, allowed_mentions: { parse: [] } }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000028",
+      "name": "Post update",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000029",
+              "name": "thread_name",
+              "type": "string",
+              "value": "={{ ('[resolved] ' + $json.alert.host + ' - ' + $json.alert.check + ' (problem not seen)').slice(0, 95) }}"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000030",
+              "name": "content",
+              "type": "string",
+              "value": "={{ ('**RESOLVED** with no matching problem (the agent was unreachable when it fired).\\n' + $json.alert.summary).slice(0, 1900) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000031",
+      "name": "Render orphan",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000032",
+              "leftValue": "={{ String($json.first_drop_today) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000033",
+      "name": "First drop today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000034",
+              "name": "thread_name",
+              "type": "string",
+              "value": "Diagnosis queue full"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000035",
+              "name": "content",
+              "type": "string",
+              "value": "Too many open incidents; new alerts are not being analysed until some close. Alerts still arrive via Hermod."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000036",
+      "name": "Render queue notice",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1060,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread_name: $json.thread_name, content: $json.content, allowed_mentions: { parse: [] } }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000037",
+      "name": "Post notice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Zabbix ingest": {
+      "main": [
+        [
+          {
+            "node": "Toolbelt ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Toolbelt ingest": {
+      "main": [
+        [
+          {
+            "node": "Route action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route action": {
+      "main": [
+        [
+          {
+            "node": "Wait for the window",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Thread exists?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Render orphan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "First drop today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for the window": {
+      "main": [
+        [
+          {
+            "node": "Get group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get group": {
+      "main": [
+        [
+          {
+            "node": "Mark running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark running": {
+      "main": [
+        [
+          {
+            "node": "Render thread",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "First breach today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render thread": {
+      "main": [
+        [
+          {
+            "node": "Post thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post thread": {
+      "main": [
+        [
+          {
+            "node": "Mark posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "First breach today?": {
+      "main": [
+        [
+          {
+            "node": "Render budget notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Render budget notice": {
+      "main": [
+        [
+          {
+            "node": "Post notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Thread exists?": {
+      "main": [
+        [
+          {
+            "node": "Render update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Render update": {
+      "main": [
+        [
+          {
+            "node": "Post update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render orphan": {
+      "main": [
+        [
+          {
+            "node": "Post notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "First drop today?": {
+      "main": [
+        [
+          {
+            "node": "Render queue notice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Render queue notice": {
+      "main": [
+        [
+          {
+            "node": "Post notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
