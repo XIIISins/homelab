@@ -194,6 +194,17 @@ All VLANs (MGMT, CLIENT, CORE-VIP, CORE-SVC, CORE-K3S-VIP, CORE-K3S-WRK, CR-K3S-
 
 Node-level: `firewalld` is disabled on the K3s nodes (by the Ansible `k3s` prerequisites) — the UCG-Ultra is the firewall.
 
+**Egress allow-list for Gná (`10.0.11.221`, the AIOps agent host) — custom policies, Internal → External, in this order (the order matters, see below):**
+
+| # | Policy | Action | Source | Destination | State |
+|---|---|---|---|---|---|
+| 1 | `Allow OS Updates` | Allow | Gná | domains `deb.debian.org`, `security.debian.org`, `repo.zabbix.com`, `dl.cloudsmith.io`; TCP 80/443 | on |
+| 2 | `AIOps - Allow discord-claude` | Allow | Gná | domains `discord.com`, `api.anthropic.com`; TCP 443 (+1 port) | on |
+| 3 | `AIOps - Deploy Window` | Allow | Gná | domains `nodejs.org`, `registry.npmjs.org`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | **paused**: unpause only while re-running the n8n / vlagent roles, pause again after |
+| 4 | `AIOps - Egress Default Deny` | Block (syslog logging on) | Gná | any | on, **must be the last of these** |
+
+Verified 2026-10-03 from Gná: Discord, Anthropic, Debian, Zabbix and Cloudsmith reachable; `example.com`, Google, npm, nodejs, GitHub blocked (window paused); Toolbelt, Hugin, DNS and log shipping (all internal) unaffected. A cold re-test 15 minutes later with nothing primed gave the same result. Rationale and the gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md) (UCG zone policies).
+
 **Port-forwards are configured on UCG-Ultra only.** Adding a service that needs internet exposure: create the port-forward + auto-generated firewall allow rule in the UCG UI, nothing else. The KPN does not get touched.
 
 **KPN as non-IaC infrastructure.** The KPN Experia Box is consumer hardware with no useful API. Any change to it lives in these docs or nowhere. Current config recorded above; if it ever changes, update here.
