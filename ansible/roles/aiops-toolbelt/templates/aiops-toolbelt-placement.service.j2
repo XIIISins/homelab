@@ -1,0 +1,33 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-placement.service.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+# Rebuilds the guest -> hypervisor map from NetBox (view-only token) so the API can group a burst of alerts by shared
+# hypervisor. Its own unit: the API unit has no route to NetBox by design (IPAddressDeny=any). The previous map is kept
+# whenever NetBox is unreachable or returns an implausibly small answer (placement_sync.py).
+[Unit]
+Description=AIOps Toolbelt hypervisor placement map (NetBox -> JSON)
+After=network-online.target {{ aiops_toolbelt_token_unit_name }}.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aiops_toolbelt_user }}
+Group={{ aiops_toolbelt_user }}
+StateDirectory=aiops-toolbelt
+StateDirectoryMode=0750
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/placement_sync.py --creds {{ aiops_toolbelt_creds_dir }}/netbox.json --out {{ aiops_toolbelt_placement_file }} --min-guests {{ aiops_toolbelt_placement_min_guests }}
+TimeoutStartSec=120
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0022

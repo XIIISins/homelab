@@ -81,6 +81,19 @@
   register: aiops_toolbelt_repo_units
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
+- name: Install the placement sync service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ aiops_toolbelt_placement_unit_name }}.{{ item.kind }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: aiops-toolbelt-placement.service.j2, kind: service}
+    - {src: aiops-toolbelt-placement.timer.j2, kind: timer}
+  register: aiops_toolbelt_placement_units
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
 - name: Install the token loader unit
   ansible.builtin.template:
     src: aiops-toolbelt-token.service.j2
@@ -101,10 +114,10 @@
   notify: Restart aiops-toolbelt
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
-- name: Reload systemd when the repo units changed
+- name: Reload systemd when the repo or placement units changed
   ansible.builtin.systemd:
     daemon_reload: true
-  when: aiops_toolbelt_repo_units is changed
+  when: aiops_toolbelt_repo_units is changed or aiops_toolbelt_placement_units is changed
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
 - name: Flush handlers so changed code/unit is live before the checks
@@ -116,6 +129,27 @@
     name: "{{ aiops_toolbelt_repo_unit_name }}.timer"
     enabled: true
     state: started
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: Enable the placement sync timer
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_placement_unit_name }}.timer"
+    enabled: true
+    state: started
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: Is there a placement map yet?
+  ansible.builtin.stat:
+    path: "{{ aiops_toolbelt_placement_file }}"
+  register: aiops_toolbelt_placement_map
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: Build the placement map once now (the timer would wait three minutes); a failure is not fatal
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_placement_unit_name }}.service"
+    state: started
+  failed_when: false
+  when: not ansible_check_mode and not aiops_toolbelt_placement_map.stat.exists
   tags: [aiops-toolbelt, aiops-toolbelt:service]
 
 - name: Make sure the clone exists before the API starts (first run)
