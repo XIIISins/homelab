@@ -140,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--placement-file", help="JSON {host: hypervisor-node}, refreshed from NetBox")
     ap.add_argument("--daily-run-cap", type=int, default=40)
     ap.add_argument("--replay-dir", help="aiops/replays: recorded tool responses (X-AIOPS-Replay scenarios)")
+    ap.add_argument("--creds-dir", help="directory of <name>.json read-only backend credentials (root loader output)")
     ap.add_argument("--repo-dir", help="read-only clone of the homelab repo for the repo-history tools")
     args = ap.parse_args(argv)
 
@@ -148,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         print("token too short (need >= 32 chars)", file=sys.stderr)
         return 2
     cfg = core.Config(db_path=args.db, daily_run_cap=args.daily_run_cap)
-    cfg.live = core.tools.LiveConfig(root=core.REPO, repo_dir=Path(args.repo_dir) if args.repo_dir else None)
+    cfg.live = core.tools.LiveConfig(root=core.REPO, repo_dir=Path(args.repo_dir) if args.repo_dir else None,
+                                     creds_dir=Path(args.creds_dir) if args.creds_dir else None)
     if args.replay_dir:
         cfg.replay_dir = Path(args.replay_dir)
     if args.placement_file:

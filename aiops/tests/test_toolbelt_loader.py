@@ -26,7 +26,7 @@ spec.loader.exec_module(loader)
 TOKEN = "Z" * 48
 
 
-def fake_vault(secret_value=TOKEN, login_ok=True):
+def fake_vault(secret_value=TOKEN, login_ok=True, missing=()):
     seen = []
 
     class H(BaseHTTPRequestHandler):
@@ -52,6 +52,8 @@ def fake_vault(secret_value=TOKEN, login_ok=True):
             seen.append(("GET", self.path, self.headers.get("X-Vault-Token")))
             if self.headers.get("X-Vault-Token") != "vt":
                 return self._reply(403, {})
+            if any(m in self.path for m in missing):
+                return self._reply(404, {"errors": []})
             self._reply(200, {"data": {"data": {"value": secret_value}}})
 
     srv = HTTPServer(("127.0.0.1", 0), H)
@@ -112,6 +114,34 @@ class Loader(unittest.TestCase):
         finally:
             srv.shutdown()
         self.assertFalse(self.out.exists())
+
+    def test_extra_credentials_are_written_0400_and_a_missing_one_only_warns(self):
+        srv, _ = fake_vault(missing=("not-minted",))
+        creds = self.dir / "creds"
+        try:
+            printed = self.run_loader(
+                srv, AIOPS_TOOLBELT_CREDS_DIR=str(creds),
+                AIOPS_TOOLBELT_EXTRA_CREDS=json.dumps({"pve": "secret/data/pve", "zabbix": "secret/data/not-minted"}))
+        finally:
+            srv.shutdown()
+        self.assertEqual(json.loads((creds / "pve.json").read_text()), {"value": TOKEN})
+        self.assertEqual(stat.S_IMODE(os.stat(creds / "pve.json").st_mode), 0o400)
+        self.assertFalse((creds / "zabbix.json").exists())
+        self.assertIn("WARNING: credential 'zabbix' not loaded", printed)
+        self.assertNotIn(TOKEN, printed)
+        self.assertEqual(self.out.read_text().strip(), TOKEN)  # the API token still loaded
+
+    def test_a_credential_that_disappears_from_vault_removes_the_stale_file(self):
+        creds = self.dir / "creds"
+        creds.mkdir()
+        (creds / "pve.json").write_text("{}")
+        srv, _ = fake_vault(missing=("pve",))
+        try:
+            self.run_loader(srv, AIOPS_TOOLBELT_CREDS_DIR=str(creds),
+                            AIOPS_TOOLBELT_EXTRA_CREDS=json.dumps({"pve": "secret/data/pve"}))
+        finally:
+            srv.shutdown()
+        self.assertFalse((creds / "pve.json").exists())
 
     def test_a_restart_replaces_the_file_atomically(self):
         self.out.write_text("stale\n")

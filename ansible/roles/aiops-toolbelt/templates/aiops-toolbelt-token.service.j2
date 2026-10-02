@@ -23,6 +23,8 @@ Environment=AIOPS_TOOLBELT_TOKEN_VAULT_PATH={{ aiops_toolbelt_token_vault_path }
 Environment=AIOPS_TOOLBELT_TOKEN_FIELD={{ aiops_toolbelt_token_field }}
 Environment=AIOPS_TOOLBELT_TOKEN_FILE={{ aiops_toolbelt_token_file }}
 Environment=AIOPS_TOOLBELT_OWNER={{ aiops_toolbelt_user }}
+Environment=AIOPS_TOOLBELT_CREDS_DIR={{ aiops_toolbelt_creds_dir }}
+Environment='AIOPS_TOOLBELT_EXTRA_CREDS={{ aiops_toolbelt_credentials | to_json }}'
 ExecStart=/usr/bin/python3 {{ aiops_toolbelt_loader_path }}
 TimeoutStartSec=60
 

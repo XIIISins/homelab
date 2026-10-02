@@ -29,6 +29,7 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% endfor %}
   --replay-dir {{ aiops_toolbelt_replay_dir }} \
   --repo-dir {{ aiops_toolbelt_repo_dir }} \
+  --creds-dir {{ aiops_toolbelt_creds_dir }} \
   --daily-run-cap {{ aiops_toolbelt_daily_run_cap }}
 Restart=on-failure
 RestartSec=10
