@@ -317,6 +317,112 @@ class Pve(unittest.TestCase):
         self.assertIn("credential", cm.exception.message)
 
 
+class FakeZabbix:
+    """JSON-RPC stand-in: checks the bearer token, records methods, serves canned *.get answers."""
+
+    def __init__(self, token="zbx-token-0123456789012345678901234567"):
+        self.methods = []
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_POST(self):  # noqa: N802
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                outer.methods.append(body["method"])
+                if self.headers.get("Authorization") != f"Bearer {token}":
+                    res = {"error": {"message": "Not authorised", "data": "Session terminated"}}
+                elif body["method"] == "host.get" and body["params"].get("filter", {}).get("host") == ["ghost"]:
+                    res = {"result": []}
+                elif body["method"] == "host.get" and "selectInterfaces" in body["params"]:
+                    res = {"result": [{"host": "canary-1", "name": "canary-1", "status": "0", "maintenance_status": "0",
+                                       "description": "", "hostgroups": [{"name": "Asgard/LXCs/Canary"}],
+                                       "tags": [{"tag": "env", "value": "nonprod"}], "parentTemplates": [{"name": "Linux by Zabbix agent"}],
+                                       "interfaces": [{"ip": "10.0.11.190", "port": "10050", "type": "1", "available": "2", "error": "timed out"}]}]}
+                elif body["method"] == "host.get":
+                    res = {"result": [{"hostid": "10708"}]}
+                elif body["method"] == "problem.get":
+                    res = {"result": [{"eventid": "9", "name": "Linux: Zabbix agent is not available", "severity": "3", "clock": "1790000000",
+                                       "acknowledged": "0", "r_eventid": "0", "tags": [{"tag": "class", "value": "os"}]}]}
+                elif body["method"] == "trigger.get":
+                    res = {"result": [{"description": "Disk full on /", "priority": "4", "lastchange": "1790000100", "value": "1",
+                                       "state": "0", "error": ""}]}
+                else:
+                    res = {"error": {"message": "Method not found", "data": body["method"]}}
+                raw = json.dumps({"jsonrpc": "2.0", "id": 1, **res}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}/api_jsonrpc.php"
+        self.token = token
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class ZabbixTool(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        (self.tmp / "creds").mkdir()
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live.creds_dir = self.tmp / "creds"
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        self.fz = FakeZabbix()
+        self.addCleanup(self.fz.close)
+
+    def cred(self, token=None):
+        (self.tmp / "creds" / "zabbix.json").write_text(json.dumps({"value": token or self.fz.token, "url": self.fz.url}))
+
+    def test_host_problems_and_triggers_are_translated_and_only_get_methods_are_called(self):
+        self.cred()
+        host = self.tb.call_tool("zabbix.host", {"host": "canary-1"}, self.inc)["result"]["host"]
+        self.assertEqual((host["enabled"], host["groups"], host["templates"]), (True, ["Asgard/LXCs/Canary"], ["Linux by Zabbix agent"]))
+        self.assertEqual(host["interfaces"][0]["available"], "2")
+        probs = self.tb.call_tool("zabbix.problems", {"host": "canary-1"}, self.inc)["result"]["problems"]
+        self.assertEqual((probs[0]["severity"], probs[0]["resolved"], probs[0]["acknowledged"]), ("average", False, False))
+        trig = self.tb.call_tool("zabbix.triggers", {"host": "canary-1"}, self.inc)["result"]["active_triggers"]
+        self.assertEqual((trig[0]["description"], trig[0]["severity"]), ("Disk full on /", "high"))
+        self.assertTrue(self.fz.methods and all(m.endswith(".get") for m in self.fz.methods), self.fz.methods)
+
+    def test_problems_without_a_host_is_fleet_wide(self):
+        self.cred()
+        self.tb.call_tool("zabbix.problems", {}, self.inc)
+        self.assertEqual(self.fz.methods, ["problem.get"])  # no host lookup needed
+
+    def test_unknown_host_is_404(self):
+        self.cred()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("zabbix.host", {"host": "ghost"}, self.inc)
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_a_refused_token_is_a_502_naming_zabbix(self):
+        self.cred(token="wrong-token-wrong-token-wrong-token-xx")
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("zabbix.problems", {}, self.inc)
+        self.assertEqual(cm.exception.status, 502)
+        self.assertIn("zabbix refused", cm.exception.message)
+
+    def test_missing_credential_is_501(self):
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("zabbix.problems", {}, self.inc)
+        self.assertEqual(cm.exception.status, 501)
+
+    def test_the_client_refuses_to_call_a_non_get_method(self):
+        self.cred()
+        with self.assertRaises(tools.ToolError) as cm:
+            tools._zbx(self.tb.cfg.live, "host.update", {})
+        self.assertEqual(cm.exception.status, 500)
+        self.assertEqual(self.fz.methods, [])  # nothing was sent
+
+
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

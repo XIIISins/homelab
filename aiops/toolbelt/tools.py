@@ -147,6 +147,8 @@ class LiveConfig:
     # Any cluster member answers for the whole cluster; try them in turn so a dead node is still diagnosable.
     pve_urls: tuple = ("https://10.0.254.11:8006", "https://10.0.254.12:8006", "https://10.0.254.13:8006")
     pve_timeout: float = 5.0
+    zabbix_url: str = "http://10.0.11.21/api_jsonrpc.php"  # the credential file's `url` wins when present
+    zabbix_timeout: float = 10.0
 
 
 def _yaml(path: Path):
@@ -262,6 +264,60 @@ def _pve(cfg: LiveConfig, name: str, args: dict) -> dict:
             out["detail_error"] = e.message
     return out
 
+def _zbx(cfg: LiveConfig, method: str, params: dict):
+    """One Zabbix JSON-RPC read. Method names are fixed in this module; the guard keeps it that way."""
+    if not method.endswith(".get"):
+        raise ToolError(500, "internal: only *.get methods may be called")
+    c = _cred(cfg, "zabbix")
+    req = urllib.request.Request(c.get("url") or cfg.zabbix_url,
+                                 json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": 1}).encode(),
+                                 {"Content-Type": "application/json-rpc", "Authorization": "Bearer " + c["value"]}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=cfg.zabbix_timeout) as r:
+            d = json.load(r)
+    except (OSError, ValueError) as e:
+        raise ToolError(502, f"zabbix unreachable: {type(e).__name__}")
+    if "error" in d:
+        raise ToolError(502, "zabbix refused: " + str(d["error"].get("data") or d["error"].get("message"))[:120])
+    return d["result"]
+
+
+def _zabbix(cfg: LiveConfig, name: str, args: dict) -> dict:
+    sev = {"0": "not_classified", "1": "information", "2": "warning", "3": "average", "4": "high", "5": "disaster"}
+    hostids = None
+    if args.get("host"):
+        hosts = _zbx(cfg, "host.get", {"output": ["hostid"], "filter": {"host": [args["host"]]}})
+        if not hosts:
+            raise ToolError(404, "no such host in Zabbix")
+        hostids = [h["hostid"] for h in hosts]
+    if name == "zabbix.host":
+        h = _zbx(cfg, "host.get", {
+            "output": ["host", "name", "status", "maintenance_status", "description"], "hostids": hostids,
+            "selectHostGroups": ["name"], "selectTags": ["tag", "value"], "selectParentTemplates": ["name"],
+            "selectInterfaces": ["ip", "port", "type", "available", "error"]})[0]
+        return {"host": {
+            "host": h["host"], "enabled": h["status"] == "0", "in_maintenance": h["maintenance_status"] == "1",
+            "groups": [g["name"] for g in h.get("hostgroups", [])], "tags": h.get("tags", []),
+            "templates": [t["name"] for t in h.get("parentTemplates", [])],
+            "interfaces": [{"ip": i["ip"], "port": i["port"], "type": i["type"], "available": i["available"],
+                            "error": (i.get("error") or "")[:200]} for i in h.get("interfaces", [])]}}
+    if name == "zabbix.problems":
+        params = {"output": ["eventid", "name", "severity", "clock", "acknowledged", "r_eventid"], "recent": True,
+                  "sortfield": ["eventid"], "sortorder": "DESC", "limit": 50, "selectTags": ["tag", "value"]}
+        if hostids:
+            params["hostids"] = hostids
+        rows = _zbx(cfg, "problem.get", params)
+        return {"problems": [{"eventid": r["eventid"], "name": r["name"], "severity": sev.get(r["severity"], r["severity"]),
+                              "since": int(r["clock"]), "acknowledged": r["acknowledged"] == "1",
+                              "resolved": r["r_eventid"] != "0", "tags": r.get("tags", [])} for r in rows]}
+    rows = _zbx(cfg, "trigger.get", {
+        "output": ["description", "priority", "lastchange", "value", "state", "error"], "hostids": hostids,
+        "monitored": True, "filter": {"value": 1}, "expandDescription": True, "sortfield": "priority", "sortorder": "DESC",
+        "limit": 100})
+    return {"active_triggers": [{"description": r["description"], "severity": sev.get(r["priority"], r["priority"]),
+                                 "since": int(r["lastchange"]), "state": "unknown" if r["state"] == "1" else "normal",
+                                 "error": (r.get("error") or "")[:200]} for r in rows]}
+
 
 def live(cfg: LiveConfig, name: str, args: dict) -> dict:
     if name.startswith("registry."):
@@ -272,4 +328,6 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _reach(cfg, args)
     if name.startswith("pve."):
         return _pve(cfg, name, args)
+    if name.startswith("zabbix."):
+        return _zabbix(cfg, name, args)
     raise ToolError(501, f"{name} has no live backend yet (replay only)")

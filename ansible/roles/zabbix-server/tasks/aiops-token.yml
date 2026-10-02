@@ -1,0 +1,65 @@
+---
+# ansible/roles/zabbix-server/tasks/aiops-token.yml (Phase 10d2)
+#
+# Mints the Toolbelt's read-only Zabbix API token and stores it in Vault. Imported with ONLY the
+# explicit tag below (never `zabbix`), so no broad `--tags zabbix` or full run can mint a token.
+#
+# ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:aiops-token   (from a Vault identity that
+# can WRITE secret/ansible/aiops/zabbix-token, e.g. Frigg's homelab-frigg; the read-only ansible
+# AppRole will fail the write with a clear permission error and nothing is created in Zabbix first:
+# the write is preflighted below). Idempotent: does nothing while the Vault secret exists. To rotate,
+# delete the Vault secret and the Zabbix token `toolbelt`, then run again.
+- name: Is a token already stored for the Toolbelt?
+  ansible.builtin.set_fact:
+    zabbix_aiops_token_present: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', zabbix_aiops_token_vault_path, errors='ignore')
+          | default({}, true)).get('secret', {}).get('value', '') | length > 0 }}
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  tags: [zabbix:aiops-token]
+
+- name: Mint the Toolbelt's read-only API token and store it in Vault
+  when: not zabbix_aiops_token_present | bool
+  tags: [zabbix:aiops-token]
+  block:
+    - name: Preflight - prove this Vault identity can write the secret path (before creating anything)
+      community.hashi_vault.vault_kv2_write:
+        path: "{{ zabbix_aiops_token_vault_path }}"
+        data: {value: "", note: "placeholder - overwritten by the minting run"}
+      delegate_to: localhost # Vault modules run on the controller (hvac is not installed on Hugin)
+      become: false
+      no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+
+    - name: Generate the token in Zabbix
+      community.zabbix.zabbix_token:
+        name: toolbelt
+        description: "AIOps Toolbelt API (read-only). Managed by roles/zabbix-server/tasks/aiops-readonly.yml."
+        username: "{{ zabbix_aiops_username }}"
+        status: true
+        expires_at: 0
+        generate_token: true
+        state: present
+      register: zabbix_aiops_token
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      become: false
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+
+    - name: Store the token in Vault
+      community.hashi_vault.vault_kv2_write:
+        path: "{{ zabbix_aiops_token_vault_path }}"
+        data:
+          value: "{{ zabbix_aiops_token.token }}"
+          url: "{{ zabbix_aiops_api_url }}"
+      delegate_to: localhost
+      become: false
+      no_log: "{{ zabbix_aiops_no_log | default(true) }}"

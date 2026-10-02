@@ -96,6 +96,16 @@ Code: `roles/zabbix-server` (`tasks/n8n-mediatype.yml`, `templates/n8n-webhook.j
    Record the outcome in the 10d2 retro; do not enable further sources until A and B pass. **Passed 2026-10-02.** Use a temporary **High** trigger on the canary (for example `last(/canary-1/agent.ping)=1`, delete it afterwards): a canary "agent not available" fault is Average, which Hermod gets and n8n does not, so it cannot exercise the n8n path. Flipping the expression to `=0` and back forces a recovery and a new problem. A problem that fires while n8n is down is lost by design (one attempt), so the next RESOLVED arrives orphaned.
 5. Disable: `zabbix_n8n_enabled: false` (re-run the same tags): the n8n entry leaves the Admin media list, Hermod is untouched, the media type stays defined but inert.
 
+## Mint the Zabbix read-only token (10d2, one-off)
+
+The role/group/user are declarative (`ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:aiops-readonly`, idempotent). The API token is not: Zabbix shows it once, so a run with an explicit tag generates it and writes it to Vault. Needs a Vault identity that can write `secret/ansible/aiops/zabbix-token` (the read-only `ansible` AppRole cannot: the run fails at the preflight, before anything is created).
+
+```bash
+ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:aiops-token
+```
+
+Then `systemctl restart aiops-toolbelt-token` on Frigg (or re-run the `aiops-toolbelt` role) so the loader copies it, and prove it is read-only: `host.get`/`problem.get`/`trigger.get` succeed, `host.update`, `event.acknowledge`, `user.create`, `script.execute`, `token.generate` and `configuration.import` all answer `No permissions to call`. Mirror the Vault value to 1Password.
+
 ## Operate
 
 | Task | How |
