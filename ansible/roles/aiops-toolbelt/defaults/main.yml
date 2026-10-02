@@ -57,7 +57,9 @@ aiops_toolbelt_source_files:
   - toolbelt/core.py
   - toolbelt/server.py
   - toolbelt/tools.py
+  - toolbelt/diagnosis.py
   - tools/normalize.py
   - tools/zabbix_event.py
   - alert-routing.yml
   - runbooks.yml
+  - actions.yml
