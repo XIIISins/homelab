@@ -91,7 +91,7 @@ Code: `roles/zabbix-server` (`tasks/n8n-mediatype.yml`, `templates/n8n-webhook.j
    - A. n8n down: `systemctl stop n8n` on Gná; stop `zabbix-agent2` on `canary-1`; when the "agent not available" trigger fires, the Hermod/Discord alert **still arrives** (info tier for a canary) and Zabbix's *Reports -> Action log* shows **only the n8n operation failed**. Start n8n, start the agent; the problem recovers with no backlog flood.
    - B. Hermod down: stop AppriseAPI on Hermod; repeat; a `[High] canary-1 ...` thread appears in `#diagnoses`; Discord alert absent (expected). Restore Hermod.
    - C. Both up: one canary fault -> one Discord alert **and** one thread; the recovery updates/creates the RESOLVED stub.
-   Record the outcome in the 10d2 retro; do not enable further sources until A and B pass.
+   Record the outcome in the 10d2 retro; do not enable further sources until A and B pass. **Passed 2026-10-02.** Use a temporary **High** trigger on the canary (for example `last(/canary-1/agent.ping)=1`, delete it afterwards): a canary "agent not available" fault is Average, which Hermod gets and n8n does not, so it cannot exercise the n8n path. Flipping the expression to `=0` and back forces a recovery and a new problem. A problem that fires while n8n is down is lost by design (one attempt), so the next RESOLVED arrives orphaned.
 5. Disable: `zabbix_n8n_enabled: false` (re-run the same tags): the n8n entry leaves the Admin media list, Hermod is untouched, the media type stays defined but inert.
 
 ## Operate
