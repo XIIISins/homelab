@@ -2,7 +2,7 @@
 
 # Phase 10d — Diagnosis-only chat-ops: implementation plan
 
-*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; direct monitoring→n8n path). Status: 🟡 10d0 decided; **10d1 (Gná) merged (#32), apply in progress**. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](decisions.md) until the operator confirms.*
+*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; direct monitoring→n8n path). Status: 🟡 10d0 decided; **10d1 (Gná) applied 2026-10-02**. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](decisions.md) until the operator confirms.*
 
 ---
 
