@@ -106,6 +106,18 @@ ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:aiops-token
 
 Then `systemctl restart aiops-toolbelt-token` on Frigg (or re-run the `aiops-toolbelt` role) so the loader copies it, and prove it is read-only: `host.get`/`problem.get`/`trigger.get` succeed, `host.update`, `event.acknowledge`, `user.create`, `script.execute`, `token.generate` and `configuration.import` all answer `No permissions to call`. Mirror the Vault value to 1Password.
 
+## Acceptance replays (10d3)
+
+A scenario is one readable file, `aiops/replays/<name>/scenario.json`: the triggering Zabbix `event`, an `expect` block (which layers a correct diagnosis may name, which are forbidden, the minimum evidence, tools it must cite one of) and the `calls` the Toolbelt will answer, matched on tool + exact arguments. Anything the agent asks that is not recorded answers `NO_RECORDING` (counted; more than 3 fails the run: an agent guessing at checks is not behaving). Replay touches no live system, so a scenario can describe a fault you cannot reproduce (a hypervisor freeze).
+
+```bash
+python3 aiops/tools/replay_run.py canary-agent-down      # needs the homelab Vault env + ssh to Gna; costs one real model run
+```
+
+It posts the event to Gna's webhook with `X-AIOPS-Replay`, waits out the 90 s correlation window and the agent's run, reads the result back from the Toolbelt (`GET /replay/<name>/latest`) and judges it. A run PASSES only if the incident reached `posted`, a diagnosis passed grounding validation, its layer is allowed and not forbidden, it has enough evidence and cites a required tool. The judge has negative controls (a wrong layer, no evidence, never posted, a thrashing agent each FAIL). It also creates a real `[replay]` thread in `#diagnoses`. `aiops/tools/lint.py` rejects a malformed scenario (unknown tool, arguments outside the tool's contract, duplicate recording, impossible expectations) in CI.
+
+Passed so far: `canary-agent-down` (2026-10-02, Sonnet 5.5, 4 tool calls, layer host, medium confidence).
+
 ## Operate
 
 | Task | How |

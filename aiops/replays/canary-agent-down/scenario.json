@@ -1,0 +1,366 @@
+{
+  "description": "canary-1's Zabbix agent is not available (High). The guest answers on SSH (port 22 open), only the agent port 10050 refuses, and its hypervisor urd is online with every guest running: the fault is the service on the guest, not the host or hypervisor.",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "990001",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "canary-1",
+    "host_id": "10412",
+    "host_ip": "10.0.11.190",
+    "host_groups": "Linux servers,Asgard/LXCs/Canary",
+    "trigger_id": "990001",
+    "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+    "trigger_description": "",
+    "trigger_expression": "max(/canary-1/zabbix[host,agent,available],3m)=0",
+    "trigger_url": "",
+    "tags": [],
+    "runbook_id": "",
+    "items": [
+      {
+        "name": "Zabbix agent availability",
+        "key": "zabbix[host,agent,available]",
+        "value": "Not available (0)"
+      }
+    ],
+    "opdata": "Not available (0)",
+    "fired_at": "2026-10-01T11:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T11:00:01Z"
+  },
+  "expect": {
+    "layers_allowed": [
+      "workload",
+      "host"
+    ],
+    "layers_forbidden": [
+      "hypervisor",
+      "network",
+      "external"
+    ],
+    "min_evidence": 2,
+    "must_cite_any_of": [
+      "reach.tcp",
+      "zabbix.host",
+      "zabbix.problems"
+    ]
+  },
+  "calls": [
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "canary-1"
+      },
+      "response": {
+        "host": {
+          "host": "canary-1",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/LXCs/Canary",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.11.190",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.11.190]:10050]: [111] Connection refused"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "canary-1"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "990001",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970000,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": [
+              {
+                "tag": "class",
+                "value": "os"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {},
+      "response": {
+        "problems": [
+          {
+            "eventid": "990001",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970000,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": [
+              {
+                "tag": "class",
+                "value": "os"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.triggers",
+      "args": {
+        "host": "canary-1"
+      },
+      "response": {
+        "active_triggers": [
+          {
+            "description": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970000,
+            "state": "normal",
+            "error": ""
+          }
+        ]
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.190",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.190"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.190",
+        "port": 10050
+      },
+      "response": {
+        "open": false,
+        "error": "ConnectionRefusedError",
+        "ms": 1
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-1",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.190"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-1",
+        "port": 10050
+      },
+      "response": {
+        "open": false,
+        "error": "ConnectionRefusedError",
+        "ms": 1
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-1.niflheim.xiiisins.com",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.190"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-1.niflheim.xiiisins.com",
+        "port": 10050
+      },
+      "response": {
+        "open": false,
+        "error": "ConnectionRefusedError",
+        "ms": 1
+      }
+    },
+    {
+      "tool": "pve.guests",
+      "args": {},
+      "response": {
+        "guests": [
+          {
+            "vmid": 1190,
+            "name": "canary-1",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          },
+          {
+            "vmid": 1191,
+            "name": "canary-2",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          },
+          {
+            "vmid": 1101,
+            "name": "pbs",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 864000,
+            "cpu": 0.01,
+            "mem": 1073741824,
+            "maxmem": 2147483648,
+            "template": 0
+          }
+        ]
+      }
+    },
+    {
+      "tool": "pve.guests",
+      "args": {
+        "node": "urd"
+      },
+      "response": {
+        "guests": [
+          {
+            "vmid": 1190,
+            "name": "canary-1",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          },
+          {
+            "vmid": 1191,
+            "name": "canary-2",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          },
+          {
+            "vmid": 1101,
+            "name": "pbs",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 864000,
+            "cpu": 0.01,
+            "mem": 1073741824,
+            "maxmem": 2147483648,
+            "template": 0
+          }
+        ]
+      }
+    },
+    {
+      "tool": "pve.node_status",
+      "args": {
+        "node": "urd"
+      },
+      "response": {
+        "cluster_view": {
+          "node": "urd",
+          "status": "online",
+          "uptime": 864000,
+          "cpu": 0.08,
+          "mem": 1,
+          "maxmem": 2,
+          "maxcpu": 8
+        },
+        "detail": {
+          "loadavg": [
+            "0.20",
+            "0.25",
+            "0.30"
+          ],
+          "uptime": 864000,
+          "kversion": "Linux 6.14",
+          "memory": {},
+          "swap": {},
+          "rootfs": {}
+        }
+      }
+    },
+    {
+      "tool": "registry.runbook",
+      "args": {
+        "id": "RB-ZBX-TRIAGE"
+      },
+      "response": {
+        "runbook": {
+          "id": "RB-ZBX-TRIAGE",
+          "title": "Zabbix High/Disaster trigger with no more specific runbook",
+          "source": "docs/known-issues/zabbix.md",
+          "tier": "T0",
+          "automatable": "none",
+          "preconditions": [
+            "Classify host-level vs workload-level before any action (roadmap principle 2)",
+            "Zabbix suppresses Warning/Information; only Average/High/Disaster reach Hermod"
+          ],
+          "diagnostics": [
+            "service-status"
+          ],
+          "verify": {
+            "command": "ssh ansible@10.0.11.21 systemctl is-active zabbix-server"
+          },
+          "selection": {
+            "basis": "critical-path",
+            "why": "Catch-all for the Zabbix route so every critical Zabbix alert carries a runbook_id; the real trigger list needs a read-only Zabbix API pass in 10d2. maturity stub."
+          },
+          "maturity": "stub"
+        }
+      }
+    }
+  ]
+}

@@ -7,11 +7,13 @@ typed, bounded and (where free-form) pattern-checked. There is no generic exec, 
 no SSH: handlers build fixed argv lists or call a client library.
 
 Live handlers exist only for tools that need no credential (registry, git, reach); the
-rest (logs, metrics, zabbix, kube, netbox, pve, semaphore) are contract-only until their
-read-only identity is minted, and answer 501 live. They work in REPLAY mode regardless,
-which is how the acceptance incidents become repeatable (you cannot re-freeze Skuld): with
-`X-AIOPS-Replay: <scenario>` every call returns the recorded response from
-aiops/replays/<scenario>/<tool>/<hash-of-args>.json and never touches the network.
+rest (logs, metrics, kube, netbox, semaphore) are contract-only until their read-only
+identity is minted, and answer 501 live. They work in REPLAY mode regardless, which is how the
+acceptance incidents become repeatable (you cannot re-freeze Skuld): a scenario is one readable
+file, aiops/replays/<scenario>/scenario.json, holding the triggering event, what a correct
+diagnosis must look like, and the recorded tool calls. An incident ingested with
+`X-AIOPS-Replay: <scenario>` answers every tool call from those recordings (matched on tool +
+exact arguments) and never touches the network; anything unrecorded is NO_RECORDING.
 """
 from __future__ import annotations
 
@@ -127,13 +129,20 @@ def args_hash(name: str, args: dict) -> str:
 
 
 # ---- replay -------------------------------------------------------------------------------------
-def replay(replay_dir: Path, scenario: str, name: str, args: dict) -> dict:
+def scenario_file(replay_dir: Path, scenario: str) -> Path:
     if not REPLAY_NAME.match(scenario or ""):
         raise ToolError(400, "bad replay scenario name")
-    f = replay_dir / scenario / name / f"{args_hash(name, args)}.json"
+    return replay_dir / scenario / "scenario.json"
+
+
+def replay(replay_dir: Path, scenario: str, name: str, args: dict) -> dict:
+    f = scenario_file(replay_dir, scenario)
     if not f.is_file():
         raise ToolError(404, "NO_RECORDING")
-    return json.loads(f.read_text())
+    for call in json.loads(f.read_text()).get("calls", []):
+        if call.get("tool") == name and call.get("args") == args:
+            return call["response"]
+    raise ToolError(404, "NO_RECORDING")
 
 
 # ---- live handlers (credential-free tools only) ---------------------------------------------------

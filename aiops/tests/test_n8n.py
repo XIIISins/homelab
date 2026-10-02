@@ -124,6 +124,64 @@ class N8nWorkflowLint(unittest.TestCase):
         node["credentials"]["httpHeaderAuth"]["name"] = "aiops-ingest-zabbix"
         self.assertFinding(self.check(wf), "without the `aiops-toolbelt` credential")
 
+    # ---- the diagnosis agent (10d3) ---------------------------------------------------------------
+    def agent_node(self, wf, ntype):
+        return next(n for n in wf["nodes"] if n["type"] == ntype)
+
+    def test_committed_workflow_is_what_the_generator_produces(self):
+        sys.path.insert(0, str(REPO / "aiops" / "n8n"))
+        import build_ingest
+
+        self.assertEqual(build_ingest.OUT.read_text(), build_ingest.render(), "run python3 aiops/n8n/build_ingest.py")
+
+    def test_other_langchain_nodes_are_not_allowed(self):
+        for bad in ("toolCode", "toolWorkflow", "mcpClientTool", "lmChatOpenAi", "agentTool"):
+            wf = copy.deepcopy(self.wf)
+            self.agent_node(wf, "@n8n/n8n-nodes-langchain.toolHttpRequest")["type"] = f"@n8n/n8n-nodes-langchain.{bad}"
+            self.assertFinding(self.check(wf), "not in the allow-list")
+
+    def test_agent_needs_a_bounded_iteration_cap_and_a_system_message(self):
+        for opts, msg in (({"systemMessage": "x"}, "maxIterations"), ({"systemMessage": "x", "maxIterations": 50}, "maxIterations"),
+                          ({"maxIterations": 5}, "system message")):
+            wf = copy.deepcopy(self.wf)
+            self.agent_node(wf, "@n8n/n8n-nodes-langchain.agent")["parameters"]["options"] = opts
+            self.assertFinding(self.check(wf), msg)
+
+    def test_model_must_use_the_agent_credential(self):
+        wf = copy.deepcopy(self.wf)
+        self.agent_node(wf, "@n8n/n8n-nodes-langchain.lmChatAnthropic")["credentials"]["anthropicApi"]["name"] = "someone-elses"
+        self.assertFinding(self.check(wf), "aiops-anthropic")
+
+    def test_agent_tool_is_held_to_the_same_url_and_credential_rules_as_http_nodes(self):
+        wf = copy.deepcopy(self.wf)
+        tool = self.agent_node(wf, "@n8n/n8n-nodes-langchain.toolHttpRequest")
+        tool["parameters"]["url"] = "https://example.invalid/{tool}"
+        self.assertFinding(self.check(wf), "literal URL host")
+        wf = copy.deepcopy(self.wf)
+        del self.agent_node(wf, "@n8n/n8n-nodes-langchain.toolHttpRequest")["credentials"]
+        self.assertFinding(self.check(wf), "without the `aiops-toolbelt` credential")
+
+    def test_the_tool_description_the_model_sees_lists_exactly_the_toolbelt_allow_list(self):
+        sys.path.insert(0, str(REPO / "aiops" / "n8n"))
+        sys.path.insert(0, str(REPO / "aiops" / "toolbelt"))
+        import build_ingest
+        import tools
+
+        listed = {ln[2:].split("(", 1)[0] for ln in build_ingest.tool_description().splitlines() if ln.startswith("- ")}
+        self.assertEqual(listed, set(tools.SPEC))
+
+    def test_the_system_prompt_only_names_tools_that_exist(self):
+        import re
+
+        sys.path.insert(0, str(REPO / "aiops" / "toolbelt"))
+        import tools
+
+        prefixes = {n.split(".")[0] for n in tools.SPEC}
+        text = (REPO / "aiops" / "n8n" / "prompts" / "diagnose.system.md").read_text()
+        for name in set(re.findall(r"`([a-z]+\.[a-z_]+)`", text)):
+            if name.split(".")[0] in prefixes:
+                self.assertIn(name, tools.SPEC, f"the prompt names {name}, which is not a Toolbelt tool")
+
     def test_active_workflow_rejected(self):
         wf = copy.deepcopy(self.wf)
         wf["active"] = True
