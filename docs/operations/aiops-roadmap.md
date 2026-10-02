@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🔲 not started. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b and 10c done 2026-10-01/02** (10a soak ends 2026-10-08); 10d next. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -180,8 +180,8 @@ AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now 
 | D1 | Outside watcher placement + tool | **Decided 2026-10-01:** Gatus (systemd binary) co-located on `do1`, direct Discord webhook; split out only on the conditions in 10b3. Not Uptime Kuma |
 | D2 | TS3 `do-ts3`/`hel-ts3`/SRV records into Terraform | Yes (overrides "leave hand-managed") |
 | D3 | Offsite location for Calico/etcd/Vault Raft exports | **Done 2026-10-01** (built in a separate session): S3 bucket `xiiisins-homelab-backups` (eu-west-1) in the existing AWS account — SSE-S3, versioned, private, TLS-only; separate IAM users (etcd R/W via K3s `etcd-s3-*` on all 3 CPs; PutObject-only writer for the Vault Raft + Calico CronJobs). See [`procedures/offsite-backups.md`](../procedures/offsite-backups.md). Restore drill still pending: 10b2 substrate written 2026-10-01 (not applied), drill plan in [`procedures/burst-substrate.md`](../procedures/burst-substrate.md) |
-| D4 | Dedicated Terraform DO token scope | Least-privilege custom scopes; revoke the broad one after 10a |
-| D5 | Canary resource-ID range | 1190–1199 (free in the 1101–1199 LXC block) |
+| D4 | Dedicated Terraform DO token scope | Least-privilege custom scopes; revoke the broad one after 10a. **Amended 2026-10-02:** the custom token lacked `reserved_ip`/`project`/`tag` scopes, so a full-access token is in Vault for now (open item: narrow it; revoke the old broad `doctl` token at the 10a cleanup) |
+| D5 | Canary resource-ID range | 1190–1199 (free in the 1101–1199 LXC block) — **canary-1..3 = 1190–1192, live 2026-10-01**. DO nodes' NetBox `VMID` range: 9900–9999 (`do1` = 9900) |
 | D6 | Phase numbering | AIOps = **Phase 10** (Phase 9 = Secrets runtime retrieval) |
 
 ---

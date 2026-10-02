@@ -26,3 +26,11 @@
 - **`op read "op://Homelab 2.0/[Asgard] - …/field"` breaks on titles containing `[` `]`** (the `[Realm]` prefix) — the secret-reference parser rejects the brackets, so scripted verify steps error out. Reference by UUID (`op://Homelab 2.0/<UUID>/field`); `op item create` with the bracketed `--title` works fine. Surfaced 2026-10-01 mirroring the backup IAM keys.
 
 - **macOS has no `flock`.** The "wrap in `flock ~/.cache/homelab/<x>.lock`" rule needs a stand-in on the MacBook: `python3 -c 'import fcntl,os,sys; f=open(os.path.expanduser("~/.cache/homelab/x.lock"),"w"); fcntl.flock(f,fcntl.LOCK_EX); os.execvp(sys.argv[1],sys.argv[1:])' <cmd…>` (same advisory-lock semantics, interoperates with `flock` on Linux). Frigg has the real one.
+
+- **zsh: `cmd 2>&1 >/dev/null | head` prints stdout (MULTIOS), so it can leak a secret you meant to hide.** Incident [2026-10-01](../incidents/2026-10-01-discord-webhook-transcript-leak.md). For secret reads capture into a variable and print only booleans/lengths/prefix matches; to see just an error, redirect stdout and stderr to separate files and read the stderr one.
+
+- **zsh: `$B:path` is parsed as a history modifier — write `${B}:path`** (e.g. `git show "${B}:file"`).
+
+- **`pgrep -f name` over ssh matches its own command line** (always "running"); use a bracketed pattern (`pgrep -fc "[b]urst-up"`). macOS `pgrep` has no `-c`. **macOS has no `flock`** (use a python `fcntl` lock on the same lock file for the ansible/netbox locks).
+
+- **`vault kv get -field=x` appends a newline only when stdout is a TTY**, so `... | wc -c` of a 64-char token prints 64, not 65.
