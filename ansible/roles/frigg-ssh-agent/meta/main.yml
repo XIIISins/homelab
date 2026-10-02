@@ -1,0 +1,16 @@
+# ansible/roles/frigg-ssh-agent/meta/main.yml
+---
+galaxy_info:
+  role_name: frigg_ssh_agent
+  author: XIIISins
+  description: >
+    A long-lived ssh-agent on Frigg that holds the fleet ansible SSH key in memory
+    only, loaded from Vault by a root loader at every (re)start (the key never
+    exists as a file on the control node).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+  galaxy_tags: [frigg, ssh, vault]
+dependencies: []

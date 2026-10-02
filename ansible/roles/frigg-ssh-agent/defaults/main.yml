@@ -1,0 +1,29 @@
+---
+# ansible/roles/frigg-ssh-agent/defaults/main.yml
+#
+# A long-lived ssh-agent on Frigg that holds the fleet `ansible_niflheim` key IN MEMORY
+# ONLY, loaded from Vault (secret/ansible/frigg/ssh-private-key) by a root loader at
+# every (re)start. The private key never exists as a file on Frigg, so it cannot land
+# in a VM backup/image. Ansible + ssh on Frigg use it through SSH_AUTH_SOCK; because
+# ansible.cfg sets IdentitiesOnly=yes, the identity file named to ssh must be the PUBLIC
+# key (the shim exports ANSIBLE_PRIVATE_KEY_FILE=<key>.pub when the agent is present).
+# Why not materialize the key like the vault password: see docs/known-issues/frigg-control-node.md.
+
+# The agent runs as the operator user; the socket lives on tmpfs and is operator-only.
+frigg_ssh_agent_user: "{{ control_node_operator_user | default('ghost') }}"
+frigg_ssh_agent_runtime_dir_name: frigg-ssh-agent
+frigg_ssh_agent_socket: "/run/{{ frigg_ssh_agent_runtime_dir_name }}/agent.sock"
+frigg_ssh_agent_unit_name: frigg-ssh-agent
+
+# Loader (root, because the AppRole secret-zero is root-only).
+frigg_ssh_agent_loader_path: /usr/local/sbin/frigg-ssh-agent-load
+frigg_ssh_agent_vault_addr: "https://vault.niflheim.xiiisins.com"
+frigg_ssh_agent_approle_env_path: "{{ control_node_approle_env_path | default('/etc/frigg/vault-approle.env') }}"
+frigg_ssh_agent_key_vault_path: secret/data/ansible/frigg/ssh-private-key # KV v2 API path
+frigg_ssh_agent_key_field: value
+
+# Public half, written by the loader (public information; ssh -i <this> picks the agent key).
+frigg_ssh_agent_pub_path: "/home/{{ frigg_ssh_agent_user }}/.ssh/ansible_niflheim.pub"
+# Expected fingerprint of the key (public). Empty = just require that an identity loaded.
+# Set it to pin: `ssh-keygen -lf ~/.ssh/ansible_niflheim.pub` on the operator Mac.
+frigg_ssh_agent_expected_fingerprint: ""
