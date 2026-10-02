@@ -4,7 +4,7 @@
 
 *Phase 10d. Design and rationale: [`operations/10d-diagnosis-chatops.md`](../operations/10d-diagnosis-chatops.md). Role: [`ansible/roles/n8n-agent`](../../ansible/roles/n8n-agent/README.md). Gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md).*
 
-**State of play (10d1, 2026-10-02):** applied and reboot-tested (first play `ok=92 changed=52`; both re-runs `changed=0` with n8n/Caddy not restarted; sandbox exposure 1.5 OK; Caddy matrix verified from Hugin). Still to do: the real-Discord plumbing test and the independence test (needs the 10d2 Zabbix media type). The host, the ingest listener and a **stub** workflow exist: an authenticated POST becomes a `#diagnoses` forum thread that says "no analysis yet" and echoes the alert. The Zabbix media type, the Toolbelt API and the LLM agent come in the next 10d steps. Nothing here can act on the fleet.
+**State of play (10d1, 2026-10-02):** applied and reboot-tested (first play `ok=92 changed=52`; both re-runs `changed=0` with n8n/Caddy not restarted; sandbox exposure 1.5 OK; Caddy matrix verified from Hugin). 10d2 since: the Zabbix media type, the independence test, the Toolbelt API on Frigg and the ingest workflow that calls it are all applied and tested. The host, the ingest listener and a **stub** workflow exist: an authenticated POST becomes a `#diagnoses` forum thread that says "no analysis yet" and echoes the alert. The Zabbix media type, the Toolbelt API and the LLM agent come in the next 10d steps. Nothing here can act on the fleet.
 
 ## Shape
 
@@ -57,15 +57,17 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:5678/webhook/a
 curl -s -o /dev/null -w '%{http_code}\n' http://gna.niflheim.xiiisins.com:8081/healthz              # 404 from Hugin, 403 from elsewhere
 ```
 
-**Plumbing test (posts ONE thread into `#diagnoses`)** — from the workstation through the SSH tunnel (the workstation is deliberately not in the Caddy allow-list, and Hugin has no Vault CLI), token read in the shell so it never lands in a transcript:
+**Plumbing test (posts ONE thread into `#diagnoses`, ~100 s after the send)** — since 10d2 the workflow forwards the event to the Toolbelt API, which validates it, so the body must be a full `aiops.zabbix-event/v1` event; use a fixture. From the workstation through the SSH tunnel (the workstation is deliberately not in the Caddy allow-list, and Hugin has no Vault CLI), token read in the shell so it never lands in a transcript:
 
 ```bash
 ssh -f -N -L 5678:127.0.0.1:5678 ansible@gna      # then, with vault-homelab-env loaded:
+python3 -c 'import json; print(json.dumps(json.load(open("aiops/fixtures/zabbix-native/native-canary-high-info.json"))["event"]))' > /tmp/plumb.json
 curl -s -X POST http://127.0.0.1:5678/webhook/aiops/zabbix \
   -H "X-AIOPS-Token: $(vault kv get -field=value secret/ansible/aiops/n8n-ingest-token/zabbix)" \
-  -H 'content-type: application/json' \
-  -d '{"source":"zabbix","status":"PROBLEM","severity":"High","host":"canary-1","trigger_name":"plumbing test","event_id":"0"}'
-# expect {"message":"Workflow was started"} immediately, and a "[High] canary-1 - plumbing test (PROBLEM)" thread in #diagnoses
+  -H 'content-type: application/json' --data-binary @/tmp/plumb.json
+# expect {"message":"Workflow was started"} immediately; after the 90 s correlation window a
+# "[info] canary-1 - ..." thread appears in #diagnoses. Send the same body again inside 30 min:
+# no second thread (duplicate). Resolved halves: set "status":"RESOLVED" and re-send.
 ```
 
 This exercises n8n (auth, workflow, Discord) but not Caddy; Caddy's matrix is covered by the checks above and, end to end, by the first real Zabbix send in 10d2.

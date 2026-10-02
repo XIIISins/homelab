@@ -14,6 +14,13 @@
   no_log: true
   tags: [n8n, n8n:preflight]
 
+- name: Read the Toolbelt API token from Vault
+  ansible.builtin.set_fact:
+    n8n_toolbelt_token: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', n8n_vault_toolbelt_token_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+  no_log: true
+  tags: [n8n, n8n:preflight]
+
 - name: Read the per-source ingest tokens from Vault
   ansible.builtin.set_fact:
     n8n_ingest_tokens: >-
@@ -28,6 +35,8 @@
       - n8n_encryption_key | length >= 32
       - n8n_owner_password | length >= 24
       - n8n_discord_url is match('^https://(discord|discordapp)\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$')
+      - n8n_toolbelt_token | length >= 32
+      - n8n_toolbelt_token is match('^[A-Za-z0-9]+$')
       - n8n_ingest_tokens | dict2items | map(attribute='value') | map('length') | min >= 32
       - n8n_ingest_tokens | dict2items | map(attribute='value') | select('match', '^[A-Za-z0-9]+$') | list | length == (n8n_ingest_sources | length)
     fail_msg: >-
@@ -37,6 +46,7 @@
       secret/{{ n8n_vault_ingest_token_path_prefix }}/<source> for {{ n8n_ingest_sources | join(', ') }}.
       The operator seeds secret/{{ n8n_vault_discord_path }} field {{ n8n_vault_discord_field }}
       (the #diagnoses forum webhook URL, https://discord.com/api/webhooks/<id>/<token>).
+      The Toolbelt token is secret/{{ n8n_vault_toolbelt_token_path }} (terraform/vault).
       Also check Vault is reachable (vault-homelab-env loaded).
       See docs/procedures/aiops-diagnosis.md.
     quiet: true
@@ -263,6 +273,7 @@
     n8n_import_checksum: >-
       {{ ((n8n_workflow_docs | default([]) | to_json(sort_keys=True))
           ~ (n8n_ingest_tokens | to_json(sort_keys=True))
+          ~ n8n_toolbelt_token ~ n8n_toolbelt_url
           ~ n8n_version) | hash('sha256') }}
   no_log: true
   when: n8n_import_workflows | bool
@@ -300,6 +311,17 @@
                'data': {'name': 'X-AIOPS-Token', 'value': n8n_ingest_tokens[item]}
              }] }}
       loop: "{{ n8n_ingest_sources }}"
+      no_log: true
+
+    - name: Add the Toolbelt API credential
+      ansible.builtin.set_fact:
+        n8n_credential_docs: >-
+          {{ n8n_credential_docs + [{
+               'id': 'aiopsToolbelt01',
+               'name': 'aiops-toolbelt',
+               'type': 'httpHeaderAuth',
+               'data': {'name': 'Authorization', 'value': 'Bearer ' ~ n8n_toolbelt_token}
+             }] }}
       no_log: true
 
     - name: Stage the credentials (decrypted JSON; deleted below)

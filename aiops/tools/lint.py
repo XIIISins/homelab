@@ -478,6 +478,10 @@ def check_n8n_workflows(root: Path) -> list[str]:
                     )
             if ntype == "n8n-nodes-base.httpRequest":
                 url = str(params.get("url", ""))
+                if "AIOPS_TOOLBELT_URL" in url:
+                    tc = creds.get("httpHeaderAuth") or {}
+                    if params.get("authentication") != "genericCredentialType" or tc.get("name") != "aiops-toolbelt":
+                        errs.append(f"n8n: {rel}: node {nname!r} calls the Toolbelt API without the `aiops-toolbelt` credential")
                 if url.startswith("="):
                     if "$env.AIOPS_" not in url and not any(h in url for h in N8N_URL_HOSTS):
                         errs.append(f"n8n: {rel}: node {nname!r} URL expression must use $env.AIOPS_* or a known host")

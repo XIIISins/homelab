@@ -69,6 +69,10 @@ n8n_owner_email: aiops@niflheim.xiiisins.com # identity only; n8n never sends ma
 n8n_vault_discord_path: ansible/aiops/discord-diagnosis
 n8n_vault_discord_field: url
 n8n_vault_ingest_token_path_prefix: ansible/aiops/n8n-ingest-token
+# Toolbelt API (Frigg): n8n's one credential for it, minted by terraform/vault, read by the
+# Frigg token loader too. The URL is Frigg's VLAN 11 address (same VLAN as this host).
+n8n_vault_toolbelt_token_path: ansible/aiops/toolbelt-token
+n8n_toolbelt_url: "http://10.0.11.30:8090"
 
 # Alert sources that may POST to this agent. Each needs a TF-minted ingest
 # token (terraform/vault/main.tf locals.n8n_ingest_sources) and a workflow
