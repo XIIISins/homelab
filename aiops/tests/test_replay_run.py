@@ -63,6 +63,14 @@ class Evaluate(unittest.TestCase):
         run["alerts"] = list("abcde")
         self.assertEqual(replay_run.evaluate(sc, run), [])
 
+    def test_calibration_a_scenario_can_forbid_overconfidence(self):
+        sc = copy.deepcopy(SC)
+        sc["expect"]["confidence_forbidden"] = ["high"]
+        self.assertTrue(any("calibration" in f for f in replay_run.evaluate(sc, good_run())))  # good_run is confidence high
+        run = good_run()
+        run["diagnosis"]["confidence"] = "low"
+        self.assertEqual(replay_run.evaluate(sc, run), [])
+
     def test_unknown_with_low_confidence_is_not_a_pass_unless_the_scenario_allows_it(self):
         run = good_run()
         run["diagnosis"].update(layer="unknown", confidence="low", evidence=[])

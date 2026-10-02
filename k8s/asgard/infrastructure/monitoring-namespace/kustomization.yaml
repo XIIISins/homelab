@@ -8,3 +8,5 @@ resources:
   # for the full ForwardAuth flow + why the outpost lives in
   # authentik-server (embedded).
   - middleware-authentik-forward-auth.yaml
+  # Phase 10d2: Frigg-only source-IP allow-list for the Toolbelt's read-only VL/VM query routes
+  - middleware-aiops-read-ipallow.yaml
