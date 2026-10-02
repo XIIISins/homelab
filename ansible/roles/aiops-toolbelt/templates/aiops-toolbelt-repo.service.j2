@@ -1,0 +1,33 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-repo.service.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+# Refreshes the read-only clone the repo-history tools read. Its own unit because the API
+# unit has no route to GitHub by design (IPAddressDeny=any).
+[Unit]
+Description=AIOps Toolbelt repo clone refresh (public repo, no credentials)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ aiops_toolbelt_user }}
+Group={{ aiops_toolbelt_user }}
+StateDirectory=aiops-toolbelt
+StateDirectoryMode=0750
+ExecStart={{ aiops_toolbelt_repo_sync_path }} {{ aiops_toolbelt_repo_url }} {{ aiops_toolbelt_repo_dir }}
+TimeoutStartSec=300
+Environment=HOME=/var/lib/aiops-toolbelt
+Environment=GIT_TERMINAL_PROMPT=0
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0027

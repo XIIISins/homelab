@@ -1,0 +1,12 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-repo.timer.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+[Unit]
+Description=Refresh the Toolbelt repo clone every {{ aiops_toolbelt_repo_refresh }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ aiops_toolbelt_repo_refresh }}
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -6,7 +6,7 @@
 
 - name: Install the runtime dependency (PyYAML for the routing table)
   ansible.builtin.apt:
-    name: [python3, python3-yaml, tzdata]
+    name: [python3, python3-yaml, tzdata, git]
     state: present
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
@@ -49,6 +49,28 @@
   notify: Restart aiops-toolbelt
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
+- name: Deploy the repo clone refresh script
+  ansible.builtin.copy:
+    src: aiops-toolbelt-repo-sync.sh
+    dest: "{{ aiops_toolbelt_repo_sync_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Install the repo refresh service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ aiops_toolbelt_repo_unit_name }}.{{ item.kind }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: aiops-toolbelt-repo.service.j2, kind: service}
+    - {src: aiops-toolbelt-repo.timer.j2, kind: timer}
+  register: aiops_toolbelt_repo_units
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
 - name: Install the token loader unit
   ansible.builtin.template:
     src: aiops-toolbelt-token.service.j2
@@ -69,9 +91,35 @@
   notify: Restart aiops-toolbelt
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
+- name: Reload systemd when the repo units changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: aiops_toolbelt_repo_units is changed
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
 - name: Flush handlers so changed code/unit is live before the checks
   ansible.builtin.meta: flush_handlers
   tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Enable the repo refresh timer
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_repo_unit_name }}.timer"
+    enabled: true
+    state: started
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: Make sure the clone exists before the API starts (first run)
+  ansible.builtin.stat:
+    path: "{{ aiops_toolbelt_repo_dir }}/.git"
+  register: aiops_toolbelt_clone
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: First clone now (the timer would wait two minutes)
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_repo_unit_name }}.service"
+    state: started
+  when: not aiops_toolbelt_clone.stat.exists and not ansible_check_mode
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
 
 - name: Enable and start the API
   ansible.builtin.systemd:
