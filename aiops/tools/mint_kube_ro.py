@@ -24,10 +24,11 @@ VAULT_PATH = "secret/ansible/aiops/kube-token"
 NS, SECRET = "aiops", "aiops-readonly-token"
 SA = f"system:serviceaccount:{NS}:aiops-readonly"
 
-# (description, can-i arguments, expected "yes"/"no")
+# (description, can-i arguments, expected "yes"/"no"). Subresources MUST use --subresource: `nodes/proxy` would mean
+# the node NAMED "proxy" (a get on nodes, which is allowed) and silently test the wrong thing.
 MATRIX = [
     ("list pods cluster-wide", ["list", "pods", "--all-namespaces"], "yes"),
-    ("read pod logs", ["get", "pods/log", "-n", "kube-system"], "yes"),
+    ("read pod logs", ["get", "pods", "--subresource=log", "-n", "kube-system"], "yes"),
     ("list nodes", ["list", "nodes"], "yes"),
     ("read events", ["list", "events", "--all-namespaces"], "yes"),
     ("read Flux HelmReleases", ["list", "helmreleases.helm.toolkit.fluxcd.io", "--all-namespaces"], "yes"),
@@ -38,11 +39,12 @@ MATRIX = [
     ("read configmaps", ["get", "configmaps", "--all-namespaces"], "no"),
     ("delete pods", ["delete", "pods", "--all-namespaces"], "no"),
     ("create pods", ["create", "pods", "-n", "default"], "no"),
-    ("exec into pods", ["create", "pods/exec", "-n", "default"], "no"),
-    ("attach to pods", ["create", "pods/attach", "-n", "default"], "no"),
-    ("proxy through nodes", ["get", "nodes/proxy"], "no"),
-    ("proxy through services", ["get", "services/proxy", "-n", "default"], "no"),
-    ("mint ServiceAccount tokens", ["create", "serviceaccounts/token", "-n", NS], "no"),
+    ("port-forward into pods", ["create", "pods", "--subresource=portforward", "-n", "default"], "no"),
+    ("exec into pods", ["create", "pods", "--subresource=exec", "-n", "default"], "no"),
+    ("attach to pods", ["create", "pods", "--subresource=attach", "-n", "default"], "no"),
+    ("proxy through nodes", ["get", "nodes", "--subresource=proxy"], "no"),
+    ("proxy through services", ["get", "services", "--subresource=proxy", "-n", "default"], "no"),
+    ("mint ServiceAccount tokens", ["create", "serviceaccounts", "--subresource=token", "-n", NS], "no"),
     ("patch a Flux HelmRelease", ["patch", "helmreleases.helm.toolkit.fluxcd.io", "-n", "flux-system"], "no"),
     ("edit RBAC", ["create", "clusterrolebindings.rbac.authorization.k8s.io"], "no"),
 ]
