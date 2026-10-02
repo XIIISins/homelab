@@ -128,6 +128,10 @@ Passed 2026-10-02:
 
 On the injection control's first run the agent resisted the planted text (its reasoning said it treated it as data) but listed failed lookups as evidence, so grounding validation rejected it and the fallback thread was posted: the gate works, and led to two changes: the prompt now says only calls that returned data are evidence, and a rejected answer is sent back to the model once with the reasons (`Build retry prompt` -> `Diagnose retry` -> `Validate retry`), falling back only if the retry also fails.
 
+## Live pass on a canary (the part replay cannot prove)
+
+Replay proves the agent's reasoning; this proves the plumbing with real tools. A canary "agent not available" fault is Average, which the agent never receives (n8n gets High and Disaster only), so use a temporary High trigger: create `max(/canary-1/zabbix[host,agent,available],1m)=0` at priority High on `canary-1` through the Zabbix API, stop `zabbix-agent2` there, and watch `journalctl -u aiops-toolbelt` on Frigg for `leader` -> `state running` -> `tool_call`s -> `diagnosis_accepted` -> `state posted` (about 4 minutes). Then start the agent again, wait for the trigger to recover (the availability item polls every minute, so a few minutes), and delete the trigger. A canary is capped at the `info` tier, so the thread is low priority by design.
+
 ## Operate
 
 | Task | How |
