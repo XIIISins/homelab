@@ -164,6 +164,13 @@ class LiveConfig:
     kube_timeout: float = 15.0
     semaphore_project: int = 1
     semaphore_timeout: float = 15.0
+    # Frigg-only read routes (k8s/asgard/apps/victoria*/httproute-aiops-read.yaml): no credential, the source-IP allow-list is the control
+    logs_url: str = "https://logs-read.niflheim.xiiisins.com"
+    metrics_url: str = "https://metrics-read.niflheim.xiiisins.com"
+    obs_timeout: float = 20.0
+    logs_max_chars: int = 20000
+    metrics_max_series: int = 50
+    metrics_max_points: int = 120
     kube_log_max_chars: int = 20000
 
 
@@ -542,6 +549,97 @@ def _semaphore(cfg: LiveConfig, args: dict) -> dict:
     return {"tasks": out}
 
 
+_REL = re.compile(r"^([0-9]{1,5})([smhd])$")
+
+
+def _when(v: str | None, default: str | None = None) -> str | None:
+    """A time argument: relative ('15m', '2h', '1d') becomes an RFC3339 UTC instant; anything else is passed through
+    (the argument pattern already limits it to RFC3339 / unix-seconds-shaped text)."""
+    v = v or default
+    if v is None:
+        return None
+    m = _REL.match(v)
+    if m:
+        secs = int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - secs))
+    return v
+
+
+def _obs_get(cfg: LiveConfig, url: str, what: str) -> str:
+    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=cfg.obs_timeout) as r:
+            return r.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise ToolError(502, f"{what} refused this caller ({e.code}): the route is restricted to the Toolbelt host")
+        if e.code == 404:
+            raise ToolError(502, f"{what}: that endpoint is not routable for the Toolbelt (404)")
+        body = e.read().decode(errors="replace")[:200]
+        raise ToolError(502, f"{what} answered HTTP {e.code}: {redact(body)}")
+    except (OSError, ValueError) as e:
+        raise ToolError(502, f"{what} unreachable: {type(e).__name__}")
+
+
+def _logs(cfg: LiveConfig, args: dict) -> dict:
+    q = {"query": args["query"], "limit": args.get("limit", 50)}
+    start, end = _when(args.get("start"), "15m"), _when(args.get("end"))
+    q["start"] = start
+    if end:
+        q["end"] = end
+    text = _obs_get(cfg, f"{cfg.logs_url.rstrip('/')}/select/logsql/query?" + urllib.parse.urlencode(q), "VictoriaLogs")
+    lines = []
+    for ln in text.splitlines():
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        lines.append({"time": row.get("_time"), "stream": row.get("_stream"), "msg": redact(str(row.get("_msg", "")))[:500],
+                      **{k: str(v)[:120] for k, v in row.items() if k not in ("_time", "_stream", "_msg", "_stream_id") and not k.startswith("_")}})
+    out, size = [], 0
+    for row in lines:
+        size += len(json.dumps(row))
+        if size > cfg.logs_max_chars:
+            break
+        out.append(row)
+    return {"window_start": start, "returned": len(out), "truncated": len(out) < len(lines), "lines": out}
+
+
+def _trim_series(cfg: LiveConfig, result: list) -> tuple[list, bool]:
+    out = []
+    for s in result[:cfg.metrics_max_series]:
+        row = {"metric": s.get("metric", {})}
+        if "values" in s:
+            vals = s["values"]
+            if len(vals) > cfg.metrics_max_points:  # keep the shape: evenly thinned, last point always kept
+                step = len(vals) / cfg.metrics_max_points
+                vals = [vals[int(i * step)] for i in range(cfg.metrics_max_points - 1)] + [vals[-1]]
+            row["values"] = vals
+        if "value" in s:
+            row["value"] = s["value"]
+        out.append(row)
+    return out, len(result) > cfg.metrics_max_series
+
+
+def _metrics(cfg: LiveConfig, name: str, args: dict) -> dict:
+    base = cfg.metrics_url.rstrip("/")
+    if name == "metrics.query":
+        q = {"query": args["query"]}
+        if args.get("time"):
+            q["time"] = _when(args["time"])
+        path = "/api/v1/query"
+    else:
+        q = {"query": args["query"], "start": _when(args["start"]), "end": _when(args.get("end"), "0s") or _when("0s"), "step": args.get("step", "60s")}
+        path = "/api/v1/query_range"
+    data = json.loads(_obs_get(cfg, f"{base}{path}?" + urllib.parse.urlencode(q), "VictoriaMetrics"))
+    if data.get("status") != "success":
+        raise ToolError(502, "VictoriaMetrics: " + redact(str(data.get("error", "query failed")))[:200])
+    res = data["data"].get("result", [])
+    series, truncated = _trim_series(cfg, res if isinstance(res, list) else [])
+    return {"result_type": data["data"].get("resultType"), "series": len(res) if isinstance(res, list) else 1, "returned": len(series),
+            "truncated_series": truncated, "result": series}
+
+
 def live(cfg: LiveConfig, name: str, args: dict) -> dict:
     if name.startswith("registry."):
         return _registry(cfg, name, args)
@@ -559,4 +657,8 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _kube(cfg, name, args)
     if name == "semaphore.tasks":
         return _semaphore(cfg, args)
+    if name == "logs.query":
+        return _logs(cfg, args)
+    if name in ("metrics.query", "metrics.range"):
+        return _metrics(cfg, name, args)
     raise ToolError(501, f"{name} has no live backend yet (replay only)")

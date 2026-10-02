@@ -6,6 +6,7 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - httproute.yaml
+  - httproute-aiops-read.yaml
 configMapGenerator:
   - name: vmui-dashboards
     files:

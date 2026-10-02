@@ -121,6 +121,9 @@ locals {
     # native VL UI at logs.
     "metric.niflheim.xiiisins.com" = "10.0.20.10"
     "logs.niflheim.xiiisins.com"   = "10.0.20.10"
+    # Phase 10d2 - Frigg-only read-only query routes for the AIOps Toolbelt (k8s/asgard/apps/victoria*/httproute-aiops-read.yaml)
+    "logs-read.niflheim.xiiisins.com"    = "10.0.20.10"
+    "metrics-read.niflheim.xiiisins.com" = "10.0.20.10"
     # Smoketest endpoint — backed by the apex-static Caddy pod with a
     # hostname-keyed site that returns "smoketest ok" + HTTP 200 to ANY
     # path. After any AGH change, `curl https://smoketest.niflheim.xiiisins.com/`
