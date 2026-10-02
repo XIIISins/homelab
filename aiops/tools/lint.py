@@ -537,9 +537,19 @@ def check_replays(root: Path) -> list[str]:
         except json.JSONDecodeError as e:
             errs.append(f"replays: {rel}: invalid JSON: {e}")
             continue
-        for e in schema_errors(doc.get("event"), ev_schema):
-            errs.append(f"replays: {rel}: event: {e}")
+        evs = doc.get("events") if doc.get("events") is not None else [doc.get("event")]
+        if doc.get("events") is not None and doc.get("event") is not None:
+            errs.append(f"replays: {rel}: use either `event` or `events`, not both")
+        if doc.get("events") is not None and len(evs) < 2:
+            errs.append(f"replays: {rel}: `events` is a burst and needs at least 2 events")
+        for i, ev in enumerate(evs):
+            for e in schema_errors(ev, ev_schema):
+                errs.append(f"replays: {rel}: event[{i}]: {e}")
+        if len({(e or {}).get("event_id") for e in evs}) != len(evs):
+            errs.append(f"replays: {rel}: events must have distinct event_ids")
         exp = doc.get("expect") or {}
+        if not all(isinstance(x, str) and x for x in exp.get("forbidden_text", [])) or not isinstance(exp.get("forbidden_text", []), list):
+            errs.append(f"replays: {rel}: expect.forbidden_text must be a list of non-empty strings")
         layers = {"host", "hypervisor", "workload", "network", "drift", "external", "unknown"}
         for key in ("layers_allowed", "layers_forbidden"):
             bad = set(exp.get(key, [])) - layers

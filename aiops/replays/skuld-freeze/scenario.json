@@ -1,0 +1,997 @@
+{
+  "description": "2026-09-30 replay: five guests on skuld (K3s CP + worker, two Postgres LXCs, a DNS LXC) all lose their Zabbix agent at once. Skuld is 'offline' in the cluster, its guests are 'unknown', every guest times out on SSH while the other two hypervisors and their guests are healthy. The right answer is ONE fault, the hypervisor, not five bad guests or a bad release.",
+  "events": [
+    {
+      "schema_version": "aiops.zabbix-event/v1",
+      "source": "zabbix",
+      "status": "PROBLEM",
+      "event_id": "992001",
+      "recovery_event_id": "",
+      "severity": "High",
+      "host": "sigrun",
+      "host_id": "11001",
+      "host_ip": "10.0.21.13",
+      "host_groups": "Asgard/K3s CP, Linux servers",
+      "trigger_id": "992001",
+      "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+      "trigger_description": "",
+      "trigger_expression": "max(/sigrun/zabbix[host,agent,available],3m)=0",
+      "trigger_url": "",
+      "tags": [],
+      "runbook_id": "",
+      "items": [
+        {
+          "name": "Zabbix agent availability",
+          "key": "zabbix[host,agent,available]",
+          "value": "Not available (0)"
+        }
+      ],
+      "opdata": "Not available (0)",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "resolved_at": "",
+      "sent_at": "2026-10-01T11:00:01Z"
+    },
+    {
+      "schema_version": "aiops.zabbix-event/v1",
+      "source": "zabbix",
+      "status": "PROBLEM",
+      "event_id": "992002",
+      "recovery_event_id": "",
+      "severity": "High",
+      "host": "einherjar-skuld",
+      "host_id": "11002",
+      "host_ip": "10.0.21.23",
+      "host_groups": "Asgard/K3s workers, Linux servers",
+      "trigger_id": "992002",
+      "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+      "trigger_description": "",
+      "trigger_expression": "max(/einherjar-skuld/zabbix[host,agent,available],3m)=0",
+      "trigger_url": "",
+      "tags": [],
+      "runbook_id": "",
+      "items": [
+        {
+          "name": "Zabbix agent availability",
+          "key": "zabbix[host,agent,available]",
+          "value": "Not available (0)"
+        }
+      ],
+      "opdata": "Not available (0)",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "resolved_at": "",
+      "sent_at": "2026-10-01T11:00:01Z"
+    },
+    {
+      "schema_version": "aiops.zabbix-event/v1",
+      "source": "zabbix",
+      "status": "PROBLEM",
+      "event_id": "992003",
+      "recovery_event_id": "",
+      "severity": "High",
+      "host": "fulla",
+      "host_id": "11003",
+      "host_ip": "10.0.11.230",
+      "host_groups": "Asgard/PG, Linux servers",
+      "trigger_id": "992003",
+      "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+      "trigger_description": "",
+      "trigger_expression": "max(/fulla/zabbix[host,agent,available],3m)=0",
+      "trigger_url": "",
+      "tags": [],
+      "runbook_id": "",
+      "items": [
+        {
+          "name": "Zabbix agent availability",
+          "key": "zabbix[host,agent,available]",
+          "value": "Not available (0)"
+        }
+      ],
+      "opdata": "Not available (0)",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "resolved_at": "",
+      "sent_at": "2026-10-01T11:00:01Z"
+    },
+    {
+      "schema_version": "aiops.zabbix-event/v1",
+      "source": "zabbix",
+      "status": "PROBLEM",
+      "event_id": "992004",
+      "recovery_event_id": "",
+      "severity": "High",
+      "host": "snotra",
+      "host_id": "11004",
+      "host_ip": "10.0.11.235",
+      "host_groups": "Asgard/PG, Linux servers",
+      "trigger_id": "992004",
+      "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+      "trigger_description": "",
+      "trigger_expression": "max(/snotra/zabbix[host,agent,available],3m)=0",
+      "trigger_url": "",
+      "tags": [],
+      "runbook_id": "",
+      "items": [
+        {
+          "name": "Zabbix agent availability",
+          "key": "zabbix[host,agent,available]",
+          "value": "Not available (0)"
+        }
+      ],
+      "opdata": "Not available (0)",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "resolved_at": "",
+      "sent_at": "2026-10-01T11:00:01Z"
+    },
+    {
+      "schema_version": "aiops.zabbix-event/v1",
+      "source": "zabbix",
+      "status": "PROBLEM",
+      "event_id": "992005",
+      "recovery_event_id": "",
+      "severity": "High",
+      "host": "kvasir",
+      "host_id": "11005",
+      "host_ip": "10.0.11.203",
+      "host_groups": "Asgard/LXCs, Linux servers",
+      "trigger_id": "992005",
+      "trigger_name": "Linux: Zabbix agent is not available (for 3m)",
+      "trigger_description": "",
+      "trigger_expression": "max(/kvasir/zabbix[host,agent,available],3m)=0",
+      "trigger_url": "",
+      "tags": [],
+      "runbook_id": "",
+      "items": [
+        {
+          "name": "Zabbix agent availability",
+          "key": "zabbix[host,agent,available]",
+          "value": "Not available (0)"
+        }
+      ],
+      "opdata": "Not available (0)",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "resolved_at": "",
+      "sent_at": "2026-10-01T11:00:01Z"
+    }
+  ],
+  "expect": {
+    "layers_allowed": [
+      "hypervisor"
+    ],
+    "layers_forbidden": [
+      "workload",
+      "drift",
+      "external",
+      "network"
+    ],
+    "min_evidence": 2,
+    "must_cite_any_of": [
+      "pve.node_status",
+      "pve.guests"
+    ],
+    "min_alerts": 5
+  },
+  "calls": [
+    {
+      "tool": "pve.guests",
+      "args": {},
+      "response": {
+        "guests": [
+          {
+            "vmid": 1112,
+            "name": "kvasir",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 1130,
+            "name": "fulla",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 1135,
+            "name": "snotra",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 2003,
+            "name": "sigrun",
+            "type": "qemu",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 2103,
+            "name": "einherjar-skuld",
+            "type": "qemu",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 1101,
+            "name": "pbs",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 864000,
+            "cpu": 0.01,
+            "mem": 1,
+            "maxmem": 2,
+            "template": 0
+          },
+          {
+            "vmid": 2001,
+            "name": "gondul",
+            "node": "urd",
+            "type": "qemu",
+            "status": "running",
+            "uptime": 864000,
+            "cpu": 0.1,
+            "mem": 1,
+            "maxmem": 2,
+            "template": 0
+          },
+          {
+            "vmid": 2002,
+            "name": "hlokk",
+            "node": "verd",
+            "type": "qemu",
+            "status": "running",
+            "uptime": 864000,
+            "cpu": 0.1,
+            "mem": 1,
+            "maxmem": 2,
+            "template": 0
+          }
+        ]
+      }
+    },
+    {
+      "tool": "pve.guests",
+      "args": {
+        "node": "skuld"
+      },
+      "response": {
+        "guests": [
+          {
+            "vmid": 1112,
+            "name": "kvasir",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 1130,
+            "name": "fulla",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 1135,
+            "name": "snotra",
+            "type": "lxc",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 2003,
+            "name": "sigrun",
+            "type": "qemu",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          },
+          {
+            "vmid": 2103,
+            "name": "einherjar-skuld",
+            "type": "qemu",
+            "node": "skuld",
+            "status": "unknown",
+            "uptime": 0,
+            "cpu": 0,
+            "mem": 0,
+            "maxmem": 0,
+            "template": 0
+          }
+        ]
+      }
+    },
+    {
+      "tool": "pve.node_status",
+      "args": {
+        "node": "skuld"
+      },
+      "response": {
+        "cluster_view": {
+          "node": "skuld",
+          "status": "offline",
+          "uptime": 0,
+          "cpu": 0,
+          "mem": 0,
+          "maxmem": 0,
+          "maxcpu": 0
+        }
+      }
+    },
+    {
+      "tool": "pve.node_status",
+      "args": {
+        "node": "urd"
+      },
+      "response": {
+        "cluster_view": {
+          "node": "urd",
+          "status": "online",
+          "uptime": 864000,
+          "cpu": 0.1,
+          "mem": 1,
+          "maxmem": 2,
+          "maxcpu": 8
+        },
+        "detail": {
+          "loadavg": [
+            "0.3",
+            "0.3",
+            "0.3"
+          ],
+          "uptime": 864000,
+          "kversion": "Linux 6.14",
+          "memory": {},
+          "swap": {},
+          "rootfs": {}
+        }
+      }
+    },
+    {
+      "tool": "pve.node_status",
+      "args": {
+        "node": "verd"
+      },
+      "response": {
+        "cluster_view": {
+          "node": "verd",
+          "status": "online",
+          "uptime": 864000,
+          "cpu": 0.1,
+          "mem": 1,
+          "maxmem": 2,
+          "maxcpu": 8
+        },
+        "detail": {
+          "loadavg": [
+            "0.3",
+            "0.3",
+            "0.3"
+          ],
+          "uptime": 864000,
+          "kversion": "Linux 6.14",
+          "memory": {},
+          "swap": {},
+          "rootfs": {}
+        }
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {},
+      "response": {
+        "problems": [
+          {
+            "eventid": "992001",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970001,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          },
+          {
+            "eventid": "992002",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970002,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          },
+          {
+            "eventid": "992003",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970003,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          },
+          {
+            "eventid": "992004",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970004,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          },
+          {
+            "eventid": "992005",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970005,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "sigrun"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "992001",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970001,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "sigrun"
+      },
+      "response": {
+        "host": {
+          "host": "sigrun",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/K3s CP",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.21.13",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.21.13]:10050]: [110] Connection timed out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "sigrun",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.21.13",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "einherjar-skuld"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "992002",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970002,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "einherjar-skuld"
+      },
+      "response": {
+        "host": {
+          "host": "einherjar-skuld",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/K3s workers",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.21.23",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.21.23]:10050]: [110] Connection timed out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "einherjar-skuld",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.21.23",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "fulla"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "992003",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970003,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "fulla"
+      },
+      "response": {
+        "host": {
+          "host": "fulla",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/PG",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.11.230",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.11.230]:10050]: [110] Connection timed out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "fulla",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.230",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "snotra"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "992004",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970004,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "snotra"
+      },
+      "response": {
+        "host": {
+          "host": "snotra",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/PG",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.11.235",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.11.235]:10050]: [110] Connection timed out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "snotra",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.235",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "kvasir"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "992005",
+            "name": "Linux: Zabbix agent is not available (for 3m)",
+            "severity": "high",
+            "since": 1790970005,
+            "acknowledged": false,
+            "resolved": false,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "kvasir"
+      },
+      "response": {
+        "host": {
+          "host": "kvasir",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/LXCs",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.11.203",
+              "port": "10050",
+              "type": "1",
+              "available": "2",
+              "error": "Get value from agent failed: cannot connect to [[10.0.11.203]:10050]: [110] Connection timed out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "kvasir",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.203",
+        "port": 22
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.254.13",
+        "port": 8006
+      },
+      "response": {
+        "open": false,
+        "error": "TimeoutError",
+        "ms": 3000
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.254.11",
+        "port": 8006
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.254.11"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.254.12",
+        "port": 8006
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.254.12"
+      }
+    },
+    {
+      "tool": "registry.runbooks",
+      "args": {},
+      "response": {
+        "runbooks": [
+          {
+            "id": "RB-FLUX-HR-STALLED",
+            "title": "HelmRelease Stalled / RetriesExceeded does not heal on a plain reconcile"
+          },
+          {
+            "id": "RB-FLUX-HR-NODE-OUTAGE",
+            "title": "Helm wait timeout while a node is down is a host fault, not a chart regression"
+          },
+          {
+            "id": "RB-ESO-FORCE-SYNC",
+            "title": "ExternalSecret does not pick up a new Vault value until refreshInterval"
+          },
+          {
+            "id": "RB-ISCSI-STALE-SESSION",
+            "title": "Pod cannot mount an iSCSI PVC (stale session / orphan node record / DSM state)"
+          },
+          {
+            "id": "RB-ETCD-RAFT-SYSLOG-FLOOD",
+            "title": "Control-plane disk fills while a CP peer is down (etcd Raft-drop log spam)"
+          },
+          {
+            "id": "RB-VAULT-APPROLE-EXPIRY",
+            "title": "Vault AppRole SecretID expiring or already expired"
+          },
+          {
+            "id": "RB-VAULT-RAFT-DRAIN",
+            "title": "Draining or replacing a Vault Raft node (step down first, one voter at a time)"
+          },
+          {
+            "id": "RB-CALICO-DATASTORE-PRUNE",
+            "title": "Calico datastore wiped by K3s addon-file pruning"
+          },
+          {
+            "id": "RB-HOST-HARD-FREEZE",
+            "title": "Proxmox host hard-freezes (no panic, no log) and does not fence"
+          },
+          {
+            "id": "RB-LXC-BOOT-DRIFT",
+            "title": "LXC config that does not survive a container restart (perpetual drift)"
+          },
+          {
+            "id": "RB-FRIGG-RC-LOGIN",
+            "title": "Frigg claude-remote-control login invalidated (crash-loop past StartLimitBurst)"
+          },
+          {
+            "id": "RB-PG-HA-DEGRADED",
+            "title": "Patroni cluster degraded or etcd DCS quorum at risk"
+          },
+          {
+            "id": "RB-SEMAPHORE-RUN-FAILED",
+            "title": "Semaphore run failed or stuck (apply failure, orphaned running task)"
+          },
+          {
+            "id": "RB-CF-TOKEN-INVALID",
+            "title": "Cloudflare API token invalid (TF applies will 401)"
+          },
+          {
+            "id": "RB-TLS-CERT-EXPIRY",
+            "title": "Served TLS cert near expiry or unreachable (cert-manager renewal stuck)"
+          },
+          {
+            "id": "RB-PBS-BACKUP-FAILURE",
+            "title": "PBS backup task failed or the monitoring token is invalid"
+          },
+          {
+            "id": "RB-CRED-IAC-ENV-SYNC",
+            "title": "frigg/iac-env credential mirror out of sync or no longer authenticating"
+          },
+          {
+            "id": "RB-S4-PROBER-ERRORED",
+            "title": "infra-health-check prober itself errored (health coverage is blind)"
+          },
+          {
+            "id": "RB-ZBX-TRIAGE",
+            "title": "Zabbix High/Disaster trigger with no more specific runbook"
+          },
+          {
+            "id": "RB-ALERT-UNCLASSIFIED",
+            "title": "Critical alert from a producer the routing table does not know"
+          }
+        ]
+      }
+    },
+    {
+      "tool": "registry.runbook",
+      "args": {
+        "id": "RB-HOST-HARD-FREEZE"
+      },
+      "response": {
+        "runbook": {
+          "id": "RB-HOST-HARD-FREEZE",
+          "title": "Proxmox host hard-freezes (no panic, no log) and does not fence",
+          "source": "docs/known-issues/lxc-proxmox.md",
+          "tier": "T3",
+          "automatable": "none",
+          "preconditions": [
+            "Host-level classification first (node unreachable, guests Terminating, Helm waits timing out = dead host)",
+            "Never restart watchdog-mux to apply watchdog config (trips the watchdog); activate on the next reboot",
+            "Hypervisors are human-only (T3)"
+          ],
+          "diagnostics": [],
+          "verify": {
+            "command": "cat /sys/class/watchdog/watchdog0/identity"
+          },
+          "selection": {
+            "basis": "both",
+            "why": "Skuld froze on 2026-07-17 and 2026-09-30 and is the first 10d replay; also the target of Zabbix host-unreachable triggers in the routing table.",
+            "incidents": [
+              "docs/incidents/2026-07-17-skuld-hard-crashes.md",
+              "docs/incidents/2026-09-30-skuld-freeze-chart-bump.md"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -413,7 +413,8 @@ class Toolbelt:
             d = self.db.execute("SELECT diagnosis_json, model FROM diagnoses WHERE incident_id=?", (inc["id"],)).fetchone()
             calls = [{"tool": r["tool"], "args": json.loads(r["args_json"] or "{}"), "outcome": r["outcome"]}
                      for r in self.db.execute("SELECT tool, args_json, outcome FROM tool_calls WHERE incident_id=? ORDER BY id", (inc["id"],))]
-            return {"incident_id": inc["id"], "state": inc["state"], "thread_id": inc["thread_id"],
+            alerts = [r["host"] for r in self.db.execute("SELECT host FROM alerts WHERE incident_id=? ORDER BY first_seen", (inc["id"],))]
+            return {"incident_id": inc["id"], "state": inc["state"], "thread_id": inc["thread_id"], "alerts": alerts,
                     "diagnosis": json.loads(d["diagnosis_json"]) if d else None, "model": d["model"] if d else None,
                     "calls": calls, "no_recording": sum(1 for c in calls if c["outcome"] == "no_recording")}
 

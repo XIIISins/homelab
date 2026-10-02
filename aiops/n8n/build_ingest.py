@@ -98,6 +98,19 @@ def post_discord(name, pos, thread):
     return http(name, pos, "POST", url, body, toolbelt=False)
 
 
+def agent_node(name, pos, text_expr):
+    return {"parameters": {"promptType": "define", "text": text_expr,
+                           "options": {"systemMessage": PROMPT.read_text(), "maxIterations": MAX_ITERATIONS,
+                                       "returnIntermediateSteps": False}},
+            "id": nid(), "name": name, "type": "@n8n/n8n-nodes-langchain.agent", "typeVersion": AGENT_VERSION,
+            "position": pos, "onError": "continueErrorOutput"}
+
+
+def parse_expr(src):
+    return ("={{ (() => { try { const t = String(" + src + " || ''); const s = t.indexOf('{'); const e = t.lastIndexOf('}'); "
+            "return JSON.parse(t.slice(s, e + 1)); } catch (err) { return { parse_error: String(err) }; } })() }}",)
+
+
 def tool_description() -> str:
     """What the model is told about the one `toolbelt` tool, generated from the Toolbelt's own allow-list."""
     lines = [
@@ -159,11 +172,7 @@ def build() -> dict:
         setn("Build prompt", [1580, -120], {
             "prompt": prompt_expr,
             "model": f"={{{{ {G}.model_hint === 'opus' ? '{OPUS}' : '{SONNET}' }}}}"}),
-        {"parameters": {"promptType": "define", "text": "={{ $json.prompt }}",
-                        "options": {"systemMessage": PROMPT.read_text(), "maxIterations": MAX_ITERATIONS,
-                                    "returnIntermediateSteps": False}},
-         "id": nid(), "name": "Diagnose", "type": "@n8n/n8n-nodes-langchain.agent", "typeVersion": AGENT_VERSION,
-         "position": [1840, -120], "onError": "continueErrorOutput"},
+        agent_node("Diagnose", [1840, -120], "={{ $json.prompt }}"),
         {"parameters": {"model": {"__rl": True, "mode": "id", "value": "={{ $json.model }}"},
                         # Current models refuse the node's default `thinking: disabled` (HTTP 400 "send between_tools
                         # instead"), so thinking is adaptive at low effort. No temperature: it is fixed with thinking on.
@@ -181,10 +190,19 @@ def build() -> dict:
          "id": nid(), "name": "Toolbelt", "type": "@n8n/n8n-nodes-langchain.toolHttpRequest", "typeVersion": 1.1,
          "position": [1960, 100], "credentials": TB_CRED},
         setn("Parse diagnosis", [2100, -200], {
-            "diagnosis": ("={{ (() => { try { const t = String($json.output || ''); const s = t.indexOf('{'); const e = t.lastIndexOf('}'); "
-                          "return JSON.parse(t.slice(s, e + 1)); } catch (err) { return { parse_error: String(err) }; } })() }}",),
-            "model": "={{ $('Build prompt').item.json.model }}"}),
+            "diagnosis": parse_expr("$json.output"), "model": "={{ $('Build prompt').item.json.model }}"}),
         http("Validate diagnosis", [2360, -200], "POST", f"={{{{ {TB} + '/diagnosis/' + {ID} }}}}",
+             "={{ JSON.stringify({ diagnosis: $json.diagnosis, model: $json.model }) }}", on_error=True),
+        # --- one retry: the rejection reasons go back to the model, which answers again ---
+        setn("Build retry prompt", [2360, 40], {
+            "prompt": ("={{ $('Build prompt').item.json.prompt + '\\n\\nYour previous answer was REJECTED by validation, so nothing was posted:\\n' + "
+                       "String($json.error && ($json.error.description || $json.error.message)).slice(0, 1500) + '\\n\\nYour previous answer was:\\n' + "
+                       "String($('Diagnose').item.json.output || '').slice(0, 3000) + '\\n\\nAnswer again with the corrected JSON only. Cite as evidence ONLY calls that "
+                       "returned data, with exactly the arguments you used; describe what you could not check in reasoning.' }}"),
+            "model": "={{ $('Build prompt').item.json.model }}"}),
+        agent_node("Diagnose retry", [2620, 40], "={{ $json.prompt }}"),
+        setn("Parse retry", [2880, -20], {"diagnosis": parse_expr("$json.output"), "model": "={{ $('Build prompt').item.json.model }}"}),
+        http("Validate retry", [3140, -20], "POST", f"={{{{ {TB} + '/diagnosis/' + {ID} }}}}",
              "={{ JSON.stringify({ diagnosis: $json.diagnosis, model: $json.model }) }}", on_error=True),
         setn("Render diagnosis", [2620, -280], {
             "thread_name": "={{ ('[' + " + A0 + ".severity + '] ' + " + A0 + ".host + ' - ' + " + A0 + ".check + (" + G
@@ -239,10 +257,14 @@ def build() -> dict:
         "Mark running": link(["Build prompt"], ["First breach today?"]),
         "Build prompt": link(["Diagnose"]),
         "Diagnose": link(["Parse diagnosis"], ["Render fallback"]),
-        "Anthropic model": {"ai_languageModel": [[{"node": "Diagnose", "type": "ai_languageModel", "index": 0}]]},
-        "Toolbelt": {"ai_tool": [[{"node": "Diagnose", "type": "ai_tool", "index": 0}]]},
+        "Anthropic model": {"ai_languageModel": [[{"node": n, "type": "ai_languageModel", "index": 0} for n in ("Diagnose", "Diagnose retry")]]},
+        "Toolbelt": {"ai_tool": [[{"node": n, "type": "ai_tool", "index": 0} for n in ("Diagnose", "Diagnose retry")]]},
         "Parse diagnosis": link(["Validate diagnosis"]),
-        "Validate diagnosis": link(["Render diagnosis"], ["Render fallback"]),
+        "Validate diagnosis": link(["Render diagnosis"], ["Build retry prompt"]),
+        "Build retry prompt": link(["Diagnose retry"]),
+        "Diagnose retry": link(["Parse retry"], ["Render fallback"]),
+        "Parse retry": link(["Validate retry"]),
+        "Validate retry": link(["Render diagnosis"], ["Render fallback"]),
         "Render diagnosis": link(["Post thread"]),
         "Render fallback": link(["Post thread"]),
         "Post thread": link(["Mark posted"]),
