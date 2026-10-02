@@ -386,8 +386,14 @@ N8N_NODE_ALLOW = {
     "n8n-nodes-base.if", "n8n-nodes-base.switch", "n8n-nodes-base.merge", "n8n-nodes-base.noOp",
     "n8n-nodes-base.wait", "n8n-nodes-base.httpRequest", "n8n-nodes-base.splitInBatches",
     "n8n-nodes-base.stopAndError", "n8n-nodes-base.stickyNote",
+    # the diagnosis agent (10d3): exactly these three LangChain nodes. NOT the whole package: it also
+    # ships code tools, sub-workflow tools, MCP clients and other model providers, none of which may
+    # appear here without a deliberate change to this list.
+    "@n8n/n8n-nodes-langchain.agent", "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+    "@n8n/n8n-nodes-langchain.toolHttpRequest",
 }
-N8N_NODE_ALLOW_PREFIX = ("@n8n/n8n-nodes-langchain.",)  # agent / model / tools (10d3)
+N8N_NODE_ALLOW_PREFIX: tuple = ()
+N8N_AGENT_MAX_ITERATIONS = 10
 N8N_NODE_DENY = {  # defence in depth: also excluded at runtime via NODES_EXCLUDE
     "n8n-nodes-base.executeCommand", "n8n-nodes-base.ssh", "n8n-nodes-base.ftp",
     "n8n-nodes-base.readWriteFile", "n8n-nodes-base.localFileTrigger", "n8n-nodes-base.code",
@@ -476,7 +482,16 @@ def check_n8n_workflows(root: Path) -> list[str]:
                         f"n8n: {rel}: webhook {nname!r} must respond immediately (responseMode onReceived) so a slow "
                         f"agent can never make a monitoring system's send fail"
                     )
-            if ntype == "n8n-nodes-base.httpRequest":
+            if ntype == "@n8n/n8n-nodes-langchain.agent":
+                it = (params.get("options") or {}).get("maxIterations")
+                if not isinstance(it, int) or not (1 <= it <= N8N_AGENT_MAX_ITERATIONS):
+                    errs.append(f"n8n: {rel}: agent {nname!r} needs options.maxIterations in 1..{N8N_AGENT_MAX_ITERATIONS}")
+                if not str((params.get("options") or {}).get("systemMessage", "")).strip():
+                    errs.append(f"n8n: {rel}: agent {nname!r} needs a system message")
+            if ntype == "@n8n/n8n-nodes-langchain.lmChatAnthropic":
+                if (creds.get("anthropicApi") or {}).get("name") != "aiops-anthropic":
+                    errs.append(f"n8n: {rel}: model {nname!r} must use the `aiops-anthropic` credential")
+            if ntype in ("n8n-nodes-base.httpRequest", "@n8n/n8n-nodes-langchain.toolHttpRequest"):
                 url = str(params.get("url", ""))
                 if "AIOPS_TOOLBELT_URL" in url:
                     tc = creds.get("httpHeaderAuth") or {}
@@ -496,6 +511,62 @@ def check_n8n_workflows(root: Path) -> list[str]:
                 for link in branch or []:
                     if link.get("node") not in names:
                         errs.append(f"n8n: {rel}: connection to unknown node {link.get('node')!r}")
+    return errs
+
+
+def check_replays(root: Path) -> list[str]:
+    """Acceptance scenarios (aiops/replays/<name>/scenario.json): the event is a valid native Zabbix event, every
+    recorded call is a real Toolbelt tool with arguments that pass its contract, and the expectations are well-formed.
+    A malformed recording would otherwise surface as a baffling NO_RECORDING in the middle of an acceptance run."""
+    import sys as _sys
+
+    errs: list[str] = []
+    d = root / "aiops" / "replays"
+    if not d.is_dir():
+        return errs
+    _sys.path.insert(0, str(root / "aiops" / "toolbelt"))
+    import tools as _tools
+
+    ev_schema = load_schema("zabbix-event.v1.schema.json")
+    for f in sorted(d.glob("*/scenario.json")):
+        rel = f.relative_to(root)
+        if not _tools.REPLAY_NAME.match(f.parent.name):
+            errs.append(f"replays: {rel}: directory name must match {_tools.REPLAY_NAME.pattern}")
+        try:
+            doc = json.loads(f.read_text())
+        except json.JSONDecodeError as e:
+            errs.append(f"replays: {rel}: invalid JSON: {e}")
+            continue
+        for e in schema_errors(doc.get("event"), ev_schema):
+            errs.append(f"replays: {rel}: event: {e}")
+        exp = doc.get("expect") or {}
+        layers = {"host", "hypervisor", "workload", "network", "drift", "external", "unknown"}
+        for key in ("layers_allowed", "layers_forbidden"):
+            bad = set(exp.get(key, [])) - layers
+            if bad:
+                errs.append(f"replays: {rel}: expect.{key} has unknown layers {sorted(bad)}")
+        if not exp.get("layers_allowed"):
+            errs.append(f"replays: {rel}: expect.layers_allowed is required (what a correct diagnosis may say)")
+        if set(exp.get("layers_allowed", [])) & set(exp.get("layers_forbidden", [])):
+            errs.append(f"replays: {rel}: a layer is both allowed and forbidden")
+        for t in exp.get("must_cite_any_of", []):
+            if t not in _tools.SPEC:
+                errs.append(f"replays: {rel}: expect.must_cite_any_of names unknown tool {t}")
+        seen = set()
+        for i, c in enumerate(doc.get("calls", [])):
+            try:
+                _tools.validate(c.get("tool", ""), c.get("args"))
+            except _tools.ToolError as e:
+                errs.append(f"replays: {rel}: calls[{i}] {c.get('tool')}: {e.message}")
+                continue
+            key = (c["tool"], json.dumps(c["args"], sort_keys=True))
+            if key in seen:
+                errs.append(f"replays: {rel}: calls[{i}] duplicates an earlier {c['tool']} call with the same arguments")
+            seen.add(key)
+            if "response" not in c:
+                errs.append(f"replays: {rel}: calls[{i}] has no response")
+        if not doc.get("calls"):
+            errs.append(f"replays: {rel}: no recorded calls")
     return errs
 
 
@@ -520,6 +591,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_fixtures(root, rt["routes"])
     errs += check_zabbix_native(root, rt["routes"], {r["id"] for r in rb["runbooks"]})
     errs += check_n8n_workflows(root)
+    errs += check_replays(root)
     return errs
 
 

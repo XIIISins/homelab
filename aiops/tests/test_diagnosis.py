@@ -143,9 +143,9 @@ class Grounding(unittest.TestCase):
         self.assertTrue(self.problems(d))
 
     def test_a_replayed_call_counts_as_served(self):
-        f = self.tmp / "replays" / "demo" / "registry.actions"
+        f = self.tmp / "replays" / "demo"
         f.mkdir(parents=True)
-        (f / f"{tools.args_hash('registry.actions', {})}.json").write_text(json.dumps({"actions": {}}))
+        (f / "scenario.json").write_text(json.dumps({"calls": [{"tool": "registry.actions", "args": {}, "response": {"actions": {}}}]}))
         self.tb.call_tool("registry.actions", {}, self.inc, replay="demo")
         d = good(self.inc)
         d["evidence"].append({"tool": "registry.actions", "args": {}, "finding": "action registry consulted"})
@@ -158,6 +158,23 @@ class Grounding(unittest.TestCase):
         d = good(other)
         with self.assertRaises(core.Rejected) as cm:
             self.tb.diagnose(other, {"diagnosis": d})
+        self.assertIn("served no such call", cm.exception.detail["problems"][0])
+
+    def test_a_no_recording_call_can_never_ground_evidence(self):
+        f = self.tmp / "replays" / "demo"
+        f.mkdir(parents=True)
+        (f / "scenario.json").write_text(json.dumps({"calls": []}))
+        self.tb.cfg.live = None
+        self.tb.clock.t += 200  # past the window left open by setUp, so this alert leads its own incident
+        other = self.tb.ingest_zabbix(base.ev(host="replayed-host"), replay="demo")
+        inc = other["incident_id"] if other["action"] == "leader" else None
+        self.assertIsNotNone(inc, other)
+        with self.assertRaises(core.Rejected):
+            self.tb.call_tool("registry.runbook", {"id": "RB-ZBX-TRIAGE"}, inc)  # NO_RECORDING
+        d = good(inc)
+        d["known_issue_refs"] = []
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.diagnose(inc, {"diagnosis": d})
         self.assertIn("served no such call", cm.exception.detail["problems"][0])
 
     def test_wrong_incident_id_inside_the_document(self):

@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS incidents (
   running_at INTEGER,
   posted_at INTEGER,
   resolved_at INTEGER,
-  thread_id TEXT
+  thread_id TEXT,
+  replay TEXT
 );
 CREATE TABLE IF NOT EXISTS alerts (
   fingerprint TEXT PRIMARY KEY,
@@ -79,7 +80,8 @@ CREATE INDEX IF NOT EXISTS incidents_state ON incidents(state, group_key);
 CREATE TABLE IF NOT EXISTS counters (name TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (name, day));
 CREATE TABLE IF NOT EXISTS tool_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id INTEGER NOT NULL, tool TEXT NOT NULL,
-  args_hash TEXT NOT NULL, replayed INTEGER NOT NULL, ts INTEGER NOT NULL
+  args_hash TEXT NOT NULL, replayed INTEGER NOT NULL, ts INTEGER NOT NULL,
+  args_json TEXT, outcome TEXT NOT NULL DEFAULT 'served'
 );
 CREATE INDEX IF NOT EXISTS tool_calls_incident ON tool_calls(incident_id, tool, args_hash);
 CREATE TABLE IF NOT EXISTS diagnoses (
@@ -135,6 +137,18 @@ class Toolbelt:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive schema changes for databases created by an older version (CREATE TABLE IF NOT EXISTS never alters)."""
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(incidents)")}
+        if "replay" not in cols:
+            self.db.execute("ALTER TABLE incidents ADD COLUMN replay TEXT")
+        tcols = {r["name"] for r in self.db.execute("PRAGMA table_info(tool_calls)")}
+        if "args_json" not in tcols:
+            self.db.execute("ALTER TABLE tool_calls ADD COLUMN args_json TEXT")
+        if "outcome" not in tcols:
+            self.db.execute("ALTER TABLE tool_calls ADD COLUMN outcome TEXT NOT NULL DEFAULT 'served'")
 
     # ---- helpers -----------------------------------------------------------------------------
     def now(self) -> int:
@@ -159,11 +173,16 @@ class Toolbelt:
         return f"node:{node}" if node else "unplaced"
 
     def _open_incidents(self) -> int:
+        """Incidents occupying a queue slot. A run that has outlived the wall-clock cap stopped being work in flight
+        (its workflow died or hung without reporting back), so it no longer holds a slot: otherwise a few stuck runs
+        would fill the queue and silently stop all new analysis."""
         return self.db.execute(
-            "SELECT COUNT(*) FROM incidents WHERE state IN ('received','grouped','running')").fetchone()[0]
+            "SELECT COUNT(*) FROM incidents WHERE state IN ('received','grouped') "
+            "OR (state='running' AND (running_at IS NULL OR running_at > ?))",
+            (self.now() - self.cfg.run_wall_clock_seconds,)).fetchone()[0]
 
     # ---- /ingest/zabbix ----------------------------------------------------------------------
-    def ingest_zabbix(self, event: dict) -> dict:
+    def ingest_zabbix(self, event: dict, replay: str | None = None) -> dict:
         problems = validate_zabbix_event(event)
         if problems:
             self.audit("rejected", source="zabbix", reason="invalid-event", problems=problems)
@@ -174,9 +193,19 @@ class Toolbelt:
             self.audit("ignored", source="zabbix", host=event.get("host"), severity=event.get("severity"))
             return {"action": "ignored"}
         with self._lock:
-            return self._ingest_alert(alerts[0], now)
+            return self._ingest_alert(alerts[0], now, replay)
 
-    def _ingest_alert(self, alert: dict, now: int) -> dict:
+    def _ingest_alert(self, alert: dict, now: int, replay: str | None = None) -> dict:
+        scenario = None
+        if replay:
+            # An acceptance run is ISOLATED from real alerts in both directions: its fingerprint is unique per run (so it
+            # is never deduped against, and never suppresses, a genuine alert) and it correlates only with itself.
+            if (not tools.REPLAY_NAME.match(replay) or self.cfg.replay_dir is None
+                    or not tools.scenario_file(self.cfg.replay_dir, replay).is_file()):
+                self.audit("rejected", source="zabbix", reason="unknown-replay-scenario", scenario=replay[:60])
+                raise Rejected(400, "unknown replay scenario")
+            scenario = replay
+            alert = dict(alert, fingerprint=f"{alert['fingerprint']}~{replay}~{now}")
         fp = alert["fingerprint"]
         sev = alert["severity"]
         row = self.db.execute("SELECT * FROM alerts WHERE fingerprint=?", (fp,)).fetchone()
@@ -214,7 +243,7 @@ class Toolbelt:
                         "thread_id": inc["thread_id"], "count": row["count"] + 1, "alert": alert}
 
         # a genuinely new problem (or one whose cooldown expired): group it
-        key = self._group_key(alert["host"])
+        key = f"replay:{scenario}" if scenario else self._group_key(alert["host"])
         open_inc = self.db.execute(
             "SELECT * FROM incidents WHERE state='received' AND group_key=? AND window_ends_at > ? "
             "ORDER BY id LIMIT 1", (key, now)).fetchone()
@@ -226,9 +255,10 @@ class Toolbelt:
                 self.audit("dropped", reason="queue-full", fingerprint=fp, host=alert["host"], dropped_today=n)
                 return {"action": "dropped", "reason": "queue-full", "fingerprint": fp,
                         "first_drop_today": n == 1}
+            # an acceptance run remembers its scenario so every later tool call is answered from recordings
             cur = self.db.execute(
-                "INSERT INTO incidents(group_key, state, opened_at, window_ends_at) VALUES (?, 'received', ?, ?)",
-                (key, now, now + self.cfg.window_seconds))
+                "INSERT INTO incidents(group_key, state, opened_at, window_ends_at, replay) VALUES (?, 'received', ?, ?, ?)",
+                (key, now, now + self.cfg.window_seconds, scenario))
             inc_id, action = cur.lastrowid, "leader"
         self.db.execute(
             "INSERT INTO alerts(fingerprint, incident_id, status, severity, first_seen, last_seen, count, host, alert_json) "
@@ -284,7 +314,7 @@ class Toolbelt:
                 "priority": "low" if worst == "info" else "normal",
                 "alert_count": len(alerts), "hypervisors": nodes,
                 "model_hint": "opus" if (len(alerts) >= 3 or (worst == "critical" and not nodes and len(alerts) > 1)) else "sonnet",
-                "timed_out": timed_out, "alerts": alerts,
+                "timed_out": timed_out, "replay": inc["replay"], "alerts": alerts,
             }
 
     def set_state(self, inc_id: int, state: str, thread_id: str | None = None) -> dict:
@@ -312,12 +342,15 @@ class Toolbelt:
             self.audit("state", incident=inc_id, state=state, thread_id=thread_id)
         return self.group(inc_id)
 
-    def _record_call(self, incident_id: object, name: str, h: str, replayed: bool) -> None:
-        """The audit trail a diagnosis is checked against: only SERVED calls are recorded."""
+    def _record_call(self, incident_id: object, name: str, h: str, replayed: bool, args: dict | None = None,
+                     outcome: str = "served") -> None:
+        """The audit trail a diagnosis is checked against. Only `served` rows count as evidence; a NO_RECORDING
+        is kept (the harness reports it) but can never ground a claim."""
         if isinstance(incident_id, int) and not isinstance(incident_id, bool):
             with self._lock:
-                self.db.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts) VALUES (?, ?, ?, ?, ?)",
-                                (incident_id, name, h, int(replayed), self.now()))
+                self.db.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts, args_json, outcome) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (incident_id, name, h, int(replayed), self.now(), json.dumps(args, sort_keys=True), outcome))
 
     # ---- /tool/<name> --------------------------------------------------------------------------
     def call_tool(self, name: str, args: object, incident_id: object = None, replay: str | None = None) -> dict:
@@ -329,6 +362,9 @@ class Toolbelt:
             raise Rejected(e.status, e.message)
         h = tools.args_hash(name, clean)
         t0 = time.monotonic()
+        if not replay and isinstance(incident_id, int) and not isinstance(incident_id, bool):
+            row = self.db.execute("SELECT replay FROM incidents WHERE id=?", (incident_id,)).fetchone()
+            replay = row["replay"] if row else None
         if replay:
             if self.cfg.replay_dir is None:
                 raise Rejected(501, "replay is not configured")
@@ -336,11 +372,12 @@ class Toolbelt:
                 out = tools.replay(self.cfg.replay_dir, replay, name, clean)
             except tools.ToolError as e:
                 if e.message == "NO_RECORDING":
+                    self._record_call(incident_id, name, h, True, clean, "no_recording")
                     with self._lock:
                         n = self._bump("no_recording")
                     self.audit("tool_no_recording", tool=name, args=h, scenario=replay, count_today=n)
                 raise Rejected(e.status, e.message)
-            self._record_call(incident_id, name, h, True)
+            self._record_call(incident_id, name, h, True, clean)
             self.audit("tool_call", tool=name, args=h, replayed=True, scenario=replay, incident=incident_id)
             return {"tool": name, "replayed": True, "result": out}
         if isinstance(incident_id, bool) or not isinstance(incident_id, int):
@@ -358,10 +395,27 @@ class Toolbelt:
         except tools.ToolError as e:
             self.audit("tool_error", tool=name, args=h, status=e.status, incident=incident_id)
             raise Rejected(e.status, e.message)
-        self._record_call(incident_id, name, h, False)
+        self._record_call(incident_id, name, h, False, clean)
         self.audit("tool_call", tool=name, args=h, replayed=False, incident=incident_id,
                    ms=int((time.monotonic() - t0) * 1000))
         return {"tool": name, "replayed": False, "result": out}
+
+    # ---- GET /replay/<scenario>/latest (acceptance harness, read-only) -------------------------
+    def replay_latest(self, scenario: str) -> dict:
+        """The most recent incident ingested for a replay scenario: its state, the stored diagnosis and every tool
+        call the agent made (with arguments and whether it was served), so a harness can judge the run."""
+        if not tools.REPLAY_NAME.match(scenario or ""):
+            raise Rejected(400, "bad replay scenario name")
+        with self._lock:
+            inc = self.db.execute("SELECT * FROM incidents WHERE replay=? ORDER BY id DESC LIMIT 1", (scenario,)).fetchone()
+            if inc is None:
+                raise Rejected(404, "no incident has been ingested for this scenario")
+            d = self.db.execute("SELECT diagnosis_json, model FROM diagnoses WHERE incident_id=?", (inc["id"],)).fetchone()
+            calls = [{"tool": r["tool"], "args": json.loads(r["args_json"] or "{}"), "outcome": r["outcome"]}
+                     for r in self.db.execute("SELECT tool, args_json, outcome FROM tool_calls WHERE incident_id=? ORDER BY id", (inc["id"],))]
+            return {"incident_id": inc["id"], "state": inc["state"], "thread_id": inc["thread_id"],
+                    "diagnosis": json.loads(d["diagnosis_json"]) if d else None, "model": d["model"] if d else None,
+                    "calls": calls, "no_recording": sum(1 for c in calls if c["outcome"] == "no_recording")}
 
     # ---- /diagnosis/<incident> -----------------------------------------------------------------
     def diagnose(self, incident_id: int, body: object) -> dict:
@@ -384,7 +438,7 @@ class Toolbelt:
                     except tools.ToolError:
                         return False
                     h = tools.args_hash(tool, clean)
-                    return self.db.execute("SELECT 1 FROM tool_calls WHERE incident_id=? AND tool=? AND args_hash=?",
+                    return self.db.execute("SELECT 1 FROM tool_calls WHERE incident_id=? AND tool=? AND args_hash=? AND outcome='served'",
                                            (incident_id, tool, h)).fetchone() is not None
                 problems = diagnosis.grounding(
                     diag, incident_id=incident_id, served=served, known_runbooks=self.known_runbooks,

@@ -34,6 +34,7 @@ _GROUP = re.compile(r"^/group/(\d+)$")
 _GROUP_STATE = re.compile(r"^/group/(\d+)/state$")
 _TOOL = re.compile(r"^/tool/([a-z]+\.[a-z_]+)$")
 _DIAG = re.compile(r"^/diagnosis/(\d+)$")
+_REPLAY = re.compile(r"^/replay/([a-z0-9-]+)/latest$")
 
 
 def make_handler(tb: core.Toolbelt, token: str, allow: list):
@@ -84,7 +85,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list):
                 return self._send(403, {"error": "forbidden"})
             try:
                 if method == "POST" and path == "/ingest/zabbix":
-                    return self._send(200, tb.ingest_zabbix(self._body()))
+                    return self._send(200, tb.ingest_zabbix(self._body(), self.headers.get("X-AIOPS-Replay") or None))
                 if method == "GET" and (m := _GROUP.match(path)):
                     return self._send(200, tb.group(int(m.group(1))))
                 if method == "POST" and (m := _GROUP_STATE.match(path)):
@@ -100,6 +101,8 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list):
                                                         self.headers.get("X-AIOPS-Replay")))
                 if method == "POST" and (m := _DIAG.match(path)):
                     return self._send(200, tb.diagnose(int(m.group(1)), self._body()))
+                if method == "GET" and (m := _REPLAY.match(path)):
+                    return self._send(200, tb.replay_latest(m.group(1)))
                 if method == "GET" and path == "/stats":
                     return self._send(200, tb.stats())
             except core.Rejected as e:

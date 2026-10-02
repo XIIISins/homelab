@@ -38,9 +38,12 @@ def make(tmp: Path, **cfg):
 
 
 def record(tmp: Path, scenario: str, name: str, args: dict, response: dict) -> None:
-    f = tmp / "replays" / scenario / name / f"{tools.args_hash(name, args)}.json"
-    f.parent.mkdir(parents=True)
-    f.write_text(json.dumps(response))
+    """Append one recorded call to <replays>/<scenario>/scenario.json (the readable replay format)."""
+    f = tmp / "replays" / scenario / "scenario.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    doc = json.loads(f.read_text()) if f.exists() else {"calls": []}
+    doc["calls"].append({"tool": name, "args": args, "response": response})
+    f.write_text(json.dumps(doc))
 
 
 class Contract(unittest.TestCase):
@@ -98,6 +101,15 @@ class Replay(unittest.TestCase):
             tb.call_tool("kube.get", {"kind": "pods"}, replay="skuld-freeze")
         self.assertEqual((cm.exception.status, cm.exception.message), (404, "NO_RECORDING"))
         self.assertEqual(tb.stats()["no_recording_today"], 1)
+
+    def test_matching_is_on_tool_and_exact_arguments_not_key_order(self):
+        record(self.tmp, "m", "kube.logs", {"namespace": "a", "pod": "b"}, {"lines": ["x"]})
+        tb, _ = make(self.tmp)
+        self.assertEqual(tb.call_tool("kube.logs", {"pod": "b", "namespace": "a"}, replay="m")["result"], {"lines": ["x"]})
+        for other in ({"namespace": "a", "pod": "c"}, {"namespace": "a", "pod": "b", "tail": 5}):
+            with self.assertRaises(core.Rejected) as cm:
+                tb.call_tool("kube.logs", other, replay="m")
+            self.assertEqual(cm.exception.message, "NO_RECORDING")
 
     def test_args_hash_ignores_key_order_but_not_values(self):
         a = tools.args_hash("kube.logs", {"namespace": "a", "pod": "b"})
@@ -421,6 +433,103 @@ class ZabbixTool(unittest.TestCase):
             tools._zbx(self.tb.cfg.live, "host.update", {})
         self.assertEqual(cm.exception.status, 500)
         self.assertEqual(self.fz.methods, [])  # nothing was sent
+
+
+class ReplayOnIncident(unittest.TestCase):
+    """An acceptance run carries its scenario on the incident, so the agent's tool calls need no header."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        record(self.tmp, "skuld-freeze", "kube.get", {"kind": "nodes"}, {"nodes": [{"name": "einherjar-skuld", "ready": False}]})
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live = None  # a live call would be refused: replay must not need it
+
+    def test_scenario_on_ingest_makes_later_tool_calls_replays(self):
+        inc = self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")["incident_id"]
+        self.assertEqual(self.tb.group(inc)["replay"], "skuld-freeze")
+        out = self.tb.call_tool("kube.get", {"kind": "nodes"}, inc)  # no replay argument
+        self.assertEqual((out["replayed"], out["result"]["nodes"][0]["ready"]), (True, False))
+
+    def test_an_unrecorded_call_in_a_replay_incident_is_no_recording_not_live(self):
+        inc = self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")["incident_id"]
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("kube.get", {"kind": "pods"}, inc)
+        self.assertEqual(cm.exception.message, "NO_RECORDING")
+
+    def test_an_unknown_or_unsafe_scenario_is_refused_at_ingest(self):
+        for bad in ("nope", "../x", "A B"):
+            with self.assertRaises(core.Rejected, msg=bad) as cm:
+                self.tb.ingest_zabbix(base.ev(host=f"h-{abs(hash(bad)) % 999}"), replay=bad)
+            self.assertEqual(cm.exception.status, 400)
+
+    def test_replay_latest_reports_the_run_for_a_harness(self):
+        inc = self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")["incident_id"]
+        self.tb.call_tool("kube.get", {"kind": "nodes"}, inc)
+        with self.assertRaises(core.Rejected):
+            self.tb.call_tool("kube.get", {"kind": "pods"}, inc)  # unrecorded
+        out = self.tb.replay_latest("skuld-freeze")
+        self.assertEqual((out["incident_id"], out["state"], out["no_recording"], out["diagnosis"]), (inc, "received", 1, None))
+        self.assertEqual([(c["tool"], c["args"], c["outcome"]) for c in out["calls"]],
+                         [("kube.get", {"kind": "nodes"}, "served"), ("kube.get", {"kind": "pods"}, "no_recording")])
+
+    def test_replay_latest_is_404_for_a_scenario_never_run_and_400_for_a_bad_name(self):
+        for name, status in (("skuld-freeze", 404), ("../x", 400)):
+            with self.assertRaises(core.Rejected) as cm:
+                self.tb.replay_latest(name)
+            self.assertEqual(cm.exception.status, status)
+
+    def test_a_database_from_before_the_call_columns_is_migrated(self):
+        import sqlite3
+
+        db = self.tmp / "old2.sqlite3"
+        c = sqlite3.connect(db)
+        c.executescript(core.SCHEMA.replace(",\n  args_json TEXT, outcome TEXT NOT NULL DEFAULT 'served'", "").replace(",\n  replay TEXT", ""))
+        c.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts) VALUES (1,'registry.runbooks','x',0,1)")
+        c.commit()
+        c.close()
+        tb = core.Toolbelt(core.Config(db_path=str(db)), normalize.load_routes(), base.KNOWN, clock=base.Clock(), audit=lambda r: None)
+        row = tb.db.execute("SELECT outcome, args_json FROM tool_calls").fetchone()
+        self.assertEqual((row["outcome"], row["args_json"]), ("served", None))  # old rows keep counting as served
+        tb.db.close()
+
+    def test_a_replay_run_never_suppresses_or_joins_a_real_alert(self):
+        replayed = self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")
+        real = self.tb.ingest_zabbix(base.ev())  # same event, seconds later, no replay
+        self.assertEqual(real["action"], "leader")
+        self.assertNotEqual(real["incident_id"], replayed["incident_id"])
+
+    def test_a_real_alert_never_swallows_a_replay_run(self):
+        real = self.tb.ingest_zabbix(base.ev())
+        replayed = self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")
+        self.assertEqual(replayed["action"], "leader")
+        self.assertNotEqual(real["incident_id"], replayed["incident_id"])
+
+    def test_repeated_runs_of_one_scenario_each_get_their_own_incident(self):
+        ids = []
+        for _ in range(3):
+            ids.append(self.tb.ingest_zabbix(base.ev(), replay="skuld-freeze")["incident_id"])
+            self.tb.clock.t += 100  # past the correlation window but inside the cooldown: a real repeat would be a duplicate
+        self.assertEqual(len(set(ids)), 3)
+        self.assertEqual(self.tb.replay_latest("skuld-freeze")["incident_id"], ids[-1])
+
+    def test_a_normal_incident_has_no_replay(self):
+        inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        self.assertIsNone(self.tb.group(inc)["replay"])
+
+    def test_a_database_from_before_the_replay_column_is_migrated(self):
+        db = self.tmp / "old.sqlite3"
+        import sqlite3
+
+        c = sqlite3.connect(db)
+        c.executescript(core.SCHEMA.replace(",\n  replay TEXT", ""))
+        c.execute("INSERT INTO incidents(group_key, state, opened_at, window_ends_at) VALUES ('unplaced','received',1,2)")
+        c.commit()
+        c.close()
+        tb = core.Toolbelt(core.Config(db_path=str(db)), normalize.load_routes(), base.KNOWN, clock=base.Clock(), audit=lambda r: None)
+        self.assertIsNone(tb.group(1)["replay"])  # old row survives, new column readable
+        tb.db.close()
 
 
 class Http(unittest.TestCase):

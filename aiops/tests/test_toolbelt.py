@@ -212,6 +212,16 @@ class Breakers(unittest.TestCase):
         b = tb.ingest_zabbix(ev(host="a2"))["incident_id"]
         self.assertEqual(tb.set_state(b, "running")["state"], "running")
 
+    def test_a_stuck_run_stops_holding_a_queue_slot_after_the_wall_clock_cap(self):
+        tb, clock, _ = make(max_open_incidents=1, run_wall_clock_seconds=100)
+        a = tb.ingest_zabbix(ev(host="a1"))["incident_id"]
+        tb.set_state(a, "running")  # its workflow then dies and never reports back
+        clock.t += 50
+        self.assertEqual(tb.ingest_zabbix(ev(host="a2"))["action"], "dropped")  # still in flight: the slot is held
+        clock.t += 100
+        self.assertEqual(tb.ingest_zabbix(ev(host="a3"))["action"], "leader")  # expired: new work proceeds
+        self.assertTrue(tb.group(a)["timed_out"])  # and the stuck one is reported as timed out
+
     def test_a_run_past_the_wall_clock_cap_is_reported_timed_out(self):
         tb, clock, _ = make(run_wall_clock_seconds=100)
         a = tb.ingest_zabbix(ev())["incident_id"]
