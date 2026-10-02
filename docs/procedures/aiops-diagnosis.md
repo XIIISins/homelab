@@ -4,7 +4,7 @@
 
 *Phase 10d. Design and rationale: [`operations/10d-diagnosis-chatops.md`](../operations/10d-diagnosis-chatops.md). Role: [`ansible/roles/n8n-agent`](../../ansible/roles/n8n-agent/README.md). Gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md).*
 
-**State of play (10d1, 2026-10-02):** the host, the ingest listener and a **stub** workflow exist: an authenticated POST becomes a `#diagnoses` forum thread that says "no analysis yet" and echoes the alert. The Zabbix media type, the Toolbelt API and the LLM agent come in the next 10d steps. Nothing here can act on the fleet.
+**State of play (10d1, 2026-10-02):** applied and reboot-tested (first play `ok=92 changed=52`; both re-runs `changed=0` with n8n/Caddy not restarted; sandbox exposure 1.5 OK; Caddy matrix verified from Hugin). Still to do: the real-Discord plumbing test and the independence test (needs the 10d2 Zabbix media type). The host, the ingest listener and a **stub** workflow exist: an authenticated POST becomes a `#diagnoses` forum thread that says "no analysis yet" and echoes the alert. The Zabbix media type, the Toolbelt API and the LLM agent come in the next 10d steps. Nothing here can act on the fleet.
 
 ## Shape
 
@@ -39,7 +39,7 @@ Order matters; every `terraform apply` runs from the **main checkout** after the
 4. `terraform/adguard` — `gna.niflheim.xiiisins.com`.
 5. Confirm the two operator secrets exist (presence + length only, never print):
    `vault kv get -field=url secret/ansible/aiops/discord-diagnosis | wc -c`.
-6. Bootstrap, then the full play (hardening locks root SSH out at the end):
+6. **macOS control node: refresh the NetBox snapshot first** (`refresh-netbox-inventory`), otherwise the new host does not exist for Ansible ([`known-issues/frigg-control-node.md`](../known-issues/frigg-control-node.md)). Bootstrap, then the full play (hardening locks root SSH out at the end):
    ```
    ansible-playbook playbooks/asgard-gna.yml -e 'ansible_user=root' --tags baseline
    ansible-playbook playbooks/asgard-gna.yml
