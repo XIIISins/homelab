@@ -126,6 +126,8 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10d — Stage 1: diagnosis-only chat-ops
 
+*Detailed implementation plan (drafted 2026-10-02): [`10d-diagnosis-chatops.md`](10d-diagnosis-chatops.md).*
+
 - **10d1 — Webhook bridge.** Hermod/Zabbix → Frigg agent session carrying the structured context; idempotent per fingerprint; authenticated.
 - **10d2 — Read-only toolbelt.** Scoped, **write-less** credentials: read-only kubectl ServiceAccount, VL/VM query, Zabbix API read, NetBox read, Proxmox audit-only role, Semaphore read.
 - **10d3 — Discord UX + diagnosis template.** Thread per alert with correlated logs/metrics, recent commits, matching known-issue, and an explicit **host-vs-workload classification**.
