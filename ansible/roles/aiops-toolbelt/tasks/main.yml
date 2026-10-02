@@ -1,0 +1,92 @@
+---
+# ansible/roles/aiops-toolbelt/tasks/main.yml
+#
+# Installs the Toolbelt API from the repo's aiops/ tree. No secret passes through Ansible:
+# the root loader fetches the bearer token on the host, from Vault, at every start.
+
+- name: Install the runtime dependency (PyYAML for the routing table)
+  ansible.builtin.apt:
+    name: [python3, python3-yaml, tzdata]
+    state: present
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Create the service user (no shell, no home)
+  ansible.builtin.user:
+    name: "{{ aiops_toolbelt_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Create the code directories, root-owned so the service cannot modify its own code
+  ansible.builtin.file:
+    path: "{{ aiops_toolbelt_home }}/aiops/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: ["", toolbelt, tools]
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Install the API code and data from the repo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../aiops/{{ item }}"
+    dest: "{{ aiops_toolbelt_home }}/aiops/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ aiops_toolbelt_source_files }}"
+  notify: Restart aiops-toolbelt
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Deploy the token loader
+  ansible.builtin.copy:
+    src: aiops-toolbelt-token-load.py
+    dest: "{{ aiops_toolbelt_loader_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Restart aiops-toolbelt
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Install the unit
+  ansible.builtin.template:
+    src: aiops-toolbelt.service.j2
+    dest: "/etc/systemd/system/{{ aiops_toolbelt_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart aiops-toolbelt
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Flush handlers so changed code/unit is live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
+- name: Enable and start the API
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_unit_name }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+# Verification. Unauthenticated probes only: they prove the listener is up and refuses
+# an anonymous caller, without ever reading the token.
+- name: Liveness (no auth route)
+  ansible.builtin.uri:
+    url: "http://{{ aiops_toolbelt_listen_host }}:{{ aiops_toolbelt_listen_port }}/healthz"
+    status_code: 200
+  register: aiops_toolbelt_health
+  retries: 10
+  delay: 3
+  until: aiops_toolbelt_health.status == 200
+  when: not ansible_check_mode
+  tags: [aiops-toolbelt, aiops-toolbelt:verify]
+
+- name: An anonymous caller is refused (not served, not an error page)
+  ansible.builtin.uri:
+    url: "http://{{ aiops_toolbelt_listen_host }}:{{ aiops_toolbelt_listen_port }}/stats"
+    status_code: 403
+  when: not ansible_check_mode
+  tags: [aiops-toolbelt, aiops-toolbelt:verify]

@@ -65,6 +65,11 @@
     - role: frigg-ssh-agent
       tags: [frigg-ssh-agent]
 
+    # Phase 10d2: the Toolbelt API (the diagnosis agent's only door into the homelab).
+    # Needs terraform/vault applied first (secret/ansible/aiops/toolbelt-token).
+    - role: aiops-toolbelt
+      tags: [aiops-toolbelt]
+
     # Tailnet membership with Tailscale SSH on — the primary inbound path for
     # the operator's mobile sessions (ACL-gated, bypasses host sshd). server
     # tag + auto-renewing key (terraform/tailscale/).

@@ -1,0 +1,7 @@
+---
+# ansible/roles/aiops-toolbelt/handlers/main.yml
+- name: Restart aiops-toolbelt
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_unit_name }}.service"
+    state: restarted
+    daemon_reload: true
