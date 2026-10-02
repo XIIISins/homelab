@@ -39,6 +39,14 @@ aiops_toolbelt_creds_dir: "/run/{{ aiops_toolbelt_runtime_dir_name }}/creds"
 aiops_toolbelt_credentials:
   pve: secret/data/ansible/aiops/pve-token # terraform/proxmox/aiops-access
   zabbix: secret/data/ansible/aiops/zabbix-token # roles/zabbix-server tasks/aiops-token.yml (explicit tag)
+  netbox: secret/data/ansible/aiops/netbox-token # aiops/tools/mint_netbox_ro.py (view-only user + token)
+  kube: secret/data/ansible/aiops/kube-token # aiops/tools/mint_kube_ro.py ({token, ca, servers}; k8s/asgard/infrastructure/aiops-readonly)
+# Hypervisor placement (guest -> node) so a burst of alerts groups by shared hypervisor. Built from NetBox by a timer
+# unit of its own, hot-reloaded by the API; the previous map is kept if NetBox is down or answers implausibly little.
+aiops_toolbelt_placement_file: /var/lib/aiops-toolbelt/placement.json
+aiops_toolbelt_placement_refresh: 15min
+aiops_toolbelt_placement_min_guests: 10
+aiops_toolbelt_placement_unit_name: aiops-toolbelt-placement
 aiops_toolbelt_replay_dir: "{{ aiops_toolbelt_home }}/aiops/replays"
 
 # Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
@@ -58,6 +66,7 @@ aiops_toolbelt_source_files:
   - toolbelt/server.py
   - toolbelt/tools.py
   - toolbelt/diagnosis.py
+  - toolbelt/placement_sync.py
   - tools/normalize.py
   - tools/zabbix_event.py
   - alert-routing.yml

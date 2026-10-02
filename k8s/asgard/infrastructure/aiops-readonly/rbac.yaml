@@ -1,0 +1,81 @@
+# k8s/asgard/infrastructure/aiops-readonly/rbac.yaml
+#
+# The AIOps Toolbelt's read-only Kubernetes identity (Phase 10d2, `kube.*` tools). Its credential is the token Secret
+# below (a long-lived ServiceAccount token, the same kind of static, read-only, revocable credential as the Zabbix, NetBox
+# and Proxmox ones): `aiops/tools/mint_kube_ro.py` copies it to Vault once and the Frigg loader hands it to the Toolbelt.
+# The plan said "1 h tokens minted by the loader", but minting needs admin rights, which would put cluster-admin in a
+# boot-time root process for no gain over a read-only static token. Revoke by deleting the Secret.
+# See docs/operations/10d-diagnosis-chatops.md ("Read-only toolbelt").
+#
+# DELIBERATELY ABSENT, because each would turn "read the cluster's state" into "read or act on its secrets":
+#   - `secrets` (any verb)                          - `configmaps` (they routinely carry credentials)
+#   - `pods/exec`, `pods/attach`, `pods/portforward` - any `*/proxy` subresource (`services/proxy`, `nodes/proxy`)
+#   - `serviceaccounts/token`                        - every verb except get / list / watch
+# `pods/log` IS allowed: it is the diagnostic that matters most, and the Toolbelt redacts secret-shaped strings in what it
+# returns. The negative test (docs/procedures/aiops-diagnosis.md) asserts `get secret`, `delete pod`, `create pods/exec`
+# and a configmap read are all denied for this ServiceAccount.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aiops
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aiops-readonly
+  namespace: aiops
+automountServiceAccountToken: false # no pod runs as this account; only the explicit token Secret below is a credential
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aiops-readonly-token
+  namespace: aiops
+  annotations:
+    kubernetes.io/service-account.name: aiops-readonly
+type: kubernetes.io/service-account-token # the control plane fills in `token` and `ca.crt`
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-readonly
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, nodes, namespaces, events, services, endpoints, persistentvolumeclaims, persistentvolumes, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch]
+  # Flux: the status of every HelmRelease / Kustomization / source is the single most useful "is the platform healthy" signal
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, list, watch]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories, helmrepositories, helmcharts]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiops-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aiops-readonly
+subjects:
+  - kind: ServiceAccount
+    name: aiops-readonly
+    namespace: aiops

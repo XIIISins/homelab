@@ -38,3 +38,6 @@ resources:
   # Immich / backup targets. Bucket+key provisioning lives in
   # terraform/garage/ (operator port-forwards admin API).
   - garage
+  # Phase 10d2 - the AIOps Toolbelt's read-only Kubernetes identity (ServiceAccount + ClusterRole without
+  # secrets/configmaps/exec/proxy). No CRDs involved, so it lives with the other infrastructure pieces.
+  - aiops-readonly

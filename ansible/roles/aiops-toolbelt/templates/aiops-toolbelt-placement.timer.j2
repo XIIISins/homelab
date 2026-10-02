@@ -1,0 +1,12 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-placement.timer.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+[Unit]
+Description=Refresh the Toolbelt hypervisor placement map every {{ aiops_toolbelt_placement_refresh }}
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec={{ aiops_toolbelt_placement_refresh }}
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

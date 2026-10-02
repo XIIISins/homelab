@@ -26,6 +26,7 @@ import ssl
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,6 +159,10 @@ class LiveConfig:
     pve_timeout: float = 5.0
     zabbix_url: str = "http://10.0.11.21/api_jsonrpc.php"  # the credential file's `url` wins when present
     zabbix_timeout: float = 10.0
+    netbox_url: str = "https://netbox.niflheim.xiiisins.com"  # the credential file's `url` wins when present
+    netbox_timeout: float = 10.0
+    kube_timeout: float = 15.0
+    kube_log_max_chars: int = 20000
 
 
 def _yaml(path: Path):
@@ -328,6 +333,175 @@ def _zabbix(cfg: LiveConfig, name: str, args: dict) -> dict:
                                  "error": (r.get("error") or "")[:200]} for r in rows]}
 
 
+def _nb_get(cfg: LiveConfig, path: str):
+    """GET one NetBox API path with the view-only token (GET only, by construction)."""
+    c = _cred(cfg, "netbox")
+    req = urllib.request.Request(f"{(c.get('url') or cfg.netbox_url).rstrip('/')}/api{path}",
+                                 headers={"Authorization": "Bearer " + c["value"], "Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=cfg.netbox_timeout) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise ToolError(502, f"netbox refused the read-only token ({e.code})")
+        raise ToolError(502, f"netbox answered HTTP {e.code}")
+    except (OSError, ValueError) as e:
+        raise ToolError(502, f"netbox unreachable: {type(e).__name__}")
+
+
+def _nb_name(o):
+    return o.get("name") if isinstance(o, dict) else None
+
+
+def _nb_vm(cfg: LiveConfig, name: str) -> dict | None:
+    res = _nb_get(cfg, "/virtualization/virtual-machines/?" + urllib.parse.urlencode({"name": name, "limit": 2})).get("results", [])
+    return res[0] if res else None
+
+
+def _netbox(cfg: LiveConfig, name: str, args: dict) -> dict:
+    if name == "netbox.host":
+        vm = _nb_vm(cfg, args["name"])
+        if vm:
+            ip = (vm.get("primary_ip4") or {}).get("address")
+            return {"kind": "vm", "name": vm["name"], "status": (vm.get("status") or {}).get("value"), "hypervisor": _nb_name(vm.get("device")),
+                    "cluster": _nb_name(vm.get("cluster")), "site": _nb_name(vm.get("site")), "role": _nb_name(vm.get("role")),
+                    "vcpus": vm.get("vcpus"), "memory_mb": vm.get("memory"), "disk_gb": vm.get("disk"), "primary_ip": ip,
+                    "tags": [t["name"] for t in vm.get("tags", [])], "vmid": (vm.get("custom_fields") or {}).get("VMID")}
+        res = _nb_get(cfg, "/dcim/devices/?" + urllib.parse.urlencode({"name": args["name"], "limit": 2})).get("results", [])
+        if not res:
+            raise ToolError(404, "no such host in NetBox")
+        d = res[0]
+        return {"kind": "device", "name": d["name"], "status": (d.get("status") or {}).get("value"), "role": _nb_name(d.get("role")),
+                "site": _nb_name(d.get("site")), "primary_ip": (d.get("primary_ip4") or {}).get("address"),
+                "tags": [t["name"] for t in d.get("tags", [])]}
+    # netbox.hypervisor_peers: every guest that shares the hypervisor with `host` (host may itself be the hypervisor)
+    vm = _nb_vm(cfg, args["host"])
+    hv = _nb_name(vm.get("device")) if vm else None
+    if not hv:
+        dev = _nb_get(cfg, "/dcim/devices/?" + urllib.parse.urlencode({"name": args["host"], "limit": 2})).get("results", [])
+        hv = dev[0]["name"] if dev else None
+    if not hv:
+        raise ToolError(404, "NetBox has no hypervisor recorded for that host")
+    guests = _nb_get(cfg, "/virtualization/virtual-machines/?" + urllib.parse.urlencode({"device": hv, "limit": 200})).get("results", [])
+    return {"hypervisor": hv, "count": len(guests),
+            "guests": sorted(({"name": g["name"], "status": (g.get("status") or {}).get("value"), "vmid": (g.get("custom_fields") or {}).get("VMID"),
+                               "role": _nb_name(g.get("role"))} for g in guests), key=lambda g: g["name"])}
+
+
+# kind -> (API prefix, namespaced?, resource). The kinds are the closed enum in SPEC["kube.get"]; `secrets` and
+# `configmaps` are not in it, and the ServiceAccount's ClusterRole does not grant them either (two independent walls).
+_KUBE_KINDS = {
+    "pods": ("/api/v1", True, "pods"), "nodes": ("/api/v1", False, "nodes"), "services": ("/api/v1", True, "services"),
+    "endpoints": ("/api/v1", True, "endpoints"), "events": ("/api/v1", True, "events"),
+    "persistentvolumeclaims": ("/api/v1", True, "persistentvolumeclaims"),
+    "deployments": ("/apis/apps/v1", True, "deployments"), "statefulsets": ("/apis/apps/v1", True, "statefulsets"),
+    "daemonsets": ("/apis/apps/v1", True, "daemonsets"),
+    "helmreleases": ("/apis/helm.toolkit.fluxcd.io/v2", True, "helmreleases"),
+    "kustomizations": ("/apis/kustomize.toolkit.fluxcd.io/v1", True, "kustomizations"),
+}
+_REDACT = [
+    (re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}"), "Bearer [redacted]"),
+    (re.compile(r"(?i)\b(password|passwd|secret|token|api[_-]?key)(\s*[=:]\s*)\S{6,}"), r"\1\2[redacted]"),
+    (re.compile(r"sk-ant-[\w-]{10,}"), "[redacted]"), (re.compile(r"\bhvs\.[A-Za-z0-9]{16,}"), "[redacted]"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"), "[redacted private key]"),
+    (re.compile(r"discord(?:app)?\.com/api/webhooks/\d+/[\w-]+"), "[redacted webhook]"),
+]
+
+
+def redact(text: str) -> str:
+    for pat, repl in _REDACT:
+        text = pat.sub(repl, text)
+    return text
+
+
+def _kube_get(cfg: LiveConfig, path: str, raw: bool = False):
+    """GET one Kubernetes API path with the short-lived read-only token (tried against each API server in turn)."""
+    c = _cred(cfg, "kube")
+    ctx = ssl.create_default_context(cadata=c["ca"]) if c.get("ca") else None
+    last = "no API server answered"
+    for server in c.get("servers", []):
+        req = urllib.request.Request(server.rstrip("/") + path, headers={"Authorization": "Bearer " + c["token"], "Accept": "application/json"}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=cfg.kube_timeout, context=ctx) as r:
+                body = r.read()
+            return body.decode(errors="replace") if raw else json.loads(body)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise ToolError(502, f"kubernetes refused the read-only token ({e.code}): expired, or the RBAC does not allow this read")
+            if e.code == 404:
+                raise ToolError(404, "not found in the cluster")
+            last = f"HTTP {e.code} from {server}"
+        except (OSError, ValueError) as e:
+            last = f"{type(e).__name__} from {server}"
+    raise ToolError(502, f"kubernetes API unreachable: {last}")
+
+
+def _conds(o: dict) -> list[dict]:
+    return [{"type": c.get("type"), "status": c.get("status"), "reason": c.get("reason"), "message": (c.get("message") or "")[:200]}
+            for c in (o.get("status") or {}).get("conditions", [])]
+
+
+def _summarise(kind: str, o: dict) -> dict:
+    md, st, sp = o.get("metadata", {}), o.get("status") or {}, o.get("spec") or {}
+    base = {"name": md.get("name"), **({"namespace": md["namespace"]} if md.get("namespace") else {})}
+    if kind == "pods":
+        cs = st.get("containerStatuses", [])
+        waiting = [f"{c['name']}: {c['state']['waiting'].get('reason')}" for c in cs if "waiting" in c.get("state", {})]
+        return {**base, "phase": st.get("phase"), "ready": f"{sum(1 for c in cs if c.get('ready'))}/{len(cs)}",
+                "restarts": sum(c.get("restartCount", 0) for c in cs), "node": sp.get("nodeName"), "waiting": waiting,
+                "reason": st.get("reason")}
+    if kind == "nodes":
+        bad = [c for c in _conds(o) if (c["type"] == "Ready") != (c["status"] == "True")]
+        return {**base, "ready": any(c["type"] == "Ready" and c["status"] == "True" for c in _conds(o)), "problems": bad,
+                "kubelet": (st.get("nodeInfo") or {}).get("kubeletVersion"), "taints": [f"{t['key']}:{t['effect']}" for t in sp.get("taints", [])]}
+    if kind in ("deployments", "statefulsets"):
+        return {**base, "desired": sp.get("replicas"), "ready": st.get("readyReplicas", 0), "available": st.get("availableReplicas", 0),
+                "updated": st.get("updatedReplicas", 0), "conditions": [c for c in _conds(o) if c["status"] != "True" or c["type"] == "Progressing"]}
+    if kind == "daemonsets":
+        return {**base, "desired": st.get("desiredNumberScheduled"), "ready": st.get("numberReady", 0), "unavailable": st.get("numberUnavailable", 0)}
+    if kind == "services":
+        return {**base, "type": sp.get("type"), "clusterIP": sp.get("clusterIP"), "ports": [f"{p.get('port')}/{p.get('protocol')}" for p in sp.get("ports", [])]}
+    if kind == "endpoints":
+        subs = o.get("subsets") or []
+        return {**base, "ready_addresses": sum(len(x.get("addresses", [])) for x in subs), "not_ready_addresses": sum(len(x.get("notReadyAddresses", [])) for x in subs)}
+    if kind == "persistentvolumeclaims":
+        return {**base, "phase": st.get("phase"), "storageClass": sp.get("storageClassName"), "capacity": (st.get("capacity") or {}).get("storage")}
+    if kind == "events":
+        return {**base, "type": o.get("type"), "reason": o.get("reason"), "object": f"{(o.get('involvedObject') or {}).get('kind')}/{(o.get('involvedObject') or {}).get('name')}",
+                "message": (o.get("message") or "")[:300], "count": o.get("count"), "last": o.get("lastTimestamp") or o.get("eventTime")}
+    # helmreleases / kustomizations: Ready condition is what matters
+    ready = next((c for c in _conds(o) if c["type"] == "Ready"), {})
+    return {**base, "ready": ready.get("status"), "reason": ready.get("reason"), "message": ready.get("message"),
+            "revision": st.get("lastAppliedRevision") or st.get("lastAttemptedRevision"), "suspended": bool(sp.get("suspend"))}
+
+
+def _kube(cfg: LiveConfig, name: str, args: dict) -> dict:
+    if name == "kube.logs":
+        q = {"tailLines": args.get("tail", 100), "timestamps": "true"}
+        if args.get("container"):
+            q["container"] = args["container"]
+        if args.get("previous") == "true":
+            q["previous"] = "true"
+        text = _kube_get(cfg, f"/api/v1/namespaces/{args['namespace']}/pods/{args['pod']}/log?" + urllib.parse.urlencode(q), raw=True)
+        text = redact(text)
+        return {"lines": text[-cfg.kube_log_max_chars:].splitlines()[-int(args.get("tail", 100)):]}
+    kind = args["kind"]
+    prefix, namespaced, res = _KUBE_KINDS[kind]
+    if args.get("name") and namespaced and not args.get("namespace"):
+        raise ToolError(400, "name needs a namespace for this kind")
+    ns = f"/namespaces/{args['namespace']}" if namespaced and args.get("namespace") else ""
+    path = f"{prefix}{ns}/{res}" + (f"/{args['name']}" if args.get("name") else "")
+    data = _kube_get(cfg, path)
+    if args.get("name"):
+        return {"kind": kind, "item": _summarise(kind, data), "conditions": _conds(data)}
+    items = data.get("items", [])
+    if kind == "events":  # newest first, warnings before normals, bounded
+        items = sorted(items, key=lambda e: e.get("lastTimestamp") or e.get("eventTime") or "", reverse=True)
+        items = sorted(items, key=lambda e: e.get("type") != "Warning")
+    out = [_summarise(kind, i) for i in items]
+    return {"kind": kind, "count": len(out), "items": out[:100], "truncated": len(out) > 100}
+
+
 def live(cfg: LiveConfig, name: str, args: dict) -> dict:
     if name.startswith("registry."):
         return _registry(cfg, name, args)
@@ -339,4 +513,8 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _pve(cfg, name, args)
     if name.startswith("zabbix."):
         return _zabbix(cfg, name, args)
+    if name.startswith("netbox."):
+        return _netbox(cfg, name, args)
+    if name.startswith("kube."):
+        return _kube(cfg, name, args)
     raise ToolError(501, f"{name} has no live backend yet (replay only)")
