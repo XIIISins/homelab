@@ -20,8 +20,11 @@ import ipaddress
 import json
 import re
 import socket
+import ssl
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,6 +143,10 @@ class LiveConfig:
     repo_dir: Path | None = None    # read-only clone for git.*
     reach_ports: tuple = (22, 53, 80, 443, 3000, 5432, 6443, 8006, 8200, 8428, 9428, 10050)
     reach_nets: tuple = ("10.0.0.0/8",)
+    creds_dir: Path | None = None   # <name>.json per read-only credential, written by the root loader
+    # Any cluster member answers for the whole cluster; try them in turn so a dead node is still diagnosable.
+    pve_urls: tuple = ("https://10.0.254.11:8006", "https://10.0.254.12:8006", "https://10.0.254.13:8006")
+    pve_timeout: float = 5.0
 
 
 def _yaml(path: Path):
@@ -200,6 +207,62 @@ def _reach(cfg: LiveConfig, args: dict) -> dict:
         return {"open": False, "error": type(e).__name__, "ms": int((time.monotonic() - t0) * 1000)}
 
 
+def _cred(cfg: LiveConfig, name: str) -> dict:
+    if cfg.creds_dir is None or not (cfg.creds_dir / f"{name}.json").is_file():
+        raise ToolError(501, f"credential {name!r} is not available (not minted yet, or the loader could not read it)")
+    return json.loads((cfg.creds_dir / f"{name}.json").read_text())
+
+
+_UNVERIFIED = ssl.create_default_context()
+_UNVERIFIED.check_hostname = False   # PVE serves a self-signed cert on an internal VLAN; the token is
+_UNVERIFIED.verify_mode = ssl.CERT_NONE  # PVEAuditor-only and the path is the management network
+
+
+def _pve_get(cfg: LiveConfig, path: str) -> dict:
+    """GET one PVE API path (read-only by construction: GET only) from the first node that answers."""
+    c = _cred(cfg, "pve")
+    header = f"PVEAPIToken={c['token_id']}={c['secret']}"
+    last = "no node answered"
+    for base in cfg.pve_urls:
+        req = urllib.request.Request(f"{base}/api2/json{path}", headers={"Authorization": header}, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=cfg.pve_timeout, context=_UNVERIFIED) as r:
+                return json.load(r)["data"]
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise ToolError(502, f"pve refused the read-only token ({e.code})")
+            last = f"HTTP {e.code} from {base}"
+        except (OSError, ValueError) as e:  # connection refused / timeout / bad JSON: try the next node
+            last = f"{type(e).__name__} from {base}"
+    raise ToolError(502, f"pve unreachable: {last}")
+
+
+_VM_FIELDS = ("vmid", "name", "node", "type", "status", "uptime", "cpu", "mem", "maxmem", "template")
+_NODE_FIELDS = ("node", "status", "uptime", "cpu", "mem", "maxmem", "maxcpu")
+
+
+def _pve(cfg: LiveConfig, name: str, args: dict) -> dict:
+    if name == "pve.guests":
+        rows = _pve_get(cfg, "/cluster/resources?type=vm")
+        keep = [{k: r.get(k) for k in _VM_FIELDS} for r in rows if not args.get("node") or r.get("node") == args["node"]]
+        keep.sort(key=lambda r: (str(r["node"]), r["vmid"] or 0))
+        return {"guests": keep}
+    # pve.node_status: the cluster's own view first (works for a dead node too), then live detail if it is up
+    nodes = _pve_get(cfg, "/cluster/resources?type=node")
+    me = next((r for r in nodes if r.get("node") == args["node"]), None)
+    if me is None:
+        raise ToolError(404, "no such node in the cluster")
+    out = {"cluster_view": {k: me.get(k) for k in _NODE_FIELDS}}
+    if me.get("status") == "online":
+        try:
+            d = _pve_get(cfg, f"/nodes/{args['node']}/status")
+            out["detail"] = {"loadavg": d.get("loadavg"), "uptime": d.get("uptime"), "kversion": d.get("kversion"),
+                             "memory": d.get("memory"), "swap": d.get("swap"), "rootfs": d.get("rootfs")}
+        except ToolError as e:
+            out["detail_error"] = e.message
+    return out
+
+
 def live(cfg: LiveConfig, name: str, args: dict) -> dict:
     if name.startswith("registry."):
         return _registry(cfg, name, args)
@@ -207,4 +270,6 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _git(cfg, name, args)
     if name == "reach.tcp":
         return _reach(cfg, args)
+    if name.startswith("pve."):
+        return _pve(cfg, name, args)
     raise ToolError(501, f"{name} has no live backend yet (replay only)")

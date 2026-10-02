@@ -12,7 +12,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -197,6 +197,124 @@ class Live(unittest.TestCase):
         live.reach_nets, live.reach_ports = ("127.0.0.0/8",), (port, cport)
         self.assertTrue(self.tb.call_tool("reach.tcp", {"host": "127.0.0.1", "port": port}, self.inc)["result"]["open"])
         self.assertFalse(self.tb.call_tool("reach.tcp", {"host": "127.0.0.1", "port": cport}, self.inc)["result"]["open"])
+
+
+class FakePve:
+    """A tiny PVE API: checks the token header, records methods, serves cluster resources."""
+
+    def __init__(self, token_header, online=True):
+        self.seen = []
+        outer = self
+        nodes = [{"node": "urd", "status": "online", "uptime": 5, "cpu": 0.1, "mem": 1, "maxmem": 2, "maxcpu": 4},
+                 {"node": "skuld", "status": "online" if online else "offline", "uptime": 0, "cpu": 0, "mem": 0, "maxmem": 2, "maxcpu": 4}]
+        vms = [{"vmid": 2013, "name": "einherjar-skuld", "node": "skuld", "type": "qemu", "status": "stopped" if not online else "running"},
+               {"vmid": 1101, "name": "pbs", "node": "urd", "type": "lxc", "status": "running"}]
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(self):  # noqa: N802
+                outer.seen.append(("GET", self.path))
+                if self.headers.get("Authorization") != token_header:
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                data = (vms if "type=vm" in self.path else nodes if "type=node" in self.path
+                        else {"loadavg": ["0.1", "0.2", "0.3"], "uptime": 5, "kversion": "6.x", "memory": {}, "swap": {}, "rootfs": {}})
+                raw = json.dumps({"data": data}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_POST(self):  # noqa: N802
+                outer.seen.append(("POST", self.path))
+                self.send_response(500)
+                self.end_headers()
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class Pve(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        (self.tmp / "creds").mkdir()
+        (self.tmp / "creds" / "pve.json").write_text(json.dumps({"token_id": "aiops@pve!toolbelt", "secret": "s3cret-uuid"}))
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live.creds_dir = self.tmp / "creds"
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        dead = socket.socket()
+        dead.bind(("127.0.0.1", 0))
+        self.dead = f"http://127.0.0.1:{dead.getsockname()[1]}"
+        dead.close()
+
+    def pve(self, **kw):
+        f = FakePve("PVEAPIToken=aiops@pve!toolbelt=s3cret-uuid", **kw)
+        self.addCleanup(f.close)
+        self.tb.cfg.live.pve_urls = (self.dead, f.url)  # first node dead: must fail over
+        self.tb.cfg.live.pve_timeout = 2
+        return f
+
+    def test_guests_fail_over_past_a_dead_node_and_only_ever_get(self):
+        f = self.pve()
+        out = self.tb.call_tool("pve.guests", {}, self.inc)["result"]["guests"]
+        self.assertEqual([g["name"] for g in out], ["einherjar-skuld", "pbs"])  # sorted by node name, then vmid
+        self.assertEqual({m for m, _ in f.seen}, {"GET"})
+
+    def test_guest_list_can_be_limited_to_one_node(self):
+        self.pve()
+        out = self.tb.call_tool("pve.guests", {"node": "skuld"}, self.inc)["result"]["guests"]
+        self.assertEqual([g["name"] for g in out], ["einherjar-skuld"])
+
+    def test_node_status_reports_an_offline_node_from_the_cluster_view(self):
+        f = self.pve(online=False)
+        out = self.tb.call_tool("pve.node_status", {"node": "skuld"}, self.inc)["result"]
+        self.assertEqual(out["cluster_view"]["status"], "offline")
+        self.assertNotIn("detail", out)
+        self.assertFalse(any("/nodes/skuld/status" in p for _, p in f.seen))  # no call to a node that is down
+
+    def test_node_status_adds_live_detail_for_an_online_node(self):
+        self.pve()
+        out = self.tb.call_tool("pve.node_status", {"node": "urd"}, self.inc)["result"]
+        self.assertEqual(out["detail"]["loadavg"][0], "0.1")
+
+    def test_unknown_node_is_404(self):
+        self.pve()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("pve.node_status", {"node": "nope"}, self.inc)
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_refused_token_is_reported_not_retried_forever(self):
+        f = FakePve("PVEAPIToken=someone-else")
+        self.addCleanup(f.close)
+        self.tb.cfg.live.pve_urls = (f.url,)
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("pve.guests", {}, self.inc)
+        self.assertEqual(cm.exception.status, 502)
+        self.assertIn("refused", cm.exception.message)
+
+    def test_all_nodes_down_is_a_502_naming_the_problem(self):
+        self.tb.cfg.live.pve_urls = (self.dead,)
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("pve.guests", {}, self.inc)
+        self.assertEqual(cm.exception.status, 502)
+        self.assertIn("unreachable", cm.exception.message)
+
+    def test_missing_credential_is_501(self):
+        (self.tmp / "creds" / "pve.json").unlink()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("pve.guests", {}, self.inc)
+        self.assertEqual(cm.exception.status, 501)
+        self.assertIn("credential", cm.exception.message)
 
 
 class Http(unittest.TestCase):
