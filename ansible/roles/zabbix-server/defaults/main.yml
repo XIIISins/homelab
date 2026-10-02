@@ -145,6 +145,68 @@ zabbix_hermod_attach_to_user: Admin
 # real URL lives in webhook_params. Keep it semantic.
 zabbix_hermod_user_media_sendto: hermod
 
+# The Hermod entry of the Admin user's media list. Which severities trigger
+# this media: only Average + High + Disaster fire (matches the JS script's
+# suppression); lower severities still land in VL via vlagent. The module
+# defaults `not_classified` to true if omitted (bit 0), so it is set explicitly
+# to false for a clean bitmask of 56 (= 32 disaster + 16 high + 8 average).
+# `active` is a bool in the module's schema (the API uses 0=enabled/1=disabled).
+zabbix_hermod_user_media:
+  - mediatype: "{{ zabbix_hermod_mediatype_name }}"
+    sendto: "{{ zabbix_hermod_user_media_sendto }}"
+    active: true
+    severity:
+      not_classified: false
+      information: false
+      warning: false
+      average: true
+      high: true
+      disaster: true
+    period: "1-7,00:00-24:00" # 24/7 - homelab, single operator, no shifts
+
+# ============================================================================
+# n8n (AIOps diagnosis agent, Gna) integration - Phase 10d2
+# ============================================================================
+# Declarative Zabbix -> n8n webhook: the ANALYSIS path, independent of Hermod
+# (the notification path above). Sends the full event context for High and
+# Disaster triggers (decision D-e, 2026-10-02) to the ingest webhook on Gna
+# (Caddy :8081 -> n8n /webhook/aiops/zabbix). Script:
+# templates/n8n-webhook.js; contract: aiops/schema/zabbix-event.v1.schema.json.
+#
+# zabbix_n8n_enabled: false drops the n8n entry from the Admin media list
+# (Hermod unaffected). The media type stays defined but inert.
+zabbix_n8n_enabled: true
+zabbix_n8n_mediatype_name: "n8n (AIOps agent)"
+zabbix_n8n_url: "http://gna.niflheim.xiiisins.com:8081/webhook/aiops/zabbix"
+# Per-source ingest token, Terraform-minted (terraform/vault, 10d1). The
+# n8n-agent role imports the same value as the webhook's header-auth credential.
+zabbix_n8n_token_vault_path: "ansible/aiops/n8n-ingest-token/zabbix"
+zabbix_n8n_token_vault_field: value
+# Short: n8n answers 200 immediately (responseMode onReceived), so anything
+# slower means the agent host is down and the send should fail fast.
+zabbix_n8n_webhook_timeout: "5s"
+
+# The n8n entry of the Admin user's media list. High + Disaster only, a bitmask
+# of 48 (= 32 + 16). Average goes to Hermod only: it is not diagnosed in 10d.
+# Canary hosts are NOT filtered here: they send at their real severity and the
+# agent treats them as `info` priority (D-e), so they stay visible to it.
+zabbix_n8n_user_media:
+  - mediatype: "{{ zabbix_n8n_mediatype_name }}"
+    sendto: n8n
+    active: true
+    severity:
+      not_classified: false
+      information: false
+      warning: false
+      average: false
+      high: true
+      disaster: true
+    period: "1-7,00:00-24:00"
+
+# The whole list written to the Admin user (the module replaces it).
+zabbix_admin_user_medias: >-
+  {{ zabbix_hermod_user_media + (zabbix_n8n_user_media if (zabbix_n8n_enabled | bool) else []) }}
+
 # ============================================================================
 # SAML authentication — Phase 8c.3-8c.6 (Authentik native SAML 2.0)
 # ============================================================================

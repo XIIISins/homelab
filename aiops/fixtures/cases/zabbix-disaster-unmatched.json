@@ -21,7 +21,7 @@
       "detail": "**Host:** hlokk\n**Severity:** Disaster\n\n**Status:** PROBLEM\n**Trigger:** FS [/]: Space is critically low (used > 90%)\n**Severity:** Disaster\n**Host:** hlokk\n**Started at:** 2026.10.01 12:20:00\n**Event ID:** 48400\n\nSpace used: 91.2%",
       "runbook_id": "RB-ZBX-TRIAGE",
       "fingerprint": "abd8488ee185d02b",
-      "fired_at": "2026-10-01T12:20:00Z",
+      "fired_at": "2026-10-01T10:20:00Z",
       "received_at": "2026-10-01T12:40:00Z",
       "labels": {
         "apprise_tag": "critical",

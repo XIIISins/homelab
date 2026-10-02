@@ -1,0 +1,73 @@
+{
+  "description": "High etcd trigger, no runbook tag: the 10c routing table decides the runbook",
+  "received_at": "2026-10-01T10:35:00Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "48213",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "hlin",
+    "host_id": "10412",
+    "host_ip": "10.0.11.233",
+    "host_groups": "Linux servers,Asgard/LXCs",
+    "trigger_id": "23456",
+    "trigger_name": "Etcd: Service is unavailable",
+    "trigger_description": "",
+    "trigger_expression": "last(/hlin/service.info[etcd,state])=0",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "scope",
+        "value": "availability"
+      }
+    ],
+    "runbook_id": "",
+    "items": [
+      {
+        "name": "Etcd: Service state",
+        "key": "service.info[etcd,state]",
+        "value": "0"
+      }
+    ],
+    "opdata": "Service state: 0",
+    "fired_at": "2026-10-01T10:34:56Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T10:34:57Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "critical",
+      "host": "hlin",
+      "service": "pg-ha",
+      "check": "etcd-service-is-unavailable",
+      "summary": "[Zabbix] High: Etcd: Service is unavailable",
+      "detail": "**Host:** hlin\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Etcd: Service is unavailable\n**Severity:** High\n**Host:** hlin\n**Started at:** 2026.10.01 12:34:56\n**Event ID:** 48213\n\nService state: 0",
+      "runbook_id": "RB-PG-HA-DEGRADED",
+      "fingerprint": "684f5224a5ec3091",
+      "fired_at": "2026-10-01T10:34:56Z",
+      "received_at": "2026-10-01T10:35:00Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10412",
+        "zabbix_host_ip": "10.0.11.233",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs",
+        "zabbix_trigger_id": "23456",
+        "zabbix_trigger_expression": "last(/hlin/service.info[etcd,state])=0",
+        "zabbix_opdata": "Service state: 0",
+        "zabbix_tags": "[{\"tag\":\"scope\",\"value\":\"availability\"}]",
+        "zabbix_items": "[{\"key\":\"service.info[etcd,state]\",\"name\":\"Etcd: Service state\",\"value\":\"0\"}]",
+        "zabbix_sent_at": "2026-10-01T10:34:57Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "48213"
+    }
+  ]
+}

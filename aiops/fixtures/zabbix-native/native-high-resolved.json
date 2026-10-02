@@ -1,0 +1,59 @@
+{
+  "description": "The recovery half of the same problem: same fingerprint, resolved_at from the sender",
+  "received_at": "2026-10-01T10:39:11Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "RESOLVED",
+    "event_id": "48213",
+    "recovery_event_id": "48299",
+    "severity": "High",
+    "host": "hlin",
+    "host_id": "10412",
+    "host_ip": "10.0.11.233",
+    "host_groups": "Linux servers,Asgard/LXCs",
+    "trigger_id": "23456",
+    "trigger_name": "Etcd: Service is unavailable",
+    "trigger_description": "",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [],
+    "runbook_id": "",
+    "items": [],
+    "opdata": "",
+    "fired_at": "2026-10-01T10:34:56Z",
+    "resolved_at": "2026-10-01T10:39:10Z",
+    "sent_at": "2026-10-01T10:39:11Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "resolved",
+      "severity": "critical",
+      "host": "hlin",
+      "service": "pg-ha",
+      "check": "etcd-service-is-unavailable",
+      "summary": "[Zabbix] RESOLVED: Etcd: Service is unavailable",
+      "detail": "**Host:** hlin\n**Severity:** High\n\n**Status:** OK\n**Trigger:** Etcd: Service is unavailable\n**Severity:** High\n**Host:** hlin\n**Started at:** 2026.10.01 12:34:56\n**Recovered at:** 2026.10.01 12:39:10\n**Event ID:** 48213\n**Recovery event ID:** 48299",
+      "runbook_id": "RB-PG-HA-DEGRADED",
+      "fingerprint": "684f5224a5ec3091",
+      "fired_at": "2026-10-01T10:34:56Z",
+      "received_at": "2026-10-01T10:39:11Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "success",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10412",
+        "zabbix_host_ip": "10.0.11.233",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs",
+        "zabbix_trigger_id": "23456",
+        "zabbix_sent_at": "2026-10-01T10:39:11Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "48213",
+      "resolved_at": "2026-10-01T10:39:10Z"
+    }
+  ]
+}

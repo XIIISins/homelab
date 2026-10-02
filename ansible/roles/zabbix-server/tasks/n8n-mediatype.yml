@@ -1,0 +1,108 @@
+# ansible/roles/zabbix-server/tasks/n8n-mediatype.yml
+---
+# Phase 10d2 - declarative Zabbix -> n8n (Gna) webhook media type: the
+# ANALYSIS path. Independent of the Hermod media type (hermod-mediatype.yml,
+# the human-notification path): Zabbix runs each media of the Admin user as its
+# own alert, so a failure here fails only this media's alert and never delays or
+# drops the Discord notification. That independence is the point of the design
+# (docs/operations/10d-diagnosis-chatops.md) and is proven by the independence
+# test in docs/procedures/aiops-diagnosis.md.
+#
+# This task creates the MEDIA TYPE only. Attaching it to the Admin user (so the
+# default "Report problems to Zabbix administrators" action fires it) is done
+# together with Hermod's media in hermod-mediatype.yml, because
+# community.zabbix.zabbix_user REPLACES the user's whole media list: both
+# entries must be written in one task or each run would clobber the other.
+# This file is therefore imported BEFORE hermod-mediatype.yml (the media type
+# has to exist when the user attach resolves it by name).
+#
+# Connection model identical to hermod-mediatype.yml (httpapi delegated to
+# hugin). The ingest token is looked up inline from Vault, so it never lands in
+# a fact or a log (no_log).
+
+- name: Create or update the n8n webhook media type
+  when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
+  community.zabbix.zabbix_mediatype:
+    name: "{{ zabbix_n8n_mediatype_name }}"
+    type: webhook
+    status: enabled
+    description: >
+      AIOps diagnosis agent (n8n on Gna, LXC 1121). Sends the full event
+      context for High and Disaster triggers to the ingest webhook; independent
+      of the Hermod notification path. Contract:
+      aiops/schema/zabbix-event.v1.schema.json. Script source:
+      roles/zabbix-server/templates/n8n-webhook.js.
+    webhook_script: "{{ lookup('file', role_path + '/templates/n8n-webhook.js') }}"
+    webhook_timeout: "{{ zabbix_n8n_webhook_timeout }}"
+    process_tags: false
+    # One attempt, no retry storm: a dead agent must stay a quiet log line. The
+    # agent dedupes on the event id anyway, and Hermod still delivers the alert.
+    max_attempts: 1
+    attempt_interval: "10s"
+    max_sessions: 3
+    webhook_params:
+      - name: n8n_url
+        value: "{{ zabbix_n8n_url }}"
+      - name: token
+        value: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_n8n_token_vault_path).secret[zabbix_n8n_token_vault_field] }}
+      - { name: event_id, value: "{EVENT.ID}" }
+      - { name: event_value, value: "{EVENT.VALUE}" }
+      - { name: event_name, value: "{EVENT.NAME}" }
+      - { name: severity, value: "{EVENT.SEVERITY}" }
+      - { name: event_date, value: "{EVENT.DATE}" }
+      - { name: event_time, value: "{EVENT.TIME}" }
+      - { name: event_tags_json, value: "{EVENT.TAGSJSON}" }
+      - { name: event_recovery_id, value: "{EVENT.RECOVERY.ID}" }
+      - { name: event_recovery_date, value: "{EVENT.RECOVERY.DATE}" }
+      - { name: event_recovery_time, value: "{EVENT.RECOVERY.TIME}" }
+      - { name: opdata, value: "{EVENT.OPDATA}" }
+      - { name: host_name, value: "{HOST.NAME}" }
+      - { name: host_id, value: "{HOST.ID}" }
+      - { name: host_ip, value: "{HOST.IP}" }
+      - { name: host_groups, value: "{TRIGGER.HOSTGROUP.NAME}" }
+      - { name: trigger_id, value: "{TRIGGER.ID}" }
+      - { name: trigger_description, value: "{TRIGGER.DESCRIPTION}" }
+      - { name: trigger_expression, value: "{TRIGGER.EXPRESSION}" }
+      - { name: trigger_url, value: "{TRIGGER.URL}" }
+      - { name: item1_name, value: "{ITEM.NAME1}" }
+      - { name: item1_key, value: "{ITEM.KEY1}" }
+      - { name: item1_value, value: "{ITEM.VALUE1}" }
+      - { name: item2_name, value: "{ITEM.NAME2}" }
+      - { name: item2_key, value: "{ITEM.KEY2}" }
+      - { name: item2_value, value: "{ITEM.VALUE2}" }
+      - { name: item3_name, value: "{ITEM.NAME3}" }
+      - { name: item3_key, value: "{ITEM.KEY3}" }
+      - { name: item3_value, value: "{ITEM.VALUE3}" }
+    # The script builds the whole JSON payload from the params above; the
+    # message templates only have to exist so Zabbix will send problem AND
+    # recovery operations for this media type.
+    message_templates:
+      - eventsource: triggers
+        recovery: operations
+        subject: "[Zabbix] {EVENT.SEVERITY}: {EVENT.NAME}"
+        body: "{EVENT.OPDATA}"
+      - eventsource: triggers
+        recovery: recovery_operations
+        subject: "[Zabbix] RESOLVED: {EVENT.NAME}"
+        body: "{EVENT.RECOVERY.VALUE}"
+    # Always present. Disabling (zabbix_n8n_enabled: false) skips this file and
+    # drops the n8n entry from the Admin media list (hermod-mediatype.yml), which
+    # leaves the media type defined but unattached, i.e. inert.
+    state: present
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars:
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: true  # webhook params include the ingest token
+  tags: [zabbix, zabbix:n8n, zabbix:n8n-mediatype]

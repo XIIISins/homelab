@@ -21,7 +21,7 @@
       "detail": "**Host:** hlin\n**Severity:** High\n\n**Status:** OK\n**Trigger:** Etcd: Service is unavailable\n**Severity:** High\n**Host:** hlin\n**Started at:** 2026.10.01 12:34:56\n**Recovered at:** 2026.10.01 12:39:10\n**Recovery event ID:** 48214\n\nService state: 1",
       "runbook_id": "RB-PG-HA-DEGRADED",
       "fingerprint": "684f5224a5ec3091",
-      "fired_at": "2026-10-01T12:34:56Z",
+      "fired_at": "2026-10-01T10:34:56Z",
       "received_at": "2026-10-01T12:40:00Z",
       "labels": {
         "apprise_tag": "critical",
@@ -29,7 +29,7 @@
       },
       "native_severity": "High",
       "event_id": "48214",
-      "resolved_at": "2026-10-01T12:39:10Z"
+      "resolved_at": "2026-10-01T10:39:10Z"
     }
   ]
 }

@@ -134,26 +134,11 @@
       {{ lookup('community.hashi_vault.vault_kv2_get',
                 zabbix_admin_password_vault_path).secret[zabbix_admin_password_vault_field] }}
     override_passwd: false  # only set on create, don't reset on every reconcile
-    user_medias:
-      - mediatype: "{{ zabbix_hermod_mediatype_name }}"
-        sendto: "{{ zabbix_hermod_user_media_sendto }}"
-        # active is a bool in the Ansible module's schema (Zabbix's API
-        # uses 0=enabled/1=disabled internally — module translates).
-        active: true
-        severity:
-          # Bitmask: which severities trigger this media. Match the JS
-          # script's suppression — only Average + High + Disaster fire.
-          # Lower severities still land in VL via vlagent. The module
-          # defaults `not_classified` to true if omitted (bit 0), so
-          # set it explicitly to false here for a clean bitmask of
-          # 56 (= 32 disaster + 16 high + 8 average).
-          not_classified: false
-          information: false
-          warning: false
-          average: true
-          high: true
-          disaster: true
-        period: "1-7,00:00-24:00"  # 24/7 — homelab, single operator, no shifts
+    # The Admin user's WHOLE media list (the module replaces it): Hermod (the
+    # human-notification path) plus, when enabled, n8n (the 10d2 analysis path).
+    # Both entries live in defaults/main.yml (zabbix_hermod_user_media,
+    # zabbix_n8n_user_media) so the severity bitmasks sit next to their rationale.
+    user_medias: "{{ zabbix_admin_user_medias }}"
   delegate_to: "{{ zabbix_agent_api_delegate }}"
   become: false
   vars:

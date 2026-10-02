@@ -22,6 +22,10 @@ Checks, in order:
              runbook_id (the 10c exit criterion "every critical alert path
              carries a runbook_id")
   fixtures   normalize(wire) == expected, fingerprints recompute
+  zabbix-native  (10d2) every fixtures/zabbix-native case: the event validates against
+             zabbix-event.v1, zabbix_event.from_zabbix_event(event) == expected, the
+             expected alerts validate; and the keys the n8n-webhook.js sender emits
+             equal the schema's properties (script and contract cannot drift)
   n8n        (10d) every aiops/n8n/workflows/*.json: valid JSON with a fixed id, only
              allow-listed node types (no Code / Execute-Command / SSH), no inline
              secrets (the repo is public), credentials are id+name references,
@@ -46,6 +50,7 @@ from jsonschema import Draft202012Validator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import normalize  # noqa: E402
+import zabbix_event  # noqa: E402
 
 AIOPS = Path(__file__).resolve().parent.parent
 ROOT = AIOPS.parent
@@ -336,6 +341,40 @@ def check_fixtures(root: Path, routes: list[dict]) -> list[str]:
     return errs
 
 
+# --- native Zabbix events (Phase 10d2) -------------------------------------------
+def js_payload_keys(js_text: str) -> set[str]:
+    """Top-level keys of the object literal assigned to `var payload` in n8n-webhook.js."""
+    m = re.search(r"var payload = \{\n(.*?)\n    \};", js_text, re.S)
+    return set(re.findall(r"^        (\w+):", m.group(1), re.M)) if m else set()
+
+
+def check_zabbix_native(root: Path, routes: list[dict], known_runbooks: set[str]) -> list[str]:
+    errs: list[str] = []
+    ev_schema = load_schema("zabbix-event.v1.schema.json")
+    alert_schema = load_schema("alert.v1.schema.json")
+    for p in sorted((AIOPS / "fixtures" / "zabbix-native").glob("*.json")):
+        case = json.loads(p.read_text(encoding="utf-8"))
+        for e in schema_errors(case["event"], ev_schema):
+            errs.append(f"zabbix-native: {p.name}: event: {e}")
+        got = zabbix_event.from_zabbix_event(case["event"], case["received_at"], routes, known_runbooks)
+        if got != case["expected"]:
+            errs.append(f"zabbix-native: {p.name}: adapter(event) != expected\n  got:      {json.dumps(got, sort_keys=True)}\n  expected: {json.dumps(case['expected'], sort_keys=True)}")
+        for i, alert in enumerate(case["expected"]):
+            for e in alert_errors(alert, alert_schema):
+                errs.append(f"zabbix-native: {p.name}: expected[{i}]: {e}")
+    # The sender script and the schema must describe the same payload.
+    js = root / "ansible" / "roles" / "zabbix-server" / "templates" / "n8n-webhook.js"
+    if js.exists():
+        js_keys = js_payload_keys(js.read_text(encoding="utf-8"))
+        schema_keys = set(ev_schema["properties"])
+        if js_keys != schema_keys:
+            errs.append(
+                f"zabbix-native: n8n-webhook.js payload keys != zabbix-event.v1 schema properties "
+                f"(only in script: {sorted(js_keys - schema_keys)}; only in schema: {sorted(schema_keys - js_keys)})"
+            )
+    return errs
+
+
 # --- n8n workflows (Phase 10d) -------------------------------------------------
 # The agent runs on a host that holds the Discord webhook (and, from 10d3, the
 # Anthropic key) and n8n can execute code, so a workflow is reviewed like code:
@@ -475,6 +514,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_runbooks(rb, reg, root)
     errs += check_routing(rt, rb)
     errs += check_fixtures(root, rt["routes"])
+    errs += check_zabbix_native(root, rt["routes"], {r["id"] for r in rb["runbooks"]})
     errs += check_n8n_workflows(root)
     return errs
 

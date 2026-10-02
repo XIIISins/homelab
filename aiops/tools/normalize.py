@@ -25,6 +25,10 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# The Zabbix server's local timezone (Hugin). See _zbx_ts.
+ZABBIX_TZ = ZoneInfo("Europe/Amsterdam")
 
 AIOPS_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ROUTING = AIOPS_DIR / "alert-routing.yml"
@@ -119,14 +123,22 @@ def _host(route: dict, m: re.Match, fallback: str | None = None) -> str:
 
 
 def _zbx_ts(value: str | None) -> str | None:
-    """Zabbix renders {EVENT.DATE} {EVENT.TIME} in the server timezone with no offset.
+    """Zabbix renders {EVENT.DATE} {EVENT.TIME} in the server's LOCAL timezone, no offset.
 
-    Assumed UTC here (documented in the schema); 10d verifies against Hugin.
+    Hugin runs Europe/Amsterdam (verified 2026-10-02: `date` -> CEST +0200;
+    php timezone in roles/zabbix-server/defaults). Earlier versions assumed UTC,
+    which put every Hermod-path timestamp 1-2 h in the future. Native n8n events
+    (zabbix_event.py) carry exact UTC already, so this only serves the Hermod wire.
+    Ambiguous/nonexistent DST-transition local times resolve with fold=0.
     """
     m = _ZBX_DATE.match((value or "").strip())
     if not m:
         return None
-    return f"{m.group('d').replace('.', '-')}T{m.group('t')}Z"
+    try:
+        local = datetime.strptime(f"{m.group('d')} {m.group('t')}", "%Y.%m.%d %H:%M:%S").replace(tzinfo=ZABBIX_TZ)
+    except ValueError:
+        return None
+    return local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _iso_or(value: str | None, default: str) -> str:
