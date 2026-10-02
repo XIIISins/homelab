@@ -1,0 +1,77 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt.service.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+[Unit]
+Description=AIOps Toolbelt API (read-only door for the diagnosis agent)
+Documentation=https://github.com/XIIISins/homelab/blob/main/docs/operations/10d-diagnosis-chatops.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ aiops_toolbelt_user }}
+Group={{ aiops_toolbelt_user }}
+StateDirectory=aiops-toolbelt
+StateDirectoryMode=0750
+RuntimeDirectory={{ aiops_toolbelt_runtime_dir_name }}
+RuntimeDirectoryMode=0750
+Environment=VAULT_ADDR={{ aiops_toolbelt_vault_addr }}
+Environment=AIOPS_TOOLBELT_APPROLE_ENV={{ aiops_toolbelt_approle_env_path }}
+Environment=AIOPS_TOOLBELT_TOKEN_VAULT_PATH={{ aiops_toolbelt_token_vault_path }}
+Environment=AIOPS_TOOLBELT_TOKEN_FIELD={{ aiops_toolbelt_token_field }}
+Environment=AIOPS_TOOLBELT_TOKEN_FILE={{ aiops_toolbelt_token_file }}
+Environment=AIOPS_TOOLBELT_OWNER={{ aiops_toolbelt_user }}
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The `+` runs the loader as root OUTSIDE this unit's sandbox: it needs the root-only
+# AppRole file and Vault access, which the API process itself must never have. A loader
+# failure fails the start (Restart= retries), so the API is never up without a token.
+ExecStartPre=+/usr/bin/env python3 {{ aiops_toolbelt_loader_path }}
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
+  --listen {{ aiops_toolbelt_listen_host }}:{{ aiops_toolbelt_listen_port }} \
+  --db /var/lib/aiops-toolbelt/toolbelt.sqlite3 \
+  --token-file {{ aiops_toolbelt_token_file }} \
+{% for cidr in aiops_toolbelt_allow %}
+  --allow {{ cidr }} \
+{% endfor %}
+  --daily-run-cap {{ aiops_toolbelt_daily_run_cap }}
+Restart=on-failure
+RestartSec=10
+
+# The process may only talk to its callers (this will gain the read-only endpoints, one
+# address per tool, as they land). Both directions: this also stops it dialling out.
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+# Frigg itself, so the role's own anonymous-probe checks reach the listener. The app-level
+# allow-list still refuses it for every route but /healthz.
+IPAddressAllow={{ aiops_toolbelt_listen_host }}
+{% for cidr in aiops_toolbelt_allow %}
+IPAddressAllow={{ cidr }}
+{% endfor %}
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

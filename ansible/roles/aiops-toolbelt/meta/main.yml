@@ -1,0 +1,15 @@
+# ansible/roles/aiops-toolbelt/meta/main.yml
+---
+galaxy_info:
+  role_name: aiops_toolbelt
+  author: XIIISins
+  description: >
+    The Toolbelt API on Frigg (Phase 10d2): ingest, dedupe, correlation and breakers for
+    the AIOps diagnosis agent, as a hardened systemd service with a root token loader.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+  galaxy_tags: [aiops, frigg, vault]
+dependencies: []

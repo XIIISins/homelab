@@ -269,6 +269,25 @@ resource "vault_kv_secret_v2" "n8n_ingest_token" {
   })
 }
 
+# -----------------------------------------------------------------------------
+# Toolbelt API bearer token (Phase 10d2): n8n -> the Toolbelt API on Frigg
+# -----------------------------------------------------------------------------
+# One token for the one caller. The Frigg root loader (roles/aiops-toolbelt) reads it
+# into a tmpfs file for the service; n8n's credential is created from the same secret.
+# The API also allow-lists n8n's IP, so the token alone is not enough.
+resource "random_password" "toolbelt_token" {
+  length  = 48
+  special = false # sent in an Authorization header
+}
+
+resource "vault_kv_secret_v2" "toolbelt_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/toolbelt-token"
+  data_json = jsonencode({
+    value = random_password.toolbelt_token.result
+  })
+}
+
 # NOTE (Wave S3): the SFTPGo admin password (secret/ansible/sftpgo/admin-password)
 # and the Factorio operator password (secret/ansible/factorio/operator-password)
 # are NOT TF-managed. Both were *preserved* existing values lifted into Vault

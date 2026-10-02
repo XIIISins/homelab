@@ -1,0 +1,40 @@
+---
+# ansible/roles/aiops-toolbelt/defaults/main.yml
+#
+# The Toolbelt API (Phase 10d2) on Frigg: the AIOps agent's only door into the homelab.
+# Code lives in the repo (aiops/toolbelt/); this role installs it, a hardened unit, and a
+# root loader that puts the n8n -> API bearer token on tmpfs. Design: docs/operations/
+# 10d-diagnosis-chatops.md ("The trust boundary"). Gotchas: docs/known-issues/n8n-aiops.md.
+
+aiops_toolbelt_user: aiops-toolbelt
+aiops_toolbelt_home: /opt/aiops-toolbelt
+aiops_toolbelt_unit_name: aiops-toolbelt
+
+# Listener: Frigg's VLAN 11 address, same VLAN as Gna (no firewall hop to open).
+aiops_toolbelt_listen_host: "{{ ansible_host }}"
+aiops_toolbelt_listen_port: 8090
+# Callers. Enforced twice: by the app (server.py --allow) and by the unit's
+# IPAddressAllow/Deny (no packet from anywhere else reaches the process).
+aiops_toolbelt_allow:
+  - 10.0.11.221/32 # Gna (n8n AIOps agent)
+aiops_toolbelt_daily_run_cap: 40
+
+# Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
+aiops_toolbelt_vault_addr: "https://vault.niflheim.xiiisins.com"
+aiops_toolbelt_approle_env_path: "{{ control_node_approle_env_path | default('/etc/frigg/vault-approle.env') }}"
+aiops_toolbelt_token_vault_path: secret/data/ansible/aiops/toolbelt-token # KV v2 API path
+aiops_toolbelt_token_field: value
+aiops_toolbelt_loader_path: /usr/local/sbin/aiops-toolbelt-token-load
+aiops_toolbelt_runtime_dir_name: aiops-toolbelt
+aiops_toolbelt_token_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/token"
+
+# Files copied from the repo (the same layout the code expects: it finds routing and
+# runbooks relative to itself). Paths are relative to the repo's aiops/ directory.
+aiops_toolbelt_source_files:
+  - toolbelt/__init__.py
+  - toolbelt/core.py
+  - toolbelt/server.py
+  - tools/normalize.py
+  - tools/zabbix_event.py
+  - alert-routing.yml
+  - runbooks.yml
