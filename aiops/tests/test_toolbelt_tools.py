@@ -162,9 +162,10 @@ class Live(unittest.TestCase):
             self.tb.call_tool("registry.actions", {}, self.inc)
         self.assertEqual(cm.exception.status, 429)
 
-    def test_contract_only_tools_are_501_live(self):
-        with self.assertRaises(core.Rejected) as cm:
-            self.tb.call_tool("logs.query", {"query": "error"}, self.inc)
+    def test_a_tool_with_no_live_handler_is_501(self):
+        # every tool in SPEC now has a handler; the fallback must still refuse (not crash) if one is added without it
+        with self.assertRaises(tools.ToolError) as cm:
+            tools.live(self.tb.cfg.live, "future.tool", {})
         self.assertEqual(cm.exception.status, 501)
 
     def test_repo_history_without_a_clone_is_501_and_with_one_is_read_only(self):
@@ -879,6 +880,109 @@ class SemaphoreTool(unittest.TestCase):
         with self.assertRaises(core.Rejected) as cm:
             self.tb.call_tool("semaphore.tasks", {"limit": 500}, self.inc)
         self.assertEqual(cm.exception.status, 400)
+
+
+class FakeObs:
+    """VictoriaLogs + VictoriaMetrics stand-in on one port; records every request path."""
+
+    def __init__(self):
+        self.seen = []
+        outer = self
+        series = [{"metric": {"instance": f"h{i}"}, "values": [[1790000000 + t, str(t)] for t in range(300)]} for i in range(60)]
+        logs = "\n".join(json.dumps(r) for r in [
+            {"_time": "2026-10-03T00:00:01Z", "_stream": "{app=\"web\"}", "_msg": "connecting with password=hunter2hunter2", "level": "error"},
+            {"_time": "2026-10-03T00:00:02Z", "_stream": "{app=\"web\"}", "_msg": "request failed: upstream timed out", "level": "error"}]) + "\nnot json\n"
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(self):  # noqa: N802
+                from urllib.parse import urlparse
+
+                outer.seen.append(self.path)
+                path = urlparse(self.path).path
+                if path == "/select/logsql/query":
+                    raw, ctype = logs.encode(), "application/x-ndjson"
+                elif path == "/api/v1/query":
+                    raw, ctype = json.dumps({"status": "success", "data": {"resultType": "vector", "result": [{"metric": {"job": "node"}, "value": [1790000000, "1"]}]}}).encode(), "application/json"
+                elif path == "/api/v1/query_range":
+                    raw, ctype = json.dumps({"status": "success", "data": {"resultType": "matrix", "result": series}}).encode(), "application/json"
+                elif path == "/api/v1/admin/tsdb/delete_series":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class LogsMetricsTools(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.tb, _ = make(self.tmp)
+        self.o = FakeObs()
+        self.addCleanup(self.o.close)
+        self.tb.cfg.live.logs_url = self.tb.cfg.live.metrics_url = self.o.url
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+
+    def test_logs_are_parsed_redacted_and_the_default_window_is_recent(self):
+        out = self.tb.call_tool("logs.query", {"query": "error", "limit": 10}, self.inc)["result"]
+        self.assertEqual(out["returned"], 2)
+        self.assertNotIn("hunter2hunter2", json.dumps(out))
+        self.assertIn("[redacted]", out["lines"][0]["msg"])
+        self.assertTrue(out["window_start"].endswith("Z"))  # a relative default became an RFC3339 instant
+        self.assertIn("start=", self.o.seen[0])
+
+    def test_relative_times_are_converted_and_absolute_ones_pass_through(self):
+        self.tb.call_tool("logs.query", {"query": "x", "start": "2h"}, self.inc)
+        self.tb.call_tool("logs.query", {"query": "x", "start": "2026-10-03T00:00:00Z", "end": "30m"}, self.inc)
+        first, second = self.o.seen
+        self.assertRegex(first, r"start=20\d\d-\d\d-\d\dT")
+        self.assertIn("start=2026-10-03T00%3A00%3A00Z", second)
+        self.assertIn("end=20", second)
+
+    def test_metrics_instant_and_range_are_bounded(self):
+        inst = self.tb.call_tool("metrics.query", {"query": "up"}, self.inc)["result"]
+        self.assertEqual((inst["result_type"], inst["returned"]), ("vector", 1))
+        rng = self.tb.call_tool("metrics.range", {"query": "up", "start": "1h", "step": "30s"}, self.inc)["result"]
+        self.assertEqual((rng["series"], rng["returned"], rng["truncated_series"]), (60, 50, True))  # 60 series capped to 50
+        self.assertLessEqual(len(rng["result"][0]["values"]), 120)  # 300 points thinned
+        self.assertEqual(rng["result"][0]["values"][-1][1], "299")  # the latest point is always kept
+        self.assertTrue(any("query_range" in p and "step=30s" in p for p in self.o.seen))
+
+    def test_only_the_query_endpoints_are_ever_requested(self):
+        self.tb.call_tool("metrics.query", {"query": "up"}, self.inc)
+        self.tb.call_tool("metrics.range", {"query": "up", "start": "1h"}, self.inc)
+        self.tb.call_tool("logs.query", {"query": "x"}, self.inc)
+        paths = {p.split("?")[0] for p in self.o.seen}
+        self.assertEqual(paths, {"/api/v1/query", "/api/v1/query_range", "/select/logsql/query"})
+
+    def test_an_unreachable_or_refusing_route_is_a_clear_502(self):
+        self.tb.cfg.live.logs_url = "http://127.0.0.1:9"  # nothing listens
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("logs.query", {"query": "x"}, self.inc)
+        self.assertEqual((cm.exception.status, "unreachable" in cm.exception.message), (502, True))
+        self.tb.cfg.live.metrics_url = self.o.url + "/nope"  # the route does not carry this path
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("metrics.query", {"query": "up"}, self.inc)
+        self.assertEqual(cm.exception.status, 502)
 
 
 class Http(unittest.TestCase):
