@@ -144,9 +144,13 @@ Replay proves the agent's reasoning; this proves the plumbing with real tools. A
 | Upgrade n8n / Node | Bump `n8n_version` / `n8n_node_version`+`n8n_node_sha256` in the role defaults, check the n8n `engines.node` range, run the play; back up first (PBS) — n8n migrates its DB on start |
 | Disable the agent | `systemctl stop n8n` (or disable the producer's n8n media type). Notifications are unaffected |
 
-## Egress (intended, not yet enforced)
+## Egress (enforced at the UCG since 2026-10-03)
 
-Gná should reach only Discord, the Anthropic API (from 10d3), the Toolbelt API on Frigg and the usual infra (DNS, apt, Vault). That is a UCG firewall rule and is **not** in this change — tracked in [`open-questions.md`](../operations/open-questions.md). Until then the controls are: loopback-only editor, no `executeCommand`/SSH/file nodes (`NODES_EXCLUDE` + CI), workflows reviewed in PRs, no read credentials held by n8n.
+Gná may reach the internet only for Discord (webhook posts), the Anthropic API and OS updates; everything else outbound is dropped by the UCG (policy table in [`architecture/network.md`](../architecture/network.md)). Internal traffic (Toolbelt on Frigg, Hugin, DNS, logs) is unaffected.
+
+**Before re-running the `n8n-agent` or `vlagent` roles** (they download the Node tarball, run `npm install` and fetch a GitHub release): unpause `AIOps - Deploy Window` in the UCG, wait ~1 minute, run the playbook, then pause it again. Zabbix and Caddy package updates are covered by the always-on `Allow OS Updates`. If the playbook stalls on a download, the UCG deny log (`UNIFIfirewallPolicy=AIOps - Egress Default Deny`, `dst=`) names the host to add.
+
+Other controls remain in force regardless: loopback-only editor, no `executeCommand`/SSH/file nodes (`NODES_EXCLUDE` + CI), workflows reviewed in PRs, n8n holds no read credentials, a dedicated spend-limited Anthropic key.
 
 ## Rollback
 
