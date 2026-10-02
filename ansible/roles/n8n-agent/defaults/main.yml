@@ -72,6 +72,10 @@ n8n_vault_ingest_token_path_prefix: ansible/aiops/n8n-ingest-token
 # Toolbelt API (Frigg): n8n's one credential for it, minted by terraform/vault, read by the
 # Frigg token loader too. The URL is Frigg's VLAN 11 address (same VLAN as this host).
 n8n_vault_toolbelt_token_path: ansible/aiops/toolbelt-token
+# The diagnosis agent's Anthropic key: operator-minted, dedicated to this agent (own Console
+# workspace + spend limit, decision D-a). Becomes the n8n credential `aiops-anthropic`.
+n8n_vault_anthropic_path: ansible/aiops/anthropic-api-key
+n8n_vault_anthropic_field: key
 n8n_toolbelt_url: "http://10.0.11.30:8090"
 
 # Alert sources that may POST to this agent. Each needs a TF-minted ingest
