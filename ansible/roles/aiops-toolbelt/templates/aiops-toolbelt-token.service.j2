@@ -1,0 +1,41 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-token.service.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+#
+# Fetches the Toolbelt bearer token from Vault onto tmpfs. A SEPARATE unit from the API
+# because the API unit's IPAddressDeny= applies to its whole cgroup, ExecStartPre=+
+# helpers included: the loader could not reach Vault from inside it (2026-10-02). The
+# API unit restarts this one before every start (ExecStartPre=+systemctl restart), so
+# the token is always fresh and a loader failure fails the API start.
+[Unit]
+Description=AIOps Toolbelt API token loader (Vault -> tmpfs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+RuntimeDirectory={{ aiops_toolbelt_runtime_dir_name }}
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+Environment=VAULT_ADDR={{ aiops_toolbelt_vault_addr }}
+Environment=AIOPS_TOOLBELT_APPROLE_ENV={{ aiops_toolbelt_approle_env_path }}
+Environment=AIOPS_TOOLBELT_TOKEN_VAULT_PATH={{ aiops_toolbelt_token_vault_path }}
+Environment=AIOPS_TOOLBELT_TOKEN_FIELD={{ aiops_toolbelt_token_field }}
+Environment=AIOPS_TOOLBELT_TOKEN_FILE={{ aiops_toolbelt_token_file }}
+Environment=AIOPS_TOOLBELT_OWNER={{ aiops_toolbelt_user }}
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_loader_path }}
+TimeoutStartSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/{{ aiops_toolbelt_runtime_dir_name }}
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0

@@ -49,6 +49,16 @@
   notify: Restart aiops-toolbelt
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
+- name: Install the token loader unit
+  ansible.builtin.template:
+    src: aiops-toolbelt-token.service.j2
+    dest: "/etc/systemd/system/{{ aiops_toolbelt_token_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart aiops-toolbelt
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
 - name: Install the unit
   ansible.builtin.template:
     src: aiops-toolbelt.service.j2

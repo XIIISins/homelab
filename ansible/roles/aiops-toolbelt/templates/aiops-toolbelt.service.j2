@@ -13,19 +13,13 @@ User={{ aiops_toolbelt_user }}
 Group={{ aiops_toolbelt_user }}
 StateDirectory=aiops-toolbelt
 StateDirectoryMode=0750
-RuntimeDirectory={{ aiops_toolbelt_runtime_dir_name }}
-RuntimeDirectoryMode=0750
-Environment=VAULT_ADDR={{ aiops_toolbelt_vault_addr }}
-Environment=AIOPS_TOOLBELT_APPROLE_ENV={{ aiops_toolbelt_approle_env_path }}
-Environment=AIOPS_TOOLBELT_TOKEN_VAULT_PATH={{ aiops_toolbelt_token_vault_path }}
-Environment=AIOPS_TOOLBELT_TOKEN_FIELD={{ aiops_toolbelt_token_field }}
-Environment=AIOPS_TOOLBELT_TOKEN_FILE={{ aiops_toolbelt_token_file }}
-Environment=AIOPS_TOOLBELT_OWNER={{ aiops_toolbelt_user }}
 Environment=PYTHONDONTWRITEBYTECODE=1
-# The `+` runs the loader as root OUTSIDE this unit's sandbox: it needs the root-only
-# AppRole file and Vault access, which the API process itself must never have. A loader
-# failure fails the start (Restart= retries), so the API is never up without a token.
-ExecStartPre=+/usr/bin/env python3 {{ aiops_toolbelt_loader_path }}
+# The loader is its own unit (aiops-toolbelt-token.service): it needs the root-only
+# AppRole file and Vault access, which this process must never have, and this unit's
+# IPAddressDeny= would block it even under `+`. Restarting it here refreshes the token
+# on every start; a loader failure fails this start (Restart= retries), so the API is
+# never up without a token.
+ExecStartPre=+/usr/bin/systemctl restart {{ aiops_toolbelt_token_unit_name }}.service
 ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
   --listen {{ aiops_toolbelt_listen_host }}:{{ aiops_toolbelt_listen_port }} \
   --db /var/lib/aiops-toolbelt/toolbelt.sqlite3 \

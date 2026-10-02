@@ -9,6 +9,7 @@
 aiops_toolbelt_user: aiops-toolbelt
 aiops_toolbelt_home: /opt/aiops-toolbelt
 aiops_toolbelt_unit_name: aiops-toolbelt
+aiops_toolbelt_token_unit_name: aiops-toolbelt-token
 
 # Listener: Frigg's VLAN 11 address, same VLAN as Gna (no firewall hop to open).
 aiops_toolbelt_listen_host: "{{ ansible_host }}"
