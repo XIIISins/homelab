@@ -88,6 +88,12 @@ resource "proxmox_virtual_environment_vm" "worker" {
   node_name = each.value.node
   vm_id     = each.value.vmid
 
+  # Never let the provider reboot a worker on its own. The bpg default is true,
+  # which reboots whenever an updated attribute (disk, cpu, memory) is deemed
+  # reboot-requiring — workers carry Vault Raft + Victoria state, so power-cycles
+  # are deliberate (cordon/drain first), not a side effect of `terraform apply`.
+  reboot_after_update = false
+
   clone {
     vm_id     = each.value.template_id
     node_name = each.value.template_node
@@ -103,12 +109,18 @@ resource "proxmox_virtual_environment_vm" "worker" {
     dedicated = each.value.memory
   }
 
+  # OS/ephemeral disk is NOT backed up to PBS (backup = false): it holds only the
+  # OS + containerd images/snapshots, all rebuilt by the k3s role (~82 GiB of the
+  # PBS datastore across the 3 workers, 2026-10-02 audit). Stateful data lives on
+  # scsi1 (/data), which stays backed up. Config-only flag — takes effect on the
+  # next vzdump run; existing snapshots age out via retention.
   disk {
     datastore_id = "local-lvm"
     size         = 30
     interface    = "scsi0"
     discard      = "on"
     ssd          = each.value.os_disk_ssd # staged per-node (canary on urd)
+    backup       = false
   }
 
   # Dedicated node-local data disk for local-path-provisioner — separates
