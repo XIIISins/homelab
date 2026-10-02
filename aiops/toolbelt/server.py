@@ -4,6 +4,7 @@
   POST /ingest/zabbix            native aiops.zabbix-event/v1 -> {action, incident_id, ...}
   GET  /group/<id>               the correlated incident (alerts, state, priority, model hint)
   POST /group/<id>/state         {"state": "running|posted|resolved", "thread_id": "..."}
+  POST /tool/<name>              {"args": {...}, "incident_id": N}; header X-AIOPS-Replay: <scenario> replays
   GET  /stats                    breaker counters
   GET  /healthz                  liveness (no auth, no data)
 
@@ -30,6 +31,7 @@ import core  # noqa: E402
 MAX_BODY = 64 * 1024
 _GROUP = re.compile(r"^/group/(\d+)$")
 _GROUP_STATE = re.compile(r"^/group/(\d+)/state$")
+_TOOL = re.compile(r"^/tool/([a-z]+\.[a-z_]+)$")
 
 
 def make_handler(tb: core.Toolbelt, token: str, allow: list):
@@ -88,6 +90,12 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list):
                     if not isinstance(body, dict) or not isinstance(body.get("state"), str):
                         raise core.Rejected(400, "need {\"state\": ...}")
                     return self._send(200, tb.set_state(int(m.group(1)), body["state"], body.get("thread_id")))
+                if method == "POST" and (m := _TOOL.match(path)):
+                    body = self._body()
+                    if not isinstance(body, dict):
+                        raise core.Rejected(400, "body must be an object")
+                    return self._send(200, tb.call_tool(m.group(1), body.get("args", {}), body.get("incident_id"),
+                                                        self.headers.get("X-AIOPS-Replay")))
                 if method == "GET" and path == "/stats":
                     return self._send(200, tb.stats())
             except core.Rejected as e:
@@ -131,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--allow", action="append", required=True, help="CIDR allowed to call (repeatable)")
     ap.add_argument("--placement-file", help="JSON {host: hypervisor-node}, refreshed from NetBox")
     ap.add_argument("--daily-run-cap", type=int, default=40)
+    ap.add_argument("--replay-dir", help="aiops/replays: recorded tool responses (X-AIOPS-Replay scenarios)")
+    ap.add_argument("--repo-dir", help="read-only clone of the homelab repo for the repo-history tools")
     args = ap.parse_args(argv)
 
     token = Path(args.token_file).read_text().strip()
@@ -138,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         print("token too short (need >= 32 chars)", file=sys.stderr)
         return 2
     cfg = core.Config(db_path=args.db, daily_run_cap=args.daily_run_cap)
+    cfg.live = core.tools.LiveConfig(root=core.REPO, repo_dir=Path(args.repo_dir) if args.repo_dir else None)
+    if args.replay_dir:
+        cfg.replay_dir = Path(args.replay_dir)
     if args.placement_file:
         cfg.placement = json.loads(Path(args.placement_file).read_text())
     import normalize  # noqa: E402 (path set up by core)
