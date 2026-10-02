@@ -805,6 +805,120 @@ resource "proxmox_virtual_environment_container" "hermod" {
 }
 
 # ----------------------------------------------------------------------------
+# LXC 1121 — Gná — AIOps agent host (n8n), Urd — Phase 10d1
+# ----------------------------------------------------------------------------
+# Dedicated n8n instance that acts as the AIOps diagnosis agent (see
+# docs/operations/10d-diagnosis-chatops.md). Gná is Frigg's messenger: she
+# carries an alert to whoever can act on it.
+#
+# Why a NEW instance and not the asgard-K3s n8n: the agent must keep working
+# when asgard is the thing that is down, and the K3s instance exposes public
+# /webhook* paths — a different trust level from a host that holds the Discord
+# webhook and the Anthropic key. n8n can run arbitrary code (Code node), so
+# this box is internal-only with a path-restricted, IP-allowlisted ingest
+# listener. INTENDED egress: Discord, the Anthropic API and the Toolbelt API
+# only. That is a UCG firewall rule, not enforced by this module yet - tracked
+# in docs/operations/open-questions.md (see docs/procedures/aiops-diagnosis.md).
+#
+# Native systemd (Node + npm), NOT Docker-in-LXC — the Hermod lesson (first
+# attempt rolled back 2026-05-25). Placement: Urd, next to the canaries; Verd
+# is out (Frigg lives there), Skuld is out (hard freezes — the agent must not
+# share a host with the fault domain it most often diagnoses).
+#
+# Sizing: 2 vCPU / 1 GB / 8 GB. n8n idles at ~300-400 MB RSS and spikes during
+# an agent run; the Node tarball + n8n's node_modules are ~1.5 GB on disk.
+# Urd headroom was ~7.7 GB on 2026-10-01 (aiops-roadmap.md 10b1).
+#
+# See: docs/operations/10d-diagnosis-chatops.md, ansible/roles/n8n-agent/,
+#      ansible/playbooks/asgard-gna.yml
+# ----------------------------------------------------------------------------
+
+resource "random_password" "gna_root" {
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "gna" {
+  description = "Gna - AIOps agent host (n8n), 10d1"
+
+  node_name = "urd"
+  vm_id     = 1121
+  tags      = ["asgard", "lxc", "gna", "aiops", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  cpu {
+    cores = 2
+  }
+
+  memory {
+    dedicated = 1024 # MB — n8n + Caddy + vlagent
+    swap      = 512
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 8 # GB — Node tarball, n8n node_modules, SQLite DB, logs
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = "gna"
+
+    ip_config {
+      ipv4 {
+        address = "10.0.11.221/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    # See factorio: PVE owns resolv.conf via this block; ansible baseline stops
+    # managing it (baseline_manage_resolv_conf=false in group_vars/n8n_agent.yml).
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.gna_root.result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 — see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+
+  # bpg/proxmox doesn't return template_file_id or user_account from the API
+  # on read — see Hugin's identical block above for the gotcha details.
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+    ]
+  }
+}
+
+# ----------------------------------------------------------------------------
 # LXCs 1190/1191/1192 — canary pool (Urd ONLY) — Phase 10b1
 # ----------------------------------------------------------------------------
 # Disposable T1 test substrate for the AIOps loop (aiops-roadmap.md 10b1):

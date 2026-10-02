@@ -1,0 +1,84 @@
+# ansible/roles/n8n-agent/defaults/main.yml
+---
+# n8n as the AIOps diagnosis agent (Phase 10d1; plan:
+# docs/operations/10d-diagnosis-chatops.md). Native systemd, NOT a container
+# (Hermod lesson: the all-native-systemd LXC pattern). One pinned Node
+# tarball + one pinned n8n npm release, an unprivileged service user, a
+# loopback-only listener (Caddy is the only thing that exposes anything, and
+# only /webhook/*), and a root-owned 0600 env file for the secrets.
+#
+# Layout:
+#   /opt/n8n/node-<ver>/             pinned official Node tarball (symlink /opt/n8n/node)
+#   /opt/n8n/app/                    npm prefix holding the pinned n8n release
+#   /etc/n8n/n8n.env                 secrets + config, 0600 n8n:n8n (EnvironmentFile)
+#   /var/lib/n8n/                    N8N_USER_FOLDER: SQLite DB, n8n's own state (n8n-owned)
+
+# ---- Pins -------------------------------------------------------------------
+# n8n 2.23.1 == the version the asgard-K3s n8n runs (services/n8n.md), so
+# there is one n8n version to reason about. Requires Node >=22.22 (engines);
+# Debian 13 ships an older Node, hence the pinned official tarball.
+n8n_version: "2.23.1"
+
+# Node 22 LTS ("Jod"). sha256 from https://nodejs.org/dist/<ver>/SHASUMS256.txt
+# (checked 2026-10-02). Bump: new version + the matching linux-x64 line.
+n8n_node_version: "v22.23.3"
+n8n_node_sha256: "df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de"
+n8n_node_url: "https://nodejs.org/dist/{{ n8n_node_version }}/node-{{ n8n_node_version }}-linux-x64.tar.xz"
+
+# ---- Identity + layout ------------------------------------------------------
+n8n_user: n8n
+n8n_group: n8n
+n8n_root_dir: /opt/n8n
+n8n_app_dir: "{{ n8n_root_dir }}/app"
+n8n_node_dir: "{{ n8n_root_dir }}/node-{{ n8n_node_version }}"
+n8n_node_link: "{{ n8n_root_dir }}/node"
+n8n_config_dir: /etc/n8n
+n8n_env_path: "{{ n8n_config_dir }}/n8n.env"
+n8n_data_dir: /var/lib/n8n
+n8n_import_dir: "{{ n8n_data_dir }}/import" # rendered workflow/credential JSON; wiped after import
+
+# ---- Listener ---------------------------------------------------------------
+# Loopback only. The editor is NOT reachable off-host: use an SSH tunnel
+#   ssh -L 5678:127.0.0.1:5678 ansible@gna   then http://127.0.0.1:5678
+# Caddy (caddy-reverse-proxy, group_vars/n8n_agent.yml) fronts ONLY /webhook/*.
+n8n_listen_host: 127.0.0.1
+n8n_listen_port: 5678
+n8n_memory_max: 768M # LXC is 1 GiB; leave room for Caddy + vlagent + zabbix-agent
+
+# ---- Hardening knobs --------------------------------------------------------
+# n8n can execute arbitrary code, and this host holds the Discord webhook and
+# (10d3) the Anthropic key, so the node surface is trimmed to what the
+# workflows in aiops/n8n/workflows need. n8n 2.x already disables the first
+# two by default; excluding them explicitly keeps that true across upgrades.
+n8n_nodes_exclude:
+  - n8n-nodes-base.executeCommand
+  - n8n-nodes-base.localFileTrigger
+  - n8n-nodes-base.readWriteFile
+  - n8n-nodes-base.ssh
+  - n8n-nodes-base.ftp
+
+# ---- Secrets (Vault KV v2, mount `secret`, read via the ansible AppRole) -----
+# Minted by terraform/vault/main.tf: encryption key + per-source ingest tokens.
+# Operator-minted: the Discord webhook and the Anthropic key (10d3).
+n8n_vault_encryption_key_path: ansible/aiops/n8n-encryption-key
+# Editor login (reached over an SSH tunnel only). The owner is created from the
+# env file on first start, so there is no UI setup step; the password is
+# TF-minted and the operator reads it from Vault to log in.
+n8n_vault_owner_password_path: ansible/aiops/n8n-owner-password
+n8n_owner_email: aiops@niflheim.xiiisins.com # identity only; n8n never sends mail here
+n8n_vault_discord_path: ansible/aiops/discord-diagnosis
+n8n_vault_discord_field: url
+n8n_vault_ingest_token_path_prefix: ansible/aiops/n8n-ingest-token
+
+# Alert sources that may POST to this agent. Each needs a TF-minted ingest
+# token (terraform/vault/main.tf locals.n8n_ingest_sources) and a workflow
+# credential. Add a source here as it is cut over.
+n8n_ingest_sources:
+  - zabbix
+
+# ---- Workflows (git is the source of truth) ---------------------------------
+# Workflow JSON lives in the repo; this role imports it on every run. The
+# editor is for exploration only: changes made there are overwritten and are
+# surfaced by the export-and-diff check in docs/procedures/aiops-diagnosis.md.
+n8n_workflows_dir: "{{ playbook_dir }}/../../aiops/n8n/workflows"
+n8n_import_workflows: true

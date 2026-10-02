@@ -52,6 +52,14 @@ locals {
     # (Phase 5h.2). Internal-only — no midgard or apex bypass.
     "hermod.niflheim.xiiisins.com" = "10.0.11.22"
 
+    # ── niflheim.xiiisins.com — Gna (AIOps agent host, n8n) ────────
+    # Bare LXC (Phase 10d1), NOT K8s-fronted → straight at the LXC IP, so
+    # no CoreDNS rewrite. Monitoring systems POST alerts to
+    # http://gna.niflheim.xiiisins.com:8081/webhook/... (Caddy ingest
+    # listener, IP-allowlisted, /webhook/* only). The n8n editor is NOT
+    # exposed: reach it with `ssh -L 5678:127.0.0.1:5678 ansible@gna`.
+    "gna.niflheim.xiiisins.com" = "10.0.11.221"
+
     # ── niflheim.xiiisins.com — Frigg (control-node watchtower) ────
     # Bare VM (Phase 6 Stage 2), NOT K8s-fronted → points straight at the
     # VM IP (like hugin/hermod), so NO CoreDNS rewrite needed. Reach it as

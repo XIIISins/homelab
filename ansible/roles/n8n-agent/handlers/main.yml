@@ -1,0 +1,10 @@
+# ansible/roles/n8n-agent/handlers/main.yml
+---
+- name: Reload systemd (n8n)
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart n8n
+  ansible.builtin.systemd:
+    name: n8n.service
+    state: restarted

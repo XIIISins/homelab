@@ -1,0 +1,402 @@
+# ansible/roles/n8n-agent/tasks/main.yml
+---
+# ---- Secrets (fail early, with the fix in the message) ----------------------
+# errors='ignore' turns "absent / Vault unreachable" into an empty value so the
+# assert below can fail with an actionable message instead of a lookup trace.
+- name: Read the n8n secrets from Vault
+  ansible.builtin.set_fact:
+    n8n_encryption_key: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', n8n_vault_encryption_key_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+    n8n_owner_password: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', n8n_vault_owner_password_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+    n8n_discord_url: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', n8n_vault_discord_path, errors='ignore') | default({}, true)).get('secret', {})).get(n8n_vault_discord_field, '') }}
+  no_log: true
+  tags: [n8n, n8n:preflight]
+
+- name: Read the per-source ingest tokens from Vault
+  ansible.builtin.set_fact:
+    n8n_ingest_tokens: >-
+      {{ (n8n_ingest_tokens | default({})) | combine({item: ((lookup('community.hashi_vault.vault_kv2_get', n8n_vault_ingest_token_path_prefix ~ '/' ~ item, errors='ignore') | default({}, true)).get('secret', {})).get('value', '')}) }}
+  loop: "{{ n8n_ingest_sources }}"
+  no_log: true
+  tags: [n8n, n8n:preflight]
+
+- name: Assert the secrets are present and well-formed
+  ansible.builtin.assert:
+    that:
+      - n8n_encryption_key | length >= 32
+      - n8n_owner_password | length >= 24
+      - n8n_discord_url is match('^https://(discord|discordapp)\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$')
+      - n8n_ingest_tokens | dict2items | map(attribute='value') | map('length') | min >= 32
+      - n8n_ingest_tokens | dict2items | map(attribute='value') | select('match', '^[A-Za-z0-9]+$') | list | length == (n8n_ingest_sources | length)
+    fail_msg: >-
+      Missing or malformed Vault secret. Terraform mints (terraform/vault, apply from
+      the main checkout): secret/{{ n8n_vault_encryption_key_path }},
+      secret/{{ n8n_vault_owner_password_path }} and
+      secret/{{ n8n_vault_ingest_token_path_prefix }}/<source> for {{ n8n_ingest_sources | join(', ') }}.
+      The operator seeds secret/{{ n8n_vault_discord_path }} field {{ n8n_vault_discord_field }}
+      (the #diagnoses forum webhook URL, https://discord.com/api/webhooks/<id>/<token>).
+      Also check Vault is reachable (vault-homelab-env loaded).
+      See docs/procedures/aiops-diagnosis.md.
+    quiet: true
+  tags: [n8n, n8n:preflight]
+
+# ---- Identity + layout ------------------------------------------------------
+- name: Install tools used by the installer
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, xz-utils]
+    state: present
+  tags: [n8n, n8n:packages]
+
+- name: Create the n8n group
+  ansible.builtin.group:
+    name: "{{ n8n_group }}"
+    system: true
+  tags: [n8n, n8n:user]
+
+- name: Create the n8n user (no shell)
+  ansible.builtin.user:
+    name: "{{ n8n_user }}"
+    group: "{{ n8n_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: "{{ n8n_data_dir }}"
+  tags: [n8n, n8n:user]
+
+- name: Create n8n directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ n8n_root_dir }}", owner: root, group: root, mode: "0755" }
+    - { path: "{{ n8n_root_dir }}/dl", owner: root, group: root, mode: "0755" }
+    - { path: "{{ n8n_app_dir }}", owner: "{{ n8n_user }}", group: "{{ n8n_group }}", mode: "0755" }
+    - { path: "{{ n8n_config_dir }}", owner: root, group: "{{ n8n_group }}", mode: "0750" }
+    - { path: "{{ n8n_data_dir }}", owner: "{{ n8n_user }}", group: "{{ n8n_group }}", mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+  tags: [n8n, n8n:layout]
+
+# ---- Pinned Node ------------------------------------------------------------
+- name: Download the pinned Node tarball (sha256-verified)
+  ansible.builtin.get_url:
+    url: "{{ n8n_node_url }}"
+    dest: "{{ n8n_root_dir }}/dl/node-{{ n8n_node_version }}-linux-x64.tar.xz"
+    checksum: "sha256:{{ n8n_node_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [n8n, n8n:install]
+
+- name: Unpack Node
+  ansible.builtin.unarchive:
+    src: "{{ n8n_root_dir }}/dl/node-{{ n8n_node_version }}-linux-x64.tar.xz"
+    dest: "{{ n8n_root_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ n8n_root_dir }}/node-{{ n8n_node_version }}-linux-x64/bin/node"
+  notify: Restart n8n
+  tags: [n8n, n8n:install]
+
+- name: Point the stable Node path at the pinned version
+  ansible.builtin.file:
+    src: "{{ n8n_root_dir }}/node-{{ n8n_node_version }}-linux-x64"
+    dest: "{{ n8n_node_link }}"
+    state: link
+    owner: root
+    group: root
+  notify: Restart n8n
+  tags: [n8n, n8n:install]
+
+# ---- Pinned n8n -------------------------------------------------------------
+# Read-only probe, so it also runs under --check (drift-check) and reports the
+# installed version; the install below is gated on it.
+- name: Read the installed n8n version
+  ansible.builtin.command:
+    cmd: >-
+      {{ n8n_node_link }}/bin/node -p
+      "try{require('{{ n8n_app_dir }}/node_modules/n8n/package.json').version}catch(e){''}"
+  register: n8n_installed_version
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  tags: [n8n, n8n:install]
+
+- name: Install the pinned n8n release (npm, as the n8n user)
+  ansible.builtin.command:
+    cmd: >-
+      {{ n8n_node_link }}/bin/node {{ n8n_node_link }}/lib/node_modules/npm/bin/npm-cli.js
+      install --prefix {{ n8n_app_dir }} n8n@{{ n8n_version }}
+      --omit=dev --no-audit --no-fund --no-progress
+  environment:
+    PATH: "{{ n8n_node_link }}/bin:/usr/bin:/bin"
+    HOME: "{{ n8n_data_dir }}"
+    npm_config_cache: "{{ n8n_data_dir }}/.npm"
+  become: true
+  become_user: "{{ n8n_user }}"
+  when: (n8n_installed_version.stdout | default('') | trim) != n8n_version
+  changed_when: true
+  notify: Restart n8n
+  tags: [n8n, n8n:install]
+
+# ---- Config + secrets -------------------------------------------------------
+# The encryption key is a FILE (N8N_ENCRYPTION_KEY_FILE), not an env var, so it
+# is not visible to workflow expressions / the Code node via $env. The only
+# secret left in the process environment is the post-only #diagnoses webhook,
+# which workflows need in an expression (the Discord node cannot create forum
+# threads).
+- name: Write the encryption key (0400, n8n only)
+  ansible.builtin.copy:
+    content: "{{ n8n_encryption_key }}"
+    dest: "{{ n8n_config_dir }}/encryption-key"
+    owner: "{{ n8n_user }}"
+    group: "{{ n8n_group }}"
+    mode: "0400"
+  no_log: true
+  notify: Restart n8n
+  tags: [n8n, n8n:config]
+
+# Deterministic bcrypt (salt derived from the password) so the env file, and
+# therefore the service, does not change on every run. bcryptjs ships inside
+# the pinned n8n, so no controller-side passlib is needed. Skipped until n8n
+# is installed (first run under --check).
+- name: Derive the owner password hash
+  ansible.builtin.command:
+    cmd: >-
+      {{ n8n_node_link }}/bin/node -e
+      "const b=require('{{ n8n_app_dir }}/node_modules/bcryptjs');const p=process.env.OWNER_PW;
+      const s='$2a$10$'+require('crypto').createHash('sha256').update(p+'n8n-owner').digest('hex').slice(0,22);
+      console.log(b.hashSync(p,s))"
+  environment:
+    OWNER_PW: "{{ n8n_owner_password }}"
+  register: n8n_owner_hash_result
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  no_log: true
+  tags: [n8n, n8n:config]
+
+- name: Render the environment file (0600, n8n only)
+  ansible.builtin.template:
+    src: n8n.env.j2
+    dest: "{{ n8n_env_path }}"
+    owner: "{{ n8n_user }}"
+    group: "{{ n8n_group }}"
+    mode: "0600"
+  vars:
+    n8n_owner_hash: "{{ n8n_owner_hash_result.stdout | default('') | trim }}"
+  no_log: true
+  notify: Restart n8n
+  tags: [n8n, n8n:config]
+
+# ---- systemd ----------------------------------------------------------------
+- name: Install n8n.service
+  ansible.builtin.template:
+    src: n8n.service.j2
+    dest: /etc/systemd/system/n8n.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd (n8n)
+    - Restart n8n
+  tags: [n8n, n8n:service]
+
+- name: Flush handlers (the unit must exist before enabling)
+  ansible.builtin.meta: flush_handlers
+  tags: [n8n, n8n:service]
+
+# Skipped in check mode: on a fresh host the unit does not exist until the
+# template above is really applied, and the systemd module would hard-fail.
+- name: Enable + start n8n.service
+  ansible.builtin.systemd:
+    name: n8n.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode
+  tags: [n8n, n8n:service]
+
+- name: Wait for n8n to answer on loopback
+  ansible.builtin.uri:
+    url: "http://{{ n8n_listen_host }}:{{ n8n_listen_port }}/healthz"
+    status_code: 200
+  register: n8n_health
+  until: n8n_health.status == 200
+  retries: 45
+  delay: 2
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [n8n, n8n:service]
+
+# ---- Workflows + credentials (git is the source of truth) -------------------
+# Import is gated on a content checksum so n8n is restarted ONLY when a
+# workflow, credential or token actually changed (a restart interrupts any
+# in-flight agent execution). The owner exists already: the service created it
+# from the env file on first start, and the CLI import needs it.
+- name: Collect the workflow files
+  ansible.builtin.find:
+    paths: "{{ n8n_workflows_dir }}"
+    patterns: "*.json"
+  delegate_to: localhost
+  become: false
+  register: n8n_workflow_files
+  when: n8n_import_workflows | bool
+  tags: [n8n, n8n:workflows]
+
+- name: Load the workflow definitions
+  ansible.builtin.set_fact:
+    n8n_workflow_docs: "{{ n8n_workflow_docs | default([]) + [lookup('file', item.path) | from_json] }}"
+  loop: "{{ n8n_workflow_files.files | sort(attribute='path') }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: n8n_import_workflows | bool
+  tags: [n8n, n8n:workflows]
+
+- name: Compute the import checksum
+  ansible.builtin.set_fact:
+    n8n_import_checksum: >-
+      {{ ((n8n_workflow_docs | default([]) | to_json(sort_keys=True))
+          ~ (n8n_ingest_tokens | to_json(sort_keys=True))
+          ~ n8n_version) | hash('sha256') }}
+  no_log: true
+  when: n8n_import_workflows | bool
+  tags: [n8n, n8n:workflows]
+
+- name: Read the last imported checksum
+  ansible.builtin.slurp:
+    src: "{{ n8n_data_dir }}/.aiops-import-checksum"
+  register: n8n_import_marker
+  failed_when: false
+  tags: [n8n, n8n:workflows]
+
+- name: Import workflows and credentials, publish, restart
+  when:
+    - n8n_import_workflows | bool
+    - not ansible_check_mode
+    - (n8n_import_marker.content | default('') | b64decode | trim) != n8n_import_checksum
+  tags: [n8n, n8n:workflows]
+  block:
+    - name: Create the import staging directory (n8n only)
+      ansible.builtin.file:
+        path: "{{ n8n_import_dir }}"
+        state: directory
+        owner: "{{ n8n_user }}"
+        group: "{{ n8n_group }}"
+        mode: "0700"
+
+    - name: Build the credential list
+      ansible.builtin.set_fact:
+        n8n_credential_docs: >-
+          {{ (n8n_credential_docs | default([])) + [{
+               'id': 'aiopsIngest' ~ (item | capitalize) ~ '01',
+               'name': 'aiops-ingest-' ~ item,
+               'type': 'httpHeaderAuth',
+               'data': {'name': 'X-AIOPS-Token', 'value': n8n_ingest_tokens[item]}
+             }] }}
+      loop: "{{ n8n_ingest_sources }}"
+      no_log: true
+
+    - name: Stage the credentials (decrypted JSON; deleted below)
+      ansible.builtin.copy:
+        content: "{{ n8n_credential_docs | to_nice_json }}"
+        dest: "{{ n8n_import_dir }}/credentials.json"
+        owner: "{{ n8n_user }}"
+        group: "{{ n8n_group }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Stage the workflows
+      ansible.builtin.copy:
+        content: "{{ [item] | to_nice_json }}"
+        dest: "{{ n8n_import_dir }}/workflow-{{ item.id }}.json"
+        owner: "{{ n8n_user }}"
+        group: "{{ n8n_group }}"
+        mode: "0600"
+      loop: "{{ n8n_workflow_docs }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Import the credentials
+      ansible.builtin.command:
+        cmd: "{{ n8n_node_link }}/bin/node {{ n8n_app_dir }}/node_modules/n8n/bin/n8n import:credentials --input={{ n8n_import_dir }}/credentials.json"
+      environment: &n8n_cli_env
+        PATH: "{{ n8n_node_link }}/bin:/usr/bin:/bin"
+        HOME: "{{ n8n_data_dir }}"
+        N8N_USER_FOLDER: "{{ n8n_data_dir }}"
+        N8N_ENCRYPTION_KEY_FILE: "{{ n8n_config_dir }}/encryption-key"
+        N8N_DIAGNOSTICS_ENABLED: "false"
+        N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      become: true
+      become_user: "{{ n8n_user }}"
+      changed_when: true
+
+    - name: Import the workflows
+      ansible.builtin.command:
+        cmd: "{{ n8n_node_link }}/bin/node {{ n8n_app_dir }}/node_modules/n8n/bin/n8n import:workflow --input={{ n8n_import_dir }}/workflow-{{ item.id }}.json"
+      environment: *n8n_cli_env
+      become: true
+      become_user: "{{ n8n_user }}"
+      loop: "{{ n8n_workflow_docs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    - name: Publish the workflows
+      ansible.builtin.command:
+        cmd: "{{ n8n_node_link }}/bin/node {{ n8n_app_dir }}/node_modules/n8n/bin/n8n publish:workflow --id={{ item.id }}"
+      environment: *n8n_cli_env
+      become: true
+      become_user: "{{ n8n_user }}"
+      loop: "{{ n8n_workflow_docs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+
+    - name: Restart n8n so the published workflows activate
+      ansible.builtin.systemd:
+        name: n8n.service
+        state: restarted
+
+    - name: Record the imported checksum
+      ansible.builtin.copy:
+        content: "{{ n8n_import_checksum }}"
+        dest: "{{ n8n_data_dir }}/.aiops-import-checksum"
+        owner: "{{ n8n_user }}"
+        group: "{{ n8n_group }}"
+        mode: "0600"
+
+  always:
+    # The staged credentials are decrypted. Remove them whatever happened.
+    - name: Remove the import staging directory
+      ansible.builtin.file:
+        path: "{{ n8n_import_dir }}"
+        state: absent
+
+# ---- Smoke test (read-only, posts nothing) ----------------------------------
+# A request WITHOUT the token must be refused (403). That proves the webhook is
+# registered (an unregistered route would be 404) and that auth is enforced,
+# without sending anything to Discord. Active workflows register a little after
+# /healthz comes up, so retry.
+- name: Verify the ingest route is registered and refuses unauthenticated calls
+  ansible.builtin.uri:
+    url: "http://{{ n8n_listen_host }}:{{ n8n_listen_port }}/webhook/aiops/{{ item }}"
+    method: POST
+    body_format: json
+    body: {}
+    status_code: 403
+  loop: "{{ n8n_ingest_sources }}"
+  register: n8n_smoke
+  until: n8n_smoke.status == 403
+  retries: 30
+  delay: 2
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - n8n_import_workflows | bool
+  tags: [n8n, n8n:verify]

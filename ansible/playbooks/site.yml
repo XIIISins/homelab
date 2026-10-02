@@ -78,6 +78,7 @@
 - import_playbook: asgard-haproxy-etcd.yml
 - import_playbook: asgard-factorio.yml
 - import_playbook: asgard-hermod.yml
+- import_playbook: asgard-gna.yml
 - import_playbook: asgard-zabbix.yml
 - import_playbook: asgard-proxmox.yml
 - import_playbook: asgard-pbs.yml

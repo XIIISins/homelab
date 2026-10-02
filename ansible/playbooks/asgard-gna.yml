@@ -1,0 +1,43 @@
+# ansible/playbooks/asgard-gna.yml
+---
+# Gna - AIOps agent host (n8n), LXC 1121 on Urd (Phase 10d1).
+#
+# Bootstrap (day 1, before the `ansible` user exists):
+#     ansible-playbook playbooks/asgard-gna.yml -e 'ansible_user=root' --tags baseline
+# then the full play as `ansible` (hardening locks root SSH out at the end):
+#     ansible-playbook playbooks/asgard-gna.yml
+#
+# Prerequisites (operator, from the main checkout): `terraform apply` in
+# terraform/proxmox/asgard-lxcs (the LXC), terraform/vault (the encryption key,
+# owner password and ingest tokens), terraform/netbox (-parallelism=2) and
+# terraform/adguard (the name). The #diagnoses webhook is operator-seeded.
+- name: Configure Gna (AIOps agent host, n8n)
+  hosts: n8n_agent
+  become: true
+
+  # Single host. Serialised so a future second agent never restarts both at once.
+  serial: 1
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # Fronts ONLY /webhook/* on :8081 from the allow-listed alert sources
+    # (group_vars/n8n_agent.yml). Lands before n8n so the listener is gated
+    # from the moment the agent starts.
+    - role: caddy-reverse-proxy
+      tags: [caddy]
+
+    # Pinned Node + pinned n8n, loopback listener, git-managed workflows.
+    - role: n8n-agent
+      tags: [n8n]
+
+    # journald (n8n) + the Caddy JSON access log -> VictoriaLogs.
+    - role: vlagent
+      tags: [vlagent]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

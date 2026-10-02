@@ -1,0 +1,48 @@
+# ansible/inventory/group_vars/n8n_agent.yml
+---
+# Gna - AIOps agent host (n8n), LXC 1121 on Urd, 10.0.11.221 (Phase 10d1).
+# Plan: docs/operations/10d-diagnosis-chatops.md. Procedure:
+# docs/procedures/aiops-diagnosis.md.
+
+# resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/
+# asgard-lxcs/lxcs.tf writes the AdGuard VIP + UCG fallback at every container
+# start). Ansible stops managing it so the two don't fight on reboot. See
+# docs/known-issues/lxc-proxmox.md.
+baseline_manage_resolv_conf: false
+
+# -----------------------------------------------------------------------------
+# caddy-reverse-proxy: the ONLY off-host surface
+# -----------------------------------------------------------------------------
+# One listener, :8081, allow-listed to the alert sources that actually post to
+# the agent, and restricted to /webhook/*. Everything else (the editor, the
+# REST API, /healthz, /webhook-test/*) answers 404 from Caddy and never reaches
+# n8n; the editor is reached with `ssh -L 5678:127.0.0.1:5678 ansible@gna`.
+# Validated with `caddy validate` + a request matrix before merge.
+#
+# Add a CIDR here in the SAME change that cuts a source over (and add the source
+# to n8n_ingest_sources + terraform/vault locals.n8n_ingest_sources):
+#   Semaphore / K8s-side  10.0.21.0/24     PG trio (Patroni)  10.0.11.230-.232
+#   Frigg (listener)      10.0.11.30/32    S4 prober          runs from Semaphore
+caddy_sites:
+  - name: gna-ingest
+    listen: ":8081"
+    upstream: "127.0.0.1:5678"
+    allowed_cidrs:
+      # Hugin (Zabbix server) - the first cut-over source
+      - "10.0.11.21/32"
+    # Runs inside the allowed handle, ahead of reverse_proxy (Caddy orders
+    # `respond` before `reverse_proxy`): anything that is not a production
+    # webhook path is a 404.
+    extra_directives:
+      - "@notwebhook not path /webhook/*"
+      - "respond @notwebhook 404"
+
+# -----------------------------------------------------------------------------
+# vlagent: journald (n8n) + the Caddy JSON access log
+# -----------------------------------------------------------------------------
+# The Caddy log is the "who tried to hand the agent an alert" trail.
+vlagent_log_inputs:
+  - path: /var/log/syslog
+    service: syslog
+  - path: /var/log/caddy/gna-ingest.log
+    service: caddy-gna

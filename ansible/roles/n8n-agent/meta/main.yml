@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: n8n_agent
+  author: XIIISins
+  description: >
+    n8n as the AIOps diagnosis agent: pinned Node + pinned n8n as an unprivileged
+    hardened systemd service with a loopback-only listener, Vault-sourced secrets,
+    and git-managed workflows imported on every run (Phase 10d1).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+dependencies: []
