@@ -1,0 +1,15 @@
+# k8s/asgard/infrastructure/monitoring-namespace/middleware-aiops-read-ipallow.yaml
+#
+# Source-IP allow-list for the AIOps Toolbelt's read-only VictoriaLogs / VictoriaMetrics routes (Phase 10d2,
+# `logs.*` / `metrics.*` tools). Only Frigg (the Toolbelt host) may use them. Traefik sees the real client IP because
+# the Traefik Service is externalTrafficPolicy: Local (infrastructure/traefik/helmrelease.yaml). Referenced via an
+# ExtensionRef filter from the two HTTPRoutes in apps/victorialogs and apps/victoriametrics.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: aiops-read-ipallow
+  namespace: monitoring
+spec:
+  ipAllowList:
+    sourceRange:
+      - 10.0.11.30/32 # Frigg (Toolbelt API host)

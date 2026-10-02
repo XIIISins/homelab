@@ -1,0 +1,38 @@
+# k8s/asgard/apps/victoriametrics/httproute-aiops-read.yaml
+#
+# Read-only query access to VictoriaMetrics for the AIOps Toolbelt (Phase 10d2, `metrics.*` tools). A SEPARATE hostname from
+# vmui (`metric.`): carving paths out of the UI host would break vmui in the browser. Here: GET only, EXACT paths for the
+# instant and range query endpoints, only from Frigg (aiops-read-ipallow). The admin API (`/api/v1/admin/...`, delete_series,
+# snapshots) and every write path are simply not routable. DNS: terraform/adguard/rewrites.tf
+# (`metrics-read.niflheim.xiiisins.com`); TLS: the existing *.niflheim wildcard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: victoriametrics-aiops-read
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - metrics-read.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - method: GET
+          path:
+            type: Exact
+            value: /api/v1/query
+        - method: GET
+          path:
+            type: Exact
+            value: /api/v1/query_range
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: aiops-read-ipallow
+      backendRefs:
+        - name: victoriametrics-victoria-metrics-single-server
+          port: 8428

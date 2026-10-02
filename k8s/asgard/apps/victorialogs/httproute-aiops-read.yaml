@@ -1,0 +1,34 @@
+# k8s/asgard/apps/victorialogs/httproute-aiops-read.yaml
+#
+# Read-only query access to VictoriaLogs for the AIOps Toolbelt (Phase 10d2, `logs.query` tool). A SEPARATE hostname from
+# the UI (`logs.`): carving paths out of the UI host would break the native VL UI for browsers, which calls the same
+# endpoints. Here: GET only, ONLY the LogsQL read endpoints, only from Frigg (aiops-read-ipallow). No Authentik: the IP
+# allow-list is the control, and nothing writable or administrative is routable (no /insert/, no /delete/, no /internal/).
+# DNS: terraform/adguard/rewrites.tf (`logs-read.niflheim.xiiisins.com`); TLS: the existing *.niflheim wildcard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: victorialogs-aiops-read
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - logs-read.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - method: GET
+          path:
+            type: PathPrefix
+            value: /select/logsql/
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: aiops-read-ipallow
+      backendRefs:
+        - name: victorialogs-victoria-logs-single-server
+          port: 9428
