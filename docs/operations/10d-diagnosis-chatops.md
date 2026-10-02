@@ -94,7 +94,7 @@ Defaults are picked; flag any to flip.
 
 - [ ] **D-a. Anthropic key.** Dedicated API key for the n8n agent in Vault (`secret/ansible/aiops/anthropic-api-key`) — not the operator's subscription login (separate rate limits, no coupling to `frigg-reauth-listener`, spend separately visible). Est. 5–15 k tokens in + a few k out per execution; bounded by the daily cap.
 - [ ] **D-b. Discord shape.** A **forum channel `#diagnoses`** + webhook (`secret/ansible/aiops/discord-diagnosis`): one post per incident group (`thread_name`), updates via `?thread_id=`. Webhooks can't create threads in ordinary text channels; a bot could, but 10e needs a bot anyway. *Operator step: create the channel + webhook.*
-- [ ] **D-c. Producer-side changes (reverses part of 10c).** Operator decision 2026-10-02: monitoring systems send to n8n directly. Cutover per source in the order above; Zabbix stamps `runbook_id` via trigger tags (closes 10c follow-up 3 for Zabbix); the 10c routing table remains the fallback. Confirm the order and that Patroni/Frigg changes are acceptable as separate small PRs.
+- [ ] **D-c. Producer-side changes (reverses part of 10c).** Operator decision 2026-10-02: monitoring systems send to n8n directly. Cutover per source in the order above; Zabbix stamps `runbook_id` via trigger tags (closes 10c follow-up 3 for Zabbix); the 10c routing table remains the fallback. **Confirmed by the operator 2026-10-02: touching producers is fine because the change is additive.** Still ship Patroni/Frigg as separate small PRs.
 - [ ] **D-d. Model.** Sonnet-class default; Opus-class for groups of ≥ 3 alerts or `critical` + unknown layer. A workflow setting, not hard-coded.
 - [ ] **D-e. Which alerts reach the agent.** Zabbix: an action on `critical`/`alert`-severity triggers (and `info` for canary hosts only). Everything else still goes to Discord as today; no execution.
 - [ ] **D-f. n8n placement:** dedicated LXC (above) vs reuse of the asgard instance. Default dedicated; asgard reuse is cheaper but inherits its failure domain and public webhook surface.
@@ -191,7 +191,7 @@ Shadow first: for ~2 weeks `#diagnoses` is read by the operator only and each th
 ## What I need from the operator
 
 1. Confirm or flip **D-a … D-f** — in particular **dedicated n8n LXC vs the asgard instance**.
-2. OK to modify the producers for the analysis path (Zabbix first; order above)?
+2. ~~OK to modify the producers for the analysis path?~~ Confirmed 2026-10-02 (additive).
 3. Create the `#diagnoses` forum channel + webhook (D-b); I seed `secret/ansible/aiops/discord-diagnosis`, you mirror to 1P.
 4. Nothing else blocks 10d1: the stub workflow + the Zabbix media type needs neither the Anthropic key nor the toolbelt.
 
