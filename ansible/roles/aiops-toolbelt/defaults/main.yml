@@ -19,6 +19,13 @@ aiops_toolbelt_listen_port: 8090
 aiops_toolbelt_allow:
   - 10.0.11.221/32 # Gna (n8n AIOps agent)
 aiops_toolbelt_daily_run_cap: 40
+# Outbound: the `reach.tcp` tool opens bounded TCP connections to the homelab (a substitute for
+# SSH). Everything else this process talks to is a caller above. Narrow this per tool as the
+# read-only backends land (each gets its own address); it never includes the internet.
+aiops_toolbelt_egress_allow:
+  - 10.0.0.0/8
+# Recorded tool responses for acceptance replays (X-AIOPS-Replay), under the code directory.
+aiops_toolbelt_replay_dir: "{{ aiops_toolbelt_home }}/aiops/replays"
 
 # Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
 aiops_toolbelt_vault_addr: "https://vault.niflheim.xiiisins.com"
@@ -35,6 +42,7 @@ aiops_toolbelt_source_files:
   - toolbelt/__init__.py
   - toolbelt/core.py
   - toolbelt/server.py
+  - toolbelt/tools.py
   - tools/normalize.py
   - tools/zabbix_event.py
   - alert-routing.yml

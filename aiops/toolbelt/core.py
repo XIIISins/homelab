@@ -36,6 +36,9 @@ sys.path.insert(0, str(REPO / "aiops" / "tools"))
 import normalize  # noqa: E402
 import zabbix_event  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tools  # noqa: E402
+
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
 _FORWARD = {
@@ -94,6 +97,9 @@ class Config:
     max_open_incidents: int = 20      # queue depth: received/grouped/running incidents
     run_wall_clock_seconds: int = 600  # an incident `running` longer than this is reported as timed out
     placement: dict[str, str] = field(default_factory=dict)  # host -> hypervisor node (from NetBox)
+    max_tool_calls_per_incident: int = 40  # live tool calls one incident may make (replay is not counted)
+    replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
+    live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
 
 
 def iso(ts: int) -> str:
@@ -294,11 +300,54 @@ class Toolbelt:
             self.audit("state", incident=inc_id, state=state, thread_id=thread_id)
         return self.group(inc_id)
 
+    # ---- /tool/<name> --------------------------------------------------------------------------
+    def call_tool(self, name: str, args: object, incident_id: object = None, replay: str | None = None) -> dict:
+        """One read-only tool call. Unknown or write-shaped names never reach a handler."""
+        try:
+            clean = tools.validate(name, args)
+        except tools.ToolError as e:
+            self.audit("tool_denied", tool=name, reason=e.message[:120], incident=incident_id)
+            raise Rejected(e.status, e.message)
+        h = tools.args_hash(name, clean)
+        t0 = time.monotonic()
+        if replay:
+            if self.cfg.replay_dir is None:
+                raise Rejected(501, "replay is not configured")
+            try:
+                out = tools.replay(self.cfg.replay_dir, replay, name, clean)
+            except tools.ToolError as e:
+                if e.message == "NO_RECORDING":
+                    with self._lock:
+                        n = self._bump("no_recording")
+                    self.audit("tool_no_recording", tool=name, args=h, scenario=replay, count_today=n)
+                raise Rejected(e.status, e.message)
+            self.audit("tool_call", tool=name, args=h, replayed=True, scenario=replay, incident=incident_id)
+            return {"tool": name, "replayed": True, "result": out}
+        if isinstance(incident_id, bool) or not isinstance(incident_id, int):
+            raise Rejected(400, "incident_id (integer) is required for live tool calls")
+        with self._lock:
+            self._incident(incident_id)  # 404 if unknown
+            n = self._bump(f"tools:{incident_id}")
+            if n > self.cfg.max_tool_calls_per_incident:
+                self.audit("tool_denied", tool=name, reason="per-incident-cap", incident=incident_id)
+                raise Rejected(429, "per-incident tool-call cap reached")
+        if self.cfg.live is None:
+            raise Rejected(501, "live tools are not configured")
+        try:
+            out = tools.live(self.cfg.live, name, clean)
+        except tools.ToolError as e:
+            self.audit("tool_error", tool=name, args=h, status=e.status, incident=incident_id)
+            raise Rejected(e.status, e.message)
+        self.audit("tool_call", tool=name, args=h, replayed=False, incident=incident_id,
+                   ms=int((time.monotonic() - t0) * 1000))
+        return {"tool": name, "replayed": False, "result": out}
+
     def stats(self) -> dict:
         with self._lock:
             return {"open_incidents": self._open_incidents(), "runs_today": self._counter("runs"),
                     "daily_run_cap": self.cfg.daily_run_cap, "dropped_today": self._counter("dropped_queue_full"),
-                    "orphan_resolved_today": self._counter("orphan_resolved")}
+                    "orphan_resolved_today": self._counter("orphan_resolved"),
+                    "no_recording_today": self._counter("no_recording")}
 
 
 # ---- input validation (the schema file is the contract; this is the dependency-free gate) ----------

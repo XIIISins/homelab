@@ -27,18 +27,19 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% for cidr in aiops_toolbelt_allow %}
   --allow {{ cidr }} \
 {% endfor %}
+  --replay-dir {{ aiops_toolbelt_replay_dir }} \
   --daily-run-cap {{ aiops_toolbelt_daily_run_cap }}
 Restart=on-failure
 RestartSec=10
 
-# The process may only talk to its callers (this will gain the read-only endpoints, one
-# address per tool, as they land). Both directions: this also stops it dialling out.
+# The process may only talk to its callers and, for the reach.tcp probe, the homelab ranges.
+# Both directions; never the internet.
 IPAddressDeny=any
 IPAddressAllow=127.0.0.0/8
 # Frigg itself, so the role's own anonymous-probe checks reach the listener. The app-level
 # allow-list still refuses it for every route but /healthz.
 IPAddressAllow={{ aiops_toolbelt_listen_host }}
-{% for cidr in aiops_toolbelt_allow %}
+{% for cidr in aiops_toolbelt_allow + aiops_toolbelt_egress_allow %}
 IPAddressAllow={{ cidr }}
 {% endfor %}
 NoNewPrivileges=yes
