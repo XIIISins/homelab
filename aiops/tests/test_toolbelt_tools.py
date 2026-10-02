@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -157,10 +159,17 @@ class Live(unittest.TestCase):
         with self.assertRaises(core.Rejected) as cm:
             self.tb.call_tool("git.log", {}, self.inc)
         self.assertEqual(cm.exception.status, 501)
-        self.tb.cfg.live.repo_dir = REPO
+        # a throwaway two-commit repo: the real checkout is shallow in CI, so it cannot be the fixture
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+               "PATH": os.environ["PATH"], "HOME": str(self.tmp)}
+        for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "one"], ["commit", "-q", "--allow-empty", "-m", "two"]):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, env=env)
+        self.tb.cfg.live.repo_dir = repo
         self.tb.cfg.max_tool_calls_per_incident = 50
-        out =self.tb.call_tool("git.log", {"max": 2}, self.inc)["result"]["output"]
-        self.assertEqual(len(out.strip().splitlines()), 2)
+        out = self.tb.call_tool("git.log", {"max": 2}, self.inc)["result"]["output"]
+        self.assertEqual([ln.split(" ", 4)[-1] for ln in out.strip().splitlines()], ["two", "one"])
         for path in ("../etc/passwd", "/etc/passwd", "a/../../b"):
             with self.assertRaises(core.Rejected, msg=path) as cm:
                 self.tb.call_tool("git.log", {"path": path}, self.inc)
