@@ -128,7 +128,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 *Detailed implementation plan (drafted 2026-10-02): [`10d-diagnosis-chatops.md`](10d-diagnosis-chatops.md).*
 
-- **10d1 — Webhook bridge.** Hermod/Zabbix → Frigg agent session carrying the structured context; idempotent per fingerprint; authenticated.
+- **10d1 — Direct ingress to n8n.** Each monitoring system (Zabbix first) sends a second, context-rich message **directly to a dedicated n8n agent** alongside its existing Hermod notification; idempotent per fingerprint, grouped per incident, authenticated. Hermod is not on the analysis path.
 - **10d2 — Read-only toolbelt.** Scoped, **write-less** credentials: read-only kubectl ServiceAccount, VL/VM query, Zabbix API read, NetBox read, Proxmox audit-only role, Semaphore read.
 - **10d3 — Discord UX + diagnosis template.** Thread per alert with correlated logs/metrics, recent commits, matching known-issue, and an explicit **host-vs-workload classification**.
 - **Acceptance — incident replays** (each fed to the agent as if live): 2026-09-30 Skuld freeze (must name a dead host, not a bad release); 2026-10-01 Calico datastore prune (must flag K3s per-addon pruning); the etcd raft-drop syslog flood (disk-fill on surviving CPs); the 2026-05-17 Authentik/Redis CP-taint miss. Pass = correct layer + matching known-issue + no action taken.
