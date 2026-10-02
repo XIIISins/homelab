@@ -37,6 +37,7 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 | Zabbix (server / agent-API / SAML / S4 prober) | [zabbix.md](zabbix.md) | repo URL, default creds/lockout, community.zabbix module shapes, SAML, infra-health-check |
 | Caddy reverse-proxy role | [caddy.md](caddy.md) | log-dir ownership, Cloudsmith pin roll-forward |
 | Semaphore (Ansible scheduler) | [semaphore.md](semaphore.md) | PG backend, collection skew/custom image, Vault config keys, inventory cache |
+| n8n AIOps agent (Gná, Phase 10d) | [n8n-aiops.md](n8n-aiops.md) | `/healthz` vs active-workflow race, env-managed owner + CLI import, publish needs restart, Node ≥ 22.22 pin, Discord forum threads, `$env` exposure, Caddy `/webhook/*` restriction |
 | Outline (wiki) | [outline.md](outline.md) | image path, Recreate strategy, OIDC callback, per-consumer Redis |
 | MicroBin (pastebin / file-share) | [microbin.md](microbin.md) | hardcoded DB path, route names, partial-auth gating |
 | CI / GitHub Actions / branch rulesets | [ci-github-actions.md](ci-github-actions.md) | CI gate, gitleaks version, kubeconform/validate pitfalls, required-check + ruleset behaviour |
