@@ -438,6 +438,33 @@ class Toolbelt:
                     "diagnosis": json.loads(d["diagnosis_json"]) if d else None, "model": d["model"] if d else None,
                     "calls": calls, "no_recording": sum(1 for c in calls if c["outcome"] == "no_recording")}
 
+    # ---- GET /watchdog (the n8n watchdog workflow polls this) ------------------------------------
+    def watchdog(self, limit: int = 10) -> list[dict]:
+        """Incidents whose run died without posting: `running` for longer than the wall-clock cap and still no thread.
+        Each comes with the plain fallback post (thread name + content) so the caller needs no logic. Posting it and
+        moving the incident to `posted` (POST /group/<id>/state) removes it from this list; if the post fails, the next
+        poll offers it again, so an alert is never silently left without a thread."""
+        with self._lock:
+            now = self.now()
+            rows = self.db.execute(
+                "SELECT id FROM incidents WHERE state='running' AND thread_id IS NULL AND running_at IS NOT NULL AND running_at <= ? "
+                "ORDER BY id LIMIT ?", (now - self.cfg.run_wall_clock_seconds, limit)).fetchall()
+        out = []
+        for r in rows:
+            g = self.group(r["id"])
+            first = g["alerts"][0] if g["alerts"] else {"host": "?", "check": "alert", "severity": "?"}
+            suffix = (f" (+{g['alert_count'] - 1} more)" if g["alert_count"] > 1 else "") + (" [replay]" if g["replay"] else "")
+            hosts = ", ".join(a["host"] + ": " + a["summary"] for a in g["alerts"][:10])
+            out.append({
+                "incident_id": g["incident_id"],
+                "thread_name": f"[{first['severity']}] {first['host']} - {first['check']}{suffix} (no analysis)"[:95],
+                "content": ("**Analysis unavailable** (the diagnosis run did not finish); the alert itself is in the usual channel.\n"
+                            f"incident #{g['incident_id']} - {g['alert_count']} alert(s) - priority {g['priority']}\n- " + hosts.replace(", ", "\n- "))[:1900],
+            })
+        if out:
+            self.audit("watchdog_offered", incidents=[o["incident_id"] for o in out])
+        return out
+
     # ---- /diagnosis/<incident> -----------------------------------------------------------------
     def diagnose(self, incident_id: int, body: object) -> dict:
         """Validate a diagnosis against structure AND the audit trail; return the Discord rendering.

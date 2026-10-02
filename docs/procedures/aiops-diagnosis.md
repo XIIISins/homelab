@@ -132,6 +132,19 @@ On the injection control's first run the agent resisted the planted text (its re
 
 Replay proves the agent's reasoning; this proves the plumbing with real tools. A canary "agent not available" fault is Average, which the agent never receives (n8n gets High and Disaster only), so use a temporary High trigger: create `max(/canary-1/zabbix[host,agent,available],1m)=0` at priority High on `canary-1` through the Zabbix API, stop `zabbix-agent2` there, and watch `journalctl -u aiops-toolbelt` on Frigg for `leader` -> `state running` -> `tool_call`s -> `diagnosis_accepted` -> `state posted` (about 4 minutes). Then start the agent again, wait for the trigger to recover (the availability item polls every minute, so a few minutes), and delete the trigger. A canary is capped at the `info` tier, so the thread is low priority by design. **Repeat on a DIFFERENT canary** (or wait 30 minutes): the same host and check inside the cooldown after a recovery is a `reopened` on the first incident, which updates its thread and starts no new agent run.
 
+## Re-verify the read-only credentials
+
+Run after ANY credential, role or permission change, and periodically:
+
+```bash
+python3 aiops/tools/verify_readonly.py            # zabbix + pve: reads allowed, every write refused
+python3 aiops/tools/mint_netbox_ro.py             # idempotent; with the secret present it only reconciles and re-proves
+python3 aiops/tools/mint_semaphore_ro.py          # same
+python3 aiops/tools/mint_kube_ro.py               # same (refreshes the Vault copy from the Secret, then the 20-check RBAC matrix)
+```
+
+Each prints only outcomes and exits non-zero if a check is wrong. The Proxmox writes target a NON-EXISTENT vmid on purpose (permission is checked before existence).
+
 ## Operate
 
 | Task | How |

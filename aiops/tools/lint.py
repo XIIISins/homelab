@@ -385,7 +385,7 @@ N8N_NODE_ALLOW = {
     "n8n-nodes-base.webhook", "n8n-nodes-base.respondToWebhook", "n8n-nodes-base.set",
     "n8n-nodes-base.if", "n8n-nodes-base.switch", "n8n-nodes-base.merge", "n8n-nodes-base.noOp",
     "n8n-nodes-base.wait", "n8n-nodes-base.httpRequest", "n8n-nodes-base.splitInBatches",
-    "n8n-nodes-base.stopAndError", "n8n-nodes-base.stickyNote",
+    "n8n-nodes-base.stopAndError", "n8n-nodes-base.stickyNote", "n8n-nodes-base.scheduleTrigger",
     # the diagnosis agent (10d3): exactly these three LangChain nodes. NOT the whole package: it also
     # ships code tools, sub-workflow tools, MCP clients and other model providers, none of which may
     # appear here without a deliberate change to this list.

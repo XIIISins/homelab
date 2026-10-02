@@ -103,6 +103,8 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list):
                     return self._send(200, tb.diagnose(int(m.group(1)), self._body()))
                 if method == "GET" and (m := _REPLAY.match(path)):
                     return self._send(200, tb.replay_latest(m.group(1)))
+                if method == "GET" and path == "/watchdog":
+                    return self._send(200, tb.watchdog())
                 if method == "GET" and path == "/stats":
                     return self._send(200, tb.stats())
             except core.Rejected as e:

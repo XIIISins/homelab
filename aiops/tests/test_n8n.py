@@ -134,6 +134,18 @@ class N8nWorkflowLint(unittest.TestCase):
 
         self.assertEqual(build_ingest.OUT.read_text(), build_ingest.render(), "run python3 aiops/n8n/build_ingest.py")
 
+    def test_committed_watchdog_is_what_the_generator_produces(self):
+        sys.path.insert(0, str(REPO / "aiops" / "n8n"))
+        import build_ingest
+
+        self.assertEqual(build_ingest.WATCHDOG_OUT.read_text(), build_ingest.render_watchdog(), "run python3 aiops/n8n/build_ingest.py")
+
+    def test_the_watchdog_only_talks_to_the_toolbelt_and_discord_and_needs_no_webhook(self):
+        wf = json.loads((REPO / "aiops" / "n8n" / "workflows" / "watchdog.json").read_text())
+        types = {n["type"] for n in wf["nodes"]}
+        self.assertEqual(types, {"n8n-nodes-base.scheduleTrigger", "n8n-nodes-base.httpRequest"})
+        self.assertFalse(wf["active"])
+
     def test_other_langchain_nodes_are_not_allowed(self):
         for bad in ("toolCode", "toolWorkflow", "mcpClientTool", "lmChatOpenAi", "agentTool"):
             wf = copy.deepcopy(self.wf)
