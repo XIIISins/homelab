@@ -147,6 +147,8 @@ class LiveConfig:
     # Any cluster member answers for the whole cluster; try them in turn so a dead node is still diagnosable.
     pve_urls: tuple = ("https://10.0.254.11:8006", "https://10.0.254.12:8006", "https://10.0.254.13:8006")
     pve_timeout: float = 5.0
+    zabbix_url: str = "http://10.0.11.21/api_jsonrpc.php"  # the credential file's `url` wins when present
+    zabbix_timeout: float = 10.0
 
 
 def _yaml(path: Path):

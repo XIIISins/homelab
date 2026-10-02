@@ -63,6 +63,26 @@
   when: not ansible_check_mode
   tags: [zabbix, zabbix:aiops-readonly]
 
+- name: List every template group (a host's templates are only visible with read rights on them)
+  ansible.builtin.uri:
+    url: "http://localhost:{{ zabbix_agent_api_port }}/api_jsonrpc.php"
+    method: POST
+    headers:
+      Content-Type: application/json-rpc
+      Authorization: >-
+        Bearer {{ lookup('community.hashi_vault.vault_kv2_get',
+                         zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    body_format: json
+    body: {jsonrpc: "2.0", method: templategroup.get, params: {output: [name]}, id: 1}
+    return_content: true
+  register: zabbix_aiops_templategroups
+  changed_when: false
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  when: not ansible_check_mode
+  tags: [zabbix, zabbix:aiops-readonly]
+
 - name: Create the read-only user group (read on every host group, no GUI access)
   when: not ansible_check_mode
   community.zabbix.zabbix_usergroup:
@@ -71,6 +91,10 @@
     hostgroup_rights: >-
       {{ zabbix_aiops_hostgroups.json.result | map(attribute='name') | sort
          | map('community.general.dict_kv', 'host_group')
+         | map('combine', {'permission': 'read-only'}) | list }}
+    templategroup_rights: >-
+      {{ zabbix_aiops_templategroups.json.result | map(attribute='name') | sort
+         | map('community.general.dict_kv', 'template_group')
          | map('combine', {'permission': 'read-only'}) | list }}
     state: present
   delegate_to: "{{ zabbix_agent_api_delegate }}"

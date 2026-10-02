@@ -38,6 +38,7 @@ aiops_toolbelt_repo_unit_name: aiops-toolbelt-repo
 aiops_toolbelt_creds_dir: "/run/{{ aiops_toolbelt_runtime_dir_name }}/creds"
 aiops_toolbelt_credentials:
   pve: secret/data/ansible/aiops/pve-token # terraform/proxmox/aiops-access
+  zabbix: secret/data/ansible/aiops/zabbix-token # roles/zabbix-server tasks/aiops-token.yml (explicit tag)
 aiops_toolbelt_replay_dir: "{{ aiops_toolbelt_home }}/aiops/replays"
 
 # Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
