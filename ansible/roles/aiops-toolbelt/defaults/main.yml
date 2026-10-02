@@ -40,6 +40,7 @@ aiops_toolbelt_credentials:
   pve: secret/data/ansible/aiops/pve-token # terraform/proxmox/aiops-access
   zabbix: secret/data/ansible/aiops/zabbix-token # roles/zabbix-server tasks/aiops-token.yml (explicit tag)
   netbox: secret/data/ansible/aiops/netbox-token # aiops/tools/mint_netbox_ro.py (view-only user + token)
+  kube: secret/data/ansible/aiops/kube-token # aiops/tools/mint_kube_ro.py ({token, ca, servers}; k8s/asgard/infrastructure/aiops-readonly)
 # Hypervisor placement (guest -> node) so a burst of alerts groups by shared hypervisor. Built from NetBox by a timer
 # unit of its own, hot-reloaded by the API; the previous map is kept if NetBox is down or answers implausibly little.
 aiops_toolbelt_placement_file: /var/lib/aiops-toolbelt/placement.json

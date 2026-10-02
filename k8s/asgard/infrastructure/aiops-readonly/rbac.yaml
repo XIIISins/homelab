@@ -1,8 +1,11 @@
 # k8s/asgard/infrastructure/aiops-readonly/rbac.yaml
 #
-# The AIOps Toolbelt's read-only Kubernetes identity (Phase 10d2, `kube.*` tools). The Frigg token loader mints a
-# short-lived (1 h) token for this ServiceAccount with TokenRequest (`kubectl create token`); no long-lived credential
-# exists. See docs/operations/10d-diagnosis-chatops.md ("Read-only toolbelt").
+# The AIOps Toolbelt's read-only Kubernetes identity (Phase 10d2, `kube.*` tools). Its credential is the token Secret
+# below (a long-lived ServiceAccount token, the same kind of static, read-only, revocable credential as the Zabbix, NetBox
+# and Proxmox ones): `aiops/tools/mint_kube_ro.py` copies it to Vault once and the Frigg loader hands it to the Toolbelt.
+# The plan said "1 h tokens minted by the loader", but minting needs admin rights, which would put cluster-admin in a
+# boot-time root process for no gain over a read-only static token. Revoke by deleting the Secret.
+# See docs/operations/10d-diagnosis-chatops.md ("Read-only toolbelt").
 #
 # DELIBERATELY ABSENT, because each would turn "read the cluster's state" into "read or act on its secrets":
 #   - `secrets` (any verb)                          - `configmaps` (they routinely carry credentials)
@@ -22,7 +25,16 @@ kind: ServiceAccount
 metadata:
   name: aiops-readonly
   namespace: aiops
-automountServiceAccountToken: false # nothing runs as this account; tokens are minted on demand via TokenRequest
+automountServiceAccountToken: false # no pod runs as this account; only the explicit token Secret below is a credential
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aiops-readonly-token
+  namespace: aiops
+  annotations:
+    kubernetes.io/service-account.name: aiops-readonly
+type: kubernetes.io/service-account-token # the control plane fills in `token` and `ca.crt`
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
