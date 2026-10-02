@@ -76,7 +76,7 @@ Every endpoint `success: true`, including `homelab_frigg-heartbeat`. From an ind
    ```
    sudo iptables -I OUTPUT -d 100.102.131.126 -p tcp --dport 8080 -j DROP
    ```
-2. Expect a Discord message in the Gatus channel ("No heartbeat from Frigg ...") **within ~15-20 min** (3 missed 300 s intervals, plus up to one interval of phase). Record T0 and the alert time.
+2. Expect a Discord message in the Gatus channel ("No heartbeat from Frigg ...") **within ~15-25 min** (3 missed 300 s intervals, plus up to one interval of phase; the first real test on 2026-10-01 alerted ~23 min after the block). Record T0 and the alert time.
 3. **Prove it was the independent path:** Hermod's Caddy log shows no POST in that window (`ssh hermod sudo tail /var/log/caddy/access.log`), the message arrived in the channel of the seeded webhook, and `grep -ci hermod /etc/gatus/config.yaml` on `do1` is 0.
 4. Restore: `sudo iptables -D OUTPUT -d 100.102.131.126 -p tcp --dport 8080 -j DROP`. A "resolved" message follows after 2 good pushes (~2 min). Confirm `iptables -S OUTPUT` on Frigg no longer has the rule.
 
