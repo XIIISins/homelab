@@ -162,6 +162,8 @@ class LiveConfig:
     netbox_url: str = "https://netbox.niflheim.xiiisins.com"  # the credential file's `url` wins when present
     netbox_timeout: float = 10.0
     kube_timeout: float = 15.0
+    semaphore_project: int = 1
+    semaphore_timeout: float = 15.0
     kube_log_max_chars: int = 20000
 
 
@@ -502,6 +504,44 @@ def _kube(cfg: LiveConfig, name: str, args: dict) -> dict:
     return {"kind": kind, "count": len(out), "items": out[:100], "truncated": len(out) > 100}
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _sem_get(cfg: LiveConfig, path: str):
+    """GET one Semaphore API path with the guest-role token (read-only by Semaphore's own role model; GET only here)."""
+    c = _cred(cfg, "semaphore")
+    req = urllib.request.Request(c["url"].rstrip("/") + path, headers={"Authorization": "Bearer " + c["value"], "Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=cfg.semaphore_timeout) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise ToolError(502, f"semaphore refused the read-only token ({e.code})")
+        raise ToolError(502, f"semaphore answered HTTP {e.code}")
+    except (OSError, ValueError) as e:
+        raise ToolError(502, f"semaphore unreachable: {type(e).__name__}")
+
+
+def _semaphore(cfg: LiveConfig, args: dict) -> dict:
+    """Recent task runs (newest first). For the most recent failures, the redacted tail of the task output: the answer to
+    'why did the last apply / drift-check fail' without the agent needing broader access."""
+    limit = args.get("limit", 10)
+    tasks = _sem_get(cfg, f"/project/{cfg.semaphore_project}/tasks/last")[:limit]
+    out, failed_fetched = [], 0
+    for t in tasks:
+        row = {"id": t["id"], "template": t.get("tpl_alias"), "status": t.get("status"), "created": t.get("created"),
+               "start": t.get("start"), "end": t.get("end"), "playbook": t.get("playbook"), "commit": (t.get("commit_hash") or "")[:8]}
+        if t.get("status") == "error" and failed_fetched < 3:
+            failed_fetched += 1
+            try:
+                lines = [_ANSI.sub("", o.get("output", "")) for o in _sem_get(cfg, f"/project/{cfg.semaphore_project}/tasks/{t['id']}/output")]
+                row["output_tail"] = redact("\n".join(lines[-20:]))[-2500:].splitlines()
+            except ToolError as e:
+                row["output_tail_error"] = e.message
+        out.append(row)
+    return {"tasks": out}
+
+
 def live(cfg: LiveConfig, name: str, args: dict) -> dict:
     if name.startswith("registry."):
         return _registry(cfg, name, args)
@@ -517,4 +557,6 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _netbox(cfg, name, args)
     if name.startswith("kube."):
         return _kube(cfg, name, args)
+    if name == "semaphore.tasks":
+        return _semaphore(cfg, args)
     raise ToolError(501, f"{name} has no live backend yet (replay only)")

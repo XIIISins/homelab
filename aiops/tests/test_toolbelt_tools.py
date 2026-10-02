@@ -789,6 +789,98 @@ class KubeTool(unittest.TestCase):
         self.assertEqual(cm.exception.status, 400)
 
 
+class FakeSemaphore:
+    def __init__(self, token="sem-guest-token"):
+        self.seen = []
+        outer = self
+        tasks = [{"id": 30, "tpl_alias": "asgard-apply", "status": "error", "created": "2026-10-03T00:00:00Z", "playbook": "site.yml", "commit_hash": "abcdef1234567"},
+                 {"id": 29, "tpl_alias": "asgard-drift-check", "status": "success", "created": "2026-10-02T23:00:00Z", "playbook": "site.yml", "commit_hash": "abcdef1234567"},
+                 {"id": 28, "tpl_alias": "infra-health-check", "status": "error", "created": "2026-10-02T22:00:00Z", "playbook": "infra.yml", "commit_hash": "0123456789abc"}]
+        out = [{"output": "\x1b[0;31mfatal: [hugin]: FAILED! => password=hunter2hunter2\x1b[0m"}, {"output": "PLAY RECAP hugin : ok=3 failed=1"}]
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(self):  # noqa: N802
+                outer.seen.append(("GET", self.path))
+                if self.headers.get("Authorization") != f"Bearer {token}":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                if self.path.endswith("/tasks/last"):
+                    body = tasks
+                elif "/output" in self.path:
+                    body = out
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                raw = json.dumps(body).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_POST(self):  # noqa: N802
+                outer.seen.append(("POST", self.path))
+                self.send_response(500)
+                self.end_headers()
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}/api"
+        self.token = token
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class SemaphoreTool(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        (self.tmp / "creds").mkdir()
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live.creds_dir = self.tmp / "creds"
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        self.s = FakeSemaphore()
+        self.addCleanup(self.s.close)
+
+    def cred(self, token=None):
+        (self.tmp / "creds" / "semaphore.json").write_text(json.dumps({"value": token or self.s.token, "url": self.s.url}))
+
+    def test_recent_runs_with_a_redacted_tail_for_failures_only(self):
+        self.cred()
+        out = self.tb.call_tool("semaphore.tasks", {"limit": 5}, self.inc)["result"]["tasks"]
+        self.assertEqual([(t["id"], t["status"]) for t in out], [(30, "error"), (29, "success"), (28, "error")])
+        self.assertIn("output_tail", out[0])
+        self.assertNotIn("output_tail", out[1])
+        text = "\n".join(out[0]["output_tail"])
+        self.assertNotIn("hunter2hunter2", text)
+        self.assertNotIn("\x1b", text)
+        self.assertEqual(out[0]["commit"], "abcdef12")
+
+    def test_limit_is_honoured_only_get_is_sent_and_a_bad_token_is_a_502(self):
+        self.cred()
+        self.assertEqual(len(self.tb.call_tool("semaphore.tasks", {"limit": 1}, self.inc)["result"]["tasks"]), 1)
+        self.assertEqual({m for m, _ in self.s.seen}, {"GET"})
+        self.cred(token="wrong")
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("semaphore.tasks", {}, self.inc)
+        self.assertEqual((cm.exception.status, "refused" in cm.exception.message), (502, True))
+
+    def test_missing_credential_is_501_and_limit_is_bounded(self):
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("semaphore.tasks", {}, self.inc)
+        self.assertEqual(cm.exception.status, 501)
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("semaphore.tasks", {"limit": 500}, self.inc)
+        self.assertEqual(cm.exception.status, 400)
+
+
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
