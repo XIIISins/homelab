@@ -1,0 +1,224 @@
+{
+  "description": "A High disk-space alert on canary-2 that had ALREADY recovered by the time the agent looked: the problem is resolved, no trigger is active, the guest and its hypervisor are healthy. There is nothing left to diagnose; the calibrated answer is `unknown` / low confidence (or a hedged workload note), never a confident blame.",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "994001",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "canary-2",
+    "host_id": "10709",
+    "host_ip": "10.0.11.191",
+    "host_groups": "Linux servers,Asgard/LXCs/Canary",
+    "trigger_id": "994001",
+    "trigger_name": "Linux: Free disk space is less than 10% on volume /",
+    "trigger_description": "",
+    "trigger_expression": "last(/canary-2/vfs.fs.size[/,pfree])<10",
+    "trigger_url": "",
+    "tags": [],
+    "runbook_id": "",
+    "items": [
+      {
+        "name": "/: Space utilization",
+        "key": "vfs.fs.size[/,pfree]",
+        "value": "9.1 %"
+      }
+    ],
+    "opdata": "Free disk space: 9.1 %",
+    "fired_at": "2026-10-01T11:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T11:00:01Z"
+  },
+  "expect": {
+    "layers_allowed": [
+      "unknown",
+      "workload",
+      "host"
+    ],
+    "layers_forbidden": [
+      "hypervisor",
+      "network",
+      "external",
+      "drift"
+    ],
+    "min_evidence": 1,
+    "confidence_forbidden": [
+      "high"
+    ]
+  },
+  "calls": [
+    {
+      "tool": "zabbix.problems",
+      "args": {
+        "host": "canary-2"
+      },
+      "response": {
+        "problems": [
+          {
+            "eventid": "994001",
+            "name": "Linux: Free disk space is less than 10% on volume /",
+            "severity": "high",
+            "since": 1790970000,
+            "acknowledged": false,
+            "resolved": true,
+            "tags": []
+          }
+        ]
+      }
+    },
+    {
+      "tool": "zabbix.triggers",
+      "args": {
+        "host": "canary-2"
+      },
+      "response": {
+        "active_triggers": []
+      }
+    },
+    {
+      "tool": "zabbix.host",
+      "args": {
+        "host": "canary-2"
+      },
+      "response": {
+        "host": {
+          "host": "canary-2",
+          "enabled": true,
+          "in_maintenance": false,
+          "groups": [
+            "Asgard/LXCs/Canary",
+            "Linux servers"
+          ],
+          "tags": [],
+          "templates": [
+            "Linux by Zabbix agent"
+          ],
+          "interfaces": [
+            {
+              "ip": "10.0.11.191",
+              "port": "10050",
+              "type": "1",
+              "available": "1",
+              "error": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.191",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "10.0.11.191",
+        "port": 10050
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-2",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-2",
+        "port": 10050
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-2.niflheim.xiiisins.com",
+        "port": 22
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "reach.tcp",
+      "args": {
+        "host": "canary-2.niflheim.xiiisins.com",
+        "port": 10050
+      },
+      "response": {
+        "open": true,
+        "ms": 1,
+        "address": "10.0.11.191"
+      }
+    },
+    {
+      "tool": "pve.guests",
+      "args": {
+        "node": "urd"
+      },
+      "response": {
+        "guests": [
+          {
+            "vmid": 1191,
+            "name": "canary-2",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          }
+        ]
+      }
+    },
+    {
+      "tool": "pve.guests",
+      "args": {},
+      "response": {
+        "guests": [
+          {
+            "vmid": 1191,
+            "name": "canary-2",
+            "node": "urd",
+            "type": "lxc",
+            "status": "running",
+            "uptime": 86400,
+            "cpu": 0.002,
+            "mem": 41943040,
+            "maxmem": 536870912,
+            "template": 0
+          }
+        ]
+      }
+    }
+  ]
+}
