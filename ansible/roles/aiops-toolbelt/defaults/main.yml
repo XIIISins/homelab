@@ -32,6 +32,12 @@ aiops_toolbelt_repo_dir: /var/lib/aiops-toolbelt/repo
 aiops_toolbelt_repo_refresh: 10min
 aiops_toolbelt_repo_sync_path: /usr/local/sbin/aiops-toolbelt-repo-sync
 aiops_toolbelt_repo_unit_name: aiops-toolbelt-repo
+# Read-only backend credentials the root loader copies from Vault to <creds dir>/<name>.json
+# (0400, service user). OPTIONAL at start: a credential that is not minted yet only logs a
+# warning and its tool answers 501. name -> KV v2 API path.
+aiops_toolbelt_creds_dir: "/run/{{ aiops_toolbelt_runtime_dir_name }}/creds"
+aiops_toolbelt_credentials:
+  pve: secret/data/ansible/aiops/pve-token # terraform/proxmox/aiops-access
 aiops_toolbelt_replay_dir: "{{ aiops_toolbelt_home }}/aiops/replays"
 
 # Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
