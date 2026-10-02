@@ -1,0 +1,97 @@
+---
+# ansible/roles/zabbix-server/tasks/aiops-readonly.yml (Phase 10d2)
+#
+# The AIOps Toolbelt's own READ-ONLY Zabbix identity: user `aiops-ro` in a user group that
+# reads every host group, with a user role that has NO UI and an API allow-list of `*.get`.
+# Three layers, each enough alone to stop a write: the role (no write method is allowed), the
+# group (read-only host-group rights) and the Toolbelt (it only ever calls fixed `*.get`
+# methods). Declarative and idempotent; contains no secret.
+#
+# The API TOKEN is separate (aiops-token.yml, explicit tag only): Zabbix generates it and shows
+# it once, so it has to be written to Vault by the run that creates it, which needs a Vault
+# identity that can write. See docs/procedures/aiops-diagnosis.md ("Mint the Zabbix read-only token").
+
+- name: Create the read-only user role (no UI, API allow-list *.get)
+  when: not ansible_check_mode  # mutating Zabbix API; httpapi+check_mode unreliable, not drift-check scope
+  community.zabbix.zabbix_user_role:
+    name: "{{ zabbix_aiops_role_name }}"
+    type: User
+    rules:
+      "ui.default_access": 0
+      "modules.default_access": 0
+      "actions.default_access": 0
+      "api.access": 1
+      "api.mode": 1 # allow-list
+      "api": "{{ zabbix_aiops_api_methods }}"
+      # Belt and braces: the API allow-list already blocks the methods behind these, but a new
+      # role starts with them enabled, so switch every one off explicitly.
+      "actions": "{{ zabbix_aiops_actions_off }}"
+    state: present
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars: &zabbix_aiops_api
+    ansible_connection: httpapi
+    ansible_network_os: community.zabbix.zabbix
+    ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+    ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+    ansible_httpapi_validate_certs: false
+    ansible_user: "{{ zabbix_agent_api_user }}"
+    ansible_zabbix_auth_key: >-
+      {{ lookup('community.hashi_vault.vault_kv2_get',
+                zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    ansible_zabbix_url_path: ""
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  tags: [zabbix, zabbix:aiops-readonly]
+
+- name: List every host group (read rights are granted per group)
+  ansible.builtin.uri:
+    url: "http://localhost:{{ zabbix_agent_api_port }}/api_jsonrpc.php"
+    method: POST
+    headers:
+      Content-Type: application/json-rpc
+      Authorization: >-
+        Bearer {{ lookup('community.hashi_vault.vault_kv2_get',
+                         zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+    body_format: json
+    body: {jsonrpc: "2.0", method: hostgroup.get, params: {output: [name]}, id: 1}
+    return_content: true
+  register: zabbix_aiops_hostgroups
+  changed_when: false
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  when: not ansible_check_mode
+  tags: [zabbix, zabbix:aiops-readonly]
+
+- name: Create the read-only user group (read on every host group, no GUI access)
+  when: not ansible_check_mode
+  community.zabbix.zabbix_usergroup:
+    name: "{{ zabbix_aiops_group_name }}"
+    gui_access: disable
+    hostgroup_rights: >-
+      {{ zabbix_aiops_hostgroups.json.result | map(attribute='name') | sort
+         | map('community.general.dict_kv', 'host_group')
+         | map('combine', {'permission': 'read-only'}) | list }}
+    state: present
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars: *zabbix_aiops_api
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  tags: [zabbix, zabbix:aiops-readonly]
+
+- name: Create the read-only user
+  when: not ansible_check_mode
+  community.zabbix.zabbix_user:
+    username: "{{ zabbix_aiops_username }}"
+    usrgrps: ["{{ zabbix_aiops_group_name }}"]
+    role_name: "{{ zabbix_aiops_role_name }}"
+    # A password is mandatory at creation but never used: the account authenticates with an API
+    # token only, and the role has no UI. Random, discarded, and not re-applied on later runs
+    # (override_passwd defaults to false).
+    passwd: "{{ lookup('ansible.builtin.password', '/dev/null length=48 chars=ascii_letters,digits') }}"
+    state: present
+  delegate_to: "{{ zabbix_agent_api_delegate }}"
+  become: false
+  vars: *zabbix_aiops_api
+  no_log: "{{ zabbix_aiops_no_log | default(true) }}"
+  tags: [zabbix, zabbix:aiops-readonly]

@@ -30,6 +30,17 @@
   tags: [zabbix, zabbix:saml]
   when: zabbix_saml_enabled
 
+- name: Create the AIOps Toolbelt's read-only Zabbix identity (10d2)
+  ansible.builtin.import_tasks: aiops-readonly.yml
+  when: zabbix_aiops_readonly_enabled | bool
+  tags: [zabbix, zabbix:aiops-readonly]
+
+# Explicit tag only: Zabbix shows a generated token once, and it must be written to Vault by
+# the run that creates it. `never` keeps every normal and broad-tag run away from it.
+- name: Mint the Toolbelt's read-only Zabbix API token (explicit tag only)
+  ansible.builtin.import_tasks: aiops-token.yml
+  tags: [never, zabbix:aiops-token]
+
 # Must come BEFORE the Hermod import: the Admin user-media task there attaches
 # BOTH media in one write (zabbix_user replaces the list), and resolves the
 # n8n media type by name.

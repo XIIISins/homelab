@@ -295,3 +295,24 @@ zabbix_saml_provision_groups:
 # config in terraform/authentik/zabbix.tf.
 zabbix_saml_username_attribute: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"
 zabbix_saml_groups_attribute: "http://schemas.xmlsoap.org/claims/Group"
+
+# ============================================================================
+# AIOps Toolbelt read-only identity - Phase 10d2 (tasks/aiops-readonly.yml)
+# ============================================================================
+# A user that can only call `*.get` (role), only read (user group), with an API token for the
+# Toolbelt on Frigg. Role/group/user are declarative; the TOKEN is minted by an explicit tag
+# (zabbix:aiops-token) from a Vault identity that can write the path below.
+zabbix_aiops_readonly_enabled: true
+zabbix_aiops_username: aiops-ro
+zabbix_aiops_role_name: "AIOps read-only"
+zabbix_aiops_group_name: "AIOps read-only"
+zabbix_aiops_api_methods: ["*.get"]
+# A new role starts with these UI actions enabled; switch each off explicitly (the API allow-list
+# already blocks the methods behind them).
+zabbix_aiops_actions_off: >-
+  {{ ['edit_dashboards', 'edit_maps', 'acknowledge_problems', 'suppress_problems', 'close_problems',
+      'change_severity', 'add_problem_comments', 'execute_scripts', 'manage_api_tokens',
+      'invoke_execute_now', 'change_problem_ranking']
+     | map('community.general.dict_kv', 'name') | map('combine', {'status': 0}) | list }}
+zabbix_aiops_token_vault_path: "ansible/aiops/zabbix-token"
+zabbix_aiops_api_url: "http://10.0.11.21/api_jsonrpc.php"
