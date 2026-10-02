@@ -532,6 +532,263 @@ class ReplayOnIncident(unittest.TestCase):
         tb.db.close()
 
 
+class FakeNetbox:
+    """NetBox stand-in: bearer check, GET only, VMs placed on hypervisors via `device`."""
+
+    def __init__(self, bearer="nbt_key.secret"):
+        self.seen = []
+        outer = self
+        vms = [{"name": "canary-1", "status": {"value": "active"}, "device": {"name": "urd"}, "cluster": {"name": "niflheim"}, "site": {"name": "home"},
+                "role": {"name": "canary"}, "vcpus": 1, "memory": 512, "disk": 4, "primary_ip4": {"address": "10.0.11.190/24"},
+                "tags": [{"name": "nonprod"}], "custom_fields": {"VMID": "1190"}},
+               {"name": "pbs", "status": {"value": "active"}, "device": {"name": "urd"}, "role": {"name": "backup-server"}, "tags": [],
+                "custom_fields": {"VMID": "1101"}},
+               {"name": "kvasir", "status": {"value": "active"}, "device": {"name": "skuld"}, "role": {"name": "dns"}, "tags": [],
+                "custom_fields": {"VMID": "1112"}},
+               {"name": "floating", "status": {"value": "active"}, "device": None, "tags": [], "custom_fields": {}}]
+        devices = [{"name": "urd", "status": {"value": "active"}, "role": {"name": "hypervisor"}, "site": {"name": "home"},
+                    "primary_ip4": {"address": "10.0.254.11/24"}, "tags": []}]
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(self):  # noqa: N802
+                from urllib.parse import parse_qs, urlparse
+
+                u = urlparse(self.path)
+                q = parse_qs(u.query)
+                outer.seen.append(("GET", u.path))
+                if self.headers.get("Authorization") != f"Bearer {bearer}":
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                if u.path == "/api/virtualization/virtual-machines/":
+                    res = [v for v in vms if ("name" not in q or v["name"] == q["name"][0])
+                           and ("device" not in q or (v["device"] or {}).get("name") == q["device"][0])]
+                elif u.path == "/api/dcim/devices/":
+                    res = [d for d in devices if "name" not in q or d["name"] == q["name"][0]]
+                else:
+                    res = []
+                raw = json.dumps({"count": len(res), "results": res}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_POST(self):  # noqa: N802
+                outer.seen.append(("POST", self.path))
+                self.send_response(500)
+                self.end_headers()
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+        self.bearer = bearer
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class NetboxTool(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        (self.tmp / "creds").mkdir()
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live.creds_dir = self.tmp / "creds"
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        self.nb = FakeNetbox()
+        self.addCleanup(self.nb.close)
+
+    def cred(self, bearer=None):
+        (self.tmp / "creds" / "netbox.json").write_text(json.dumps({"value": bearer or self.nb.bearer, "url": self.nb.url}))
+
+    def test_host_returns_the_vm_with_its_hypervisor(self):
+        self.cred()
+        out = self.tb.call_tool("netbox.host", {"name": "canary-1"}, self.inc)["result"]
+        self.assertEqual((out["kind"], out["hypervisor"], out["vmid"], out["primary_ip"]), ("vm", "urd", "1190", "10.0.11.190/24"))
+        self.assertEqual(out["tags"], ["nonprod"])
+
+    def test_host_falls_back_to_a_device_and_404s_when_unknown(self):
+        self.cred()
+        self.assertEqual(self.tb.call_tool("netbox.host", {"name": "urd"}, self.inc)["result"]["kind"], "device")
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("netbox.host", {"name": "nope"}, self.inc)
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_hypervisor_peers_lists_everything_on_the_same_node(self):
+        self.cred()
+        out = self.tb.call_tool("netbox.hypervisor_peers", {"host": "canary-1"}, self.inc)["result"]
+        self.assertEqual((out["hypervisor"], out["count"], [g["name"] for g in out["guests"]]), ("urd", 2, ["canary-1", "pbs"]))
+
+    def test_peers_accepts_the_hypervisor_itself_and_refuses_an_unplaced_guest(self):
+        self.cred()
+        self.assertEqual(self.tb.call_tool("netbox.hypervisor_peers", {"host": "urd"}, self.inc)["result"]["count"], 2)
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("netbox.hypervisor_peers", {"host": "floating"}, self.inc)
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_only_get_is_ever_sent_and_a_refused_token_is_a_502(self):
+        self.cred()
+        self.tb.call_tool("netbox.host", {"name": "canary-1"}, self.inc)
+        self.assertEqual({m for m, _ in self.nb.seen}, {"GET"})
+        self.cred(bearer="wrong")
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("netbox.host", {"name": "canary-1"}, self.inc)
+        self.assertEqual((cm.exception.status, "refused" in cm.exception.message), (502, True))
+
+    def test_missing_credential_is_501(self):
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("netbox.host", {"name": "canary-1"}, self.inc)
+        self.assertEqual(cm.exception.status, 501)
+
+
+class FakeKube:
+    """Kubernetes API stand-in: bearer check, GET only, records paths, canned objects."""
+
+    def __init__(self, token="kube-short-lived-token"):
+        self.seen = []
+        outer = self
+        pods = {"items": [
+            {"metadata": {"name": "web-1", "namespace": "apps"}, "spec": {"nodeName": "einherjar-skuld"},
+             "status": {"phase": "Running", "containerStatuses": [{"name": "c", "ready": False, "restartCount": 7,
+                                                                  "state": {"waiting": {"reason": "CrashLoopBackOff"}}}]}},
+            {"metadata": {"name": "web-2", "namespace": "apps"}, "spec": {"nodeName": "einherjar-urd"},
+             "status": {"phase": "Running", "containerStatuses": [{"name": "c", "ready": True, "restartCount": 0, "state": {"running": {}}}]}}]}
+        nodes = {"items": [{"metadata": {"name": "einherjar-skuld"}, "spec": {"taints": []},
+                            "status": {"nodeInfo": {"kubeletVersion": "v1.36"}, "conditions": [{"type": "Ready", "status": "Unknown", "reason": "NodeStatusUnknown", "message": "kubelet stopped posting"}]}}]}
+        hrs = {"items": [{"metadata": {"name": "immich", "namespace": "apps"}, "spec": {"suspend": False},
+                          "status": {"lastAttemptedRevision": "1.2.3", "conditions": [{"type": "Ready", "status": "False", "reason": "InstallFailed", "message": "timeout waiting for rollout"}]}}]}
+        events = {"items": [
+            {"metadata": {"name": "e1", "namespace": "apps"}, "type": "Normal", "reason": "Pulled", "involvedObject": {"kind": "Pod", "name": "web-1"}, "message": "ok", "lastTimestamp": "2026-10-03T00:00:02Z"},
+            {"metadata": {"name": "e2", "namespace": "apps"}, "type": "Warning", "reason": "BackOff", "involvedObject": {"kind": "Pod", "name": "web-1"}, "message": "restarting", "lastTimestamp": "2026-10-03T00:00:01Z"}]}
+        log = "start\nconnecting with password=hunter2hunter2 to db\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789\nready\n"
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(self):  # noqa: N802
+                outer.seen.append(self.path)
+                if self.headers.get("Authorization") != f"Bearer {token}":
+                    self.send_response(401)
+                    self.end_headers()
+                    return
+                path = self.path.split("?")[0]
+                if path.endswith("/log"):
+                    raw, ctype = log.encode(), "text/plain"
+                else:
+                    table = {"/api/v1/namespaces/apps/pods": pods, "/api/v1/pods": pods, "/api/v1/nodes": nodes,
+                             "/apis/helm.toolkit.fluxcd.io/v2/namespaces/apps/helmreleases": hrs, "/api/v1/namespaces/apps/events": events,
+                             "/api/v1/namespaces/apps/pods/web-1": pods["items"][0]}
+                    if path not in table:
+                        self.send_response(404)
+                        self.end_headers()
+                        return
+                    raw, ctype = json.dumps(table[path]).encode(), "application/json"
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_POST(self):  # noqa: N802
+                outer.seen.append("POST " + self.path)
+                self.send_response(500)
+                self.end_headers()
+
+        self.srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+        self.token = token
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+class KubeTool(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        (self.tmp / "creds").mkdir()
+        self.tb, _ = make(self.tmp)
+        self.tb.cfg.live.creds_dir = self.tmp / "creds"
+        self.inc = self.tb.ingest_zabbix(base.ev())["incident_id"]
+        self.k = FakeKube()
+        self.addCleanup(self.k.close)
+        dead = socket.socket()
+        dead.bind(("127.0.0.1", 0))
+        self.dead = f"http://127.0.0.1:{dead.getsockname()[1]}"
+        dead.close()
+
+    def cred(self, token=None, servers=None):
+        (self.tmp / "creds" / "kube.json").write_text(json.dumps({"token": token or self.k.token, "servers": servers or [self.dead, self.k.url]}))
+
+    def test_pods_are_summarised_with_the_signals_that_matter_and_fail_over_past_a_dead_server(self):
+        self.cred()
+        out = self.tb.call_tool("kube.get", {"kind": "pods", "namespace": "apps"}, self.inc)["result"]
+        w1 = next(i for i in out["items"] if i["name"] == "web-1")
+        self.assertEqual((w1["ready"], w1["restarts"], w1["waiting"], w1["node"]), ("0/1", 7, ["c: CrashLoopBackOff"], "einherjar-skuld"))
+
+    def test_a_node_that_stopped_reporting_shows_its_problem_condition(self):
+        self.cred()
+        n = self.tb.call_tool("kube.get", {"kind": "nodes"}, self.inc)["result"]["items"][0]
+        self.assertFalse(n["ready"])
+        self.assertEqual(n["problems"][0]["reason"], "NodeStatusUnknown")
+
+    def test_flux_release_status_comes_through(self):
+        self.cred()
+        h = self.tb.call_tool("kube.get", {"kind": "helmreleases", "namespace": "apps"}, self.inc)["result"]["items"][0]
+        self.assertEqual((h["ready"], h["reason"], h["revision"]), ("False", "InstallFailed", "1.2.3"))
+
+    def test_events_put_warnings_first(self):
+        self.cred()
+        ev = self.tb.call_tool("kube.get", {"kind": "events", "namespace": "apps"}, self.inc)["result"]["items"]
+        self.assertEqual([e["reason"] for e in ev], ["BackOff", "Pulled"])
+
+    def test_logs_are_redacted_before_they_leave_the_toolbelt(self):
+        self.cred()
+        lines = self.tb.call_tool("kube.logs", {"namespace": "apps", "pod": "web-1", "tail": 50}, self.inc)["result"]["lines"]
+        text = "\n".join(lines)
+        self.assertNotIn("hunter2hunter2", text)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz0123456789", text)
+        self.assertIn("[redacted]", text)
+        self.assertIn("ready", text)
+
+    def test_only_get_is_sent_and_secrets_are_not_an_askable_kind(self):
+        self.cred()
+        self.tb.call_tool("kube.get", {"kind": "pods", "namespace": "apps"}, self.inc)
+        self.assertFalse(any(p.startswith("POST") for p in self.k.seen))
+        for kind in ("secrets", "configmaps", "serviceaccounts"):
+            with self.assertRaises(core.Rejected) as cm:
+                self.tb.call_tool("kube.get", {"kind": kind, "namespace": "apps"}, self.inc)
+            self.assertEqual(cm.exception.status, 400, kind)
+
+    def test_an_expired_or_unauthorised_token_is_a_clear_502_and_unknown_objects_are_404(self):
+        self.cred(token="expired")
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("kube.get", {"kind": "nodes"}, self.inc)
+        self.assertEqual((cm.exception.status, "refused" in cm.exception.message), (502, True))
+        self.cred()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("kube.get", {"kind": "pods", "namespace": "apps", "name": "nope"}, self.inc)
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_a_name_without_a_namespace_is_refused_and_a_missing_credential_is_501(self):
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("kube.get", {"kind": "nodes"}, self.inc)
+        self.assertEqual(cm.exception.status, 501)  # a valid call, but no credential yet
+        self.cred()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.call_tool("kube.get", {"kind": "pods", "name": "web-1"}, self.inc)
+        self.assertEqual(cm.exception.status, 400)
+
+
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

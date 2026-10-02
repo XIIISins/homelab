@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.replay_dir:
         cfg.replay_dir = Path(args.replay_dir)
     if args.placement_file:
-        cfg.placement = json.loads(Path(args.placement_file).read_text())
+        cfg.placement_file = Path(args.placement_file)  # hot-reloaded; a missing file at start is fine
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO))

@@ -109,6 +109,7 @@ class Config:
     max_open_incidents: int = 20      # queue depth: received/grouped/running incidents
     run_wall_clock_seconds: int = 600  # an incident `running` longer than this is reported as timed out
     placement: dict[str, str] = field(default_factory=dict)  # host -> hypervisor node (from NetBox)
+    placement_file: Path | None = None  # JSON map written by placement_sync.py; hot-reloaded when its mtime changes
     max_tool_calls_per_incident: int = 40  # live tool calls one incident may make (replay is not counted)
     replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
@@ -128,6 +129,7 @@ class Toolbelt:
                  action_ids: set[str] | None = None):
         self.cfg = cfg
         self.action_ids = action_ids
+        self._placement_mtime: float | None = None
         self.routes = routes
         self.known_runbooks = known_runbooks
         self.clock = clock
@@ -168,8 +170,25 @@ class Toolbelt:
         row = self.db.execute("SELECT n FROM counters WHERE name=? AND day=?", (name, day_of(self.now()))).fetchone()
         return row["n"] if row else 0
 
+    def _placement(self) -> dict[str, str]:
+        """The guest -> hypervisor map, hot-reloaded from the sync job's file. A missing, unreadable or malformed file
+        keeps the last good map (grouping never breaks because the sync job did)."""
+        f = self.cfg.placement_file
+        if f is not None:
+            try:
+                mtime = f.stat().st_mtime
+                if mtime != self._placement_mtime:
+                    data = json.loads(f.read_text())
+                    if isinstance(data, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
+                        self.cfg.placement = data
+                        self._placement_mtime = mtime
+                        self.audit("placement_loaded", guests=len(data))
+            except (OSError, ValueError):
+                pass
+        return self.cfg.placement
+
     def _group_key(self, host: str) -> str:
-        node = self.cfg.placement.get(host)
+        node = self._placement().get(host)
         return f"node:{node}" if node else "unplaced"
 
     def _open_incidents(self) -> int:
@@ -302,7 +321,8 @@ class Toolbelt:
                                "last_seen": iso(r["last_seen"]), "severity": r["severity"]}
                 alerts.append(a)
             worst = max((r["severity"] for r in rows), key=lambda s: SEV_RANK[s], default="info")
-            nodes = sorted({self.cfg.placement[r["host"]] for r in rows if r["host"] in self.cfg.placement})
+            placement = self._placement()
+            nodes = sorted({placement[r["host"]] for r in rows if r["host"] in placement})
             timed_out = (inc["state"] == "running" and inc["running_at"] is not None
                          and now - inc["running_at"] > self.cfg.run_wall_clock_seconds)
             return {
