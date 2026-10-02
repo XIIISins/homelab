@@ -52,6 +52,12 @@
     - role: control-node
       tags: [control-node]
 
+    # Phase 10b2 cost guard: root-owned timer that destroys DigitalOcean droplets
+    # tagged `burst` past their TTL (DO token read from Vault at run time).
+    # First run on a new Frigg: -e burst_reaper_dry_run=true --tags burst-reaper.
+    - role: burst-reaper
+      tags: [burst-reaper]
+
     # Tailnet membership with Tailscale SSH on — the primary inbound path for
     # the operator's mobile sessions (ACL-gated, bypasses host sshd). server
     # tag + auto-renewing key (terraform/tailscale/).

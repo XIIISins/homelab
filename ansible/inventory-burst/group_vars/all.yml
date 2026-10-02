@@ -1,0 +1,47 @@
+---
+# ansible/inventory-burst/group_vars/all.yml
+#
+# Variables for the ephemeral 10b2 burst K3s cluster. This is a SEPARATE inventory tree from
+# ansible/inventory/ on purpose: the burst hosts are generated per run (hosts.generated.json, by
+# scripts/burst/burst-inventory.py — gitignored), never appear in NetBox / site.yml / Semaphore /
+# drift-check, and none of prod's group_vars (vault.yml, k3s*.yml, ...) apply to them.
+# Used as: ansible-playbook -i inventory-burst/hosts.generated.json playbooks/burst-k3s.yml
+# (Play inventory + group_vars/all.yml are both resolved relative to that inventory directory.)
+
+# ---- Connection --------------------------------------------------------------------------
+# Fresh droplets only have root + the injected DO ssh key (ansible_niflheim public half, via the
+# `homelab-offsite-ansible` DO key). No baseline/hardening: ephemeral (<= a few hours), key-only
+# root login, DO cloud firewall (tag `burst`), no inbound path from prod.
+ansible_user: root
+ansible_become: false
+ansible_ssh_private_key_file: "{{ lookup('env', 'ANSIBLE_PRIVATE_KEY_FILE') | default('~/.ssh/ansible_niflheim', true) }}"
+ansible_python_interpreter: /usr/bin/python3
+
+# ---- Tailnet (roles/tailscale) -----------------------------------------------------------
+# Ephemeral pre-authorized key minted by terraform/tailscale (tag:burst, no grants anywhere).
+tailscale_tag: burst
+tailscale_authkey_vault_path: ansible/tailscale/authkeys/burst
+# Don't touch resolv.conf (droplet resolvers stay); no Tailscale SSH (Ansible uses plain SSH over
+# the public IP; Frigg reaches the cluster API over the tailnet).
+tailscale_accept_dns: false
+tailscale_ssh: false
+
+# ---- K3s (roles/k3s) ---------------------------------------------------------------------
+k3s_init_node: burst-1
+# Pod/service CIDRs that cannot collide with prod (10.42/16, 10.43/16) or any DO VPC (always
+# 10.x.0.0/20) or the tailnet (100.64/10). The cluster is isolated, but a restore drill replays
+# prod's Calico/etcd objects and we do not want a prod CIDR anywhere near this cluster's routes.
+k3s_pod_cidr: "172.24.0.0/16"
+k3s_service_cidr: "172.25.0.0/16"
+k3s_flannel_backend: "none"
+# Debian droplets: no SELinux, no VLAN-20 policy routing, no iSCSI.
+k3s_selinux: false
+k3s_vlan20_policy_routing: false
+# NEVER ship a burst cluster's etcd snapshots into the prod backup bucket/folder (the drill
+# READS from there; a burst CP writing to etcd/ would pollute prod's restore points).
+k3s_etcd_s3_enabled: false
+# k3s_token comes from the per-run vars file written by burst-up (0600, never in git).
+# k3s_calico_node_cidr (= the DO VPC range) is injected by the generated inventory.
+
+# Cluster API for the kubeconfig: the init node's TAILNET IP, set at run time by burst-k3s.yml.
+kubeconfig_local_path: "{{ lookup('env', 'HOME') }}/.kube/burst-k3s.yaml"

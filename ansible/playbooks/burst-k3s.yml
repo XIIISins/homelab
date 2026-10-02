@@ -1,0 +1,96 @@
+---
+# ansible/playbooks/burst-k3s.yml
+#
+# Phase 10b2 — converge the ephemeral burst droplets (terraform/digitalocean-burst) into a
+# scratch K3s cluster using the EXISTING `k3s` role (not DOKS: DOKS is not K3s and auto-repairs
+# nodes). Procedure + cost: docs/procedures/burst-substrate.md.
+#
+# Run via scripts/burst/burst-up (which applies Terraform, generates the inventory, writes the
+# per-run k3s token and calls this). By hand, from Frigg, with the Vault env loaded:
+#     ansible-playbook -i inventory-burst/hosts.generated.json playbooks/burst-k3s.yml \
+#         -e @$HOME/.cache/homelab/burst/vars.yml
+#
+# SAFETY: `hosts: burst` exists only in the generated burst inventory. Run against the default
+# inventory (NetBox + hosts.yml) it matches nothing and does nothing. NOT in site.yml / Semaphore /
+# drift-check — the burst cluster is created and destroyed by a human-started run.
+#
+# Plays:
+#   1. wait for SSH + cloud-init (first boot holds the apt lock)
+#   2. tailscale role -> tag:burst (ephemeral key from Vault), record each node's tailnet IP
+#   3. k3s role (parallel / linear strategy: the role's run_once barriers order init CP -> CPs -> workers)
+#
+# End state: a K3s cluster (1 or 3 CPs + workers, Calico, pod/service CIDRs 172.24/172.25), kubeconfig
+# on the control node at ~/.kube/burst-k3s.yaml pointing at the init node's TAILNET IP:6443.
+
+- name: Burst droplets — wait for first boot
+  hosts: burst
+  gather_facts: false
+  become: false
+  pre_tasks:
+    - name: Refuse anything that is not a burst-N droplet
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is match('^burst-[0-9]+$')
+          - k3s_token is defined
+          - k3s_token | length >= 32
+        fail_msg: >-
+          Only burst-N hosts, and a per-run k3s_token (-e @vars.yml from burst-up) are accepted.
+      tags: [always]
+  tasks:
+    - name: Wait for SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+    - name: Wait for cloud-init to finish (holds the apt lock on first boot)
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+    - name: Gather facts
+      ansible.builtin.setup:
+
+- name: Burst droplets — join the tailnet as tag:burst
+  hosts: burst
+  gather_facts: false
+  become: false
+  roles:
+    - role: tailscale
+      tags: [tailscale]
+  post_tasks:
+    - name: Read this node's tailnet IPv4
+      ansible.builtin.command: tailscale ip -4
+      register: burst_ts_ip
+      changed_when: false
+      when: not ansible_check_mode
+    - name: Record the tailnet IP and add it to the API server cert SANs
+      ansible.builtin.set_fact:
+        burst_tailnet_ip: "{{ burst_ts_ip.stdout | trim }}"
+        k3s_extra_tls_san: ["{{ burst_ts_ip.stdout | trim }}"]
+      when: not ansible_check_mode
+    - name: Point the fetched kubeconfig at the init node's tailnet IP (Frigg reaches :6443 over the tailnet only)
+      ansible.builtin.set_fact:
+        k3s_kubeconfig_server: "{{ burst_tailnet_ip }}"
+      when:
+        - inventory_hostname == k3s_init_node
+        - not ansible_check_mode
+
+- name: Burst droplets — K3s cluster
+  hosts: burst
+  gather_facts: false
+  become: false
+  roles:
+    - role: k3s
+      tags: [k3s]
+  post_tasks:
+    - name: Cluster summary
+      ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o wide
+      register: burst_nodes
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ k3s_init_node }}"
+      when: not ansible_check_mode
+    - name: Show nodes and where the kubeconfig landed
+      ansible.builtin.debug:
+        msg:
+          - "{{ burst_nodes.stdout_lines }}"
+          - "kubeconfig: {{ kubeconfig_local_path }} (server https://{{ k3s_kubeconfig_server | default('?') }}:6443, tailnet only)"
+      run_once: true
+      when: not ansible_check_mode

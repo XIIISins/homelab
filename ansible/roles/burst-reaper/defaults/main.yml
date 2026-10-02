@@ -1,0 +1,31 @@
+---
+# ansible/roles/burst-reaper/defaults/main.yml
+#
+# Phase 10b2 cost guard: a systemd timer on Frigg that destroys DigitalOcean droplets tagged
+# `burst` once they outlive their TTL. Pairs with terraform/digitalocean-burst (which tags the
+# droplets) and the DO billing alert (console-only, docs/procedures/burst-substrate.md).
+# Runs as root: the Vault AppRole secret-zero (/etc/frigg/vault-approle.env) is root-only.
+# No secret is ever rendered into the unit — the DO token is fetched from Vault at run time.
+
+burst_reaper_script_path: /usr/local/sbin/burst-reaper
+burst_reaper_unit_name: burst-reaper
+
+# Scan cadence. The default TTL is 4 h, so 15 min of slack bounds a leak at ~$0.04/h x 3 x 0.25 h.
+burst_reaper_on_calendar: "*:0/15"
+
+# A burst droplet is reaped when older than its `burst-ttl-<N>h` DO tag, or this default when the
+# tag is absent; never allowed to live past the hard cap whatever its tag says.
+burst_reaper_default_hours: 4
+burst_reaper_hard_cap_hours: 12
+
+# Log what would be reaped and delete nothing. Flip to true for the first run on a new Frigg
+# (`ansible-playbook playbooks/asgard-control.yml --tags burst-reaper -e burst_reaper_dry_run=true`).
+burst_reaper_dry_run: false
+
+burst_reaper_tag: burst
+burst_reaper_vault_addr: "https://vault.niflheim.xiiisins.com"
+burst_reaper_approle_env_path: /etc/frigg/vault-approle.env
+burst_reaper_do_token_vault_path: secret/data/ansible/frigg/iac-env # KV v2 API path; field below
+burst_reaper_do_token_field: digitalocean_token
+burst_reaper_hermod_key_vault_path: secret/data/ansible/hermod/config-key
+burst_reaper_hermod_base_url: "http://hermod.niflheim.xiiisins.com"

@@ -33,6 +33,8 @@ ansible/inventory/group_vars/**/vault.yml
 # .config/scripts/refresh-netbox-inventory-cache.sh — see frigg-control-node.md)
 ansible/inventory/.netbox-cache.yml
 ansible/collections/*
+# generated per run by scripts/burst/burst-up (10b2) — droplet IPs, not secrets, but ephemeral
+ansible/inventory-burst/hosts.generated.json
 
 # ============================================================================
 # Kubernetes / Flux

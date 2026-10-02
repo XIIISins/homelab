@@ -1,0 +1,13 @@
+{# ansible/roles/burst-reaper/templates/burst-reaper.timer.j2 #}
+# Managed by Ansible — do not edit by hand.
+[Unit]
+Description=Scan for expired burst droplets every 15 minutes
+
+[Timer]
+OnCalendar={{ burst_reaper_on_calendar }}
+# a Frigg reboot or HA failover must not skip a scan
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

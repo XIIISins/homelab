@@ -100,3 +100,42 @@ resource "vault_kv_secret_v2" "lxc_authkey" {
     authkey = tailscale_tailnet_key.lxc[each.key].key
   })
 }
+
+# ---------------------------------------------------------------------------
+# tag:burst — ephemeral key for the 10b2 burst droplets (terraform/digitalocean-burst).
+# ---------------------------------------------------------------------------
+# Differs from the LXC keys above on purpose:
+#   ephemeral = true   A burst node that goes offline (reaped, destroyed, crashed) is
+#                      removed from the tailnet automatically; no stale devices.
+#   reusable  = true   One key joins every droplet of a burst run, and every later run.
+# The key can only ever join as tag:burst, which has no grants (policy.hujson), so a leak
+# yields a node with no reach. Same 90-day cap + recreate_if_invalid rule as above: after
+# 90 days run `terraform apply` HERE before the next burst-up, or `tailscale up` fails
+# with `auth key expired`.
+#
+# Vault path (read by the Ansible tailscale role via the tailscale_authkey_vault_path
+# override in ansible/inventory-burst/group_vars/all.yml):
+#   secret/ansible/tailscale/authkeys/burst
+resource "tailscale_tailnet_key" "burst" {
+  preauthorized       = true
+  reusable            = true
+  ephemeral           = true
+  recreate_if_invalid = "always"
+  expiry              = 7776000
+
+  tags        = ["tag:burst"]
+  description = "burst ephemeral managed by terraform"
+
+  lifecycle {
+    ignore_changes = [expiry]
+  }
+}
+
+resource "vault_kv_secret_v2" "burst_authkey" {
+  mount = "secret"
+  name  = "ansible/tailscale/authkeys/burst"
+
+  data_json = jsonencode({
+    authkey = tailscale_tailnet_key.burst.key
+  })
+}

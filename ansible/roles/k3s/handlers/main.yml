@@ -25,4 +25,6 @@
     name: vlan20-policy-routing.service
     state: restarted
     daemon_reload: true
-  when: "'k3s_worker' in group_names"
+  when:
+    - "'k3s_worker' in group_names"
+    - k3s_vlan20_policy_routing | bool

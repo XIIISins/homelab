@@ -69,7 +69,9 @@ kubectl -n backups delete job calico-now vault-now
 ```
 Expect `uploaded s3://xiiisins-homelab-backups/...` lines and, for Calico, `ippools=<n>` ≥ 1.
 
-## Restore (outline — drill pending, see open-questions.md)
+## Restore (outline — the burst substrate for the drill exists (10b2, code written, not yet applied); drill not yet run)
+
+The drill procedure (scratch burst K3s with prod CIDRs + token, per-leg pass criteria, the credentials gap and the Vault KMS-seal caveat) is in [`burst-substrate.md`](burst-substrate.md) ("Restore drill"). What remains: apply the substrate, run the three legs, record the RTOs here.
 
 - **etcd** — on one CP (others stopped): `k3s server --cluster-reset --cluster-reset-restore-path=<snapshot-name> --etcd-s3 --etcd-s3-bucket=… --etcd-s3-folder=etcd --etcd-s3-region=eu-west-1 --etcd-s3-access-key=… --etcd-s3-secret-key=…`
   (S3 restore is the same flag set as the config drop-in), then re-join the other CPs per [k3s-lifecycle.md](../known-issues/k3s-lifecycle.md) (`kubectl delete node` first).
@@ -79,5 +81,6 @@ Expect `uploaded s3://xiiisins-homelab-backups/...` lines and, for Calico, `ippo
 ## Known gaps
 
 - **No alerting on a missed/failed backup.** A failed CronJob shows in `kubectl get jobs -n backups` only; the infra-health prober doesn't check bucket freshness yet (follow-up: newest-object age per prefix → Hermod).
-- **No restore drill yet** (scratch cluster) — the Calico/etcd restore steps above are the documented intent, not a proven runbook.
+- **No restore drill yet** — the scratch-cluster substrate now exists as code (`terraform/digitalocean-burst/`, [`burst-substrate.md`](burst-substrate.md); 10b2, not applied), but the restore steps above are still the documented intent, not a proven runbook.
+- **No credential can READ `vault-raft/` or `calico/`.** The etcd user is scoped to `etcd/*` and the CronJob writer is PutObject-only, so a restore drill (or a real restore) needs the Bootstrap AWS identity or a new read-only restore IAM user (open-questions.md). The Vault Raft restore additionally needs `kms:Decrypt` on the unseal key (the snapshot barrier is KMS-wrapped).
 - The pre-upgrade Calico export written by `playbooks/calico-upgrade.yml` is still local to gondul (the daily CronJob export is the off-site copy).

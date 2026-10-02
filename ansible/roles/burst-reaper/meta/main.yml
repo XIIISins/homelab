@@ -1,0 +1,16 @@
+# ansible/roles/burst-reaper/meta/main.yml
+---
+galaxy_info:
+  role_name: burst_reaper
+  author: XIIISins
+  description: >
+    TTL cost guard for the 10b2 burst substrate: a root-owned systemd timer on
+    Frigg that destroys DigitalOcean droplets tagged `burst` past their TTL
+    (DO token read from Vault at run time).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+
+dependencies: []
