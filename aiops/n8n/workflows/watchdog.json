@@ -1,0 +1,139 @@
+{
+  "id": "aiopsWatchdog01",
+  "name": "aiops-watchdog",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000101",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/watchdog' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "a1000000-0000-4000-8000-000000000102",
+      "name": "Stuck incidents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread_name: $json.thread_name, content: $json.content, allowed_mentions: { parse: [] } }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000103",
+      "name": "Post fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Stuck incidents').item.json.incident_id + '/state' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'posted', thread_id: $json.channel_id }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000104",
+      "name": "Mark posted",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [
+        [
+          {
+            "node": "Stuck incidents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stuck incidents": {
+      "main": [
+        [
+          {
+            "node": "Post fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post fallback": {
+      "main": [
+        [
+          {
+            "node": "Mark posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

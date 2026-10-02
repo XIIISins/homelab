@@ -222,6 +222,32 @@ class Breakers(unittest.TestCase):
         self.assertEqual(tb.ingest_zabbix(ev(host="a3"))["action"], "leader")  # expired: new work proceeds
         self.assertTrue(tb.group(a)["timed_out"])  # and the stuck one is reported as timed out
 
+    def test_watchdog_offers_a_dead_run_once_it_outlives_the_cap_and_stops_after_it_is_posted(self):
+        tb, clock, _ = make(run_wall_clock_seconds=100)
+        a = tb.ingest_zabbix(ev(host="a1"))["incident_id"]
+        tb.set_state(a, "running")
+        clock.t += 50
+        self.assertEqual(tb.watchdog(), [])  # still within the cap: a slow run is not a dead one
+        clock.t += 100
+        offered = tb.watchdog()
+        self.assertEqual([o["incident_id"] for o in offered], [a])
+        self.assertIn("a1", offered[0]["content"])
+        self.assertIn("(no analysis)", offered[0]["thread_name"])
+        self.assertLessEqual(len(offered[0]["thread_name"]), 95)
+        self.assertEqual([o["incident_id"] for o in tb.watchdog()], [a])  # offered again until it is actually posted
+        tb.set_state(a, "posted", thread_id="42")
+        self.assertEqual(tb.watchdog(), [])
+
+    def test_watchdog_ignores_incidents_that_are_posted_or_never_started(self):
+        tb, clock, _ = make(run_wall_clock_seconds=100)
+        done = tb.ingest_zabbix(ev(host="a1"))["incident_id"]
+        tb.set_state(done, "running")
+        tb.set_state(done, "posted", thread_id="7")
+        clock.t += 200
+        tb.ingest_zabbix(ev(host="a2"))  # received, never started
+        clock.t += 200
+        self.assertEqual(tb.watchdog(), [])
+
     def test_a_run_past_the_wall_clock_cap_is_reported_timed_out(self):
         tb, clock, _ = make(run_wall_clock_seconds=100)
         a = tb.ingest_zabbix(ev())["incident_id"]

@@ -31,6 +31,7 @@ sys.path.insert(0, str(REPO / "aiops" / "toolbelt"))
 import tools  # noqa: E402
 
 OUT = REPO / "aiops" / "n8n" / "workflows" / "ingest-zabbix.json"
+WATCHDOG_OUT = REPO / "aiops" / "n8n" / "workflows" / "watchdog.json"
 PROMPT = REPO / "aiops" / "n8n" / "prompts" / "diagnose.system.md"
 
 TB = "$env.AIOPS_TOOLBELT_URL"
@@ -281,20 +282,46 @@ def build() -> dict:
             "settings": {"executionOrder": "v1"}, "pinData": {}}
 
 
+def build_watchdog() -> dict:
+    """Every 5 minutes: ask the Toolbelt for diagnosis runs that died without posting (stuck `running` past the wall-clock
+    cap, no thread), post the plain fallback thread for each, and mark it posted. The ingest workflow cannot do this for
+    itself: a failure INSIDE the agent's sub-nodes ends the whole execution, so nothing downstream ever runs. If the Discord
+    post fails here, the incident is simply offered again on the next tick."""
+    _n[0] = 100
+    nodes = [
+        {"parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 5}]}}, "id": nid(), "name": "Every 5 minutes",
+         "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [0, 0]},
+        http("Stuck incidents", [260, 0], "GET", f"={{{{ {TB} + '/watchdog' }}}}"),
+        post_discord("Post fallback", [520, 0], thread=False),
+        http("Mark posted", [780, 0], "POST", f"={{{{ {TB} + '/group/' + $('Stuck incidents').item.json.incident_id + '/state' }}}}",
+             "={{ JSON.stringify({ state: 'posted', thread_id: $json.channel_id }) }}"),
+    ]
+    conn = {"Every 5 minutes": {"main": [[{"node": "Stuck incidents", "type": "main", "index": 0}]]},
+            "Stuck incidents": {"main": [[{"node": "Post fallback", "type": "main", "index": 0}]]},
+            "Post fallback": {"main": [[{"node": "Mark posted", "type": "main", "index": 0}]]}}
+    return {"id": "aiopsWatchdog01", "name": "aiops-watchdog", "active": False, "nodes": nodes, "connections": conn,
+            "settings": {"executionOrder": "v1"}, "pinData": {}}
+
+
 def render() -> str:
     return json.dumps(build(), indent=2) + "\n"
 
 
+def render_watchdog() -> str:
+    return json.dumps(build_watchdog(), indent=2) + "\n"
+
+
 def main(argv=None) -> int:
     check = "--check" in (argv if argv is not None else sys.argv[1:])
-    text = render()
+    targets = ((OUT, render()), (WATCHDOG_OUT, render_watchdog()))
     if check:
-        if OUT.read_text() != text:
-            print(f"{OUT.relative_to(REPO)} is out of date: run python3 aiops/n8n/build_ingest.py", file=sys.stderr)
-            return 1
-        return 0
-    OUT.write_text(text)
-    print(f"wrote {OUT.relative_to(REPO)} ({len(build()['nodes'])} nodes)")
+        stale = [p for p, text in targets if not p.exists() or p.read_text() != text]
+        for p in stale:
+            print(f"{p.relative_to(REPO)} is out of date: run python3 aiops/n8n/build_ingest.py", file=sys.stderr)
+        return 1 if stale else 0
+    for p, text in targets:
+        p.write_text(text)
+        print(f"wrote {p.relative_to(REPO)}")
     return 0
 
 
