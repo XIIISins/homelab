@@ -1096,6 +1096,10 @@ set -g __vault_homelab_iac_map \
 set -g __vault_homelab_kubeconfig_out "$HOME/.kube/niflheim-asgard.yaml"
 set -g __vault_homelab_ansible_vault_pw_out "$HOME/.vault-pass"
 set -g __vault_homelab_ssh_key "$HOME/.ssh/ansible_niflheim"
+# Frigg: the fleet key lives only in this agent's memory (roles/frigg-ssh-agent). With
+# ansible.cfg's IdentitiesOnly=yes, ssh offers an agent key only if the identity file
+# named to it is that key's PUBLIC half, so we export <key>.pub in that mode.
+set -g __vault_homelab_ssh_agent_sock /run/frigg-ssh-agent/agent.sock
 
 # Separate 3h cache (NOT the 1P homelab-env cache). Away-from-home subshells
 # source it directly: . ~/.cache/homelab/vault-env.sh
@@ -1142,6 +1146,8 @@ function __vault_homelab_cache_write \
     set -a vars KUBECONFIG ANSIBLE_VAULT_PASSWORD_FILE ANSIBLE_PRIVATE_KEY_FILE
     set -a vars ANSIBLE_HASHI_VAULT_ADDR ANSIBLE_HASHI_VAULT_AUTH_METHOD \
         ANSIBLE_HASHI_VAULT_ROLE_ID ANSIBLE_HASHI_VAULT_SECRET_ID
+    # Agent mode (Frigg): cache the socket too so a bare `source vault-env.fish` finds the agent.
+    test "$SSH_AUTH_SOCK" = "$__vault_homelab_ssh_agent_sock"; and set -a vars SSH_AUTH_SOCK
     if set -q VAULT_TOKEN
         set -a vars VAULT_TOKEN
     end
@@ -1301,7 +1307,13 @@ function vault-homelab-env --description "Load IaC env from Vault via AppRole, n
     end
 
     # ---- static + ansible community.hashi_vault approle vars ----
-    set -gx ANSIBLE_PRIVATE_KEY_FILE $__vault_homelab_ssh_key
+    if not test -f $__vault_homelab_ssh_key; and test -S $__vault_homelab_ssh_agent_sock; and test -f $__vault_homelab_ssh_key.pub
+        # Agent mode (Frigg): no private key file on disk, by design.
+        set -gx SSH_AUTH_SOCK $__vault_homelab_ssh_agent_sock
+        set -gx ANSIBLE_PRIVATE_KEY_FILE $__vault_homelab_ssh_key.pub
+    else
+        set -gx ANSIBLE_PRIVATE_KEY_FILE $__vault_homelab_ssh_key
+    end
     # HTTP LB, not $VAULT_ADDR (the FQDN) — see __vault_homelab_ansible_addr.
     set -gx ANSIBLE_HASHI_VAULT_ADDR $__vault_homelab_ansible_addr
     set -gx ANSIBLE_HASHI_VAULT_AUTH_METHOD approle

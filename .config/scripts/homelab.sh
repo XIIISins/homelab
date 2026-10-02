@@ -984,6 +984,10 @@ __vault_homelab_iac_map=(
 __vault_homelab_kubeconfig_out="$HOME/.kube/niflheim-asgard.yaml"
 __vault_homelab_ansible_vault_pw_out="$HOME/.vault-pass"
 __vault_homelab_ssh_key="$HOME/.ssh/ansible_niflheim"
+# Frigg: the fleet key lives only in this agent's memory (roles/frigg-ssh-agent). With
+# ansible.cfg's IdentitiesOnly=yes, ssh offers an agent key only if the identity file
+# named to it is that key's PUBLIC half, so we export <key>.pub in that mode.
+__vault_homelab_ssh_agent_sock="/run/frigg-ssh-agent/agent.sock"
 
 # Separate 3h cache (NOT the 1P homelab-env cache). Away-from-home subshells
 # source it directly: . ~/.cache/homelab/vault-env.sh
@@ -1032,6 +1036,8 @@ __vault_homelab_cache_write() {
     vars+=("ANSIBLE_HASHI_VAULT_ADDR" "ANSIBLE_HASHI_VAULT_AUTH_METHOD" \
            "ANSIBLE_HASHI_VAULT_ROLE_ID" "ANSIBLE_HASHI_VAULT_SECRET_ID")
     [ -n "${VAULT_TOKEN:-}" ] && vars+=("VAULT_TOKEN")
+    # Agent mode (Frigg): cache the socket too so a bare `source vault-env.sh` finds the agent.
+    [ "${SSH_AUTH_SOCK:-}" = "$__vault_homelab_ssh_agent_sock" ] && vars+=("SSH_AUTH_SOCK")
     # ANSIBLE_INVENTORY: warm NetBox cache path, set on macOS only (see
     # __homelab_ensure_netbox_inventory). Cached so a bare `source vault-env.sh`
     # gets it; the conditional keeps it out of Linux (Frigg) caches.
@@ -1199,7 +1205,14 @@ vault-homelab-env() {
     fi
 
     # ---- static + ansible community.hashi_vault approle vars ----
-    export ANSIBLE_PRIVATE_KEY_FILE="$__vault_homelab_ssh_key"
+    if [ ! -f "$__vault_homelab_ssh_key" ] && [ -S "$__vault_homelab_ssh_agent_sock" ] \
+        && [ -f "${__vault_homelab_ssh_key}.pub" ]; then
+        # Agent mode (Frigg): no private key file on disk, by design.
+        export SSH_AUTH_SOCK="$__vault_homelab_ssh_agent_sock"
+        export ANSIBLE_PRIVATE_KEY_FILE="${__vault_homelab_ssh_key}.pub"
+    else
+        export ANSIBLE_PRIVATE_KEY_FILE="$__vault_homelab_ssh_key"
+    fi
     # HTTP LB, not $VAULT_ADDR (the FQDN) — see __vault_homelab_ansible_addr.
     export ANSIBLE_HASHI_VAULT_ADDR="$__vault_homelab_ansible_addr"
     export ANSIBLE_HASHI_VAULT_AUTH_METHOD="approle"

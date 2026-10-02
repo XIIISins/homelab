@@ -1,0 +1,86 @@
+---
+# ansible/roles/frigg-ssh-agent/tasks/main.yml
+#
+# Root loader + a hardened systemd unit running ssh-agent as the operator user. See
+# defaults/main.yml and docs/known-issues/frigg-control-node.md ("ssh-agent for the fleet key").
+# No secret passes through Ansible: the loader fetches the key on the host, from Vault.
+
+- name: Install the packages the agent and loader use
+  ansible.builtin.apt:
+    name: [openssh-client, python3]
+    state: present
+  tags: [frigg-ssh-agent, frigg-ssh-agent:install]
+
+- name: Deploy the key loader
+  ansible.builtin.copy:
+    src: frigg-ssh-agent-load.py
+    dest: "{{ frigg_ssh_agent_loader_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Restart frigg-ssh-agent
+  tags: [frigg-ssh-agent, frigg-ssh-agent:install]
+
+- name: Install the frigg-ssh-agent unit
+  ansible.builtin.template:
+    src: frigg-ssh-agent.service.j2
+    dest: "/etc/systemd/system/{{ frigg_ssh_agent_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart frigg-ssh-agent
+  tags: [frigg-ssh-agent, frigg-ssh-agent:install]
+
+- name: Flush handlers so a changed unit/loader is live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [frigg-ssh-agent, frigg-ssh-agent:install]
+
+- name: Enable and start the agent
+  ansible.builtin.systemd:
+    name: "{{ frigg_ssh_agent_unit_name }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [frigg-ssh-agent, frigg-ssh-agent:service]
+
+# Verification. Fingerprints are public information; the key itself is never read here.
+- name: List the identities the agent holds
+  ansible.builtin.command:
+    cmd: ssh-add -l
+  environment:
+    SSH_AUTH_SOCK: "{{ frigg_ssh_agent_socket }}"
+  register: frigg_ssh_agent_identities
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+  tags: [frigg-ssh-agent, frigg-ssh-agent:verify]
+
+- name: Assert the agent holds exactly the expected fleet key
+  ansible.builtin.assert:
+    that:
+      - frigg_ssh_agent_identities.rc == 0
+      - frigg_ssh_agent_identities.stdout_lines | length == 1
+      - >-
+        frigg_ssh_agent_expected_fingerprint == ''
+        or frigg_ssh_agent_expected_fingerprint in frigg_ssh_agent_identities.stdout
+    fail_msg: >-
+      frigg-ssh-agent holds no (or the wrong) identity: {{ frigg_ssh_agent_identities.stdout | default('') }}
+      {{ frigg_ssh_agent_identities.stderr | default('') }}. Check `journalctl -u {{ frigg_ssh_agent_unit_name }}`
+      and that secret/ansible/frigg/ssh-private-key exists in Vault.
+    success_msg: "agent loaded: {{ frigg_ssh_agent_identities.stdout | default('') }}"
+  when: not ansible_check_mode
+  tags: [frigg-ssh-agent, frigg-ssh-agent:verify]
+
+- name: Confirm the public key file exists for `ssh -i <key>.pub`
+  ansible.builtin.stat:
+    path: "{{ frigg_ssh_agent_pub_path }}"
+  register: frigg_ssh_agent_pub
+  when: not ansible_check_mode
+  tags: [frigg-ssh-agent, frigg-ssh-agent:verify]
+
+- name: Assert the public key file is present
+  ansible.builtin.assert:
+    that: frigg_ssh_agent_pub.stat.exists
+    fail_msg: "{{ frigg_ssh_agent_pub_path }} missing: the loader writes it after loading the key."
+  when: not ansible_check_mode
+  tags: [frigg-ssh-agent, frigg-ssh-agent:verify]

@@ -12,6 +12,7 @@
 #   - operator user `ghost` (bash + NOPASSWD sudo) — SSH-permitted alongside
 #     ansible + recovery (hardening ssh_extra_allow_users, set in group_vars)
 #   - Vault-backed homelab-env shim + AppRole secret-zero
+#   - frigg-ssh-agent: fleet ansible SSH key held in an agent, memory only
 #   - GitHub deploy key + ~ghost/homelab checkout
 #   - claude-remote-control systemd service (runs as ghost)
 #   - Tailscale joined with --ssh (tailnet-ACL-gated inbound SSH) + server tag
@@ -57,6 +58,12 @@
     # First run on a new Frigg: -e burst_reaper_dry_run=true --tags burst-reaper.
     - role: burst-reaper
       tags: [burst-reaper]
+
+    # Long-lived ssh-agent holding the fleet ansible key IN MEMORY ONLY (loaded
+    # from Vault by a root loader; the private key never exists as a file here).
+    # The shim exports SSH_AUTH_SOCK + a .pub identity path when it is present.
+    - role: frigg-ssh-agent
+      tags: [frigg-ssh-agent]
 
     # Tailnet membership with Tailscale SSH on — the primary inbound path for
     # the operator's mobile sessions (ACL-gated, bypasses host sshd). server

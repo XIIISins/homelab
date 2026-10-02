@@ -1,0 +1,7 @@
+---
+# ansible/roles/frigg-ssh-agent/handlers/main.yml
+- name: Restart frigg-ssh-agent
+  ansible.builtin.systemd:
+    name: "{{ frigg_ssh_agent_unit_name }}.service"
+    state: restarted
+    daemon_reload: true

@@ -38,6 +38,21 @@ for v in DIGITALOCEAN_TOKEN AWS_ACCESS_KEY_ID ANSIBLE_PRIVATE_KEY_FILE; do
   fi
 done
 
+# The identity path must EXIST (the shim exports a path even when nothing is there: that is how the
+# first Frigg run died minutes in, "no such identity"). In agent mode it is the key's .pub half and
+# the private key must be loaded in the agent (roles/frigg-ssh-agent).
+if [ ! -f "$ANSIBLE_PRIVATE_KEY_FILE" ]; then
+  echo "burst-up: \$ANSIBLE_PRIVATE_KEY_FILE ($ANSIBLE_PRIVATE_KEY_FILE) does not exist — on Frigg run the frigg-ssh-agent role; elsewhere check ~/.ssh." >&2
+  exit 1
+fi
+case "$ANSIBLE_PRIVATE_KEY_FILE" in
+  *.pub)
+    if ! ssh-add -l >/dev/null 2>&1; then
+      echo "burst-up: identity is a .pub (agent mode) but the ssh-agent holds no key (SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-unset}) — systemctl status frigg-ssh-agent." >&2
+      exit 1
+    fi ;;
+esac
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tf="$root/terraform/digitalocean-burst"
 state_dir="${BURST_STATE_DIR:-$HOME/.cache/homelab/burst}"
