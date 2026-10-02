@@ -4,6 +4,7 @@
   POST /ingest/zabbix            native aiops.zabbix-event/v1 -> {action, incident_id, ...}
   GET  /group/<id>               the correlated incident (alerts, state, priority, model hint)
   POST /group/<id>/state         {"state": "running|posted|resolved", "thread_id": "..."}
+  POST /diagnosis/<id>           {"diagnosis": {...}, "model": "..."} -> validated + Discord-ready, or 422 + problems
   POST /tool/<name>              {"args": {...}, "incident_id": N}; header X-AIOPS-Replay: <scenario> replays
   GET  /stats                    breaker counters
   GET  /healthz                  liveness (no auth, no data)
@@ -32,6 +33,7 @@ MAX_BODY = 64 * 1024
 _GROUP = re.compile(r"^/group/(\d+)$")
 _GROUP_STATE = re.compile(r"^/group/(\d+)/state$")
 _TOOL = re.compile(r"^/tool/([a-z]+\.[a-z_]+)$")
+_DIAG = re.compile(r"^/diagnosis/(\d+)$")
 
 
 def make_handler(tb: core.Toolbelt, token: str, allow: list):
@@ -96,10 +98,12 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list):
                         raise core.Rejected(400, "body must be an object")
                     return self._send(200, tb.call_tool(m.group(1), body.get("args", {}), body.get("incident_id"),
                                                         self.headers.get("X-AIOPS-Replay")))
+                if method == "POST" and (m := _DIAG.match(path)):
+                    return self._send(200, tb.diagnose(int(m.group(1)), self._body()))
                 if method == "GET" and path == "/stats":
                     return self._send(200, tb.stats())
             except core.Rejected as e:
-                return self._send(e.status, {"error": e.message})
+                return self._send(e.status, {"error": e.message, **e.detail})
             except Exception as e:  # never leak a traceback to the caller; the audit log has it
                 tb.audit("error", path=path, error=type(e).__name__)
                 return self._send(500, {"error": "internal"})
@@ -131,6 +135,12 @@ def load_runbooks(root: Path) -> set[str]:
     return {r["id"] for r in yaml.safe_load((root / "aiops" / "runbooks.yml").read_text())["runbooks"]}
 
 
+def load_action_ids(root: Path) -> set[str]:
+    import yaml
+
+    return set(yaml.safe_load((root / "aiops" / "actions.yml").read_text())["actions"])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--listen", default="127.0.0.1:8090")
@@ -157,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.placement = json.loads(Path(args.placement_file).read_text())
     import normalize  # noqa: E402 (path set up by core)
 
-    tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO))
+    tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO))
     host, _, port = args.listen.rpartition(":")
     srv = ThreadingHTTPServer((host, int(port)), make_handler(tb, token, [ipaddress.ip_network(a) for a in args.allow]))
     tb.audit("start", listen=args.listen, daily_run_cap=cfg.daily_run_cap)

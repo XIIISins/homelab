@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/XIIISins/homelab/aiops/schema/diagnosis.v1.schema.json",
+  "title": "aiops.diagnosis/v1",
+  "description": "What the diagnosis agent must return for one incident (Phase 10d3). Structural rules live here; the rules that need state (every piece of evidence must correspond to a tool call the Toolbelt actually served for THIS incident, referenced runbooks/actions/docs must exist, no secrets) are enforced by aiops/toolbelt/diagnosis.py and are what makes the output checkable rather than trusted. A diagnosis PROPOSES; nothing in this document is ever executed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "incident_id", "layer", "confidence", "summary", "evidence", "needs_human"],
+  "properties": {
+    "schema_version": { "const": "aiops.diagnosis/v1" },
+    "incident_id": { "type": "integer", "minimum": 1, "description": "The Toolbelt incident this diagnosis is for." },
+    "layer": {
+      "enum": ["host", "hypervisor", "workload", "network", "drift", "external", "unknown"],
+      "description": "Where the fault most likely is: the guest/host itself, the hypervisor under it, the workload/app, the network path, drift from IaC, something external (cloud/DNS/ISP), or unknown (say so rather than guess)."
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "summary": { "type": "string", "minLength": 10, "maxLength": 600, "description": "One short paragraph a human can act on." },
+    "reasoning": { "type": "string", "maxLength": 1500, "description": "Why this layer: how the evidence rules the alternatives in or out." },
+    "evidence": {
+      "type": "array",
+      "maxItems": 12,
+      "description": "Each item cites a tool call made for this incident. `layer` unknown may have none; every other layer needs at least one.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "args", "finding"],
+        "properties": {
+          "tool": { "type": "string", "pattern": "^[a-z]+\\.[a-z_]+$" },
+          "args": { "type": "object", "description": "The arguments of that call, exactly as sent." },
+          "finding": { "type": "string", "minLength": 3, "maxLength": 300 }
+        }
+      }
+    },
+    "known_issue_refs": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "pattern": "^docs/(known-issues|incidents|procedures)/[A-Za-z0-9._-]+\\.md$" },
+      "description": "Repo docs that explain this failure class; each must exist."
+    },
+    "runbook_id": { "type": "string", "pattern": "^RB-[A-Z0-9-]+$", "description": "Must be in aiops/runbooks.yml." },
+    "proposed_actions": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "Registry actions a human could approve (10e). Proposals only.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action_id", "reason"],
+        "properties": {
+          "action_id": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "Must be a key of aiops/actions.yml." },
+          "reason": { "type": "string", "minLength": 3, "maxLength": 300 }
+        }
+      }
+    },
+    "next_checks": { "type": "array", "maxItems": 5, "items": { "type": "string", "minLength": 3, "maxLength": 200 } },
+    "needs_human": { "type": "boolean", "description": "True when the agent could not narrow it down, or the fix is outside the action registry." }
+  }
+}

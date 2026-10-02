@@ -38,6 +38,7 @@ import zabbix_event  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tools  # noqa: E402
+import diagnosis  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
@@ -76,16 +77,25 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS alerts_incident ON alerts(incident_id);
 CREATE INDEX IF NOT EXISTS incidents_state ON incidents(state, group_key);
 CREATE TABLE IF NOT EXISTS counters (name TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (name, day));
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id INTEGER NOT NULL, tool TEXT NOT NULL,
+  args_hash TEXT NOT NULL, replayed INTEGER NOT NULL, ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tool_calls_incident ON tool_calls(incident_id, tool, args_hash);
+CREATE TABLE IF NOT EXISTS diagnoses (
+  incident_id INTEGER PRIMARY KEY, diagnosis_json TEXT NOT NULL, model TEXT NOT NULL, created_at INTEGER NOT NULL
+);
 """
 
 
 class Rejected(Exception):
     """A request the API refuses (maps to an HTTP status in server.py)."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, detail: dict | None = None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.detail = detail or {}
 
 
 @dataclass
@@ -112,8 +122,10 @@ def day_of(ts: int) -> str:
 
 class Toolbelt:
     def __init__(self, cfg: Config, routes: list[dict], known_runbooks: set[str] | None,
-                 clock: Callable[[], float] = time.time, audit: Callable[[dict], None] | None = None):
+                 clock: Callable[[], float] = time.time, audit: Callable[[dict], None] | None = None,
+                 action_ids: set[str] | None = None):
         self.cfg = cfg
+        self.action_ids = action_ids
         self.routes = routes
         self.known_runbooks = known_runbooks
         self.clock = clock
@@ -300,6 +312,13 @@ class Toolbelt:
             self.audit("state", incident=inc_id, state=state, thread_id=thread_id)
         return self.group(inc_id)
 
+    def _record_call(self, incident_id: object, name: str, h: str, replayed: bool) -> None:
+        """The audit trail a diagnosis is checked against: only SERVED calls are recorded."""
+        if isinstance(incident_id, int) and not isinstance(incident_id, bool):
+            with self._lock:
+                self.db.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts) VALUES (?, ?, ?, ?, ?)",
+                                (incident_id, name, h, int(replayed), self.now()))
+
     # ---- /tool/<name> --------------------------------------------------------------------------
     def call_tool(self, name: str, args: object, incident_id: object = None, replay: str | None = None) -> dict:
         """One read-only tool call. Unknown or write-shaped names never reach a handler."""
@@ -321,6 +340,7 @@ class Toolbelt:
                         n = self._bump("no_recording")
                     self.audit("tool_no_recording", tool=name, args=h, scenario=replay, count_today=n)
                 raise Rejected(e.status, e.message)
+            self._record_call(incident_id, name, h, True)
             self.audit("tool_call", tool=name, args=h, replayed=True, scenario=replay, incident=incident_id)
             return {"tool": name, "replayed": True, "result": out}
         if isinstance(incident_id, bool) or not isinstance(incident_id, int):
@@ -338,9 +358,50 @@ class Toolbelt:
         except tools.ToolError as e:
             self.audit("tool_error", tool=name, args=h, status=e.status, incident=incident_id)
             raise Rejected(e.status, e.message)
+        self._record_call(incident_id, name, h, False)
         self.audit("tool_call", tool=name, args=h, replayed=False, incident=incident_id,
                    ms=int((time.monotonic() - t0) * 1000))
         return {"tool": name, "replayed": False, "result": out}
+
+    # ---- /diagnosis/<incident> -----------------------------------------------------------------
+    def diagnose(self, incident_id: int, body: object) -> dict:
+        """Validate a diagnosis against structure AND the audit trail; return the Discord rendering.
+
+        422 with `problems` when it fails: the workflow may retry once, then posts a plain
+        "no analysis" message. A diagnosis is stored (and replaced on re-post) only if it passes.
+        """
+        if not isinstance(body, dict) or "diagnosis" not in body:
+            raise Rejected(400, "need {\"diagnosis\": {...}}")
+        diag = body["diagnosis"]
+        model = str(body.get("model", ""))[:60]
+        with self._lock:
+            self._incident(incident_id)  # 404
+            problems = diagnosis.structure(diag)
+            if not problems:
+                def served(tool: str, args: dict) -> bool:
+                    try:
+                        clean = tools.validate(tool, args)
+                    except tools.ToolError:
+                        return False
+                    h = tools.args_hash(tool, clean)
+                    return self.db.execute("SELECT 1 FROM tool_calls WHERE incident_id=? AND tool=? AND args_hash=?",
+                                           (incident_id, tool, h)).fetchone() is not None
+                problems = diagnosis.grounding(
+                    diag, incident_id=incident_id, served=served, known_runbooks=self.known_runbooks,
+                    action_ids=self.action_ids, repo_dir=self.cfg.live.repo_dir if self.cfg.live else None)
+            if problems:
+                self.audit("diagnosis_rejected", incident=incident_id, problems=len(problems))
+                raise Rejected(422, "diagnosis failed validation", {"problems": problems[:20]})
+            n_calls = self.db.execute("SELECT COUNT(*) FROM tool_calls WHERE incident_id=?", (incident_id,)).fetchone()[0]
+            n_alerts = self.db.execute("SELECT COUNT(*) FROM alerts WHERE incident_id=?", (incident_id,)).fetchone()[0]
+            self.db.execute(
+                "INSERT INTO diagnoses(incident_id, diagnosis_json, model, created_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(incident_id) DO UPDATE SET diagnosis_json=excluded.diagnosis_json, model=excluded.model, "
+                "created_at=excluded.created_at", (incident_id, json.dumps(diag, sort_keys=True), model, self.now()))
+            self.audit("diagnosis_accepted", incident=incident_id, layer=diag["layer"], confidence=diag["confidence"],
+                       evidence=len(diag["evidence"]), tool_calls=n_calls)
+        return {"ok": True, "content": diagnosis.render(diag, alert_count=n_alerts, model=model, tool_calls=n_calls),
+                "layer": diag["layer"], "confidence": diag["confidence"], "needs_human": diag["needs_human"]}
 
     def stats(self) -> dict:
         with self._lock:
