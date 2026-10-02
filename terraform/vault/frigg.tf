@@ -36,10 +36,13 @@
 #     (that wouldn't be authorized anywhere). Stored once with:
 #       vault kv put secret/ansible/frigg/ssh-private-key \
 #         value=@~/.ssh/ansible_niflheim
-#     The control-node `homelab-env` shim materializes it to ~ghost/.ssh +
-#     exports ANSIBLE_PRIVATE_KEY_FILE so ansible-playbook ON Frigg reaches
-#     the fleet. Covered by the homelab-frigg `secret/data/*` read above —
-#     no policy change needed. (A future Frigg-specific keypair distributed
+#     The `frigg-ssh-agent` role (ansible/roles/frigg-ssh-agent) loads it from
+#     Vault into a long-lived ssh-agent on Frigg, IN MEMORY ONLY (the private
+#     key never exists as a file there); the shim then exports SSH_AUTH_SOCK +
+#     the key's .pub as the identity so ansible-playbook ON Frigg reaches the
+#     fleet. (The shim itself never wrote this key to disk: an earlier version
+#     of this comment said it did.) Covered by the homelab-frigg
+#     `secret/data/*` read above — no policy change needed. (A future Frigg-specific keypair distributed
 #     via the baseline role would supersede this; deferred — it needs a
 #     fleet-wide baseline run, which needs a working controller = chicken/egg.)
 
