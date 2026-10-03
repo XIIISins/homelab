@@ -98,6 +98,12 @@ class ConfigTests(unittest.TestCase):
 
 
 class CardTests(unittest.TestCase):
+    def test_the_title_shows_the_conversation_number_not_the_primary_key(self):
+        c = logic.card({**PROPOSAL, "number": 1})
+        self.assertEqual(c["title"], "Proposal #1: restart-unit")
+        self.assertIn("id 12 |", c["footer"])
+        self.assertIn("Proposal #1 ", logic.result_summary({**PROPOSAL, "number": 1, "state": "rejected"}))
+
     def test_pending_card_is_built_from_toolbelt_data_and_never_pings(self):
         c = logic.card(PROPOSAL)
         self.assertTrue(c["buttons"])
@@ -105,6 +111,7 @@ class CardTests(unittest.TestCase):
         self.assertNotIn("@everyone", c["description"])
         self.assertNotIn("<@123456789012345678>", c["description"])
         self.assertIn("params 0123456789abcdef", c["footer"])
+        self.assertIn("id 12 |", c["footer"])
         self.assertIn("expires <t:4102444800:R>", c["footer"])
         names = [f[0] for f in c["fields"]]
         self.assertEqual(names, ["Action", "Target", "Parameters", "What it does", "Then it verifies", "If it goes wrong"])

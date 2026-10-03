@@ -210,6 +210,22 @@ class ProposeTests(unittest.TestCase):
         self.assertEqual(cm.exception.status, 409)
 
 
+class NumberingTests(unittest.TestCase):
+    def test_humans_read_1_2_3_within_a_conversation_while_ids_keep_counting(self):
+        eng, *_ = make()
+        eng.propose(action_id="restart-unit", params={"target_host": "canary-1", "unit": "vlagent.service"}, reason="earlier", source="chat", conversation_id=None, incident_id=7)
+        got = [eng.propose(action_id="restart-unit", params={"target_host": h, "unit": "zabbix-agent2.service"}, reason="agent stopped", source="chat", conversation_id=5)
+               for h in ("canary-1", "canary-2", "canary-3")]
+        self.assertEqual([p["number"] for p in got], [1, 2, 3])
+        self.assertEqual([p["id"] for p in got], [2, 3, 4])
+        self.assertEqual(eng.get(got[2]["id"])["number"], 3)
+
+    def test_without_a_conversation_or_incident_the_number_is_the_id(self):
+        eng, *_ = make()
+        p = eng.propose(action_id="restart-unit", params=RESTART, reason="agent stopped", source="diagnosis")
+        self.assertEqual(p["number"], p["id"])
+
+
 class DecideTests(unittest.TestCase):
     def setUp(self):
         self.eng, self.clock, self.audit, _ = make()
