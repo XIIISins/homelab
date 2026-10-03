@@ -120,6 +120,19 @@
   register: aiops_toolbelt_placement_units
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
+- name: Install the forecasting shadow service and timer
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ aiops_toolbelt_forecast_unit_name }}.{{ item.kind }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: aiops-toolbelt-forecast.service.j2, kind: service}
+    - {src: aiops-toolbelt-forecast.timer.j2, kind: timer}
+  register: aiops_toolbelt_forecast_units
+  tags: [aiops-toolbelt, aiops-toolbelt:install]
+
 - name: Install the token loader unit
   ansible.builtin.template:
     src: aiops-toolbelt-token.service.j2
@@ -143,7 +156,7 @@
 - name: Reload systemd when the repo or placement units changed
   ansible.builtin.systemd:
     daemon_reload: true
-  when: aiops_toolbelt_repo_units is changed or aiops_toolbelt_placement_units is changed
+  when: aiops_toolbelt_repo_units is changed or aiops_toolbelt_placement_units is changed or aiops_toolbelt_forecast_units is changed
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
 - name: Flush handlers so changed code/unit is live before the checks
@@ -162,6 +175,13 @@
     name: "{{ aiops_toolbelt_placement_unit_name }}.timer"
     enabled: true
     state: started
+  tags: [aiops-toolbelt, aiops-toolbelt:service]
+
+- name: Enable (or stop) the forecasting shadow timer
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_forecast_unit_name }}.timer"
+    enabled: "{{ aiops_toolbelt_forecast_enabled }}"
+    state: "{{ 'started' if aiops_toolbelt_forecast_enabled else 'stopped' }}"
   tags: [aiops-toolbelt, aiops-toolbelt:service]
 
 - name: Is there a placement map yet?
