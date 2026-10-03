@@ -249,7 +249,7 @@ resource "vault_kv_secret_v2" "n8n_owner_password" {
 # Add a source here as it is cut over (zabbix first; prober, semaphore, patroni,
 # frigg follow). for_each keeps one resource shape per source.
 locals {
-  n8n_ingest_sources = toset(["zabbix"])
+  n8n_ingest_sources = toset(["zabbix", "chat"])
 }
 
 resource "random_password" "n8n_ingest_token" {
@@ -285,6 +285,27 @@ resource "vault_kv_secret_v2" "toolbelt_token" {
   name  = "ansible/aiops/toolbelt-token"
   data_json = jsonencode({
     value = random_password.toolbelt_token.result
+  })
+}
+
+# -----------------------------------------------------------------------------
+# Approver token (Phase 10e): the Discord bot (Ratatoskr) -> the Toolbelt's APPROVER role
+# -----------------------------------------------------------------------------
+# A second, separate bearer token for a second role: the agent token (above) can create proposals but never decide
+# one; this one can decide, flip the kill switch and read the feed, and can do nothing the agent can. It is read by the
+# Ratatoskr role (written to the bot host) and by the Frigg token loader (the Toolbelt's approver credential); the
+# Toolbelt also allow-lists the bot's source address, so the token alone is not enough. Rotate: taint + apply, then
+# re-run the Ratatoskr role and restart the Toolbelt.
+resource "random_password" "approver_token" {
+  length  = 48
+  special = false # sent in an Authorization header
+}
+
+resource "vault_kv_secret_v2" "approver_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/approver-token"
+  data_json = jsonencode({
+    value = random_password.approver_token.result
   })
 }
 

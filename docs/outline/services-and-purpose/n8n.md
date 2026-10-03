@@ -14,6 +14,8 @@ On **Gná** (LXC 1121 on Urd), a dedicated host, not in Kubernetes. It is **inte
 
 ## What it can and cannot do
 
+People can also talk to it: mention **@Gná** in the AIOps-chat channel (or inside a diagnosis thread) and it answers from the same read-only tools. When something should change it can only **propose** an action; a card with Approve / Reject buttons appears in the thread and only the operator's account can press them.
+
 It can only **read**. Every look at the homelab goes through one read-only API on the control node (Frigg), which holds the read-only credentials and refuses anything not on its allow-list; n8n itself holds only a token for that API, the Discord webhook and a dedicated, spend-limited Anthropic key. It diagnoses and proposes; it never changes anything.
 
 Workflows live in git and are imported by Ansible; edits made in the editor are overwritten. Outbound traffic from the host is limited at the firewall to Discord, the Anthropic API and OS updates.

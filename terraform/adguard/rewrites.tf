@@ -60,6 +60,10 @@ locals {
     # exposed: reach it with `ssh -L 5678:127.0.0.1:5678 ansible@gna`.
     "gna.niflheim.xiiisins.com" = "10.0.11.221"
 
+    # ── niflheim.xiiisins.com - Ratatoskr (AIOps Discord bot) ──────
+    # Bare LXC (Phase 10e), outbound only: nothing listens, the name is for operators (ssh, Zabbix, NetBox).
+    "ratatoskr.niflheim.xiiisins.com" = "10.0.11.222"
+
     # ── niflheim.xiiisins.com — Frigg (control-node watchtower) ────
     # Bare VM (Phase 6 Stage 2), NOT K8s-fronted → points straight at the
     # VM IP (like hugin/hermod), so NO CoreDNS rewrite needed. Reach it as

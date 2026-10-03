@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--operators-file", help="Discord user ids (one per line) allowed to decide proposals and flip the kill switch")
     ap.add_argument("--actions", action="store_true", help="enable proposals, approval and the executor (needs --operators-file)")
     ap.add_argument("--exec-cred", default="semaphore-exec", help="creds-dir file name of the executor's Semaphore token (no file = executor disabled)")
-    ap.add_argument("--exec-project", type=int, default=2, help="Semaphore project id that holds the aiops-* templates")
+    ap.add_argument("--exec-project", type=int, default=0, help="Semaphore project id of the aiops project (0 = look it up by name `aiops`)")
     ap.add_argument("--placement-file", help="JSON {host: hypervisor-node}, refreshed from NetBox")
     ap.add_argument("--daily-run-cap", type=int, default=40)
     ap.add_argument("--replay-dir", help="aiops/replays: recorded tool responses (X-AIOPS-Replay scenarios)")
@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.operators_file or not approver_token:
             print("--actions needs --operators-file and --approver-token-file", file=sys.stderr)
             return 2
-        operators = frozenset(ln.strip() for ln in Path(args.operators_file).read_text().splitlines() if ln.strip().isdigit())
+        operators = frozenset(x for x in re.split(r"[,\s]+", Path(args.operators_file).read_text()) if x.isdigit())
         if not operators:
             print("--operators-file holds no Discord user id", file=sys.stderr)
             return 2
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         cred = Path(args.creds_dir or "/nonexistent") / f"{args.exec_cred}.json"
         if cred.is_file():
             c = json.loads(cred.read_text())
-            sem = core.actions.SemaphoreAPI(c["url"], c["value"], args.exec_project)
+            sem = core.actions.SemaphoreAPI(c["url"], c["value"], args.exec_project or None)
         cfg.actions = core.actions.ActionConfig(operators=operators, semaphore=sem)
     import normalize  # noqa: E402 (path set up by core)
 

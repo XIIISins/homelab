@@ -19,6 +19,23 @@ aiops_toolbelt_listen_port: 8090
 aiops_toolbelt_allow:
   - 10.0.11.221/32 # Gna (n8n AIOps agent)
 aiops_toolbelt_daily_run_cap: 40
+
+# ---- Phase 10e: proposals, operator approval and the executor ----------------------------------------------
+# Enabled, the API also runs the action engine. TWO roles then exist: the agent (Gna, above) can propose, the
+# approver (the Discord bot, Ratatoskr) can decide. Each has its own token and its own source address; the unit lets
+# both addresses in, the app lets each reach only its own routes (aiops/toolbelt/server.py).
+aiops_toolbelt_actions_enabled: true
+aiops_toolbelt_approver_allow:
+  - 10.0.11.222/32 # Ratatoskr (the Discord bot)
+aiops_toolbelt_approver_token_vault_path: secret/data/ansible/aiops/approver-token # terraform/vault
+aiops_toolbelt_approver_token_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/approver-token"
+# The operator's Discord user id (comma-separated for more than one): who may approve. Seeded with scripts/secrets/seed-discord-bot.
+aiops_toolbelt_operators_vault_path: secret/data/ansible/ratatoskr/discord-bot
+aiops_toolbelt_operators_field: operator_user_id
+aiops_toolbelt_operators_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/operators"
+# The executor's Semaphore identity (Task Runner on the dedicated `aiops` project only): aiops/tools/mint_semaphore_exec.py.
+# Optional at start: without it the engine still proposes and records decisions, and an approved action fails with a clear message.
+aiops_toolbelt_exec_cred: semaphore-exec
 # Outbound: the `reach.tcp` tool opens bounded TCP connections to the homelab (a substitute for
 # SSH). Everything else this process talks to is a caller above. Narrow this per tool as the
 # read-only backends land (each gets its own address); it never includes the internet.
@@ -42,6 +59,7 @@ aiops_toolbelt_credentials:
   netbox: secret/data/ansible/aiops/netbox-token # aiops/tools/mint_netbox_ro.py (view-only user + token)
   kube: secret/data/ansible/aiops/kube-token # aiops/tools/mint_kube_ro.py ({token, ca, servers}; k8s/asgard/infrastructure/aiops-readonly)
   semaphore: secret/data/ansible/aiops/semaphore-token # aiops/tools/mint_semaphore_ro.py (guest-role user + token)
+  semaphore-exec: secret/data/ansible/aiops/semaphore-exec-token # aiops/tools/mint_semaphore_exec.py (Task Runner on the aiops project ONLY)
 # Hypervisor placement (guest -> node) so a burst of alerts groups by shared hypervisor. Built from NetBox by a timer
 # unit of its own, hot-reloaded by the API; the previous map is kept if NetBox is down or answers implausibly little.
 aiops_toolbelt_placement_file: /var/lib/aiops-toolbelt/placement.json
@@ -67,6 +85,7 @@ aiops_toolbelt_source_files:
   - toolbelt/server.py
   - toolbelt/tools.py
   - toolbelt/diagnosis.py
+  - toolbelt/actions.py
   - toolbelt/placement_sync.py
   - tools/normalize.py
   - tools/zabbix_event.py

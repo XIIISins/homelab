@@ -27,6 +27,15 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% for cidr in aiops_toolbelt_allow %}
   --allow {{ cidr }} \
 {% endfor %}
+{% if aiops_toolbelt_actions_enabled %}
+  --actions \
+  --approver-token-file {{ aiops_toolbelt_approver_token_file }} \
+{% for cidr in aiops_toolbelt_approver_allow %}
+  --approver-allow {{ cidr }} \
+{% endfor %}
+  --operators-file {{ aiops_toolbelt_operators_file }} \
+  --exec-cred {{ aiops_toolbelt_exec_cred }} \
+{% endif %}
   --replay-dir {{ aiops_toolbelt_replay_dir }} \
   --repo-dir {{ aiops_toolbelt_repo_dir }} \
   --creds-dir {{ aiops_toolbelt_creds_dir }} \
@@ -42,7 +51,7 @@ IPAddressAllow=127.0.0.0/8
 # Frigg itself, so the role's own anonymous-probe checks reach the listener. The app-level
 # allow-list still refuses it for every route but /healthz.
 IPAddressAllow={{ aiops_toolbelt_listen_host }}
-{% for cidr in aiops_toolbelt_allow + aiops_toolbelt_egress_allow %}
+{% for cidr in aiops_toolbelt_allow + (aiops_toolbelt_approver_allow if aiops_toolbelt_actions_enabled else []) + aiops_toolbelt_egress_allow %}
 IPAddressAllow={{ cidr }}
 {% endfor %}
 NoNewPrivileges=yes

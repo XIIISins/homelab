@@ -35,6 +35,8 @@ locals {
     # aiops-agent: added Phase 10d1 (Gna, the n8n diagnosis agent). No import_id —
     # created on first apply.
     aiops-agent = { vm_role = true, description = "AIOps agent host (n8n diagnosis agent, Gna)" }
+    # aiops-bot: added Phase 10e (Ratatoskr, the Discord bot that relays chat and is the only approver).
+    aiops-bot = { vm_role = true, description = "AIOps Discord bot (chat transport + approver, Ratatoskr)" }
   }
 
   # Import IDs sourced from /api/dcim/device-roles/ at retrofit time.

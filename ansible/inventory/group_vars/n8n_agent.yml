@@ -30,12 +30,20 @@ caddy_sites:
     allowed_cidrs:
       # Hugin (Zabbix server) - the first cut-over source
       - "10.0.11.21/32"
+      # Ratatoskr (the Discord bot, LXC 1122): the chat webhook only (see the per-path rules below)
+      - "10.0.11.222/32"
     # Runs inside the allowed handle, ahead of reverse_proxy (Caddy orders
     # `respond` before `reverse_proxy`): anything that is not a production
-    # webhook path is a 404.
+    # webhook path is a 404, and each source may reach ONLY its own path, so a
+    # leaked token is still useless from the wrong host (Hugin cannot post chat,
+    # Ratatoskr cannot post alerts). Validated 2026-10-03 with Caddy 2.11 + a request matrix.
     extra_directives:
       - "@notwebhook not path /webhook/*"
       - "respond @notwebhook 404"
+      - "@chat_wrong_source expression path('/webhook/aiops/chat*') && !remote_ip('10.0.11.222')"
+      - "respond @chat_wrong_source 404"
+      - "@zabbix_wrong_source expression path('/webhook/aiops/zabbix*') && !remote_ip('10.0.11.21')"
+      - "respond @zabbix_wrong_source 404"
 
 # -----------------------------------------------------------------------------
 # vlagent: journald (n8n) + the Caddy JSON access log

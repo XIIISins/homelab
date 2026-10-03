@@ -358,5 +358,36 @@ class ChatTests(unittest.TestCase):
         self.assertIn("proposals", t["context"])
 
 
+class ServerMainTests(unittest.TestCase):
+    """server.main() argument handling for the 10e options (it is never started: bad arguments exit before the socket)."""
+
+    def setUp(self):
+        import tempfile
+
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / "agent").write_text("a" * 40)
+        (self.d / "appr").write_text("p" * 40)
+        (self.d / "same").write_text("a" * 40)
+        (self.d / "ops").write_text("111111111111111111,222222222222222222\n")
+        (self.d / "noops").write_text("not-an-id\n")
+        self.base = ["--listen", "127.0.0.1:0", "--db", ":memory:", "--token-file", str(self.d / "agent"), "--allow", "127.0.0.0/8"]
+
+    def test_actions_need_an_operator_file_and_an_approver_token(self):
+        self.assertEqual(server.main(self.base + ["--actions"]), 2)
+        self.assertEqual(server.main(self.base + ["--actions", "--approver-token-file", str(self.d / "appr")]), 2)
+
+    def test_the_approver_token_must_differ_from_the_agent_token(self):
+        self.assertEqual(server.main(self.base + ["--approver-token-file", str(self.d / "same")]), 2)
+
+    def test_an_operators_file_without_a_discord_id_is_refused(self):
+        self.assertEqual(server.main(self.base + ["--actions", "--approver-token-file", str(self.d / "appr"), "--operators-file", str(self.d / "noops")]), 2)
+
+    def test_a_comma_separated_operator_list_is_parsed(self):
+        import re
+
+        parsed = frozenset(x for x in re.split(r"[,\s]+", (self.d / "ops").read_text()) if x.isdigit())
+        self.assertEqual(parsed, {"111111111111111111", "222222222222222222"})
+
+
 if __name__ == "__main__":
     unittest.main()
