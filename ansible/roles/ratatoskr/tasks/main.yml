@@ -1,0 +1,185 @@
+# ansible/roles/ratatoskr/tasks/main.yml
+---
+# ---- Secrets (fail early, with the fix in the message) ----------------------
+# errors='ignore' turns "absent / Vault unreachable" into an empty value so the assert below fails with an actionable
+# message instead of a lookup trace. The values pass through Ansible in memory only (no_log) and land in 0400 files.
+- name: Read the bot's secrets from Vault
+  ansible.builtin.set_fact:
+    ratatoskr_discord: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', ratatoskr_vault_discord_path, errors='ignore') | default({}, true)).get('secret', {}) }}
+    ratatoskr_approver_token: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', ratatoskr_vault_approver_token_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+    ratatoskr_chat_token: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', ratatoskr_vault_chat_token_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+  no_log: true
+  tags: [ratatoskr, ratatoskr:preflight]
+
+- name: Assert the secrets are present and well-formed
+  ansible.builtin.assert:
+    that:
+      - ratatoskr_discord.get('token', '') is match('^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{20,}$')
+      - ratatoskr_discord.get('operator_user_id', '') is match('^[0-9]{17,20}(,[0-9]{17,20})*$')
+      - ratatoskr_discord.get('guild_id', '') is match('^[0-9]{17,20}$')
+      - ratatoskr_discord.get('diagnoses_channel_id', '') is match('^[0-9]{17,20}$')
+      - ratatoskr_discord.get('chat_channel_id', '') is match('^[0-9]{17,20}$')
+      - ratatoskr_approver_token | length >= 32
+      - ratatoskr_approver_token is match('^[A-Za-z0-9]+$')
+      - ratatoskr_chat_token | length >= 32
+      - ratatoskr_chat_token is match('^[A-Za-z0-9]+$')
+    fail_msg: >-
+      Missing or malformed Vault secret. The operator seeds secret/{{ ratatoskr_vault_discord_path }} (fields token,
+      operator_user_id, guild_id, diagnoses_channel_id, chat_channel_id) with scripts/secrets/seed-discord-bot;
+      Terraform mints secret/{{ ratatoskr_vault_approver_token_path }} and secret/{{ ratatoskr_vault_chat_token_path }}
+      (terraform/vault, apply from the main checkout). Also check Vault is reachable (vault-homelab-env loaded).
+      See docs/procedures/aiops-actions.md.
+    quiet: true
+  tags: [ratatoskr, ratatoskr:preflight]
+
+# ---- Packages: discord.py from Debian (2.5 in trixie; DynamicItem needs >= 2.4) ------------------
+- name: Install the runtime (python3 + the Debian discord.py package)
+  ansible.builtin.apt:
+    name: [python3, python3-discord, ca-certificates, tzdata]
+    state: present
+  tags: [ratatoskr, ratatoskr:packages]
+
+- name: Read the installed discord.py version
+  ansible.builtin.command: /usr/bin/python3 -c "import discord; print(discord.__version__)"
+  register: ratatoskr_discord_version
+  changed_when: false
+  check_mode: false
+  tags: [ratatoskr, ratatoskr:packages]
+
+- name: Assert discord.py is new enough for the persistent buttons
+  ansible.builtin.assert:
+    that: ratatoskr_discord_version.stdout | trim is version('2.4', '>=')
+    fail_msg: "discord.py {{ ratatoskr_discord_version.stdout | trim }} is older than 2.4 (DynamicItem is needed so approval buttons survive a restart)."
+    quiet: true
+  tags: [ratatoskr, ratatoskr:packages]
+
+# ---- Identity + layout ------------------------------------------------------
+- name: Create the service group
+  ansible.builtin.group:
+    name: "{{ ratatoskr_group }}"
+    system: true
+  tags: [ratatoskr, ratatoskr:user]
+
+- name: Create the service user (no shell, no home)
+  ansible.builtin.user:
+    name: "{{ ratatoskr_user }}"
+    group: "{{ ratatoskr_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [ratatoskr, ratatoskr:user]
+
+- name: Create the code and config directories (the code is root-owned so the service cannot modify itself)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ ratatoskr_home }}", group: root, mode: "0755" }
+    - { path: "{{ ratatoskr_home }}/aiops", group: root, mode: "0755" }
+    - { path: "{{ ratatoskr_home }}/aiops/bot", group: root, mode: "0755" }
+    - { path: "{{ ratatoskr_config_dir }}", group: "{{ ratatoskr_group }}", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+  tags: [ratatoskr, ratatoskr:layout]
+
+- name: Install the bot code from the repo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../aiops/{{ item }}"
+    dest: "{{ ratatoskr_home }}/aiops/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ ratatoskr_source_files }}"
+  notify: Restart ratatoskr
+  tags: [ratatoskr, ratatoskr:install]
+
+- name: Render the static configuration (urls only, no secrets)
+  ansible.builtin.template:
+    src: config.json.j2
+    dest: "{{ ratatoskr_config_dir }}/config.json"
+    owner: root
+    group: "{{ ratatoskr_group }}"
+    mode: "0640"
+  notify: Restart ratatoskr
+  tags: [ratatoskr, ratatoskr:config]
+
+# ---- Secrets on disk: 0400, service-owned ------------------------------------
+- name: Write the Discord bot secret (token + ids)
+  ansible.builtin.copy:
+    content: "{{ ratatoskr_discord | to_json }}"
+    dest: "{{ ratatoskr_config_dir }}/discord-bot.json"
+    owner: "{{ ratatoskr_user }}"
+    group: "{{ ratatoskr_group }}"
+    mode: "0400"
+  no_log: true
+  notify: Restart ratatoskr
+  tags: [ratatoskr, ratatoskr:secrets]
+
+- name: Write the approver token and the chat webhook token
+  ansible.builtin.copy:
+    content: "{{ item.value }}\n"
+    dest: "{{ ratatoskr_config_dir }}/{{ item.name }}"
+    owner: "{{ ratatoskr_user }}"
+    group: "{{ ratatoskr_group }}"
+    mode: "0400"
+  loop:
+    - { name: approver-token, value: "{{ ratatoskr_approver_token }}" }
+    - { name: chat-token, value: "{{ ratatoskr_chat_token }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify: Restart ratatoskr
+  tags: [ratatoskr, ratatoskr:secrets]
+
+# ---- The unit ------------------------------------------------------------------
+- name: Install the unit
+  ansible.builtin.template:
+    src: ratatoskr.service.j2
+    dest: "/etc/systemd/system/{{ ratatoskr_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ratatoskr
+  tags: [ratatoskr, ratatoskr:install]
+
+- name: Flush handlers so changed code/unit is live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [ratatoskr, ratatoskr:install]
+
+- name: Enable and start the bot
+  ansible.builtin.systemd:
+    name: "{{ ratatoskr_unit_name }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [ratatoskr, ratatoskr:service]
+
+# ---- Verification (no secret is read) ---------------------------------------------
+- name: The service stays up
+  ansible.builtin.systemd:
+    name: "{{ ratatoskr_unit_name }}.service"
+  register: ratatoskr_active
+  retries: 6
+  delay: 5
+  until: ratatoskr_active.status.ActiveState | default('unknown') == 'active'
+  changed_when: false
+  when: not ansible_check_mode
+  tags: [ratatoskr, ratatoskr:verify]
+
+- name: The bot reached the Discord gateway (a `ready` line in its own log)
+  ansible.builtin.shell: >-
+    journalctl -u {{ ratatoskr_unit_name }}.service --since '-3min' -o cat | grep -q '"event": "ready"'
+  register: ratatoskr_ready
+  retries: 12
+  delay: 5
+  until: ratatoskr_ready.rc == 0
+  changed_when: false
+  when: not ansible_check_mode
+  failed_when: ratatoskr_ready.rc != 0
+  tags: [ratatoskr, ratatoskr:verify]

@@ -4,6 +4,32 @@
 # Installs the Toolbelt API from the repo's aiops/ tree. No secret passes through Ansible:
 # the root loader fetches the bearer token on the host, from Vault, at every start.
 
+# ---- Phase 10e preflight: the approver token and the operator id must exist before approvals are enabled ----------
+- name: Read the approver token and the operator id from Vault (empty when absent)
+  ansible.builtin.set_fact:
+    aiops_toolbelt_pre_approver: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', aiops_toolbelt_approver_token_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+    aiops_toolbelt_pre_operator: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', aiops_toolbelt_operators_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {})).get(aiops_toolbelt_operators_field, '') }}
+  no_log: true
+  when: aiops_toolbelt_actions_enabled
+  tags: [aiops-toolbelt, aiops-toolbelt:preflight]
+
+- name: Assert the approver secrets exist (the API must never run with approvals on and no approver or operator)
+  ansible.builtin.assert:
+    that:
+      - aiops_toolbelt_pre_approver | length >= 32
+      - aiops_toolbelt_pre_approver is match('^[A-Za-z0-9]+$')
+      - aiops_toolbelt_pre_operator is match('^[0-9]{17,20}(,[0-9]{17,20})*$')
+    fail_msg: >-
+      Missing or malformed approver secret. Terraform mints {{ aiops_toolbelt_approver_token_vault_path }} (terraform/vault,
+      apply from the main checkout); the operator seeds {{ aiops_toolbelt_operators_vault_path }} field
+      {{ aiops_toolbelt_operators_field }} with scripts/secrets/seed-discord-bot. To run the Toolbelt WITHOUT approvals
+      for now, set aiops_toolbelt_actions_enabled: false. See docs/procedures/aiops-actions.md.
+    quiet: true
+  when: aiops_toolbelt_actions_enabled
+  tags: [aiops-toolbelt, aiops-toolbelt:preflight]
+
 - name: Install the runtime dependency (PyYAML for the routing table)
   ansible.builtin.apt:
     name: [python3, python3-yaml, tzdata, git]

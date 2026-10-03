@@ -9,6 +9,10 @@ reboot, never in a backup). Nothing secret is printed or logged.
 
 Exit non-zero on any failure so the unit does not start with a missing or stale token.
 
+Phase 10e adds REQUIRED files (AIOPS_TOOLBELT_EXTRA_FILES: name -> {path, field, out, min_len}): the approver token the
+Discord bot presents, and the operator Discord user id(s). Unlike the optional credentials these fail the start when
+missing or short, because the API must never run with approvals enabled but unauthenticated or operator-less.
+
 Read-only backend credentials (the `pve` token, later zabbix/netbox/...) are written the same
 way to <creds dir>/<name>.json (0400, the whole KV document). Those are OPTIONAL: a missing
 one only logs a warning, so a not-yet-minted credential cannot stop the API from starting;
@@ -76,6 +80,14 @@ def main(env=None):
 
     write_secret(out, token + "\n", owner)
     log(f"token written to {out} (mode 0400)")  # the path, never the value
+
+    for name, spec in sorted(json.loads(env.get("AIOPS_TOOLBELT_EXTRA_FILES", "{}") or "{}").items()):
+        doc = http_json("GET", f"{vault}/v1/{spec['path']}", headers={"X-Vault-Token": login["auth"]["client_token"]})["data"]["data"]
+        value = str(doc[spec["field"]]).strip()
+        if len(value) < int(spec.get("min_len", 1)):
+            sys.exit(f"{name} in Vault is shorter than {spec.get('min_len', 1)} characters; refusing to start")
+        write_secret(spec["out"], value + "\n", owner)
+        log(f"{name} written to {spec['out']} (mode 0400)")  # the path, never the value
 
     extra = json.loads(env.get("AIOPS_TOOLBELT_EXTRA_CREDS", "{}") or "{}")
     creds_dir = env.get("AIOPS_TOOLBELT_CREDS_DIR", "")
