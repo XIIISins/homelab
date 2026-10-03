@@ -991,5 +991,35 @@ class BotText(unittest.TestCase):
         self.assertIn("REBUILD BREAKER TRIPPED", st)
 
 
+class VerifyMapping(unittest.TestCase):
+    """The verify PLAYBOOK emits flat fields (ssh_as_ansible, ...); the registry names conditions with hyphens. Found at
+    integration time: without this mapping every real verify would have been read as 'missing' and failed."""
+    CONDS = tuple(DATA["rebuild"]["classes"]["canary"]["post_conditions"])
+    GOOD = {"ssh_as_ansible": True, "vlagent_active": True, "zabbix_agent2_active": "True", "zabbix_group_canary": True,
+            "canary_template_linked": True, "alert_cleared": True}
+
+    def test_the_playbooks_flat_fields_satisfy_every_registry_condition(self):
+        checks = rebuild_exec.checks_from_result(self.GOOD, self.CONDS)
+        verdict = rebuild_exec.run_checklist(self.CONDS, checks)
+        self.assertTrue(verdict["ok"], verdict)
+        self.assertEqual(verdict["checked"], len(self.CONDS))
+
+    def test_one_false_field_never_passes(self):
+        for field in self.GOOD:
+            checks = rebuild_exec.checks_from_result({**self.GOOD, field: False}, self.CONDS)
+            self.assertFalse(rebuild_exec.run_checklist(self.CONDS, checks)["ok"], field)
+
+    def test_a_field_the_playbook_did_not_report_is_missing_not_passed(self):
+        gone = {k: v for k, v in self.GOOD.items() if k != "alert_cleared"}
+        verdict = rebuild_exec.run_checklist(self.CONDS, rebuild_exec.checks_from_result(gone, self.CONDS))
+        self.assertFalse(verdict["ok"])
+        self.assertIn("alert-cleared", verdict["missing"])
+        half = {k: v for k, v in self.GOOD.items() if k != "zabbix_agent2_active"}
+        self.assertFalse(rebuild_exec.run_checklist(self.CONDS, rebuild_exec.checks_from_result(half, self.CONDS))["ok"])
+
+    def test_an_explicit_checks_dict_wins(self):
+        self.assertEqual(rebuild_exec.checks_from_result({"checks": {"x": True}}, self.CONDS), {"x": True})
+
+
 if __name__ == "__main__":
     unittest.main()

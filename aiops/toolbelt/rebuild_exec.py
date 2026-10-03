@@ -269,6 +269,26 @@ class VerifyProvider(Protocol):
         """{"status": "success"|..., "checks": {condition: bool}}"""
 
 
+def checks_from_result(res: dict, conditions: tuple) -> dict:
+    """Map the verify playbook's flat AIOPS_RESULT fields (`ssh_as_ansible`, `vlagent_active`, ...) onto the registry's
+    hyphenated condition names. An explicit `checks` dict wins; `agents-active` is the AND of the two agent-unit fields.
+    A condition the playbook did not report is simply absent, so the checklist counts it as missing (never as passed)."""
+    if isinstance(res.get("checks"), dict):
+        return dict(res["checks"])
+
+    def yes(v: object) -> bool:
+        return v is True or (isinstance(v, str) and v.strip().lower() == "true")
+
+    out: dict = {}
+    for c in conditions:
+        key = c.replace("-", "_")
+        if key in res:
+            out[c] = res[key]
+        elif c == "agents-active" and "vlagent_active" in res and "zabbix_agent2_active" in res:
+            out[c] = yes(res["vlagent_active"]) and yes(res["zabbix_agent2_active"])
+    return out
+
+
 class SemaphoreVerify:
     """The real VerifyProvider: the registry's `rebuild-verify` template, which reports `checks` in its AIOPS_RESULT."""
 
@@ -277,8 +297,7 @@ class SemaphoreVerify:
 
     def check(self, pid: int, target: str, class_name: str, conditions: tuple) -> dict:
         status, res, _tail = self.eng._run_task(pid, "rebuild-verify", {"target": target}, "verify")
-        checks = res.get("checks") if isinstance(res.get("checks"), dict) else {}
-        return {"status": status, "checks": checks}
+        return {"status": status, "checks": checks_from_result(res, conditions)}
 
 
 # ---- state helpers ----------------------------------------------------------------------------------------------
