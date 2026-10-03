@@ -2,7 +2,7 @@
 
 # Phase 10g — Fleet rebuild loop: plan
 
-*Drafted 2026-10-03. Status: **planned, not started** (design only; nothing in this document exists as code yet). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../procedures/teardown-rebuild.md) (Appendix B, single worker).*
+*Drafted 2026-10-03. Status: **pure logic built (10g1, unit-tested), nothing deployed**: the eligibility rules, the plan checker, the worker data manifest and the registry `rebuild:` section exist as code and tests; the engine `steps`/`backend` support, the rebuild runner, the Terraform pool and token, the playbooks and Semaphore templates, the runbooks and the bot cards are **not built** (see "As built so far"). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../procedures/teardown-rebuild.md) (Appendix B, single worker).*
 
 ---
 
@@ -87,6 +87,22 @@ Then: cordon + drain (timeout-bounded; Vault's required anti-affinity leaves the
 | Bot: the card shows plan summary, data-loss manifest, last-backup age | approval must be informed |
 | `do1`: a fast homelab-side check (the 10b3 follow-up) and TS3 DB restore automation | only way a dead `do1` is noticed in minutes; TS3 DB is restored by hand today |
 | Procedure doc `procedures/aiops-rebuild.md` (deploy, switches, acceptance) | written with the build, like `aiops-autonomy.md` |
+
+## As built so far (10g1 pure logic, 2026-10-03)
+
+Code only, no live system touched; `python3 aiops/tools/lint.py` and the `aiops/tests` suite pass.
+
+| Piece | Where | State |
+|---|---|---|
+| `eligible(facts, policy)`: verdict `go` / `skip` / `stop` plus a reason code, covering dead vs broken, the ladder (start before rebuild), node health first, deny list and class allow-list, never quorum/state-bearing/agent host, leader-aware, peers healthy, rate limits and the 1-failure breaker, maintenance and kill switch, queue length 1, backup freshness, and who may press the button (stage autonomy, `autonomy_rebuild`, an enabled policy, two approvals before auto for B1) | `aiops/toolbelt/rebuild.py` | built, table-tested; not called by anything yet |
+| `check_plan(plan_json, expected)`: exactly one `replace` or `create` of the expected address, identity (name, vmid, node, ip, vlan, template) unchanged, nothing else changed or destroyed, no drift elsewhere. Reads the bpg/proxmox attribute paths used in our modules (documented in the module) | same | built, tested against hand-written plan fixtures; a recorded real `terraform show -json` fixture is still to add when the runner exists |
+| `worker_data_manifest(pv_json, pods_json, backup_age_hours, node)`: local-path PVs on the node tagged replicated (Vault Raft member) or single-instance, iSCSI PVCs listed, `blocks` when single-instance data has no PBS backup within 24 h, a sanitised bounded card text | same | built, tested |
+| Registry `rebuild:` section (classes and hosts with vmid and node, stages A to C, limits, deny list, policies, all disabled, `autonomy_rebuild_default: false`) + `host_tiers.T2` + five actions (`rebuild-plan`, `start-guest`, `rebuild-guest`, `rebuild-worker`, `rebuild-verify`) as `applied: false` / `planned: true` | `aiops/actions.yml`, `aiops/schema/actions.v1.schema.json` | built |
+| `check_rebuild` lint: hosts exist in `host_tiers`, no control-plane node, quorum member or PBS in any list (and the deny list cannot shrink), canaries only in stage A on Urd, only stage A may start unattended, enabled policies need an `auto` ceiling and a runbook, action tiers pinned | `aiops/tools/lint.py` | built |
+
+Side effects worth knowing: planned actions are hidden from the chat agent's `propose_action` description (`aiops/n8n/build_ingest.py`), so the model is never told about an action that cannot run; the engine itself is untouched, so today the only thing stopping a proposal of these actions is the `applied: false` gate (the engine has no rebuild-class target guard until slice 2). `RB-GUEST-DEAD` / `RB-GUEST-BROKEN` do not exist yet, which is why no policy can be enabled (lint requires the runbook for an enabled one).
+
+**Not built:** runner, PVE pool and scoped token, engine `steps` / `backend` and the `guest-dead` / `guest-broken` prechecks, `autonomy_rebuild` and the rebuild breaker in the engine, converge/verify/plan playbooks and Semaphore templates, the canary High trigger and `RB-GUEST-*` runbooks and routing, `scripts/canary/fault kill|destroy`, replay scenarios, bot cards, PBS last-chance backup, Vault/Kubernetes drain identities, `do1` fast check, the procedure doc.
 
 ## Registry shape
 
