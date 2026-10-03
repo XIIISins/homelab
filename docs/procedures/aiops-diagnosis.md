@@ -27,7 +27,7 @@
 | `ansible/aiops/discord-diagnosis` | `url` | **Operator** (forum channel webhook) |
 | `ansible/aiops/anthropic-api-key` | `key` | **Operator** (used from 10d3; not read by the role yet) |
 
-The operator mirrors every one of these to 1Password (offline-mirror rule). **The n8n encryption key is the one that matters most:** PBS backs up the SQLite DB, not the key; losing the key makes every credential stored in n8n unreadable (re-import is possible — credentials are rebuilt from Vault — but only if Vault is intact).
+Every one of these is mirrored to 1Password with `scripts/secrets/vault-1p-mirror` (offline-mirror rule; [procedure](secret-mirroring.md)). **The n8n encryption key is the one that matters most:** PBS backs up the SQLite DB, not the key; losing the key makes every credential stored in n8n unreadable (re-import is possible — credentials are rebuilt from Vault — but only if Vault is intact).
 
 ## Deploy (first time)
 

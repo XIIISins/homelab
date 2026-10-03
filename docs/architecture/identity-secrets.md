@@ -248,6 +248,7 @@ The **Homelab 2.0** vault uses the title convention **`[Realm] - Consumer - Serv
 
 - **Realm**: `[Asgard]` (cluster + its services) · `[Bootstrap]` (must-survive-Vault-down) · `[Infra]` (hardware under the homelab — Proxmox / Synology / UCG / UniFi / personal AWS / fleet-wide SSH key) · `[DO - Offsite]` (DigitalOcean fallback env). `[Jotunheim]` reserved for the future second cluster.
 - **Consumer** — the "what's it used for" axis: `Terraform` / `Ansible` (read live by automation — edit carefully) · `Mirror` (cold offline copy of a Vault machine-secret, DR-only) · `Manual` (human / break-glass / web logins).
+- **Mirroring is scripted:** `scripts/secrets/vault-1p-mirror` ([procedure](../procedures/secret-mirroring.md)) copies Vault <-> 1Password from a names-only map, verifies every write, and keeps Login-type items (with their URL) for human web-UI logins. Rule direction: everything in Vault is mirrored in 1Password; not every 1Password item has to be in Vault.
 - Examples: `[Asgard] - Terraform - NetBox - Admin API token`, `[Asgard] - Mirror - Postgres - Admin password`, `[Bootstrap] - Manual - Vault - Root token`, `[Infra] - Manual - Synology - Admin login`.
 
 **Rename safety:** because the shim + TF reference machine items by UUID (above), renaming/retagging is non-breaking — `op://Homelab 2.0/<item-UUID>/<field>` resolves regardless of title. Two CLI caveats: `op item edit --title` cannot rename **SSH-Key items** or **Password items missing a `ps` value** (rename those in the 1P app); everything else renames via CLI.

@@ -38,13 +38,17 @@ scripts/secrets/vault-1p-mirror pin        # write op_id into the map for entrie
 - **An item you add to 1Password by hand:** point a `[[mirror]]` entry at it (`op_title`, then run `pin`), or use `mirror-to` for a one-off. Until then `unmapped` lists it if its title contains "Mirror".
 - A pair marked `GUESSED` in a `# NOTE:` comment was matched by title because the values differed. Read `status` before ever using `--overwrite` on it.
 
+## Human logins are Login items
+
+Map entries for a human web-UI login set `category = "Login"`, `url = "https://..."` and, when Vault holds only the password, `static = { username = "..." }` (item-only text, never mirrored). `to-1p` then creates a Login item with its website and the built-in username/password fields. `op` cannot change an existing item's type: `status` reports `WRONG-TYPE`, and the fix is to archive the item (`op item delete ID --archive`) and re-run `to-1p`. A missing website on an existing item is added, never replaced. The type is only checked when the entry sets `category`.
+
 ## Direction of the rule
 
 Everything in Vault is mirrored in 1Password; **not every 1Password item has to exist in Vault** (web logins, bootstrap material, Terraform-only tokens). `unmapped` and `status` therefore only look for Vault secrets missing from 1Password, never the reverse.
 
 ## Initial state of the map (2026-10-03)
 
-88 entries: 33 point at items that already existed in 1Password (matched by comparing value hashes, so nothing is duplicated), 55 are new `[Asgard] - Mirror - ...` / `[DO - Offsite] - Mirror - ...` items that `to-1p --apply` creates. Seven Vault paths are `[[ignore]]`d with a reason (Terraform-minted Tailscale auth keys, the `iac-env` aggregate, a derived hash, a Document-type 1P item, an unaddressable field name, the removed n8n). Items of type SSH Key cannot be edited by the `op` CLI, so for those only `to-vault` and `status` work.
+88 entries: 33 point at items that already existed in 1Password (matched by comparing value hashes, so nothing is duplicated), 55 are new `[Asgard] - Mirror - ...` / `[DO - Offsite] - Mirror - ...` items that `to-1p --apply` creates. Seven Vault paths (and one 1P item, via `op_id`) are `[[ignore]]`d with a reason (Terraform-minted Tailscale auth keys, the `iac-env` aggregate, a derived hash, a Document-type 1P item, an unaddressable field name, the removed n8n). Items of type SSH Key cannot be edited by the `op` CLI, so for those only `to-vault` and `status` work.
 
 ## What it guarantees
 
@@ -62,3 +66,7 @@ Created items are `API Credential` named `[Asgard] - Mirror - <Service> - <Detai
 ### Audit of 2026-10-03 (every 1Password item in `Homelab 2.0` against every Vault field)
 
 Exact value matches all sat in the item and field the map names (nothing was filed under a different field). Three pairs differed only by a trailing newline (the Ansible Vault password on Frigg, the Semaphore GitHub deploy key's private and public halves). Two title-based guesses were wrong and became new items: the 1P note `Mirror - Cloudflare - Tunnel credentials` holds only the tunnel UUID, so the tunnel's credentials JSON (which carries the tunnel secret) had **no** 1Password copy; and `Terraform - Semaphore - Admin API token` holds a different value from `secret/k8s/semaphore/admin-api-token`. `[Asgard] - Ansible - AdGuard - keepalived VRRP pass` (20 chars) matches neither Vault VRRP password (8 chars each): it predates them and is not a mirror.
+
+### Synced 2026-10-03
+
+`to-1p --all --apply` created 56 items and added one field to an existing one (`api_token` on the NetBox web login); afterwards `status` showed all 125 mapped fields in sync (116 identical, 9 differing only by a trailing newline) and `unmapped` was empty. MicroBin admin and the n8n owner login were recreated as Login items with their websites, and the Authentik `akadmin` bootstrap item gained its website. The old tunnel-UUID note stays as a reference and is `[[ignore]]`d. The Zabbix break-glass item is a Password-type item (no website field); recreate it as a Login item if you want its URL attached.
