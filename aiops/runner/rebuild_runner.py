@@ -347,6 +347,15 @@ class Runner:
             rc, _, err = self._run([tf, "plan", f"-replace={addr}", f"-target={addr}", f"-out={tmp}", "-input=false",
                                    "-lock-timeout=60s", "-no-color"], module, self.cfg.plan_timeout, spec["module_dir"])
             if rc != 0:
+                # A guest destroyed behind Terraform's back is no longer in state after the refresh, and `-replace` of an
+                # address that is not in state fails (found live 2026-10-03, canary-1). The right plan then is a plain
+                # single-resource `create`: retry once WITHOUT -replace. Still one -target, and check_plan below still
+                # demands exactly one replace/create of the expected address, so a failure for any other reason comes
+                # back as a plan with no change and is refused there, never widened.
+                self.audit("plan-retry-without-replace", target=target, first_rc=rc)
+                rc, _, err = self._run([tf, "plan", f"-target={addr}", f"-out={tmp}", "-input=false",
+                                       "-lock-timeout=60s", "-no-color"], module, self.cfg.plan_timeout, spec["module_dir"])
+            if rc != 0:
                 with contextlib.suppress(OSError):
                     tmp.unlink()
                 raise Refuse("terraform-failed", f"plan exited {rc}: {_tail(err)}")
