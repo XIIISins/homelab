@@ -168,6 +168,22 @@ async def cmd_autonomy(interaction: discord.Interaction, action: app_commands.Ch
         else f"Could not set it (HTTP {st}).", allowed_mentions=NO_MENTIONS)
 
 
+@aiops.command(name="rebuild", description="Unattended guest rebuilds: turn the master switch on or off, or re-arm the rebuild circuit breaker")
+@app_commands.describe(action="on, off or reset-breaker")
+@app_commands.choices(action=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off"),
+                              app_commands.Choice(name="reset-breaker", value="reset-breaker")])
+async def cmd_rebuild(interaction: discord.Interaction, action: app_commands.Choice[str]) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    flag, value = ("autonomy_rebuild_breaker", False) if action.value == "reset-breaker" else ("autonomy_rebuild", action.value == "on")
+    st, _ = await asyncio.to_thread(bot.tb.set_flag, flag, value, str(interaction.user.id), f"/aiops rebuild {action.value}")
+    log("flag", flag=flag, value=value, status=st)
+    await interaction.response.send_message(
+        (f"Unattended rebuilds {'ON' if value else 'OFF'}." if flag == "autonomy_rebuild" else "Rebuild circuit breaker re-armed.") if st == 200
+        else f"Could not set it (HTTP {st}).", allowed_mentions=NO_MENTIONS)
+
+
 @aiops.command(name="report", description="What autonomous healing did (and why it did not) over the last days")
 @app_commands.describe(days="1 to 90, default 14")
 async def cmd_report(interaction: discord.Interaction, days: app_commands.Range[int, 1, 90] = 14) -> None:

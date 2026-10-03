@@ -202,6 +202,22 @@ def check_actions(reg: dict, root: Path) -> list[str]:
             errs.append(f"actions: {name}: host_tiers.T1 policy needs allowed_units or allowed_tags")
         if "requires_prior" in g and g["requires_prior"] not in actions:
             errs.append(f"actions: {name}: guard.requires_prior {g['requires_prior']!r} is not a registry action")
+        if a.get("scope") == "rebuild" and "target" not in a["extra_vars"]:
+            errs.append(f"actions: {name}: scope rebuild needs a `target` extra_var")
+        names = [s["name"] for s in a.get("steps", [])]
+        if len(set(names)) != len(names):
+            errs.append(f"actions: {name}: step names must be unique")
+        for s in a.get("steps", []):
+            if s.get("backend", "semaphore") == "runner" and s["name"] not in ("plan", "apply"):
+                errs.append(f"actions: {name}: step {s['name']}: the runner only does plan and apply")
+            if s.get("action") and (s["action"] not in actions or actions[s["action"]]["tier"] != "T0"):
+                errs.append(f"actions: {name}: step {s['name']}: action {s['action']!r} must be a T0 registry action")
+        if "apply" in names and ("plan" not in names or names.index("plan") > names.index("apply")):
+            errs.append(f"actions: {name}: an apply step needs a plan step before it (the apply is bound to the plan)")
+        if "verify" in names and names[-1] != "verify":
+            errs.append(f"actions: {name}: verify must be the last step")
+        if a.get("steps") and a["tier"] == "T0" and "apply" in names:
+            errs.append(f"actions: {name}: a T0 action cannot apply")
 
         # semaphore template + playbook
         sem = a["semaphore"]

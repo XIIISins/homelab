@@ -464,6 +464,9 @@ actions:
     description: Plan the replace (or create) of ONE rebuild-class guest on the Frigg rebuild runner and machine-check that the plan is exactly one in-scope change; changes nothing.
     tier: T0
     max_autonomy: auto
+    scope: rebuild
+    steps:
+      - {name: plan, backend: runner}
     idempotent: true
     idempotency: Read-only (`terraform plan -replace -target -out`); the saved plan is a file, no state is written.
     semaphore:
@@ -492,6 +495,7 @@ actions:
     description: Rung 0 of the rebuild ladder - start (or reboot) ONE stopped rebuild-class guest through the PVE API; never creates or destroys.
     tier: T1
     max_autonomy: auto # only through a rebuild.policies entry (start-dead-*), classes canary and adguard-replica; all disabled today
+    scope: rebuild
     idempotent: true
     idempotency: Starting a running guest is a no-op; the action never creates or destroys.
     semaphore:
@@ -518,6 +522,12 @@ actions:
     description: Destroy and recreate ONE rebuild-class LXC or droplet from the repo in place (steps plan, apply the saved plan, converge, verify); same node, VMID, name and IP.
     tier: T1
     max_autonomy: approval # auto only through a rebuild.policies entry per class, under the separate autonomy_rebuild switch; none enabled today
+    scope: rebuild
+    steps: # run by toolbelt/rebuild_exec.py; `plan` happens when the proposal is created (the proposal is bound to that plan)
+      - {name: plan, backend: runner}
+      - {name: apply, backend: runner}
+      - {name: converge, backend: semaphore}
+      - {name: verify, backend: semaphore, action: rebuild-verify}
     idempotent: true
     idempotency: Resumable from state, not blind replay. Re-proposing after a mid-way failure re-plans from what Terraform and the guest report, and the apply is bound to the plan hash.
     semaphore:
@@ -525,6 +535,8 @@ actions:
       playbook: ansible/playbooks/aiops-rebuild-converge.yml
       applied: false
       planned: true
+      task_fields:
+        limit: '{target}'
     extra_vars:
       target:
         type: string
@@ -532,9 +544,9 @@ actions:
         pattern: '[a-z0-9][a-z0-9-]*'
       plan_hash:
         type: string
-        required: true
+        required: false
         pattern: '[0-9a-f]{64}'
-        description: The hash of the plan rebuild-plan produced and checked; the apply refuses any other.
+        description: Optional. The plan_id of a rebuild-plan that succeeded for this target; when absent the Toolbelt plans on the runner itself when the proposal is created. The proposal is bound to that plan, and the apply refuses any other.
     guard:
       summary: rebuild.classes allow-list (not worker), not on rebuild.deny, healthy node, peers healthy, leader-aware, rate limits and breaker closed, one in flight; requires a rebuild-plan with the same hash.
       target_policy: n/a
@@ -551,6 +563,13 @@ actions:
     description: Replace ONE asgard K3s worker VM (cordon and drain, backup gate, plan and apply, delete the node object, converge, uncordon); approval only, behind the data-loss manifest.
     tier: T2
     max_autonomy: approval # always, until the 10g3 gate (three consecutive approved rebuilds, a restore drill, a clean manifest)
+    scope: rebuild
+    steps: # the drain runs BEFORE the apply and the converge (delete the node object, join, uncordon) AFTER it; the `phase` var tells the playbook which
+      - {name: plan, backend: runner}
+      - {name: drain, backend: semaphore, vars: {phase: drain}}
+      - {name: apply, backend: runner}
+      - {name: converge, backend: semaphore, vars: {phase: converge}}
+      - {name: verify, backend: semaphore, action: rebuild-verify}
     idempotent: true
     idempotency: Resumable from state (Terraform and the cluster say where it stopped); the apply is bound to the plan hash.
     semaphore:
@@ -558,6 +577,8 @@ actions:
       playbook: ansible/playbooks/aiops-rebuild-worker.yml
       applied: false
       planned: true
+      task_fields:
+        limit: '{target}'
     extra_vars:
       target:
         type: string
@@ -565,7 +586,7 @@ actions:
         pattern: 'einherjar-(urd|verd|skuld)'
       plan_hash:
         type: string
-        required: true
+        required: false
         pattern: '[0-9a-f]{64}'
     guard:
       summary: Worker allow-list only (never a control-plane VM), all other nodes Ready and etcd 3/3, Vault unsealed with 3 peers, the data manifest does not block (single-instance data needs a PBS backup of /data within 24 h), a rebuild-plan with the same hash.
@@ -583,6 +604,7 @@ actions:
     description: Class-specific post-conditions for a rebuilt guest (rebuild.classes post_conditions, plus the originating alert cleared); read-only.
     tier: T0
     max_autonomy: auto
+    scope: rebuild
     idempotent: true
     idempotency: Read-only checks.
     semaphore:
