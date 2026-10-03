@@ -8,9 +8,7 @@
 # OPERATOR-PLACED, deliberately NOT a TF resource (same reason as ansible/frigg/ssh-private-key
 # in frigg.tf): these are existing keys already registered at GitHub and on hosts, so they
 # cannot be minted here, and a private key must not enter TF state. 1Password stays the
-# offline copy. Place one with (root token, 1P item id from `op item list --categories 'SSH Key'`):
-#   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'private key' \
-#     operator/ssh/<name>/private_key --op-vault Dev --apply
+# offline copy. Placement commands: docs/procedures/operator-ssh-agent.md
 #
 # WHO CAN READ `secret/operator/*` (the access rule, enforced here):
 #   - ansible-local  (the MacBook)  via operator-ssh-read below

@@ -13,12 +13,22 @@ Three personal keys from the 1Password `Dev` vault (`Personal SSH-RSA` — the g
 ## One-time setup (operator, MacBook)
 
 1. Merge the PR, then apply the policy from the main checkout with your own admin token: `cd terraform/vault && terraform apply`.
-2. Place each key, using the root token (the Homelab-vault 1P item is the source of the token, never typed into a command):
+2. Place each key as the root token (`set-vault-token root` from the shim, which reads it from 1Password without echoing it). The 1P items are in the `Dev` vault; `private key` must be read in OpenSSH format. One block per key (`<id>` and `<name>` below):
    ```bash
-   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'private key' operator/ssh/<name>/private_key --op-vault Dev --apply
-   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'public key'  operator/ssh/<name>/public_key  --op-vault Dev --apply
+   vault kv put -mount=secret operator/ssh/<name> \
+     private_key="$(op read 'op://Dev/<id>/private key?ssh-format=openssh')" \
+     public_key="$(op read 'op://Dev/<id>/public key')"
+   # verify: the two hashes must match (hashes only, no value is shown)
+   vault kv get -mount=secret -field=private_key operator/ssh/<name> | shasum -a 256
+   op read 'op://Dev/<id>/private key?ssh-format=openssh' | shasum -a 256
    ```
-   `op item list --categories 'SSH Key' --format=json | jq -r '.[]|"\(.id)\t\(.vault.name)\t\(.title)"'` finds the ids. The tool reads each value back and compares its hash.
+   | `<name>` | `<id>` |
+   |---|---|
+   | `ssh_rsa` (the git signing key) | `kpclx2xnsqvdflguojq7wxvade` |
+   | `luxuria_ed25519` | `7dvyoyo4uuvbjcyn3ldfr3klo4` |
+   | `id_ed25519` | `477naomof4s6w5w2wslya42bdi` |
+
+   `op item list --categories 'SSH Key' --format=json | jq -r '.[]|"\(.id)\t\(.vault.name)\t\(.title)"'` lists the ids. Vault stores the key without its final newline (command substitution trims it); `operator-agent` adds it back before `ssh-add`.
 3. Install the ssh override once: `scripts/ssh/operator-agent ssh-config > ~/.ssh/config.d/90-operator-agent`.
 
 ## Everyday use
