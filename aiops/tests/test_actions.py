@@ -395,6 +395,36 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual(eng2._view(b["id"])["state"], "cancelled")
 
 
+class LateLogTests(unittest.TestCase):
+    """A task that is `success` but whose log is not readable yet must be re-read, not judged empty (10f live finding)."""
+
+    class LateSemaphore(FakeSemaphore):
+        def __init__(self, script, empty_reads):
+            super().__init__(script)
+            self.empty_reads, self.reads = empty_reads, {}
+
+        def output(self, task_id):
+            n = self.reads[task_id] = self.reads.get(task_id, 0) + 1
+            return [] if n <= self.empty_reads else super().output(task_id)
+
+    def run_with(self, empty_reads):
+        sem = self.LateSemaphore({
+            "aiops-restart-unit": [("success", [result_line(action="restart-unit", ok=True, active_state="active")])],
+            "aiops-service-status": [("success", [result_line(action="service-status", ok=True, active_state="active")])]}, empty_reads)
+        eng, clock, audit, _ = make(sem)
+        p = eng.propose(action_id="restart-unit", params=RESTART, reason="stopped", source="diagnosis", incident_id=1)
+        approve(eng, p["id"])
+        return eng.execute(p["id"]), clock
+
+    def test_a_log_that_appears_a_moment_late_still_verifies(self):
+        out, clock = self.run_with(empty_reads=2)
+        self.assertEqual(out["state"], "succeeded")
+
+    def test_a_log_that_never_appears_still_fails_rather_than_passing(self):
+        out, clock = self.run_with(empty_reads=99)
+        self.assertEqual(out["state"], "verify_failed")  # an empty result is never read as success
+
+
 class FeedTests(unittest.TestCase):
     def test_feed_cursor_and_message_ref(self):
         eng, *_ = make()
