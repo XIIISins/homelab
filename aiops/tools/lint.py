@@ -151,7 +151,9 @@ def check_actions(reg: dict, root: Path) -> list[str]:
         if tier == "T2" and AUTONOMY[auto] > AUTONOMY["approval"]:
             errs.append(f"actions: {name}: T2 action may not exceed approval")
         if tier != "T0" and auto == "auto":
-            errs.append(f"actions: {name}: mutating action may not be auto until the 10f1 guards exist")
+            covered = any(p.get("action") == name for p in (reg.get("autonomy") or {}).get("policies", {}).values())
+            if tier != "T1" or not covered:
+                errs.append(f"actions: {name}: mutating action may not be auto unless it is T1 and an autonomy policy covers it (10f)")
         if auto != "none" and not a["idempotent"]:
             errs.append(f"actions: {name}: non-idempotent action cannot have max_autonomy {auto}")
         if a["idempotent"] and not a.get("idempotency"):
@@ -211,6 +213,52 @@ def check_actions(reg: dict, root: Path) -> list[str]:
             errs.append(f"actions: {name}: playbook {sem['playbook']} does not exist")
         elif "AIOPS_RESULT" not in pb.read_text(encoding="utf-8"):
             errs.append(f"actions: {name}: playbook {sem['playbook']} never emits AIOPS_RESULT (verify cannot be evaluated)")
+    return errs
+
+
+PRECHECK_ACTION = {"unit-not-active": "restart-unit", "helmrelease-stalled": "flux-reconcile-reset", "drift-present": "replay-role"}
+
+
+def check_autonomy(reg: dict, rb_doc: dict) -> list[str]:
+    """The autonomy section (10f): its scope, its limits and every policy must be consistent with the registry and the
+    runbooks, because this is the file a reviewer reads to know what the loop may do by itself."""
+    errs: list[str] = []
+    au = reg.get("autonomy")
+    if not au:
+        return errs
+    actions = reg["actions"]
+    t1 = set(reg["host_tiers"]["T1"])
+    runbooks = {r["id"]: r for r in rb_doc["runbooks"]}
+    for h in au["hosts"]:
+        if h not in t1:
+            errs.append(f"autonomy: host {h!r} is not in host_tiers.T1 (autonomy only ever acts on T1)")
+    for pname, p in au["policies"].items():
+        a = actions.get(p["action"])
+        if a is None:
+            errs.append(f"autonomy: policy {pname}: action {p['action']!r} is not a registry action")
+            continue
+        if a["tier"] != "T1":
+            errs.append(f"autonomy: policy {pname}: action {p['action']} is tier {a['tier']}; autonomy covers T1 only")
+        if not a["idempotent"]:
+            errs.append(f"autonomy: policy {pname}: action {p['action']} is not idempotent")
+        if PRECHECK_ACTION.get(p["precheck"]) != p["action"]:
+            errs.append(f"autonomy: policy {pname}: precheck {p['precheck']} does not belong to action {p['action']} (expects {PRECHECK_ACTION.get(p['precheck'])})")
+        if "max_changed" in p and p["precheck"] != "drift-present":
+            errs.append(f"autonomy: policy {pname}: max_changed only applies to the drift-present precheck")
+        if p["precheck"] == "drift-present" and "max_changed" not in p:
+            errs.append(f"autonomy: policy {pname}: the drift-present precheck needs max_changed (the diff scope gate)")
+        rb = runbooks.get(p["runbook"])
+        if rb is None:
+            errs.append(f"autonomy: policy {pname}: runbook {p['runbook']} is not in runbooks.yml")
+        elif p["action"] not in rb.get("remediation", []):
+            errs.append(f"autonomy: policy {pname}: runbook {p['runbook']} does not list {p['action']} as a remediation")
+        if p["enabled"]:
+            if a["max_autonomy"] != "auto":
+                errs.append(f"autonomy: policy {pname} is enabled but action {p['action']} has max_autonomy {a['max_autonomy']} (needs auto)")
+            if rb is not None and rb["automatable"] != "auto":
+                errs.append(f"autonomy: policy {pname} is enabled but runbook {p['runbook']} is automatable {rb['automatable']} (needs auto)")
+            if a.get("guard", {}).get("target_policy") == "host_tiers.T1" and not au["hosts"]:
+                errs.append(f"autonomy: policy {pname}: a host-targeted action needs autonomy.hosts")
     return errs
 
 
@@ -597,6 +645,7 @@ def run(root: Path = ROOT) -> list[str]:
     rb, reg, rt = docs["runbooks.yml"][1], docs["actions.yml"][1], docs["alert-routing.yml"][1]
     errs += check_actions(reg, root)
     errs += check_runbooks(rb, reg, root)
+    errs += check_autonomy(reg, rb)
     errs += check_routing(rt, rb)
     errs += check_fixtures(root, rt["routes"])
     errs += check_zabbix_native(root, rt["routes"], {r["id"] for r in rb["runbooks"]})

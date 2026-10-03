@@ -22,12 +22,35 @@
 #                 procedure yet — see open-questions.md.
 #
 # Defaults are conservative on purpose: `automatable: none` unless a registry
-# action exists AND is provably safe to replay. Nothing is `auto`. Nothing
-# T3 is above `none` (the linter enforces it).
+# action exists AND is provably safe to replay. Only a runbook an autonomy policy
+# (actions.yml) covers is `auto` (10f). Nothing T3 is above `none` (the linter
+# enforces it).
 
 schema_version: aiops.runbooks/v1
 
 runbooks:
+  # --- autonomy (10f) -------------------------------------------------------------
+
+  - id: RB-UNIT-STOPPED-T1
+    title: An allow-listed systemd unit on a T1 host has stopped or failed while the host is alive
+    source: docs/procedures/aiops-autonomy.md
+    tier: T1
+    automatable: auto
+    idempotency_proof: ansible/playbooks/aiops-restart-unit.yml
+    preconditions:
+      - The host is in host_tiers.T1 AND inside autonomy.hosts, and the unit is on the restart-unit allow-list for that host
+      - The host answers (port 22) and its hypervisor is healthy, so this is the SERVICE, not the host (roadmap principle 2)
+      - The Toolbelt's own service-status read shows ActiveState failed or inactive (a unit that is already active is never restarted)
+      - Autonomy master switch on, kill switch off, no maintenance window, circuit breaker closed
+    diagnostics: [service-status]
+    remediation: [restart-unit]
+    verify:
+      action: service-status
+    selection:
+      basis: recurrence
+      why: The simplest stateless heal and the roadmap's first 10f2 class ("restart a failed stateless unit"); agent-not-available on a canary is the live test. Canary-only until the 14-day soak passes.
+    maturity: curated
+
   # --- recurrence-selected ---------------------------------------------------
 
   - id: RB-FLUX-HR-STALLED

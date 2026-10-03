@@ -16,8 +16,15 @@ The executor runs ONLY registry templates through Semaphore's API, with the decl
 `environment` (a JSON string; known-issues/zabbix.md), then evaluates the registry `verify` post-condition. The
 playbooks re-enforce every guard themselves, so a misbehaving executor still cannot widen one.
 
+Phase 10f adds AUTONOMY: for a narrow, reviewed class of faults (aiops/actions.yml `autonomy:`) the Toolbelt may approve
+and run a proposal itself, under the name `auto:<policy>`. It is never the model's decision: a diagnosis only supplies the
+proposal, and the Toolbelt applies the policy gates (master switch, kill switch, maintenance, circuit breaker, scope,
+layer, confidence, runbook, rate limits) and its OWN read of reality (a precheck) before acting. A run that fails or does
+not verify counts toward the breaker; enough of them stop autonomy until an operator re-arms it. A proposal whose fault
+has already healed ends `skipped`, not executed.
+
 Everything is pure logic over the Toolbelt's SQLite connection plus an injectable Semaphore client and clock, so
-every rule is unit-tested without a socket (aiops/tests/test_actions.py).
+every rule is unit-tested without a socket (aiops/tests/test_actions.py, test_autonomy.py).
 """
 from __future__ import annotations
 
@@ -31,6 +38,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
+
+import autonomy
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS proposals (
@@ -69,15 +78,23 @@ CREATE TABLE IF NOT EXISTS proposal_events (
 CREATE TABLE IF NOT EXISTS flags (
   name TEXT PRIMARY KEY, value INTEGER NOT NULL, set_by TEXT, set_at INTEGER, reason TEXT
 );
+CREATE TABLE IF NOT EXISTS auto_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, proposal_id INTEGER NOT NULL,
+  policy TEXT NOT NULL, outcome TEXT NOT NULL, reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS auto_log_ts ON auto_log(ts);
 """
 
-TERMINAL = {"rejected", "expired", "cancelled", "succeeded", "failed", "verify_failed"}
+TERMINAL = {"rejected", "expired", "cancelled", "succeeded", "failed", "verify_failed", "skipped"}
 _NEXT = {
     "pending": {"approved", "rejected", "expired", "cancelled"},
     "approved": {"running", "cancelled", "failed"},
-    "running": {"succeeded", "failed", "verify_failed", "cancelled"},
+    "running": {"succeeded", "failed", "verify_failed", "cancelled", "skipped"},
 }
-FLAGS = ("kill_switch", "maintenance")
+# autonomy = the master switch for autonomous healing (default OFF); autonomy_breaker = tripped by the system after repeated
+# autonomous failures, re-armed only by an operator.
+FLAGS = ("kill_switch", "maintenance", "autonomy", "autonomy_breaker")
+AUTO_STATES = ("approved", "running", "succeeded", "failed", "verify_failed")  # an autonomous run that actually started counts against the limits
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _RESULT = re.compile(r"AIOPS_RESULT\s+(\{.*\})")
@@ -102,6 +119,7 @@ class Registry:
     def __init__(self, data: dict):
         self.actions: dict = data["actions"]
         self.tiers: dict = data.get("host_tiers", {})
+        self.autonomy = autonomy.Autonomy.from_registry(data)
 
     @classmethod
     def from_file(cls, path: Path) -> "Registry":
@@ -318,6 +336,7 @@ class ActionConfig:
     poll_seconds: float = 2.0
     stale_approval_seconds: int = 300    # an approval older than this when the Toolbelt (re)starts is not run
     semaphore: Semaphore | None = None
+    reader: Callable[[str, dict], dict] | None = None  # read-only Toolbelt tool (kube.get) for the autonomy prechecks
     sleep: Callable[[float], None] = time.sleep
 
 
@@ -348,10 +367,13 @@ class Engine:
                 out[r["name"]] = {"value": bool(r["value"]), "set_by": r["set_by"], "set_at": r["set_at"], "reason": r["reason"]}
         return out
 
-    def set_flag(self, name: str, value: bool, by: str, reason: str = "") -> dict:
+    def set_flag(self, name: str, value: bool, by: str, reason: str = "", system: bool = False) -> dict:
         if name not in FLAGS:
             raise Refused(400, f"unknown flag {name!r}")
-        self._check_operator(by)
+        if name == "autonomy_breaker" and value and not system:
+            raise Refused(403, "only the system trips the circuit breaker")
+        if not system:
+            self._check_operator(by)
         with self.lock:
             self.db.execute("INSERT INTO flags(name, value, set_by, set_at, reason) VALUES (?, ?, ?, ?, ?) "
                             "ON CONFLICT(name) DO UPDATE SET value=excluded.value, set_by=excluded.set_by, "
@@ -517,11 +539,15 @@ class Engine:
         out of a worker thread: every failure lands in the proposal's state and the audit log."""
         with self._run_slots:
             try:
-                return self._execute(pid)
+                self._execute(pid)
             except Refused as e:
                 self._fail(pid, "failed", f"{e.message}")
             except Exception as e:  # noqa: BLE001 - the worker must report, not die silently
                 self._fail(pid, "failed", f"internal error: {type(e).__name__}")
+            try:
+                self._finish_auto(pid)
+            except Exception as e:  # noqa: BLE001 - bookkeeping must never take the worker down
+                self.audit("error", where="finish_auto", error=type(e).__name__)
             return self._view(pid)
 
     def _fail(self, pid: int, state: str, why: str, extra: dict | None = None) -> None:
@@ -553,6 +579,11 @@ class Engine:
             return self._view(pid)
         a = self.reg.get(action_id)
         steps: list[dict] = []
+        pol = self._auto_policy(row)
+        if pol is not None and pol.precheck in ("unit-not-active", "helmrelease-stalled"):
+            verdict, why = self._precheck(pid, pol, clean, steps)  # the Toolbelt's OWN read of reality, never the model's say-so
+            if verdict != "go":
+                return self._end_precheck(pid, verdict, why, steps)
         prior = a.get("guard", {}).get("requires_prior")
         if prior:
             pa = self.reg.get(prior)
@@ -562,6 +593,10 @@ class Engine:
             if status != "success" or not res.get("ok"):
                 self._fail(pid, "failed", f"the required {prior} step did not pass", {"steps": steps, "tail": tail})
                 return self._view(pid)
+            if pol is not None and pol.precheck == "drift-present":  # the diff-scope gate: a small, non-empty dry-run diff only
+                verdict, why = autonomy.Autonomy.drift_verdict(pol, res.get("changed"))
+                if verdict != "go":
+                    return self._end_precheck(pid, verdict, why, steps)
         status, res, tail = self._run_task(pid, action_id, clean, "action")
         steps.append({"step": "action", "status": status, "result": res})
         if status != "success":
@@ -584,6 +619,141 @@ class Engine:
                        result_json=json.dumps({"steps": steps}, sort_keys=True))
         self.audit("proposal_succeeded", proposal=pid, action=action_id)
         return self._view(pid)
+
+    # -- autonomy (10f) -------------------------------------------------------------------------------------
+    def _auto_policy(self, row) -> "autonomy.Policy | None":
+        by = row["decided_by"] or ""
+        return self.reg.autonomy.policies.get(by[5:]) if by.startswith("auto:") and self.reg.autonomy else None
+
+    def _auto_log(self, pid: int, policy: str, outcome: str, reason: str = "") -> None:
+        with self.lock:
+            self.db.execute("INSERT INTO auto_log(ts, proposal_id, policy, outcome, reason) VALUES (?, ?, ?, ?, ?)",
+                            (self.now(), pid, policy, outcome, reason[:120]))
+
+    def _auto_counts(self, target: str, policy: str, now: int) -> tuple[int, int]:
+        """Autonomous runs on this target in the last hour, and of this policy in the last day (runs that started)."""
+        q = ",".join("?" * len(AUTO_STATES))
+        with self.lock:
+            per_target = self.db.execute(
+                f"SELECT COUNT(*) FROM proposals WHERE decided_by LIKE 'auto:%' AND target=? AND decided_at>? AND state IN ({q})",
+                (target, now - 3600, *AUTO_STATES)).fetchone()[0]
+            per_policy = self.db.execute(
+                f"SELECT COUNT(*) FROM proposals WHERE decided_by=? AND decided_at>? AND state IN ({q})",
+                ("auto:" + policy, now - 86400, *AUTO_STATES)).fetchone()[0]
+        return per_target, per_policy
+
+    def consider_auto(self, pid: int, diag: dict) -> dict:
+        """May this fresh proposal run itself? Returns {"auto": bool, "reason"|"policy": ...}. Every refusal is recorded
+        (auto_log + audit) so `/aiops report` can say why nothing ran. The proposal then simply waits for a human, as in 10e."""
+        au = self.reg.autonomy
+        if au is None:
+            return {"auto": False, "reason": "no-autonomy-section"}
+        p = self._view(pid)
+        if p["state"] != "pending":
+            return {"auto": False, "reason": "proposal-not-pending"}
+        policy = au.policy_for(p["action_id"])
+        reason = au.static_block(policy, p, diag)
+        with self.lock:  # flags, limits and the approval are one atomic decision
+            if reason is None:
+                if not self.flag("autonomy"):
+                    reason = "autonomy-off"
+                elif self.flag("kill_switch"):
+                    reason = "kill-switch"
+                elif self.flag("maintenance"):
+                    reason = "maintenance"
+                elif self.flag("autonomy_breaker"):
+                    reason = "breaker-open"
+                else:
+                    per_target, per_policy = self._auto_counts(p["target"], policy.name, self.now())
+                    if per_target >= au.limits.per_target_per_hour:
+                        reason = "target-rate-limit"
+                    elif per_policy >= au.limits.per_policy_per_day:
+                        reason = "policy-daily-limit"
+            if reason is None and self._row(pid)["state"] != "pending":
+                reason = "proposal-not-pending"
+            if reason is None:
+                self._move(pid, "approved", "approved", {"by": f"auto:{policy.name}", "ref": "policy"}, decided_at=self.now(),
+                           decided_by=f"auto:{policy.name}", decision_ref="policy")
+        if reason is not None:
+            self._auto_log(pid, policy.name if policy else "", "skipped", reason)
+            self.audit("auto_skipped", proposal=pid, reason=reason, action=p["action_id"], target=p["target"])
+            return {"auto": False, "reason": reason}
+        self._auto_log(pid, policy.name, "approved")
+        self.audit("proposal_auto_approved", proposal=pid, policy=policy.name, action=p["action_id"], target=p["target"])
+        threading.Thread(target=self.execute, args=(pid,), daemon=True, name=f"auto-{pid}").start()
+        return {"auto": True, "policy": policy.name}
+
+    def _precheck(self, pid: int, pol: "autonomy.Policy", clean: dict, steps: list) -> tuple[str, str]:
+        """The Toolbelt's own look at the world before it acts on its own. ('go'|'skip'|'stop', why)."""
+        if pol.precheck == "unit-not-active":
+            status, res, _ = self._run_task(pid, "service-status", {"target_host": clean["target_host"], "unit": clean["unit"]}, "precheck:service-status")
+            steps.append({"step": "precheck:service-status", "status": status, "result": res})
+            if status != "success":
+                return "stop", f"the precheck read ended {status}: not acting without it"
+            return autonomy.Autonomy.unit_verdict(res.get("active_state"))
+        if pol.precheck == "helmrelease-stalled":
+            if self.cfg.reader is None:
+                return "stop", "no read-only Kubernetes access is configured for the precheck"
+            try:
+                out = self.cfg.reader("kube.get", {"kind": "helmreleases", "namespace": clean["hr_namespace"], "name": clean["hr_name"]})
+            except Exception as e:  # noqa: BLE001 - an unreadable cluster is "do not act", never "act anyway"
+                return "stop", f"the Kubernetes read failed ({type(e).__name__}): not acting without it"
+            steps.append({"step": "precheck:kube.get", "status": "success", "result": {"conditions": out.get("conditions")}})
+            return autonomy.Autonomy.helmrelease_verdict(out.get("conditions"))
+        return "stop", f"unknown precheck {pol.precheck!r}"
+
+    def _end_precheck(self, pid: int, verdict: str, why: str, steps: list) -> dict:
+        """The precheck said do not run: `skip` = the world already healed (no action needed); `stop` = inconclusive or out of scope."""
+        result = json.dumps({"why": why, "steps": steps}, sort_keys=True)
+        with self.lock:
+            if verdict == "skip":
+                self._move(pid, "skipped", "skipped", {"why": why}, finished_at=self.now(), result_json=result)
+            else:
+                self._move(pid, "cancelled", "cancelled", {"reason": why}, finished_at=self.now(), result_json=result)
+        self.audit("proposal_" + ("skipped" if verdict == "skip" else "cancelled"), proposal=pid, why=why[:120])
+        return self._view(pid)
+
+    def _finish_auto(self, pid: int) -> None:
+        """After an autonomous run ends: log it, and trip the circuit breaker if too many recent ones failed or did not verify."""
+        row = self._row(pid)
+        by = row["decided_by"] or ""
+        if not by.startswith("auto:") or row["state"] not in TERMINAL:
+            return
+        self._auto_log(pid, by[5:], row["state"])
+        au = self.reg.autonomy
+        if au is None or row["state"] not in ("failed", "verify_failed"):
+            return
+        with self.lock:
+            n = self.db.execute("SELECT COUNT(*) FROM proposals WHERE decided_by LIKE 'auto:%' AND state IN ('failed','verify_failed') AND finished_at>?",
+                                (self.now() - au.limits.breaker_window_seconds,)).fetchone()[0]
+            tripped = n >= au.limits.breaker_failures and not self.flag("autonomy_breaker")
+        if tripped:
+            self.set_flag("autonomy_breaker", True, by="system", reason=f"{n} autonomous failures within {au.limits.breaker_window_seconds}s", system=True)
+            with self.lock:
+                self._event(pid, "breaker_tripped", {"failures": n, "window_seconds": au.limits.breaker_window_seconds})
+            self.audit("breaker_tripped", proposal=pid, failures=n)
+
+    def report(self, days: int = 14) -> dict:
+        """What autonomy did over the last `days`: by policy/outcome/target, why proposals were NOT run, breaker trips, flapping."""
+        days = max(1, min(int(days), 90))
+        since = self.now() - days * 86400
+        with self.lock:
+            rows = self.db.execute("SELECT id, action_id, target, state, decided_by, decided_at FROM proposals WHERE decided_by LIKE 'auto:%' AND decided_at>=? "
+                                   "ORDER BY decided_at", (since,)).fetchall()
+            skipped = self.db.execute("SELECT reason, COUNT(*) n FROM auto_log WHERE outcome='skipped' AND ts>=? GROUP BY reason", (since,)).fetchall()
+            trips = self.db.execute("SELECT COUNT(*) FROM proposal_events WHERE kind='breaker_tripped' AND ts>=?", (since,)).fetchone()[0]
+        by_policy: dict = {}
+        times: dict = {}
+        for r in rows:
+            pol = (r["decided_by"] or "")[5:]
+            by_policy.setdefault(pol, {}).setdefault(r["state"], 0)
+            by_policy[pol][r["state"]] += 1
+            times.setdefault(r["target"], []).append(r["decided_at"])
+        flapping = sorted(t for t, ts in times.items() if any(ts[i + 2] - ts[i] <= 6 * 3600 for i in range(len(ts) - 2)))
+        return {"days": days, "autonomous_runs": len(rows), "by_policy": by_policy,
+                "by_target": {t: len(ts) for t, ts in sorted(times.items())},
+                "skipped_reasons": {r["reason"]: r["n"] for r in skipped}, "breaker_trips": trips,
+                "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()}}
 
     # -- views ---------------------------------------------------------------------------------------------
     def _view(self, pid: int, duplicate: bool = False) -> dict:
@@ -612,8 +782,8 @@ class Engine:
         """The incident's Discord thread now exists: tell the bot where each still-pending proposal's card belongs."""
         n = 0
         with self.lock:
-            for r in self.db.execute("SELECT id FROM proposals WHERE incident_id=? AND state='pending' AND (thread_id IS NULL OR thread_id!=?)",
-                                     (incident_id, thread_id)).fetchall():
+            for r in self.db.execute("SELECT id FROM proposals WHERE incident_id=? AND (state='pending' OR decided_by LIKE 'auto:%') AND replay=0 "
+                                     "AND (thread_id IS NULL OR thread_id!=?)", (incident_id, thread_id)).fetchall():
                 self.db.execute("UPDATE proposals SET thread_id=? WHERE id=?", (thread_id, r["id"]))
                 self._event(r["id"], "thread_bound", {"thread_id": thread_id})
                 n += 1
@@ -646,5 +816,10 @@ class Engine:
         self.sweep()
         with self.lock:
             counts = {r["state"]: r["n"] for r in self.db.execute("SELECT state, COUNT(*) n FROM proposals GROUP BY state").fetchall()}
+        au = self.reg.autonomy
         return {"proposals": counts, "flags": {k: v["value"] for k, v in self.flags().items()},
-                "proposals_today": self._counter("proposals"), "daily_proposal_cap": self.cfg.max_proposals_per_day}
+                "proposals_today": self._counter("proposals"), "daily_proposal_cap": self.cfg.max_proposals_per_day,
+                "autonomy": None if au is None else {
+                    "hosts": sorted(au.hosts), "policies": {n: p.enabled for n, p in au.policies.items()},
+                    "limits": {"per_target_per_hour": au.limits.per_target_per_hour, "per_policy_per_day": au.limits.per_policy_per_day,
+                               "breaker_failures": au.limits.breaker_failures, "breaker_window_seconds": au.limits.breaker_window_seconds}}}
