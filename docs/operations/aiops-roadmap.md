@@ -30,7 +30,7 @@ The directional intent is already on record: drift converges automatically, and 
 | Notification | Hermod (Apprise) — response-time severity tags (`critical` = look within minutes) → Discord |
 | Agent host | Frigg (HA VM 2900, Vault-backed shim, `claude remote-control` as systemd, remote-host Ansible); `frigg-reauth-listener` self-heals RC login invalidation |
 | Upgrade agent | `chart-bump` (investigate → worktree → render-diff → commit → Flux → tests → docs) — the model for agent-authored change |
-| Known weak spots | Skuld hard-freezes (watchdog unproven); PBS co-located on Skuld and its datastore at 85%; no offsite copy of Calico datastore / etcd snapshots; RAM-tight Proxmox hosts |
+| Known weak spots | Skuld hard-freezes (watchdog unproven); PBS co-located on Skuld and its datastore at 85% (75% on 2026-10-03; large consumers aging out); no offsite copy of Calico datastore / etcd snapshots; RAM-tight Proxmox hosts |
 
 ---
 
