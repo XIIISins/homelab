@@ -15,6 +15,8 @@
 | Mark a maintenance window | `/aiops maintenance on` / `off` (autonomous healing stays off while it is on). |
 | Autonomous healing (10f) | `/aiops autonomy on` / `off` / `reset-breaker`, `/aiops report [days]`: [`aiops-autonomy.md`](aiops-autonomy.md). |
 
+When a read-only (T0) proposal succeeds, the result note also carries one plain sentence with what the probe found (for example "Checked Patroni: leader is Fulla, 3 of 3 members running, no lag."), built by the bot from the stored result fields (`RESULT_SENTENCES` in `aiops/bot/logic.py`), never by a model; an action without a formatter gets a generic line of up to five scalar fields.
+
 Cards are numbered `#1, #2, #3` within their conversation (or incident), which is also how the agent refers to them; the footer shows the global `id`, which is what the audit log, `/aiops status` (`#1 (id 4)`) and the API use. A card expires after 30 minutes undecided and nothing runs. If a card says the post-condition **did not hold**, read its "If it goes wrong" line: a restart has no inverse, so escalate to the unit's runbook.
 
 ## Deploy (operator, from the main checkout; every step is CLI)
