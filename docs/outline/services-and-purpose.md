@@ -32,7 +32,7 @@ Services the operator uses to run, observe, and reason about the homelab. Not se
 |---|---|---|---|
 | **NetBox** | IPAM / DCIM — source of truth for IPs, VLANs, devices, VMs | asgard K3s | `netbox.niflheim.xiiisins.com` |
 | **Semaphore** | Ansible orchestration + fleet drift-check | asgard K3s | `semaphore.niflheim.xiiisins.com` |
-| **n8n** | Workflow automation | asgard K3s | `n8n.niflheim.xiiisins.com` (editor) |
+| **n8n (AIOps agent)** | Diagnoses High/Disaster alerts with read-only tools and posts to `#diagnoses` | LXC 1121 (Gná) on Urd | internal only (ingest listener for Zabbix; editor via SSH tunnel) |
 | **Zabbix** (Hugin) | Host- and LXC-level monitoring | LXC 1102 (Hugin) on Urd | `hugin.xiiisins.com` |
 | **Hermod** | Notification hub — fans alerts to Discord | LXC 1103 on Verd | internal POST endpoint |
 | **Vault** | Machine secrets + human secret lookup | asgard K3s | `vault.niflheim.xiiisins.com` → **Identity & secrets** |
