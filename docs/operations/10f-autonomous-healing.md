@@ -47,6 +47,29 @@ What stays true after 10f:
 
 Real-replica targets, the `reset-stalled-helmrelease` and `replay-drifted-baseline` policies (disabled until the soak passes; drift also needs a trigger source), semaphore auto-apply on drift, the syslog-flood vacuum cleanup. The restore drill and 10g (rebuild loop) come after.
 
+## Live results (2026-10-03, canary soak day 1)
+
+Every matrix row below was injected on the canaries with `scripts/canary/fault` and watched through the Toolbelt journal; each ended as designed.
+
+| Row | Result |
+|---|---|
+| `zabbix-agent2` stopped | alert -> diagnosis (runbook `RB-UNIT-STOPPED-T1`) -> auto-approved by `restart-failed-unit` -> precheck (`inactive`) -> restart -> verify -> **succeeded**, incident resolved about a minute later |
+| `vlagent` stopped | same, **succeeded** (canary-2, after the breaker reset) |
+| Disaster-severity synthetic flag | alert -> diagnosis posted, **no action proposed** (no policy covers it, correct) |
+| healed before the Toolbelt acts | the unit was restarted by hand a second after the proposal appeared: the precheck read `active`, proposal ended **`skipped`**, nothing restarted |
+| `/aiops maintenance on` | proposal created, `auto_skipped: maintenance`, left pending for a human |
+| `/aiops kill` | `auto_skipped: kill-switch`, left pending |
+| restart that keeps failing | two runs **failed** (masked `zabbix-agent2`) and one **`verify_failed`** (`vlagent` binary not executable) inside an hour: the system tripped `autonomy_breaker`, the bot posted its notice, `/aiops report` showed `breaker_trips 1` |
+| fault while the breaker is open | `auto_skipped: breaker-open`, left pending |
+| operator reset, then a fault | breaker re-armed, the next fault was healed autonomously and verified |
+| non-canary host / unlisted unit, per-target hourly limit | **unit-tested only** (`aiops/tests/test_autonomy.py`): the soak never faults a real host, and under the 30-minute incident cooldown a single canary check cannot be triggered often enough to reach the hourly limit |
+
+**What the live run found (all fixed, all in the repo):** (1) a canary "agent not available" fault is Average severity and Gna never receives Average: the canaries got their own `Canary smoke test` Zabbix template with High/Disaster triggers; (2) a hand-made trigger named "temporary, safe to ignore" made the agent propose nothing: smoke triggers are named for the fault and routed to the runbook; (3) the model wrote `zabbix-agent2` without `.service` and the registry refused it: the Toolbelt completes a bare unit name before validating and the rejection journal line now says why; (4) a verify task read as an empty result because Semaphore had not flushed its log: the Toolbelt re-reads a finished task's log before judging it; (5) the first diagnosis run hit the agent's iteration cap: raised from 8 to 10 and the prompt now names the unit-stopped class.
+
+**Test-design lessons** (so the next soak run is not confused by them): an incident is per hypervisor group (`node:urd`), so only one canary fault can be open at a time and a second alert while one is open is folded into it; the same host and check inside 30 minutes of a recovery is a `reopened`, not a new run (a masked unit also makes the `systemd.unit.info` item unsupported, so use `nodata`-based faults or remove the binary's execute bit to make a restart fail); the proposal budget is 30 a day.
+
+The 14-day soak clock started 2026-10-03: the pass criteria (zero flapping, every autonomous action audited, no unexplained breaker trip) are read from `/aiops report 14`.
+
 ## Exit criteria (from the roadmap)
 
 The injected-fault matrix on the canaries passes ([procedure](../procedures/aiops-autonomy.md#soak-on-the-canaries-10f3-about-14-days)), **zero flapping**, every autonomous action audited (`proposal_auto_approved` in the Toolbelt journal and VictoriaLogs). Rollback for anything here: `/aiops autonomy off`.
