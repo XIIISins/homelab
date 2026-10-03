@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# scripts/notify/ping-operator — send the operator a Discord message through Hermod (the independent alert path).
+#
+#   ping-operator "<title>" "<body>" [info|alert|critical]      (default tag: alert)
+#
+# For an unattended Claude session that needs a human ("needs input"): it posts to the same Hermod /notify endpoint
+# the burst reaper and the Frigg reauth listener use, with the soft-auth config key read from Vault INSIDE this
+# process (never printed, never in an argument). Needs the Vault env (`. ~/.cache/homelab/env.sh` or the Vault-backed
+# shim) and a source IP the Hermod Caddy allowlist accepts (Frigg, Semaphore, the Mac on the LAN when allowed).
+# Best effort: exits 1 with a one-line reason and never prints a secret.
+set -euo pipefail
+
+[ "$#" -ge 2 ] || { sed -n '2,10p' "$0"; exit 2; }
+title="$1" body="$2" tag="${3:-alert}"
+case "$tag" in info|alert|critical) ;; *) echo "ping-operator: tag must be info|alert|critical" >&2; exit 2 ;; esac
+
+[ -r "$HOME/.cache/homelab/env.sh" ] && . "$HOME/.cache/homelab/env.sh"   # plain exports file: source it, never cat it
+export PATH="/opt/homebrew/bin:$PATH"
+base="${HERMOD_BASE_URL:-http://hermod.niflheim.xiiisins.com}"
+
+key="$(vault kv get -field=value secret/ansible/hermod/config-key 2>/dev/null)" || { echo "ping-operator: could not read the Hermod key from Vault" >&2; exit 1; }
+[ -n "$key" ] || { echo "ping-operator: empty Hermod key" >&2; exit 1; }
+
+payload="$(TITLE="$title" BODY="$body" TAG="$tag" python3 -c 'import json,os; print(json.dumps({"title":os.environ["TITLE"][:200],"body":os.environ["BODY"][:1800],"tag":os.environ["TAG"],"format":"markdown"}))')"
+post_direct() {
+  printf '%s' "$payload" | curl -s -o /dev/null -w '%{http_code}' -m 15 -X POST -H 'Content-Type: application/json' --data-binary @- "$base/notify/$key" || true
+}
+# Hermod's Caddy only accepts allow-listed sources, so from the Mac a direct post is a 403: send it from Frigg instead.
+# The key travels on ssh's stdin (first line), never in an argument or the remote process list.
+post_via_frigg() {
+  { printf '%s\n' "$key"; printf '%s' "$payload"; } | ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new \
+    ${ANSIBLE_PRIVATE_KEY_FILE:+-i "$ANSIBLE_PRIVATE_KEY_FILE"} "ansible@${PING_FRIGG_HOST:-10.0.11.30}" \
+    "IFS= read -r k; curl -s -o /dev/null -w '%{http_code}' -m 15 -X POST -H 'Content-Type: application/json' --data-binary @- '$base/notify/'\"\$k\"" 2>/dev/null || true
+}
+
+code="$(post_direct)"
+[ "$code" = "200" ] || code="$(post_via_frigg)"
+unset key
+if [ "$code" = "200" ]; then echo "ping-operator: sent ($tag)"; else echo "ping-operator: Hermod answered HTTP ${code:-none}" >&2; exit 1; fi
