@@ -272,11 +272,17 @@ class Refusals(unittest.TestCase):
             self.assertEqual(cm.exception.status, status)
         return cm.exception
 
-    def test_the_shipped_registry_cannot_run_any_of_it_yet(self):
+    def test_the_shipped_registry_refuses_only_what_is_not_applied(self):
+        """Since 2026-10-03 the canary stage (rebuild-plan, start-guest, rebuild-guest, rebuild-verify) is applied but
+        approval-gated; rebuild-worker (stage C) has no playbook and stays refused by the applied gate."""
         r = Rig(data=copy.deepcopy(DATA))
-        e = self.refused(r, 422)
+        e = self.refused(r, 422, action="rebuild-worker", target="einherjar-urd", params={"target": "einherjar-urd", "plan_hash": "0" * 64})
         self.assertTrue(any("not applied" in p for p in e.detail["problems"]))
         self.assertEqual(r.runner.requests, [])
+        # the same registry with the canary stage applied accepts a canary rebuild proposal, still pending a human
+        ok = Rig(data=copy.deepcopy(DATA)).propose(params={"target": "canary-2"})
+        self.assertEqual(ok["state"], "pending")
+        self.assertFalse(DATA["rebuild"]["policies"]["rebuild-dead-canary"]["enabled"])  # nothing runs by itself
 
     def test_not_eligible_is_refused_before_anything_is_planned(self):
         for over, reason in ((dict(guest_state="running", probe_ok=True), "not-dead-or-broken"),
@@ -633,9 +639,11 @@ class Autonomy(unittest.TestCase):
             self.assertFalse(r.eng.flags()[f]["value"], f)
         self.assertFalse(SHIPPED.rebuild.autonomy_rebuild_default)
         self.assertFalse(any(p.enabled for p in SHIPPED.rebuild.policies.values()))
-        for n in REBUILD_ACTIONS:  # the shipped registry keeps every action planned and unapplied
+        for n in REBUILD_ACTIONS:  # rebuild-worker (stage C) stays planned; the canary-stage four (rebuild-plan is runner-only) are applied
             sem = DATA["actions"][n]["semaphore"]
-            self.assertEqual((sem["applied"], sem.get("planned")), (False, True), n)
+            want = (False, True) if n == "rebuild-worker" else (True, None)
+            self.assertEqual((sem["applied"], sem.get("planned")), want, n)
+
 
     def test_the_master_switch_is_operator_only_and_the_system_never_turns_it_on(self):
         r = Rig()

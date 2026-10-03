@@ -524,10 +524,21 @@ class RegistryAndLintTests(unittest.TestCase):
 
     def test_planned_actions_are_never_applied(self):
         r = self.reg()
-        r["actions"]["rebuild-plan"]["semaphore"]["applied"] = True
+        r["actions"]["rebuild-worker"]["semaphore"]["applied"] = True
         self.assertTrue(any("planned needs applied: false" in e for e in lint.check_actions(r, REPO)))
         for name in rebuild_actions():
-            self.assertFalse(REGISTRY["actions"][name]["semaphore"]["applied"], name)
+            sem = REGISTRY["actions"][name]["semaphore"]
+            self.assertFalse(sem.get("planned") and sem["applied"], name)  # never both planned and applied
+            self.assertEqual(bool(sem.get("planned")), name == "rebuild-worker", name)
+
+    def test_a_runner_only_action_needs_runner_steps_and_cannot_be_planned(self):
+        r = self.reg()
+        self.assertEqual([e for e in lint.check_actions(r, REPO) if "runner_only" in e], [])
+        r["actions"]["rebuild-plan"]["steps"] = [{"name": "plan", "backend": "semaphore"}]
+        self.assertTrue(any("runner_only needs steps that all use backend: runner" in e for e in lint.check_actions(r, REPO)))
+        r = self.reg()
+        r["actions"]["rebuild-plan"]["semaphore"]["planned"] = True
+        self.assertTrue(any("runner_only cannot also be planned" in e for e in lint.check_actions(r, REPO)))
 
     def test_start_guest_auto_ceiling_needs_a_policy(self):
         r = self.reg()
@@ -543,8 +554,10 @@ class RegistryAndLintTests(unittest.TestCase):
             if name == "rebuild-worker":
                 clean, probs = reg.validate_params(name, {"target": "einherjar-urd", "plan_hash": "0" * 64})
             self.assertEqual(probs, [], name)
-            # the engine's only barrier today is the applied gate (it has no rebuild-class target guard yet)
-            self.assertTrue(any("not applied" in p for p in reg.guard(name, clean)), name)
+            # only rebuild-worker (stage C, no playbook yet) is still refused by the applied gate; the canary-stage four are
+            # applied since 2026-10-03 (rebuild-plan is runner-only: it needs no Semaphore template)
+            gated = any("not applied" in p for p in reg.guard(name, clean))
+            self.assertEqual(gated, name == "rebuild-worker", name)
         self.assertIsNotNone(reg.autonomy)
 
 

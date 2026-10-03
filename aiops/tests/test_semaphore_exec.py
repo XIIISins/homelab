@@ -160,7 +160,9 @@ class ProofTests(unittest.TestCase):
     def test_the_registry_templates_the_proof_expects_are_the_applied_ones(self):
         names = mint.registry_templates()
         self.assertIn("aiops-restart-unit", names)
-        self.assertEqual(len(names), 7)
+        for new in ("aiops-start-guest", "aiops-rebuild-converge", "aiops-rebuild-verify"):  # canary rebuild stage (2026-10-03)
+            self.assertIn(new, names)
+        self.assertEqual(len(names), 10)
 
 
 if __name__ == "__main__":

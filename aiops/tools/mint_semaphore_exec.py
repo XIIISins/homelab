@@ -42,7 +42,7 @@ def registry_templates() -> list[str]:
     import yaml
 
     acts = yaml.safe_load(REGISTRY.read_text())["actions"]
-    return sorted({a["semaphore"]["template"] for a in acts.values() if a["semaphore"].get("applied")})
+    return sorted({a["semaphore"]["template"] for a in acts.values() if a["semaphore"].get("applied") and not a["semaphore"].get("runner_only")})
 
 
 def prove(call, aiops_id: int, other_ids: list[int], uid: int, expected_templates: list[str]) -> list[tuple[str, bool, str]]:
