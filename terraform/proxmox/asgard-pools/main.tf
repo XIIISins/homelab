@@ -80,6 +80,14 @@ resource "proxmox_virtual_environment_user" "aiops_rebuild" {
   user_id = "aiops-rebuild@pve"
   comment = "AIOps rebuild runner (pool-scoped writes, no ACL on /). Managed by terraform/proxmox/asgard-pools."
   enabled = true
+
+  # The ACLs are separate proxmox_virtual_environment_acl resources below. After the first apply the provider reads them
+  # back onto this resource's `acl` attribute, and a later plan then wants to UPDATE the user by REMOVING every ACL entry
+  # (pool, storage, SDN) that is not declared inline: applying that would strip the runner's permissions (found
+  # 2026-10-03 while adding the VM.Audit ACLs). The ACL resources are the source of truth, so ignore the inline attribute.
+  lifecycle {
+    ignore_changes = [acl]
+  }
 }
 
 resource "proxmox_virtual_environment_acl" "rebuild_pool" {
