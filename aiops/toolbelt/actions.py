@@ -447,16 +447,32 @@ class Engine:
         return n
 
     # -- propose -------------------------------------------------------------------------------------------
+    def _tidy_params(self, action_id: str, params: object) -> object:
+        """A model often writes a unit as `zabbix-agent2` for `zabbix-agent2.service` (found live in 10f: the registry
+        correctly refused it and the autonomous fix never ran). Complete that one slip before validation; the pattern and
+        the per-host allow-list still decide, so nothing becomes allowed that was not."""
+        try:
+            spec = self.reg.get(action_id)["extra_vars"].get("unit")
+        except Refused:
+            return params
+        if not (spec and isinstance(params, dict) and isinstance(params.get("unit"), str)):
+            return params
+        unit = params["unit"]
+        if spec.get("pattern", "").endswith(r"\.service") and re.fullmatch(r"[A-Za-z0-9@:_-]+", unit):
+            return {**params, "unit": unit + ".service"}
+        return params
+
     def propose(self, *, action_id: str, params: object, reason: object, source: str, incident_id: int | None = None,
                 conversation_id: int | None = None, thread_id: str | None = None, replay: bool = False) -> dict:
         self.sweep()
         if not isinstance(reason, str) or not 3 <= len(reason) <= 300 or _CTRL.search(reason) or _SECRETISH.search(reason):
             raise Refused(400, "reason must be 3..300 plain characters and contain nothing secret-shaped")
+        params = self._tidy_params(action_id, params)
         clean, problems = self.reg.validate_params(action_id, params)
         if not problems:
             problems = self.reg.guard(action_id, clean)
         if problems:
-            self.audit("proposal_rejected", action=action_id, source=source, problems=len(problems))
+            self.audit("proposal_rejected", action=action_id, source=source, problems=len(problems), why=str(problems[0])[:160])
             raise Refused(422, "proposal failed validation", {"problems": problems})
         a = self.reg.get(action_id)
         h = params_hash(action_id, clean)
