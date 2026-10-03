@@ -28,3 +28,9 @@ variable "sdn_zone_id" {
   type        = string
   default     = "localnetwork"
 }
+
+variable "canary_vmids" {
+  description = "VMIDs of the canary LXCs (asgard-lxcs canary_nodes). The runner token gets read-only VM.Audit on exactly these paths so a refresh of a DESTROYED canary answers 404 instead of 403 (it leaves the pool when destroyed)."
+  type        = list(number)
+  default     = [1190, 1191, 1192]
+}
