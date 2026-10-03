@@ -2,7 +2,7 @@
 
 # Procedure — AIOps forecasting detectors (Phase 10h1)
 
-*Plan: [`operations/10h-predictive-change.md`](../operations/10h-predictive-change.md). Code: [`aiops/toolbelt/forecast.py`](../../aiops/toolbelt/forecast.py), tests: [`aiops/tests/test_forecast.py`](../../aiops/tests/test_forecast.py). Status 2026-10-03: **detectors built and tested, NOT wired**: nothing starts them, nothing posts to Discord, no scheduler exists yet.*
+*Plan: [`operations/10h-predictive-change.md`](../operations/10h-predictive-change.md). Code: [`aiops/toolbelt/forecast.py`](../../aiops/toolbelt/forecast.py), tests: [`aiops/tests/test_forecast.py`](../../aiops/tests/test_forecast.py). Status 2026-10-03: **wired in SHADOW mode on Frigg**: a systemd timer runs one pass every 6 h and appends findings to a local JSONL file; nothing posts to Discord, Hermod or any ticket system.*
 
 ## What the detectors do
 
@@ -27,12 +27,14 @@ Plan: run silently for 14 days, then read the log against what really happened (
 
 Only series the repo really has are configured with a query: PVC used ratio from kubelet volume stats (CSI/NFS volumes only; local-path volumes are not reported; the 0.85 capacity is an assumed placeholder to tune in shadow) and `vl_data_size_bytes` (fast-rise only; the 1 GB/h floor is a guess). Fleet disk, the PVE thin pool, memory and the PBS datastore are marked `needs_data_source`: the repo has no node_exporter, and Zabbix history/trends are not readable by the Toolbelt yet.
 
-## Wiring it live (the remaining steps)
+## How it runs
 
-1. A read tool or helper that returns `[(label, series)]` from VictoriaMetrics (`metrics.range` exists as an agent tool; the runner needs the same call without the agent).
-2. A schedule (Toolbelt background thread or a systemd timer on Frigg) and a log path on Frigg.
-3. Zabbix history/trends read access for the fleet disk and memory targets, and an audit-only PBS token for the datastore.
-4. Real thresholds in a repo file after the shadow period.
+`aiops/toolbelt/forecast_run.py` queries VictoriaMetrics at full resolution (the agent's `metrics.range` tool thins series for the model, so the runner does its own `query_range` GET against the same `metrics-read` route) and calls `run_once`. It is shipped by the `aiops-toolbelt` role as a oneshot unit with a timer of its own (`aiops-toolbelt-forecast.{service,timer}`, every `aiops_toolbelt_forecast_interval`, default 6h), because the API unit has no route to the metrics endpoint by design. Findings go to `/var/lib/aiops-toolbelt/forecast-shadow.jsonl`; a small state file (`forecast-state.json`) keeps the dedup across timer runs. Read it with `sudo -u aiops-toolbelt tail /var/lib/aiops-toolbelt/forecast-shadow.jsonl | jq .`; `systemctl list-timers aiops-toolbelt-forecast.timer` shows the schedule; `aiops_toolbelt_forecast_enabled: false` stops the timer.
+
+## Still to do
+
+1. Zabbix history/trends read access for the fleet disk and memory targets, and an audit-only PBS token for the datastore (these targets stay `needs_data_source` until then).
+2. After the 14-day shadow period: compare the log with what happened, set real thresholds in a repo file, and only then decide whether any finding becomes a notification.
 
 ## Adding a metric
 
