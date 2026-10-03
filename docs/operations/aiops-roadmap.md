@@ -151,12 +151,16 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10g — Stage 4: fleet rebuild loop
 
+*Detailed plan (drafted 2026-10-03): [`10g-rebuild-loop.md`](10g-rebuild-loop.md): ladder of targets, exact sequence, registry shape, the Frigg rebuild-runner proposal for unattended `terraform apply`, hard limits, canary test plan.*
+
 - **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); still open: **PBS off Skuld** and its datastore capacity fixed (215/252 GB used); **restore drills passing** (the offsite-backup restore onto a scratch cluster in 10b2; PBS restore of a canary and an LXC); Skuld watchdog proven or Skuld de-risked.
 - **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
 - **10g3 — Gate for worker auto-rebuild.** Only after N consecutive successful approval-gated worker rebuilds and a passing restore drill.
 - **Exit:** a deliberately killed canary and a replica LXC are rebuilt from the repo without operator input; a worker rebuild is approval-gated and verified.
 
 ## 10h — Stage 5: predictive & agent-authored change
+
+*Detailed plan (drafted 2026-10-03): [`10h-predictive-change.md`](10h-predictive-change.md): forecasting signals and their data sources, the agent-PR gate, incident drafts. 10h1 is T0 and can start its shadow baseline before 10g.*
 
 - **10h1 — Forecasting.** Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
 - **10h2 — Agent-authored PRs.** Drift/incident → fix PR → CI plan-diff → human merge, on the `chart-bump` pattern.
