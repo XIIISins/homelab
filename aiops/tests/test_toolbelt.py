@@ -248,6 +248,16 @@ class Breakers(unittest.TestCase):
         clock.t += 200
         self.assertEqual(tb.watchdog(), [])
 
+    def test_a_run_that_finishes_after_its_alert_recovered_still_records_its_thread(self):
+        tb, clock, _ = make()
+        a = tb.ingest_zabbix(ev())["incident_id"]
+        tb.set_state(a, "running")
+        tb.ingest_zabbix(ev(status="RESOLVED"))  # recovery arrives while the agent is still working
+        self.assertEqual(tb.group(a)["state"], "resolved")
+        out = tb.set_state(a, "posted", thread_id="777")  # the workflow then posts its thread: must not be a 409
+        self.assertEqual((out["state"], out["thread_id"]), ("resolved", "777"))
+        self.assertEqual(tb.set_state(a, "resolved")["state"], "resolved")  # and closing it again is a no-op, not an error
+
     def test_a_run_past_the_wall_clock_cap_is_reported_timed_out(self):
         tb, clock, _ = make(run_wall_clock_seconds=100)
         a = tb.ingest_zabbix(ev())["incident_id"]
