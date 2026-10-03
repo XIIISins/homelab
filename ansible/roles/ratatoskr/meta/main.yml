@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: ratatoskr
+  author: XIIISins
+  description: >
+    The AIOps Discord bot: forwards @mentions to the n8n agent, renders proposal cards from the Toolbelt's feed and turns an
+    operator's button press into a decision. Debian discord.py, a hardened outbound-only systemd unit, Vault-sourced
+    secrets (Phase 10e).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+dependencies: []

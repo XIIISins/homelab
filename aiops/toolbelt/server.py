@@ -294,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.operators_file or not approver_token:
             print("--actions needs --operators-file and --approver-token-file", file=sys.stderr)
             return 2
-        operators = frozenset(ln.strip() for ln in Path(args.operators_file).read_text().splitlines() if ln.strip().isdigit())
+        operators = frozenset(x for x in re.split(r"[,\s]+", Path(args.operators_file).read_text()) if x.isdigit())
         if not operators:
             print("--operators-file holds no Discord user id", file=sys.stderr)
             return 2

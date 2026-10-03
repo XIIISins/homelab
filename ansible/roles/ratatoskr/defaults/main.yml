@@ -1,0 +1,39 @@
+# ansible/roles/ratatoskr/defaults/main.yml
+---
+# Ratatoskr: the AIOps Discord bot (Phase 10e) - chat transport for Gna and the ONLY approver of actions.
+# Code lives in the repo (aiops/bot/); this role installs it from the Debian discord.py package (no pip, no PyPI egress),
+# writes its three secrets from Vault, and runs it as a hardened systemd unit. Outbound only: nothing listens.
+# Design: docs/operations/10e-approval-actions.md. Procedure: docs/procedures/aiops-actions.md.
+
+ratatoskr_user: ratatoskr
+ratatoskr_group: ratatoskr
+ratatoskr_home: /opt/ratatoskr
+ratatoskr_config_dir: /etc/ratatoskr
+ratatoskr_state_dir: /var/lib/ratatoskr
+ratatoskr_unit_name: ratatoskr
+
+# Where it talks. Both are internal, same VLAN (11); everything else it reaches is Discord.
+ratatoskr_toolbelt_url: "http://10.0.11.30:8090" # Frigg: proposal feed, decisions, kill switch (approver role)
+ratatoskr_n8n_chat_url: "http://10.0.11.221:8081/webhook/aiops/chat" # Gna's Caddy listener, chat path (this host's address only)
+ratatoskr_poll_seconds: 3
+
+# Vault (KV v2, mount `secret`, read via the ansible AppRole at play time; same model as the n8n-agent role).
+ratatoskr_vault_discord_path: ansible/ratatoskr/discord-bot # operator-seeded: scripts/secrets/seed-discord-bot
+ratatoskr_vault_approver_token_path: ansible/aiops/approver-token # terraform/vault
+ratatoskr_vault_chat_token_path: ansible/aiops/n8n-ingest-token/chat # terraform/vault (the chat ingest source)
+
+# Code copied from the repo (the bot imports logic.py next to itself).
+ratatoskr_source_files:
+  - bot/logic.py
+  - bot/bot.py
+
+# The unit's own egress filter (defence in depth; the UCG policy is the real boundary, see docs/architecture/network.md).
+# RFC1918 is denied EXCEPT these endpoints, so a compromised bot cannot roam the homelab; the internet (Discord) stays open.
+# Best effort: a BPF-less unprivileged LXC may not enforce it.
+ratatoskr_internal_allow:
+  - 10.0.11.30/32 # Frigg (Toolbelt)
+  - 10.0.11.221/32 # Gna (n8n chat webhook)
+  - 10.0.10.200/32 # AdGuard VIP (DNS)
+  - 10.0.254.1/32 # UCG (DNS fallback)
+  - 10.0.11.21/32 # Hugin (zabbix-agent active checks)
+  - 10.0.20.0/24 # VictoriaLogs ingest (vlagent) via Traefik

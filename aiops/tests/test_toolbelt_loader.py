@@ -152,6 +152,33 @@ class Loader(unittest.TestCase):
             srv.shutdown()
         self.assertEqual(self.out.read_text().strip(), TOKEN)
 
+    def test_required_files_are_written_0400_and_never_printed(self):
+        srv, seen = fake_vault()
+        files = {"approver-token": {"path": "secret/data/ansible/aiops/approver-token", "field": "value", "out": str(self.dir / "approver-token"), "min_len": 32},
+                 "operators": {"path": "secret/data/ansible/ratatoskr/discord-bot", "field": "value", "out": str(self.dir / "operators"), "min_len": 17}}
+        try:
+            printed = self.run_loader(srv, AIOPS_TOOLBELT_EXTRA_FILES=json.dumps(files))
+        finally:
+            srv.shutdown()
+        for name in ("approver-token", "operators"):
+            self.assertEqual((self.dir / name).read_text().strip(), TOKEN)
+            self.assertEqual(stat.S_IMODE(os.stat(self.dir / name).st_mode), 0o400)
+        self.assertNotIn(TOKEN, printed)
+        self.assertIn("approver-token written to", printed)
+        self.assertTrue(any(e[1] == "/v1/secret/data/ansible/ratatoskr/discord-bot" for e in seen if e[0] == "GET"))
+
+    def test_a_missing_or_short_required_file_refuses_to_start(self):
+        for kwargs in ({"missing": ("approver-token",)}, {"secret_value": "x" * 40}):
+            srv, _ = fake_vault(**kwargs)
+            files = {"approver-token": {"path": "secret/data/ansible/aiops/approver-token", "field": "value",
+                                        "out": str(self.dir / "approver-token"), "min_len": 48 if "secret_value" in kwargs else 32}}
+            try:
+                with self.assertRaises(BaseException):
+                    self.run_loader(srv, AIOPS_TOOLBELT_EXTRA_FILES=json.dumps(files))
+            finally:
+                srv.shutdown()
+            self.assertFalse((self.dir / "approver-token").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,38 @@
+# ansible/playbooks/asgard-ratatoskr.yml
+---
+# Ratatoskr - the AIOps Discord bot, LXC 1122 on Urd (Phase 10e).
+#
+# Bootstrap (day 1, before the `ansible` user exists):
+#     ansible-playbook playbooks/asgard-ratatoskr.yml -e 'ansible_user=root' --tags baseline
+# then the full play as `ansible` (hardening locks root SSH out at the end):
+#     ansible-playbook playbooks/asgard-ratatoskr.yml
+#
+# Prerequisites (operator, from the main checkout, CLI only): `terraform apply` in terraform/proxmox/asgard-lxcs
+# (the LXC), terraform/vault (the approver + chat tokens), terraform/netbox (-parallelism=2) and terraform/adguard (the
+# name); the Discord values seeded with scripts/secrets/seed-discord-bot; and the UCG egress policy for 10.0.11.222
+# (docs/architecture/network.md). The first provisioning run needs ONLY Debian mirrors (apt), so the
+# "AIOps - Deploy Window" policy can stay paused.
+- name: Configure Ratatoskr (AIOps Discord bot)
+  hosts: discord_bot
+  become: true
+
+  # Single host. Serialised so a future second bot never restarts both at once.
+  serial: 1
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    # The bot: Debian discord.py, a hardened outbound-only unit, Vault-sourced secrets.
+    - role: ratatoskr
+      tags: [ratatoskr]
+
+    # journald (the bot's JSON log lines) -> VictoriaLogs.
+    - role: vlagent
+      tags: [vlagent]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

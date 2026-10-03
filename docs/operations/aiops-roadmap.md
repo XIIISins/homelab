@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b and 10c done 2026-10-01/02** (10a soak ends 2026-10-08); 10d next. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c and 10d done 2026-10-01/03; 10e code complete 2026-10-03 (awaiting deployment)**; 10f next (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -135,9 +135,9 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10e — Stage 2: approval-gated action
 
-- **10e1 — Executor + approval.** Bridge → Semaphore API with an **allow-listed-template** key; approval is an operator-only Discord reaction; timeouts expire proposals.
-- **10e2 — Audit trail.** Structured events (VictoriaLogs) + NetBox journal entries for host-level actions; join on alert fingerprint.
-- **10e3 — Verify & rollback hooks.** Post-action verification, result posted to the thread; failed verify escalates.
+- **10e1 — Executor + approval.** ✅ built 2026-10-03 ([`10e-approval-actions.md`](10e-approval-actions.md)). The Toolbelt's executor runs registry templates through Semaphore with a key that is Task Runner on a **dedicated `aiops` project** (roles are per project, so that is what makes the key allow-listed); approval is an operator-only **button press by Discord user id** on a card posted by the Discord bot (webhooks cannot carry buttons or read reactions), bound to the exact params hash; proposals expire after 30 minutes; a kill switch (`/aiops kill`) stops approvals and starts.
+- **10e2 — Audit trail.** Structured events (VictoriaLogs) ✅ (every proposal/decision/step is an audit event joined by proposal id; journald -> vlagent) + NetBox journal entries for host-level actions 🔲.
+- **10e3 — Verify & rollback hooks.** ✅ built 2026-10-03: the registry `verify` post-condition runs after every action (and `requires_prior` before replay-role); the result is posted to the thread and the card edited; a failed or unverified run says so and shows the registry's rollback note.
 - **Exit:** ≥ N real incidents handled via propose → approve → verified, with a complete audit trail.
 
 ## 10f — Stage 3: autonomous T1 healing

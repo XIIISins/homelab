@@ -48,6 +48,7 @@ locals {
     "ansible:k3s-cp"       = { slug = "ansiblek3s-cp", color_hex = "e91e63" }
     "ansible:k3s-worker"   = { slug = "ansiblek3s-worker", color_hex = "f06292" }
     "ansible:n8n-agent"    = { slug = "ansiblen8n-agent", color_hex = "ea4b71" }
+    "ansible:discord-bot"  = { slug = "ansiblediscord-bot", color_hex = "ea4b71" }
     "ansible:pbs"          = { slug = "ansiblepbs", color_hex = "607d8b" }
     "ansible:proxmox"      = { slug = "ansibleproxmox", color_hex = "e64a19" }
     "ansible:semaphore"    = { slug = "ansiblesemaphore", color_hex = "9c27b0" }
