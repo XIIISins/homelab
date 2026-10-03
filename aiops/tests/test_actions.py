@@ -210,6 +210,24 @@ class ProposeTests(unittest.TestCase):
         self.assertEqual(cm.exception.status, 409)
 
 
+class UnitNameTests(unittest.TestCase):
+    def test_a_bare_unit_name_is_completed_but_the_allow_list_still_decides(self):
+        eng, *_ = make()
+        p = eng.propose(action_id="restart-unit", params={"target_host": "canary-1", "unit": "vlagent"}, reason="agent stopped", source="diagnosis", incident_id=1)
+        self.assertEqual(p["params"]["unit"], "vlagent.service")
+        with self.assertRaises(actions.Refused):  # sshd is not on the canary allow-list, with or without the suffix
+            eng.propose(action_id="restart-unit", params={"target_host": "canary-1", "unit": "sshd"}, reason="agent stopped", source="diagnosis", incident_id=1)
+        for bad in ("vlagent;reboot", "vl agent", "../x", "vlagent.timer"):
+            with self.assertRaises(actions.Refused):
+                eng.propose(action_id="restart-unit", params={"target_host": "canary-1", "unit": bad}, reason="agent stopped", source="diagnosis", incident_id=1)
+
+    def test_other_actions_and_non_dict_params_are_left_alone(self):
+        eng, *_ = make()
+        self.assertEqual(eng._tidy_params("flux-reconcile", {"hr_name": "x", "hr_namespace": "y"}), {"hr_name": "x", "hr_namespace": "y"})
+        self.assertEqual(eng._tidy_params("restart-unit", ["not", "a", "dict"]), ["not", "a", "dict"])
+        self.assertEqual(eng._tidy_params("no-such-action", {"unit": "x"}), {"unit": "x"})
+
+
 class NumberingTests(unittest.TestCase):
     def test_humans_read_1_2_3_within_a_conversation_while_ids_keep_counting(self):
         eng, *_ = make()
