@@ -109,9 +109,11 @@ def structure(d: object) -> list[str]:
             p.append("proposed_actions must be a list of at most 3")
         else:
             for i, a in enumerate(pa):
-                if not isinstance(a, dict) or set(a) != {"action_id", "reason"}:
-                    p.append(f"proposed_actions[{i}] must have exactly action_id, reason")
+                if not isinstance(a, dict) or not {"action_id", "reason"} <= set(a) <= {"action_id", "reason", "params"}:
+                    p.append(f"proposed_actions[{i}] must have action_id, reason and optionally params")
                     continue
+                if "params" in a and not (isinstance(a["params"], dict) and len(a["params"]) <= 6):
+                    p.append(f"proposed_actions[{i}].params must be an object of at most 6 entries")
                 if not (isinstance(a["action_id"], str) and ACTION.match(a["action_id"])):
                     p.append(f"proposed_actions[{i}].action_id is malformed")
                 if not (isinstance(a["reason"], str) and 3 <= len(a["reason"]) <= 300):
@@ -154,7 +156,12 @@ _LAYER_LABEL = {"host": "the host itself", "hypervisor": "the hypervisor", "work
                 "unknown": "unknown"}
 
 
-def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 0) -> str:
+def _target(a: dict) -> str:
+    return " ".join(str(v) for v in (a.get("params") or {}).values())[:80]
+
+
+def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 0, proposals: list | None = None,
+           refused: list | None = None) -> str:
     """Discord-ready markdown, under the 2000-character limit. No mentions are ever produced."""
     lines = [f"**Likely layer: {_LAYER_LABEL[d['layer']]}** - confidence {d['confidence']}"
              + (" - needs a human" if d["needs_human"] else ""), "", d["summary"]]
@@ -167,8 +174,15 @@ def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 
     if d.get("runbook_id"):
         lines += ["", f"Runbook: `{d['runbook_id']}`"]
     if d.get("proposed_actions"):
-        lines += ["", "**Proposed actions (proposals only - nothing was executed)**"]
-        lines += [f"- `{a['action_id']}`: {a['reason']}" for a in d["proposed_actions"]]
+        live = bool(proposals) and any(proposals)
+        lines += ["", "**Proposed actions (nothing runs unless the operator approves each one in this thread)**" if live
+                  else "**Proposed actions (proposals only - nothing was executed)**"]
+        for i, a in enumerate(d["proposed_actions"]):
+            pid = proposals[i]["id"] if proposals and i < len(proposals) and proposals[i] else None
+            tgt = _target(a)
+            lines.append(f"- `{a['action_id']}`" + (f" {tgt}" if tgt else "") + f": {a['reason']}" + (f" (proposal #{pid})" if pid else ""))
+        for r in refused or []:
+            lines.append(f"- `{r['action_id']}` was NOT proposed: {r['why']}")
     if d.get("next_checks"):
         lines += ["", "**Next checks**"] + [f"- {c}" for c in d["next_checks"]]
     foot = f"incident #{d['incident_id']} - {alert_count} alert(s) - {tool_calls} tool call(s)" + (f" - {model}" if model else "")

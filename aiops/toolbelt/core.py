@@ -15,6 +15,9 @@ What /ingest decides for one alert (the answer n8n acts on, `action`):
   ignored          not alertable (a severity the agent does not analyse)
   dropped          circuit breaker: queue full; counted and audited, never silent
 
+Phase 10e adds proposals (actions.py: the agent proposes, only an operator decides, the executor runs registry
+templates) and chat conversations (a human talks to the agent in Discord; every turn and tool call is recorded).
+
 Incident states: received -> grouped (window closed) -> running -> posted -> resolved.
 A step may only move forward, except running -> posted/resolved and posted -> resolved.
 """
@@ -39,6 +42,7 @@ import zabbix_event  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tools  # noqa: E402
 import diagnosis  # noqa: E402
+import actions  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
@@ -87,6 +91,15 @@ CREATE INDEX IF NOT EXISTS tool_calls_incident ON tool_calls(incident_id, tool, 
 CREATE TABLE IF NOT EXISTS diagnoses (
   incident_id INTEGER PRIMARY KEY, diagnosis_json TEXT NOT NULL, model TEXT NOT NULL, created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, incident_id INTEGER,
+  created_at INTEGER NOT NULL, last_at INTEGER NOT NULL, turns INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS chat_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL, ts INTEGER NOT NULL,
+  role TEXT NOT NULL, author TEXT NOT NULL, content TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_turns_conv ON chat_turns(conversation_id, id);
 """
 
 
@@ -113,6 +126,12 @@ class Config:
     max_tool_calls_per_incident: int = 40  # live tool calls one incident may make (replay is not counted)
     replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
+    actions: actions.ActionConfig | None = None  # 10e: None = proposals/approval/execution are not enabled
+    chat_daily_turn_cap: int = 100          # human messages the agent will answer per UTC day
+    chat_author_hourly_cap: int = 10        # per Discord user, so anyone in the channel can ask but not run up the bill
+    chat_conversation_turn_cap: int = 30    # user messages in one thread
+    chat_tool_calls_per_turn: int = 15      # live tool calls one answer may make
+    chat_history_turns: int = 12            # turns handed back as context
 
 
 def iso(ts: int) -> str:
@@ -126,20 +145,25 @@ def day_of(ts: int) -> str:
 class Toolbelt:
     def __init__(self, cfg: Config, routes: list[dict], known_runbooks: set[str] | None,
                  clock: Callable[[], float] = time.time, audit: Callable[[dict], None] | None = None,
-                 action_ids: set[str] | None = None):
+                 action_ids: set[str] | None = None, registry: "actions.Registry | None" = None):
         self.cfg = cfg
-        self.action_ids = action_ids
+        self.action_ids = action_ids if action_ids is not None else (set(registry.actions) if registry else None)
         self._placement_mtime: float | None = None
         self.routes = routes
         self.known_runbooks = known_runbooks
         self.clock = clock
         self._audit = audit or (lambda rec: print(json.dumps(rec, sort_keys=True), file=sys.stdout, flush=True))
-        self._lock = threading.Lock()
+        # Re-entrant: one SQLite connection is shared by the HTTP threads and the action executor thread, and Python's
+        # sqlite3 does not serialise it for us, so EVERY read and write holds this lock.
+        self._lock = threading.RLock()
         self.db = sqlite3.connect(cfg.db_path, check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
         self._migrate()
+        self.engine: actions.Engine | None = None
+        if registry is not None and cfg.actions is not None:
+            self.engine = actions.Engine(self.db, self._lock, self.clock, self.audit, registry, cfg.actions, self._bump, self._counter)
 
     def _migrate(self) -> None:
         """Additive schema changes for databases created by an older version (CREATE TABLE IF NOT EXISTS never alters)."""
@@ -151,6 +175,9 @@ class Toolbelt:
             self.db.execute("ALTER TABLE tool_calls ADD COLUMN args_json TEXT")
         if "outcome" not in tcols:
             self.db.execute("ALTER TABLE tool_calls ADD COLUMN outcome TEXT NOT NULL DEFAULT 'served'")
+        if "conversation_id" not in tcols:
+            self.db.execute("ALTER TABLE tool_calls ADD COLUMN conversation_id INTEGER")
+            self.db.execute("ALTER TABLE tool_calls ADD COLUMN turn_id INTEGER")
 
     # ---- helpers -----------------------------------------------------------------------------
     def now(self) -> int:
@@ -292,7 +319,8 @@ class Toolbelt:
         return out
 
     def _incident(self, inc_id: int) -> sqlite3.Row:
-        row = self.db.execute("SELECT * FROM incidents WHERE id=?", (inc_id,)).fetchone()
+        with self._lock:
+            row = self.db.execute("SELECT * FROM incidents WHERE id=?", (inc_id,)).fetchone()
         if row is None:
             raise Rejected(404, f"no incident {inc_id}")
         return row
@@ -371,21 +399,28 @@ class Toolbelt:
             else:
                 self.db.execute("UPDATE incidents SET state=? WHERE id=?", (state, inc_id))
             self.audit("state", incident=inc_id, state=state, thread_id=thread_id)
+        if thread_id and state == "posted" and self.engine is not None:
+            self.engine.bind_thread(inc_id, thread_id)
         return self.group(inc_id)
 
     def _record_call(self, incident_id: object, name: str, h: str, replayed: bool, args: dict | None = None,
-                     outcome: str = "served") -> None:
+                     outcome: str = "served", conversation_id: int | None = None, turn_id: int | None = None) -> None:
         """The audit trail a diagnosis is checked against. Only `served` rows count as evidence; a NO_RECORDING
         is kept (the harness reports it) but can never ground a claim."""
         if isinstance(incident_id, int) and not isinstance(incident_id, bool):
             with self._lock:
-                self.db.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts, args_json, outcome) "
-                                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                (incident_id, name, h, int(replayed), self.now(), json.dumps(args, sort_keys=True), outcome))
+                self.db.execute("INSERT INTO tool_calls(incident_id, tool, args_hash, replayed, ts, args_json, outcome, conversation_id, turn_id) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                (incident_id, name, h, int(replayed), self.now(), json.dumps(args, sort_keys=True), outcome,
+                                 conversation_id, turn_id))
 
     # ---- /tool/<name> --------------------------------------------------------------------------
-    def call_tool(self, name: str, args: object, incident_id: object = None, replay: str | None = None) -> dict:
-        """One read-only tool call. Unknown or write-shaped names never reach a handler."""
+    def call_tool(self, name: str, args: object, incident_id: object = None, replay: str | None = None,
+                  conversation_id: object = None, turn_id: object = None) -> dict:
+        """One read-only tool call. Unknown or write-shaped names never reach a handler. A chat answer passes
+        conversation_id + turn_id instead of an incident (live only, capped per turn)."""
+        if conversation_id is not None:
+            return self._chat_tool(name, args, conversation_id, turn_id)
         try:
             clean = tools.validate(name, args)
         except tools.ToolError as e:
@@ -394,7 +429,8 @@ class Toolbelt:
         h = tools.args_hash(name, clean)
         t0 = time.monotonic()
         if not replay and isinstance(incident_id, int) and not isinstance(incident_id, bool):
-            row = self.db.execute("SELECT replay FROM incidents WHERE id=?", (incident_id,)).fetchone()
+            with self._lock:
+                row = self.db.execute("SELECT replay FROM incidents WHERE id=?", (incident_id,)).fetchone()
             replay = row["replay"] if row else None
         if replay:
             if self.cfg.replay_dir is None:
@@ -513,15 +549,175 @@ class Toolbelt:
                 "created_at=excluded.created_at", (incident_id, json.dumps(diag, sort_keys=True), model, self.now()))
             self.audit("diagnosis_accepted", incident=incident_id, layer=diag["layer"], confidence=diag["confidence"],
                        evidence=len(diag["evidence"]), tool_calls=n_calls)
-        return {"ok": True, "content": diagnosis.render(diag, alert_count=n_alerts, model=model, tool_calls=n_calls),
-                "layer": diag["layer"], "confidence": diag["confidence"], "needs_human": diag["needs_human"]}
+            inc = self._incident(incident_id)
+        proposals, refused = self._propose_from(diag, inc)
+        return {"ok": True, "content": diagnosis.render(diag, alert_count=n_alerts, model=model, tool_calls=n_calls,
+                                                        proposals=proposals, refused=refused),
+                "layer": diag["layer"], "confidence": diag["confidence"], "needs_human": diag["needs_human"],
+                "proposals": [p["id"] for p in proposals if p], "proposals_refused": refused}
+
+    def _propose_from(self, diag: dict, inc) -> tuple[list, list]:
+        """Turn a validated diagnosis's proposed_actions into stored proposals (never executions). One that fails the
+        registry guard is reported back, not silently dropped. Replay incidents get replay proposals: visible to the
+        acceptance harness, impossible to decide."""
+        if self.engine is None or not diag.get("proposed_actions"):
+            return [None] * len(diag.get("proposed_actions", [])), []
+        out, refused = [], []
+        for a in diag["proposed_actions"]:
+            try:
+                out.append(self.engine.propose(action_id=a["action_id"], params=a.get("params", {}), reason=a["reason"], source="diagnosis",
+                                               incident_id=inc["id"], thread_id=inc["thread_id"], replay=bool(inc["replay"])))
+            except actions.Refused as e:
+                out.append(None)
+                refused.append({"action_id": a["action_id"], "why": e.message, "problems": e.detail.get("problems", [])[:5]})
+        return out, refused
 
     def stats(self) -> dict:
         with self._lock:
             return {"open_incidents": self._open_incidents(), "runs_today": self._counter("runs"),
                     "daily_run_cap": self.cfg.daily_run_cap, "dropped_today": self._counter("dropped_queue_full"),
                     "orphan_resolved_today": self._counter("orphan_resolved"),
-                    "no_recording_today": self._counter("no_recording")}
+                    "no_recording_today": self._counter("no_recording"),
+                    "chat_turns_today": self._counter("chat_turns")}
+
+    # ---- proposals + status (Phase 10e) ---------------------------------------------------------------
+    def propose(self, body: dict) -> dict:
+        """POST /proposals (agent role): a PENDING proposal for a registry action, from a chat turn or an incident. The
+        engine validates it against the registry; nothing is executed, and only the approver role can decide it."""
+        if self.engine is None:
+            raise Rejected(501, "actions are not enabled on this Toolbelt")
+        extra = set(body) - {"action_id", "params", "reason", "conversation_id", "incident_id"}
+        if extra:
+            raise Rejected(400, f"unexpected field(s): {sorted(extra)}")
+        action_id = body.get("action_id")
+        if not isinstance(action_id, str):
+            raise Rejected(400, "action_id (string) is required")
+        conv_id, inc_id, thread_id = body.get("conversation_id"), body.get("incident_id"), None
+        for name, v in (("conversation_id", conv_id), ("incident_id", inc_id)):
+            if v is not None and (not isinstance(v, int) or isinstance(v, bool)):
+                raise Rejected(400, f"{name} must be an integer")
+        if conv_id is not None:
+            with self._lock:
+                conv = self.db.execute("SELECT * FROM conversations WHERE id=?", (conv_id,)).fetchone()
+            if conv is None:
+                raise Rejected(404, f"no conversation {conv_id}")
+            thread_id, inc_id = conv["thread_id"], conv["incident_id"]
+        replay = False
+        if inc_id is not None:
+            inc = self._incident(inc_id)
+            replay, thread_id = bool(inc["replay"]), thread_id or inc["thread_id"]
+        return self.engine.propose(action_id=action_id, params=body.get("params", {}), reason=body.get("reason"),
+                                   source="chat" if conv_id is not None else "diagnosis", incident_id=inc_id,
+                                   conversation_id=conv_id, thread_id=thread_id, replay=replay)
+
+    def status(self) -> dict:
+        """GET /status (approver role): what /aiops status shows."""
+        out = self.stats()
+        if self.engine is not None:
+            out["actions"] = self.engine.summary()
+            out["open_proposals"] = self.engine.list(("pending", "approved", "running"))
+        return out
+
+    # ---- chat (Phase 10e): a human talks to the agent in Discord ---------------------------------------
+    def chat_turn(self, thread_id: object, author: object, content: object) -> dict:
+        """Record one human message and hand back what the agent needs to answer it: the conversation, the recent
+        history, and (in an incident thread) the incident and its diagnosis. Refused (429) past the daily budget, a
+        per-author hourly rate or the conversation's turn cap, so anyone in the channel may ask but nobody can run up the bill."""
+        if not (isinstance(thread_id, str) and thread_id.isdigit() and 17 <= len(thread_id) <= 20):
+            raise Rejected(400, "thread_id must be a Discord id")
+        if not (isinstance(author, str) and author.isdigit() and 17 <= len(author) <= 20):
+            raise Rejected(400, "author must be a Discord user id")
+        if not (isinstance(content, str) and content.strip()) or len(content) > 2000:
+            raise Rejected(400, "content must be 1..2000 characters")
+        with self._lock:
+            now = self.now()
+            if self._counter("chat_turns") >= self.cfg.chat_daily_turn_cap:
+                self.audit("chat_denied", reason="daily-cap")
+                raise Rejected(429, "daily-chat-cap")
+            hour = self.db.execute("SELECT COUNT(*) FROM chat_turns WHERE role='user' AND author=? AND ts>?", (author, now - 3600)).fetchone()[0]
+            if hour >= self.cfg.chat_author_hourly_cap:
+                self.audit("chat_denied", reason="author-rate", author=author[-4:])
+                raise Rejected(429, "author-rate")
+            conv = self.db.execute("SELECT * FROM conversations WHERE thread_id=?", (thread_id,)).fetchone()
+            if conv is None:
+                inc = self.db.execute("SELECT id FROM incidents WHERE thread_id=?", (thread_id,)).fetchone()
+                cur = self.db.execute("INSERT INTO conversations(thread_id, kind, incident_id, created_at, last_at) VALUES (?, ?, ?, ?, ?)",
+                                      (thread_id, "incident" if inc else "chat", inc["id"] if inc else None, now, now))
+                conv = self.db.execute("SELECT * FROM conversations WHERE id=?", (cur.lastrowid,)).fetchone()
+            if conv["turns"] >= self.cfg.chat_conversation_turn_cap:
+                self.audit("chat_denied", reason="conversation-cap", conversation=conv["id"])
+                raise Rejected(429, "conversation-cap")
+            history = [{"role": r["role"], "author": r["author"], "content": r["content"]} for r in reversed(self.db.execute(
+                "SELECT role, author, content FROM chat_turns WHERE conversation_id=? ORDER BY id DESC LIMIT ?",
+                (conv["id"], self.cfg.chat_history_turns)).fetchall())]
+            turn = self.db.execute("INSERT INTO chat_turns(conversation_id, ts, role, author, content) VALUES (?, ?, 'user', ?, ?)",
+                                   (conv["id"], now, author, content)).lastrowid
+            self.db.execute("UPDATE conversations SET turns=turns+1, last_at=? WHERE id=?", (now, conv["id"]))
+            self._bump("chat_turns")
+            incident_id = conv["incident_id"]
+        self.audit("chat_turn", conversation=conv["id"], turn=turn, kind=conv["kind"], incident=incident_id, author=author[-4:])
+        ctx = {}
+        if incident_id is not None:
+            ctx["incident"] = self.group(incident_id)
+            with self._lock:
+                d = self.db.execute("SELECT diagnosis_json FROM diagnoses WHERE incident_id=?", (incident_id,)).fetchone()
+            ctx["diagnosis"] = json.loads(d["diagnosis_json"]) if d else None
+            if self.engine is not None:
+                ctx["proposals"] = [p for p in self.engine.list(("pending", "approved", "running", "succeeded", "failed", "verify_failed", "rejected", "expired", "cancelled"))
+                                    if p["incident_id"] == incident_id]
+        return {"conversation_id": conv["id"], "turn_id": turn, "kind": conv["kind"], "incident_id": incident_id,
+                "history": history, "context": ctx,
+                "limits": {"tool_calls_per_turn": self.cfg.chat_tool_calls_per_turn, "reply_max_chars": 1900}}
+
+    def chat_reply(self, conversation_id: object, turn_id: object, content: object) -> dict:
+        """Store the agent's answer and return it scrubbed and Discord-sized. Anything secret-shaped is replaced, never posted."""
+        if not (isinstance(conversation_id, int) and isinstance(turn_id, int) and isinstance(content, str) and content.strip()):
+            raise Rejected(400, "need conversation_id, turn_id and content")
+        with self._lock:
+            if self.db.execute("SELECT 1 FROM chat_turns WHERE id=? AND conversation_id=?", (turn_id, conversation_id)).fetchone() is None:
+                raise Rejected(404, "no such turn in that conversation")
+        text = content
+        redacted = 0
+        for pat, _what in diagnosis.SECRETISH:
+            text, n = pat.subn("<redacted>", text)
+            redacted += n
+        text = text.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+        if len(text) > 1900:
+            text = text[:1880].rstrip() + "\n...(truncated)"
+        with self._lock:
+            self.db.execute("INSERT INTO chat_turns(conversation_id, ts, role, author, content) VALUES (?, ?, 'assistant', 'agent', ?)",
+                            (conversation_id, self.now(), text))
+        self.audit("chat_reply", conversation=conversation_id, turn=turn_id, chars=len(text), redacted=redacted)
+        return {"content": text, "redacted": redacted}
+
+    def _chat_tool(self, name: str, args: object, conversation_id: object, turn_id: object) -> dict:
+        if not (isinstance(conversation_id, int) and not isinstance(conversation_id, bool) and isinstance(turn_id, int) and not isinstance(turn_id, bool)):
+            raise Rejected(400, "conversation_id and turn_id must be integers")
+        try:
+            clean = tools.validate(name, args)
+        except tools.ToolError as e:
+            self.audit("tool_denied", tool=name, reason=e.message[:120], conversation=conversation_id)
+            raise Rejected(e.status, e.message)
+        with self._lock:
+            conv = self.db.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,)).fetchone()
+            if conv is None or self.db.execute("SELECT 1 FROM chat_turns WHERE id=? AND conversation_id=? AND role='user'", (turn_id, conversation_id)).fetchone() is None:
+                raise Rejected(404, "no such conversation turn")
+            n = self._bump(f"ctools:{turn_id}")
+            if n > self.cfg.chat_tool_calls_per_turn:
+                self.audit("tool_denied", tool=name, reason="per-turn-cap", conversation=conversation_id)
+                raise Rejected(429, "per-turn tool-call cap reached")
+        if self.cfg.live is None:
+            raise Rejected(501, "live tools are not configured")
+        h = tools.args_hash(name, clean)
+        t0 = time.monotonic()
+        try:
+            out = tools.live(self.cfg.live, name, clean)
+        except tools.ToolError as e:
+            self.audit("tool_error", tool=name, args=h, status=e.status, conversation=conversation_id)
+            raise Rejected(e.status, e.message)
+        self._record_call(conv["incident_id"] or 0, name, h, False, clean, "served", conversation_id, turn_id)
+        self.audit("tool_call", tool=name, args=h, replayed=False, conversation=conversation_id, turn=turn_id, ms=int((time.monotonic() - t0) * 1000))
+        return {"tool": name, "replayed": False, "result": out}
 
 
 # ---- input validation (the schema file is the contract; this is the dependency-free gate) ----------
