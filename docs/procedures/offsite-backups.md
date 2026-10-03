@@ -78,9 +78,29 @@ The drill procedure (scratch burst K3s with prod CIDRs + token, per-leg pass cri
 - **Vault** — `vault operator raft snapshot restore -force <file>` against the active node (unsealed; restores KV, policies, auth methods, mounts). Needs a token with `sys/storage/raft/snapshot` update — i.e. root / break-glass.
 - **Calico** — order matters: operator CRDs + tigera-operator addon → Installation (`calico-installation.yaml`) → wait for the datastore CRDs → `kubectl apply -f calico-datastore-<ts>.yaml` (IPPools first if the apply is split; strip `resourceVersion`/`uid`/`status` noise if the API rejects it). Then restart pods (their IPs must be in IPAM) — see the incident's recovery steps.
 
+## Restore credentials (two identities, both in 1Password only, neither in Vault)
+
+A restore must work when Vault is gone, so the credentials for it live in 1Password, never in Vault.
+
+| Need | Identity | Where it lives |
+|---|---|---|
+| Read the three backup prefixes | IAM user `homelab-backup-restore` (`terraform/aws/backups.tf`): List + Get on `etcd/`, `vault-raft/`, `calico/`; explicit Deny on write/delete. **Terraform creates no key for it.** | 1P item `[Bootstrap] - Manual - AWS - Backup restore access key` |
+| Decrypt/encrypt with the Vault unseal key (Vault leg only) | the existing `vault-unseal` IAM user: `kms:Encrypt`, `kms:Decrypt`, `kms:DescribeKey` on exactly one key (checked 2026-10-03; a scratch Vault needs Encrypt to initialise) | 1P item `[Bootstrap] - Manual - AWS - KMS unseal access key` |
+
+Create the first one without the AWS console, from the main checkout (the key never appears on screen):
+
+```bash
+cd terraform/aws && set-aws-creds bootstrap && terraform apply      # creates the user + its read-only policy (2 resources)
+scripts/secrets/mint-restore-key mint                                # aws iam create-access-key -> straight into 1Password, read back, verified
+scripts/secrets/mint-restore-key verify                              # any time: reads all 3 prefixes, write/delete/IAM must be DENIED
+scripts/secrets/mint-restore-key rotate                              # new key -> 1P -> verified -> old key deleted
+```
+
+`check` is a read-only preflight. The tool reads the Terraform bootstrap key from its 1Password item itself, so nothing needs loading. A key that cannot be stored in 1Password is deleted again, so no key exists only in a process.
+
 ## Known gaps
 
 - **No alerting on a missed/failed backup.** A failed CronJob shows in `kubectl get jobs -n backups` only; the infra-health prober doesn't check bucket freshness yet (follow-up: newest-object age per prefix → Hermod).
 - **No restore drill yet** — the scratch-cluster substrate now exists as code (`terraform/digitalocean-burst/`, [`burst-substrate.md`](burst-substrate.md); 10b2, not applied), but the restore steps above are still the documented intent, not a proven runbook.
-- **No credential can READ `vault-raft/` or `calico/`.** The etcd user is scoped to `etcd/*` and the CronJob writer is PutObject-only, so a restore drill (or a real restore) needs the Bootstrap AWS identity or a new read-only restore IAM user (open-questions.md). The Vault Raft restore additionally needs `kms:Decrypt` on the unseal key (the snapshot barrier is KMS-wrapped).
+- **Restore credentials: decided 2026-10-03 (path B).** No existing credential could read `vault-raft/` or `calico/` (the etcd user is `etcd/*` only, the writer is PutObject-only), so a dedicated read-only `homelab-backup-restore` user is declared in `terraform/aws` and its key is minted by `scripts/secrets/mint-restore-key` into 1Password only (see above). The Vault Raft restore also needs the KMS identity: the existing `vault-unseal` user already has Encrypt/Decrypt/DescribeKey on that one key, so no new KMS grant exists. **Until the Terraform is applied and the key minted, the drill cannot run.**
 - The pre-upgrade Calico export written by `playbooks/calico-upgrade.yml` is still local to gondul (the daily CronJob export is the off-site copy).

@@ -62,3 +62,8 @@ output "backup_writer_secret_access_key" {
   value       = aws_iam_access_key.backup_writer.secret
   sensitive   = true
 }
+
+output "backup_restore_user" {
+  description = "Read-only restore IAM user. No access key is created by Terraform: run scripts/secrets/mint-restore-key (stores it in 1Password only)."
+  value       = aws_iam_user.backup_restore.name
+}

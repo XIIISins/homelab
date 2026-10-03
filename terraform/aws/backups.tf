@@ -249,3 +249,79 @@ resource "aws_iam_user_policy" "backup_writer" {
   user   = aws_iam_user.backup_writer.name
   policy = data.aws_iam_policy_document.backup_writer.json
 }
+
+# -----------------------------------------------------------------------------
+# Restore identity: READ-ONLY on the three recovery prefixes (restore drill / real DR)
+# -----------------------------------------------------------------------------
+# Needed because no existing identity can read vault-raft/ or calico/ (the etcd
+# user is etcd/* only, the writer is PutObject-only), and because in a real
+# disaster Vault is gone: whatever reads the backups must NOT depend on Vault.
+#
+# Deliberately has NO aws_iam_access_key here. A key created in Terraform lands
+# in state and would have to be placed in Vault; this one is minted out of band
+# by scripts/secrets/mint-restore-key (aws iam create-access-key straight into the
+# 1Password item "[Bootstrap] - Manual - AWS - Backup restore access key") and
+# lives in 1Password only. No write, no delete, no KMS here: the Vault leg of a
+# drill uses the existing decrypt-only `vault-unseal` identity from 1Password.
+resource "aws_iam_user" "backup_restore" {
+  name = "homelab-backup-restore"
+  path = "/homelab/"
+}
+
+data "aws_iam_policy_document" "backup_restore" {
+  statement {
+    sid    = "ListBucketAndVersions"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:GetBucketLocation",
+    ]
+
+    resources = [aws_s3_bucket.backups.arn]
+  }
+
+  statement {
+    sid    = "ReadRecoveryObjects"
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.backups.arn}/etcd/*",
+      "${aws_s3_bucket.backups.arn}/vault-raft/*",
+      "${aws_s3_bucket.backups.arn}/calico/*",
+    ]
+  }
+
+  # Belt and braces: a later edit that widens the Allow above still cannot make
+  # this identity write or delete a backup (the negative test checks this).
+  statement {
+    sid    = "NeverWriteOrDelete"
+    effect = "Deny"
+
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:PutBucketPolicy",
+      "s3:PutLifecycleConfiguration",
+      "s3:PutBucketVersioning",
+    ]
+
+    resources = [
+      aws_s3_bucket.backups.arn,
+      "${aws_s3_bucket.backups.arn}/*",
+    ]
+  }
+}
+
+resource "aws_iam_user_policy" "backup_restore" {
+  name   = "homelab-backup-restore-read"
+  user   = aws_iam_user.backup_restore.name
+  policy = data.aws_iam_policy_document.backup_restore.json
+}
