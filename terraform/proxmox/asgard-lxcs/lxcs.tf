@@ -1066,6 +1066,10 @@ resource "proxmox_virtual_environment_container" "canary" {
   vm_id     = each.value.vmid
   tags      = ["asgard", "lxc", "canary", "aiops-t1", "managed-by-terraform"]
 
+  # Phase 10g: the PVE pool the rebuild runner's scoped token is confined to
+  # (terraform/proxmox/asgard-pools — apply THAT first, the pool must exist).
+  pool_id = "aiops-canary"
+
   unprivileged  = true
   start_on_boot = true
   started       = true

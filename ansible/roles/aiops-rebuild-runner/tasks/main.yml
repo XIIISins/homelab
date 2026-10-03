@@ -1,0 +1,217 @@
+---
+# ansible/roles/aiops-rebuild-runner/tasks/main.yml
+#
+# Installs the rebuild runner from the repo's aiops/ tree. No secret passes through Ansible except the AppRole
+# secret-zero, supplied once with -e and written root-only; everything else the root loader fetches from Vault at start.
+
+- name: Read the runner's Vault documents (empty when absent)
+  ansible.builtin.set_fact:
+    aiops_rebuild_runner_pre_pve: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', aiops_rebuild_runner_pve_token_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}) }}
+    aiops_rebuild_runner_pre_env: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', aiops_rebuild_runner_env_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}) }}
+  no_log: true
+  when: aiops_rebuild_runner_preflight | bool and aiops_rebuild_runner_enabled | bool
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:preflight]
+
+- name: Assert the credentials the runner needs exist (it must never start with a partial set)
+  ansible.builtin.assert:
+    that:
+      - aiops_rebuild_runner_pre_pve.get('token_id', '') is match('^[^!]+@pve![A-Za-z0-9_-]+$')
+      - aiops_rebuild_runner_pre_pve.get('secret', '') | length >= 16
+      - aiops_rebuild_runner_pre_env.get('aws_access_key_id', '') | length >= 16
+      - aiops_rebuild_runner_pre_env.get('aws_secret_access_key', '') | length >= 32
+      - aiops_rebuild_runner_pre_env.get('ssh_public_key', '') is match('^ssh-')
+    fail_msg: >-
+      Missing or malformed runner credentials. Terraform (terraform/proxmox/asgard-pools) writes
+      {{ aiops_rebuild_runner_pve_token_vault_path }}; the operator seeds {{ aiops_rebuild_runner_env_vault_path }}
+      (aws_access_key_id, aws_secret_access_key, ssh_public_key). To install the units without starting the service for
+      now, set aiops_rebuild_runner_enabled: false. See docs/procedures/aiops-rebuild.md.
+    quiet: true
+  when: aiops_rebuild_runner_preflight | bool and aiops_rebuild_runner_enabled | bool
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:preflight]
+
+- name: Look for terraform (installed by the control-node role)
+  ansible.builtin.stat:
+    path: "{{ aiops_rebuild_runner_terraform }}"
+  register: aiops_rebuild_runner_tf
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:preflight]
+
+- name: Assert terraform is installed
+  ansible.builtin.assert:
+    that: aiops_rebuild_runner_tf.stat.exists
+    fail_msg: "{{ aiops_rebuild_runner_terraform }} is missing: run the control-node role first"
+    quiet: true
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:preflight]
+
+- name: Install the runtime dependencies (PyYAML for the registry, git for the clean checkout)
+  ansible.builtin.apt:
+    name: [python3, python3-yaml, git, ca-certificates]
+    state: present
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Create the clients group (its members may talk to the runner socket)
+  ansible.builtin.group:
+    name: "{{ aiops_rebuild_runner_group }}"
+    system: true
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Create the service user (no shell, no home, primary group = the clients group)
+  ansible.builtin.user:
+    name: "{{ aiops_rebuild_runner_user }}"
+    group: "{{ aiops_rebuild_runner_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Read the passwd database (which client users exist yet)
+  ansible.builtin.getent:
+    database: passwd
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Assert every client user exists (the runner refuses to start with an unknown --allow-user)
+  ansible.builtin.assert:
+    that: item in ansible_facts.getent_passwd
+    fail_msg: "client user {{ item }} does not exist: run its role first (aiops-toolbelt)"
+    quiet: true
+  loop: "{{ aiops_rebuild_runner_clients }}"
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Add the client users to the clients group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ aiops_rebuild_runner_group }}"
+    append: true
+  loop: "{{ aiops_rebuild_runner_clients }}"
+  notify: Restart the Toolbelt to pick up the clients group
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Create the code directories, root-owned so the service cannot modify its own code
+  ansible.builtin.file:
+    path: "{{ aiops_rebuild_runner_home }}/aiops/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: ["", runner, toolbelt]
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Install the runner code from the repo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../aiops/{{ item }}"
+    dest: "{{ aiops_rebuild_runner_home }}/aiops/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ aiops_rebuild_runner_source_files }}"
+  notify: Restart aiops-rebuild-runner
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Create the secret-zero directory (root only)
+  ansible.builtin.file:
+    path: "{{ aiops_rebuild_runner_approle_env_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Write the AppRole secret-zero (only when supplied with -e; root-only, never in Git)
+  ansible.builtin.copy:
+    dest: "{{ aiops_rebuild_runner_approle_env_path }}"
+    content: |
+      AIOPS_REBUILD_ROLE_ID={{ aiops_rebuild_runner_role_id }}
+      AIOPS_REBUILD_SECRET_ID={{ aiops_rebuild_runner_secret_id }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: aiops_rebuild_runner_role_id | length > 0 and aiops_rebuild_runner_secret_id | length > 0
+  notify: Restart aiops-rebuild-runner
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:secret-zero]
+
+- name: Look for the AppRole secret-zero
+  ansible.builtin.stat:
+    path: "{{ aiops_rebuild_runner_approle_env_path }}"
+  register: aiops_rebuild_runner_zero
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:secret-zero]
+
+- name: Assert the secret-zero is in place when the service is to run
+  ansible.builtin.assert:
+    that: aiops_rebuild_runner_zero.stat.exists
+    fail_msg: >-
+      {{ aiops_rebuild_runner_approle_env_path }} is missing. Mint a SecretID for the aiops-rebuild-runner AppRole and pass
+      -e aiops_rebuild_runner_role_id=... -e aiops_rebuild_runner_secret_id=... once (docs/procedures/aiops-rebuild.md).
+    quiet: true
+  when: aiops_rebuild_runner_enabled | bool
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:secret-zero]
+
+- name: Deploy the credential loader
+  ansible.builtin.copy:
+    src: aiops-rebuild-creds-load.py
+    dest: "{{ aiops_rebuild_runner_loader_path }}"
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Restart aiops-rebuild-runner
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Install the credential loader unit
+  ansible.builtin.template:
+    src: aiops-rebuild-creds.service.j2
+    dest: "/etc/systemd/system/{{ aiops_rebuild_runner_creds_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart aiops-rebuild-runner
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Install the runner unit
+  ansible.builtin.template:
+    src: aiops-rebuild-runner.service.j2
+    dest: "/etc/systemd/system/{{ aiops_rebuild_runner_unit_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart aiops-rebuild-runner
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Flush handlers so changed code and units are live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:install]
+
+- name: Enable and start the runner (or leave it stopped)
+  ansible.builtin.systemd:
+    name: "{{ aiops_rebuild_runner_unit_name }}.service"
+    enabled: "{{ aiops_rebuild_runner_enabled | bool }}"
+    state: "{{ 'started' if aiops_rebuild_runner_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:service]
+
+# Verification without a client identity: the socket exists with the right owner/group/mode. (A request needs a client uid:
+# the acceptance steps in the procedure run `status` as the Toolbelt user.)
+- name: Wait for the socket
+  ansible.builtin.wait_for:
+    path: "{{ aiops_rebuild_runner_socket }}"
+    state: present
+    timeout: 20
+  when: aiops_rebuild_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:verify]
+
+- name: Stat the socket
+  ansible.builtin.stat:
+    path: "{{ aiops_rebuild_runner_socket }}"
+  register: aiops_rebuild_runner_sock
+  when: aiops_rebuild_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:verify]
+
+- name: Assert the socket is 0660, owned by the service user, group = clients
+  ansible.builtin.assert:
+    that:
+      - aiops_rebuild_runner_sock.stat.mode == '0660'
+      - aiops_rebuild_runner_sock.stat.pw_name == aiops_rebuild_runner_user
+      - aiops_rebuild_runner_sock.stat.gr_name == aiops_rebuild_runner_group
+    quiet: true
+  when: aiops_rebuild_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-rebuild-runner, aiops-rebuild-runner:verify]

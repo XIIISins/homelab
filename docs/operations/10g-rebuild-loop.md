@@ -104,6 +104,8 @@ Side effects worth knowing: planned actions are hidden from the chat agent's `pr
 
 **Not built:** runner, PVE pool and scoped token, engine `steps` / `backend` and the `guest-dead` / `guest-broken` prechecks, `autonomy_rebuild` and the rebuild breaker in the engine, converge/verify/plan playbooks and Semaphore templates, the canary High trigger and `RB-GUEST-*` runbooks and routing, `scripts/canary/fault kill|destroy`, replay scenarios, bot cards, PBS last-chance backup, Vault/Kubernetes drain identities, `do1` fast check, the procedure doc.
 
+**Slice B (runner and its infrastructure, code only, not deployed):** the rebuild runner (`aiops/runner/rebuild_runner.py`, fake-terraform tests), the PVE pool + pool-scoped token plan code (`terraform/proxmox/asgard-pools/`, canaries get `pool_id`), the runner's Vault policy + AppRole (`terraform/vault/rebuild-runner.tf`) and the Ansible role + playbook (`aiops-rebuild-runner`, `asgard-rebuild-runner.yml`). Deploy order, threat model and acceptance: [`procedures/aiops-rebuild.md`](../procedures/aiops-rebuild.md).
+
 ## Registry shape
 
 A sketch of the shape (names, tiers and ceilings are the decision; field spelling is finalised in the PR that adds the schema). It extends 10f's pattern: a **scope** section a reviewed PR can widen, and a **policy** per class that points at an action.

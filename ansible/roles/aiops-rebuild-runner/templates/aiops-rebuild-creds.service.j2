@@ -1,0 +1,39 @@
+{# ansible/roles/aiops-rebuild-runner/templates/aiops-rebuild-creds.service.j2 #}
+# Managed by Ansible (roles/aiops-rebuild-runner). Do not edit.
+#
+# Fetches the runner's credentials from Vault onto tmpfs, as root, in systemd EnvironmentFile format. A dependency of
+# aiops-rebuild-runner.service (Requires=/After=): it is NOT RemainAfterExit, so every start of the runner re-runs it and
+# the credentials are always fresh; a loader failure fails the runner's start. The file is root-owned 0400: systemd
+# (root) injects it into the runner, the runner's own user can never open it.
+[Unit]
+Description=AIOps rebuild runner credential loader (Vault -> tmpfs)
+After=network-online.target
+Wants=network-online.target
+Before={{ aiops_rebuild_runner_unit_name }}.service
+
+[Service]
+Type=oneshot
+RuntimeDirectory={{ aiops_rebuild_runner_env_dir_name }}
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Environment=VAULT_ADDR={{ aiops_rebuild_runner_vault_addr }}
+Environment=AIOPS_REBUILD_APPROLE_ENV={{ aiops_rebuild_runner_approle_env_path }}
+Environment=AIOPS_REBUILD_PVE_TOKEN_VAULT_PATH={{ aiops_rebuild_runner_pve_token_vault_path }}
+Environment=AIOPS_REBUILD_ENV_VAULT_PATH={{ aiops_rebuild_runner_env_vault_path }}
+Environment=AIOPS_REBUILD_ENV_FILE={{ aiops_rebuild_runner_env_file }}
+ExecStart=/usr/bin/python3 {{ aiops_rebuild_runner_loader_path }}
+TimeoutStartSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/{{ aiops_rebuild_runner_env_dir_name }}
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0

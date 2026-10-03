@@ -1,0 +1,52 @@
+---
+# ansible/roles/aiops-rebuild-runner/defaults/main.yml
+#
+# The rebuild runner (Phase 10g) on Frigg: the only place Terraform runs unattended. Code: aiops/runner/rebuild_runner.py
+# (tests: aiops/tests/test_rebuild_runner.py). Design: docs/operations/10g-rebuild-loop.md. Operations + threat model:
+# docs/procedures/aiops-rebuild.md.
+
+aiops_rebuild_runner_user: aiops-rebuild
+aiops_rebuild_runner_group: aiops-rebuild-clients # also the socket's group; its members may TALK to the runner
+aiops_rebuild_runner_home: /opt/aiops-rebuild-runner # root-owned code, so the service cannot rewrite itself
+aiops_rebuild_runner_unit_name: aiops-rebuild-runner
+aiops_rebuild_runner_creds_unit_name: aiops-rebuild-creds
+aiops_rebuild_runner_runtime_dir_name: aiops-rebuild # /run/aiops-rebuild/runner.sock
+aiops_rebuild_runner_state_dir_name: aiops-rebuild # /var/lib/aiops-rebuild/{checkout,plans,tfdata,plugin-cache}
+aiops_rebuild_runner_socket: "/run/{{ aiops_rebuild_runner_runtime_dir_name }}/runner.sock"
+
+# Who may connect (unix users, checked twice: group membership on the socket file AND SO_PEERCRED in the runner).
+# The Toolbelt API's user is the only client. It must also be allowed AF_UNIX in ITS unit (aiops-toolbelt role).
+aiops_rebuild_runner_clients:
+  - aiops-toolbelt
+aiops_rebuild_runner_toolbelt_unit: aiops-toolbelt
+
+# Only the canary class has a verified module/address in the runner; a class listed here without a row there stops startup.
+aiops_rebuild_runner_classes:
+  - canary
+
+aiops_rebuild_runner_terraform: /usr/bin/terraform # installed by the control-node role
+aiops_rebuild_runner_repo_url: https://github.com/XIIISins/homelab.git # public: the clean main checkout needs no credential
+
+# ---- credentials: Vault (runner's own AppRole) -> root loader -> tmpfs EnvironmentFile ---------------------------------
+aiops_rebuild_runner_vault_addr: "https://vault.niflheim.xiiisins.com"
+aiops_rebuild_runner_approle_env_path: /etc/aiops-rebuild/approle.env # root-only secret-zero: AIOPS_REBUILD_ROLE_ID / _SECRET_ID
+# Supplied ONCE on the first run (never stored in Git or in a variable file):
+#   -e aiops_rebuild_runner_role_id=<role id> -e aiops_rebuild_runner_secret_id=<minted secret id>
+# (terraform/vault creates the role; the secret id is minted by hand, see the procedure). Empty = keep the file as it is.
+aiops_rebuild_runner_role_id: ""
+aiops_rebuild_runner_secret_id: ""
+aiops_rebuild_runner_pve_token_vault_path: secret/data/ansible/aiops/rebuild/pve-token # terraform/proxmox/asgard-pools
+aiops_rebuild_runner_env_vault_path: secret/data/ansible/aiops/rebuild/env # operator-seeded (terraform/vault/rebuild-runner.tf)
+aiops_rebuild_runner_loader_path: /usr/local/sbin/aiops-rebuild-creds-load
+aiops_rebuild_runner_env_dir_name: aiops-rebuild-creds
+aiops_rebuild_runner_env_file: "/run/{{ aiops_rebuild_runner_env_dir_name }}/env"
+
+# Fail the play early (instead of a unit that cannot start) when the Vault documents are not there yet.
+aiops_rebuild_runner_preflight: true
+# Start the service. False installs everything and leaves it stopped (the first deploy, before the PVE token exists).
+aiops_rebuild_runner_enabled: true
+
+# Files copied from the repo's aiops/ tree (same relative layout: the runner finds rebuild.py beside itself).
+aiops_rebuild_runner_source_files:
+  - runner/rebuild_runner.py
+  - toolbelt/rebuild.py

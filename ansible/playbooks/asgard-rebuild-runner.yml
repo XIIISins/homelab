@@ -1,0 +1,26 @@
+# ansible/playbooks/asgard-rebuild-runner.yml
+---
+# Phase 10g: the rebuild runner on Frigg (the only place Terraform runs unattended).
+# Procedure (prerequisites, switches, acceptance): docs/procedures/aiops-rebuild.md.
+#
+# Prerequisites (operator, from the main checkout, in this order):
+#   1. terraform apply in terraform/proxmox/asgard-pools      (pool, scoped user + token -> Vault)
+#   2. terraform apply in terraform/proxmox/asgard-lxcs       (canaries join the pool; in-place, never a replace)
+#   3. terraform apply in terraform/vault                     (the aiops-rebuild-runner policy + AppRole)
+#   4. seed secret/ansible/aiops/rebuild/env in Vault          (state identity + public key)
+#   5. the aiops-toolbelt role has run (the runner's only client user must exist)
+#
+# First run (supplies the AppRole secret-zero once; it is written root-only to /etc/aiops-rebuild/approle.env):
+#     ansible-playbook playbooks/asgard-rebuild-runner.yml \
+#       -e aiops_rebuild_runner_role_id=<role id> -e aiops_rebuild_runner_secret_id=<minted secret id>
+# Later runs: ansible-playbook playbooks/asgard-rebuild-runner.yml
+# Install without starting (credentials not ready yet): -e aiops_rebuild_runner_enabled=false
+- name: Configure the rebuild runner (Frigg)
+  hosts: control
+  gather_facts: true
+  become: true
+  serial: 1
+
+  roles:
+    - role: aiops-rebuild-runner
+      tags: [aiops-rebuild-runner]
