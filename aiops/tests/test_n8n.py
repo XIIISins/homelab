@@ -297,6 +297,8 @@ class N8nChatWorkflow(unittest.TestCase):
         self.assertIn("never on your say-so", text)
         self.assertIn("RB-UNIT-STOPPED-T1", text)
         self.assertIn("Actions are NOT tools", text)
+        for needle in ("RB-GUEST-DEAD", "`start-guest`", "`rebuild-guest`", "canary-1"):  # 10g: the dead-canary class
+            self.assertIn(needle, text)
 
     def test_lint_requires_a_responder_for_a_synchronous_source_and_forbids_one_elsewhere(self):
         tmp = Path(tempfile.mkdtemp())
