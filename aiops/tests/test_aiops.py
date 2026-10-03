@@ -207,7 +207,7 @@ class LinterCatchesMistakes(unittest.TestCase):
     def test_placeholders_and_allowlist_hosts_must_resolve(self):
         _, reg, _ = docs()
         reg["actions"]["restart-unit"]["guard"]["allowed_units"]["urd"] = ["x.service"]  # a hypervisor, not T1
-        reg["actions"]["replay-role"]["semaphore"]["task_fields"]["limit"] = "{nope}"
+        reg["actions"]["replay-role"]["semaphore"]["task_fields"]["arguments"] = ["--limit", "{nope}"]
         errs = lint.check_actions(reg, ROOT)
         self.assertTrue(any("'urd' is not in host_tiers.T1" in e for e in errs), errs)
         self.assertTrue(any("{nope} is not a declared extra_var" in e for e in errs), errs)

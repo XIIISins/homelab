@@ -213,7 +213,7 @@ class HappyPath(unittest.TestCase):
         name, env, fields = r.sem.started[0]
         self.assertEqual(name, "aiops-rebuild-converge")
         self.assertEqual((env["target"], env["class"], env["converge"]), ("canary-2", "canary", "asgard-canary"))
-        self.assertEqual(fields, {"limit": "canary-2"})
+        self.assertEqual(fields, {"arguments": ["--limit", "canary-2"]})
         self.assertEqual(r.verify.calls[0][:2], ("canary-2", "canary"))
         self.assertIn("vlagent-active", r.verify.calls[0][2])  # the class post-conditions from the registry
         res = final["result"]
