@@ -137,6 +137,7 @@ actions:
       template: aiops-replay-role-check
       playbook: ansible/playbooks/aiops-replay-role-check.yml
       applied: true
+      result_from: recap
       task_fields:
         limit: '{target_host}'
         arguments: ['--check', '--diff', '--tags', '{role_tag}']
@@ -214,6 +215,7 @@ actions:
       template: aiops-replay-role
       playbook: ansible/playbooks/aiops-replay-role.yml
       applied: true
+      result_from: recap
       task_fields:
         limit: '{target_host}'
         arguments: ['--tags', '{role_tag}']

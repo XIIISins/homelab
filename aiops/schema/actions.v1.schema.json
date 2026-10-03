@@ -70,6 +70,10 @@
             "template": { "type": "string", "description": "Semaphore template name; defined in terraform/semaphore/templates.tf." },
             "playbook": { "type": "string", "description": "Repo-relative playbook the template runs; must exist." },
             "applied": { "type": "boolean", "description": "false = defined in Terraform but not yet applied (operator gate)." },
+            "result_from": {
+              "enum": ["aiops_result", "recap"],
+              "description": "Where the executor reads the outcome: the playbook's AIOPS_RESULT line (default), or `recap` = ok/changed from the target host's PLAY RECAP line (for playbooks that cannot see their own stats)."
+            },
             "task_fields": {
               "type": "object",
               "description": "Semaphore task fields the executor must set (not extra-vars). Values may reference extra_vars as {name}.",
