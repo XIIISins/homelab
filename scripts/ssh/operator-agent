@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""operator-agent: a memory-only ssh-agent holding the operator's identity keys, loaded from Vault.
+
+Replaces the 1Password SSH agent (a biometric prompt on every git push / commit signature / ssh) for
+sessions that must run without the operator at the keyboard. The keys live at secret/operator/ssh/<name>
+(fields private_key, public_key; see terraform/vault/operator-ssh.tf for who may read them). They go
+Vault -> this process's memory -> `ssh-add -` over a pipe -> the agent's memory: never a file, an argument
+or a log line. Every key is added with a lifetime (default 12h), so a stolen laptop does not keep an
+unlocked identity forever.
+
+    operator-agent up [--lifetime 12h] [--reload]   start the agent if needed and load the keys
+    operator-agent env [--shell sh|fish]            `up`, then print the exports that point git and ssh at it
+    operator-agent status                           fingerprints held by the agent (public information)
+    operator-agent down                             kill the agent and remove its socket
+    operator-agent ssh-config                       print the ~/.ssh/config.d block that lets ssh honour it
+
+Use it:   eval "$(scripts/ssh/operator-agent env)"        (fish: operator-agent env --shell fish | source)
+
+What `env` exports (all scoped to the shell that evals it; your global git and ssh config stay as they are):
+    SSH_AUTH_SOCK             the agent socket (what `ssh-keygen -Y sign` and plain ssh read)
+    HOMELAB_OPERATOR_AGENT=1  switches on the `Match exec` block from `ssh-config`, which overrides the
+                              `IdentityAgent` of the 1Password agent in ~/.ssh/config
+    GIT_SSH_COMMAND           ssh -o IdentityAgent=<sock>   (git push needs no config edit)
+    GIT_CONFIG_*              gpg.ssh.program=ssh-keygen    (instead of 1Password's op-ssh-sign)
+
+Needs: ssh-agent / ssh-add / ssh-keygen, and the ansible-local AppRole secret-zero at
+~/.config/ansible/vault-approle.env (seeded by `seed-vault-approle`). No `op`, no biometric.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+APPROLE_ENV = Path(os.environ.get("OPERATOR_AGENT_APPROLE_ENV", HOME / ".config/ansible/vault-approle.env"))
+VAULT_ADDR = os.environ.get("OPERATOR_AGENT_VAULT_ADDR", "https://vault.niflheim.xiiisins.com")
+KV_PREFIX = "operator/ssh"
+SOCK = Path(os.environ.get("OPERATOR_AGENT_SOCK", HOME / ".cache/homelab/operator-agent.sock"))
+NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+class Fatal(Exception):
+    pass
+
+
+def http_json(method, url, token=None, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("X-Vault-Token", token)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310 - fixed https Vault URL
+            return json.load(resp)
+    except urllib.error.HTTPError as ex:
+        raise Fatal(f"vault {method} {url.split('/v1/')[-1]}: HTTP {ex.code}") from None
+    except (urllib.error.URLError, TimeoutError) as ex:
+        raise Fatal(f"vault unreachable: {getattr(ex, 'reason', ex)}") from None
+
+
+def approle_login():
+    if not APPROLE_ENV.is_file():
+        raise Fatal(f"{APPROLE_ENV} not found (the ansible-local secret-zero; run `homelab-env && seed-vault-approle`)")
+    creds = {}
+    for line in APPROLE_ENV.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            creds[k.strip()] = v.strip().strip("'\"")
+    try:
+        body = {"role_id": creds["ANSIBLE_HASHI_VAULT_ROLE_ID"], "secret_id": creds["ANSIBLE_HASHI_VAULT_SECRET_ID"]}
+    except KeyError as ex:
+        raise Fatal(f"{APPROLE_ENV} has no {ex.args[0]}") from None
+    return http_json("POST", f"{VAULT_ADDR}/v1/auth/approle/login", body=body)["auth"]["client_token"]
+
+
+def load_keys(token):
+    """{name: private_key} for every secret/operator/ssh/<name>."""
+    try:
+        names = http_json("LIST", f"{VAULT_ADDR}/v1/secret/metadata/{KV_PREFIX}", token)["data"]["keys"]
+    except Fatal as ex:
+        if "HTTP 404" in str(ex):
+            raise Fatal(f"no keys at secret/{KV_PREFIX}/ yet (place them first: terraform/vault/operator-ssh.tf)") from None
+        raise
+    keys = {}
+    for name in sorted(n for n in names if not n.endswith("/")):
+        if not NAME_RE.match(name):
+            raise Fatal(f"odd key name {name!r}")
+        data = http_json("GET", f"{VAULT_ADDR}/v1/secret/data/{KV_PREFIX}/{name}", token)["data"]["data"]
+        pk = data.get("private_key")
+        if not pk:
+            raise Fatal(f"secret/{KV_PREFIX}/{name} has no private_key field")
+        keys[name] = pk
+    return keys
+
+
+# ---------------------------------------------------------------- the agent
+
+def agent_env():
+    return dict(os.environ, SSH_AUTH_SOCK=str(SOCK))
+
+
+def agent_alive():
+    if not SOCK.exists():
+        return False
+    return subprocess.run(["ssh-add", "-l"], env=agent_env(), capture_output=True).returncode in (0, 1)
+
+
+def fingerprints():
+    res = subprocess.run(["ssh-add", "-l"], env=agent_env(), capture_output=True, text=True)
+    return [ln for ln in res.stdout.splitlines() if "SHA256:" in ln] if res.returncode == 0 else []
+
+
+def start_agent():
+    SOCK.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(SOCK.parent, 0o700)
+    SOCK.unlink(missing_ok=True)  # stale socket from a dead agent
+    res = subprocess.run(["ssh-agent", "-a", str(SOCK)], capture_output=True, text=True)
+    if res.returncode != 0 or not SOCK.exists():
+        raise Fatal(f"ssh-agent failed to start: {res.stderr.strip()[:200]}")
+
+
+def cmd_up(args):
+    life = args.lifetime
+    if not re.fullmatch(r"\d+[smhdw]?", life):
+        raise Fatal(f"--lifetime {life!r}: use ssh-add's form, e.g. 12h")
+    if not agent_alive():
+        start_agent()
+    elif fingerprints() and not args.reload:
+        return 0  # already loaded; keys expire on their own lifetime
+    keys = load_keys(approle_login())
+    subprocess.run(["ssh-add", "-D"], env=agent_env(), capture_output=True)  # never stack identities
+    for name, pk in keys.items():
+        if not pk.endswith("\n"):
+            pk += "\n"  # ssh-add rejects a key without it (1Password and `vault kv put` both trim it)
+        res = subprocess.run(["ssh-add", "-t", life, "-"], input=pk.encode(), env=agent_env(), capture_output=True)
+        if res.returncode != 0:
+            raise Fatal(f"ssh-add failed for {name} (exit {res.returncode}): "
+                        f"{res.stderr.decode(errors='replace').strip()[:160]}")
+    del keys
+    held = fingerprints()
+    if not held:
+        raise Fatal("agent holds no identity after loading")
+    print(f"operator-agent: {len(held)} key(s) loaded for {life}", file=sys.stderr)
+    for ln in held:
+        print(f"  {ln}", file=sys.stderr)  # size, fingerprint, comment, type: public information
+    return 0
+
+
+def quote_sh(v):
+    return "'" + v.replace("'", "'\\''") + "'"
+
+
+def cmd_env(args):
+    cmd_up(argparse.Namespace(lifetime=args.lifetime, reload=False))
+    ssh_cmd = f"ssh -o IdentityAgent={SOCK}"
+    pairs = [("SSH_AUTH_SOCK", str(SOCK)), ("HOMELAB_OPERATOR_AGENT", "1"), ("GIT_SSH_COMMAND", ssh_cmd),
+             ("GIT_CONFIG_COUNT", "1"), ("GIT_CONFIG_KEY_0", "gpg.ssh.program"), ("GIT_CONFIG_VALUE_0", "ssh-keygen")]
+    for k, v in pairs:
+        print(f"set -gx {k} {quote_sh(v)}" if args.shell == "fish" else f"export {k}={quote_sh(v)}")
+    return 0
+
+
+def cmd_status(_args):
+    if not agent_alive():
+        print("operator-agent: not running")
+        return 1
+    held = fingerprints()
+    print(f"operator-agent: running, {len(held)} key(s)")
+    for ln in held:
+        print(f"  {ln}")
+    return 0 if held else 1
+
+
+def cmd_down(_args):
+    if agent_alive():
+        subprocess.run(["ssh-add", "-D"], env=agent_env(), capture_output=True)
+        pid = subprocess.run(["pgrep", "-f", f"ssh-agent -a {SOCK}"], capture_output=True, text=True).stdout.split()
+        for p in pid:
+            os.kill(int(p), 15)
+        time.sleep(0.3)
+    SOCK.unlink(missing_ok=True)
+    print("operator-agent: stopped")
+    return 0
+
+
+def cmd_ssh_config(_args):
+    print(f"""# ~/.ssh/config.d/90-operator-agent  (Include comes first in ~/.ssh/config, and ssh keeps the first
+# value it finds, so this beats the 1Password `IdentityAgent` under `Host *`). Active only in shells that
+# ran `eval "$(operator-agent env)"`; every other shell keeps using the 1Password agent.
+Match exec "test -n \\"$HOMELAB_OPERATOR_AGENT\\""
+    IdentityAgent {SOCK}""")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("up", "env"):
+        p = sub.add_parser(name)
+        p.add_argument("--lifetime", default="12h", help="how long each key stays loaded (ssh-add -t form)")
+        if name == "up":
+            p.add_argument("--reload", action="store_true", help="re-read Vault even if keys are already loaded")
+        else:
+            p.add_argument("--shell", choices=("sh", "fish"), default="sh")
+    for name in ("status", "down", "ssh-config"):
+        sub.add_parser(name)
+    args = ap.parse_args()
+    try:
+        return {"up": cmd_up, "env": cmd_env, "status": cmd_status, "down": cmd_down,
+                "ssh-config": cmd_ssh_config}[args.cmd](args)
+    except Fatal as ex:
+        print(f"operator-agent: {ex}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
