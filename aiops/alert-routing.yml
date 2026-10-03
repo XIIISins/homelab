@@ -29,6 +29,15 @@ routes:
   # Patterns are derived from stock-template trigger names and have NOT been
   # checked against the live trigger list (needs the read-only Zabbix API pass
   # in 10d2). Anything they miss lands in the catch-all, still with a runbook.
+  - id: zbx-canary-unit-down
+    source: zabbix
+    severity: any
+    match: 'Canary smoke: (agent service down|vlagent not active)'
+    service: workload
+    check: '@slug'
+    runbook_id: RB-UNIT-STOPPED-T1
+    note: The canary smoke-test template's service-fault triggers (ansible/playbooks/files/zabbix/canary-smoke-test.yml). The host answers, so this is the SERVICE; 10f's restart-failed-unit policy heals it.
+
   - id: zbx-host-unavailable
     source: zabbix
     severity: any

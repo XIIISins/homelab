@@ -1,0 +1,66 @@
+{
+  "description": "The canary smoke-test template's agent-service-down trigger routes to the unit-stopped runbook (10f soak)",
+  "received_at": "2026-10-01T11:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "51010",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "canary-2",
+    "host_id": "10413",
+    "host_ip": "10.0.11.191",
+    "host_groups": "Linux servers,Asgard/LXCs/Canary",
+    "trigger_id": "28800",
+    "trigger_name": "Canary smoke: agent service down (zabbix-agent2)",
+    "trigger_description": "The canary's zabbix-agent2 has not answered for 3 minutes (stopped unit on a live host).",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "aiops",
+        "value": "canary-smoke"
+      }
+    ],
+    "runbook_id": "",
+    "items": [],
+    "opdata": "",
+    "fired_at": "2026-10-01T11:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-01T11:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "info",
+      "host": "canary-2",
+      "service": "workload",
+      "check": "canary-smoke-agent-service-down-zabbix-agent2",
+      "summary": "[Zabbix] High: Canary smoke: agent service down (zabbix-agent2)",
+      "detail": "**Host:** canary-2\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Canary smoke: agent service down (zabbix-agent2)\n**Severity:** High\n**Host:** canary-2\n**Started at:** 2026.10.01 13:00:00\n**Event ID:** 51010",
+      "runbook_id": "RB-UNIT-STOPPED-T1",
+      "fingerprint": "0b22e4c3f31cc65b",
+      "fired_at": "2026-10-01T11:00:00Z",
+      "received_at": "2026-10-01T11:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "aiops_canary": "true",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10413",
+        "zabbix_host_ip": "10.0.11.191",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs/Canary",
+        "zabbix_trigger_id": "28800",
+        "zabbix_trigger_description": "The canary's zabbix-agent2 has not answered for 3 minutes (stopped unit on a live host).",
+        "zabbix_tags": "[{\"tag\":\"aiops\",\"value\":\"canary-smoke\"}]",
+        "zabbix_sent_at": "2026-10-01T11:00:01Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "51010"
+    }
+  ]
+}

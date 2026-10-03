@@ -21,3 +21,6 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/Canary"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # High/Disaster smoke triggers for the AIOps loop (playbooks/files/zabbix/canary-smoke-test.yml, imported by
+  # playbooks/zabbix-host-groups.yml). Canary-only: never add it to a real host group.
+  - "Canary smoke test"

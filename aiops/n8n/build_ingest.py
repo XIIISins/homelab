@@ -47,7 +47,7 @@ DISCORD = "$env.AIOPS_DISCORD_URL"
 TB_CRED = {"httpHeaderAuth": {"id": "aiopsToolbelt01", "name": "aiops-toolbelt"}}
 ANTHROPIC_CRED = {"anthropicApi": {"id": "aiopsAnthropic01", "name": "aiops-anthropic"}}
 SONNET, OPUS = "claude-sonnet-5-5", "claude-opus-5-5"
-MAX_ITERATIONS = 8
+MAX_ITERATIONS = 10
 # Agent 3.x runs tools through an engine path that needs an `execute` method; the HTTP Request Tool only has
 # `supplyData` ("has a supplyData method but no execute method"), so stay on the 2.x agent, which uses supplyData tools.
 AGENT_VERSION = 2.3
