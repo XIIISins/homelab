@@ -470,10 +470,8 @@ actions:
     idempotent: true
     idempotency: Read-only (`terraform plan -replace -target -out`); the saved plan is a file, no state is written.
     semaphore:
-      template: aiops-rebuild-plan
-      playbook: ansible/playbooks/aiops-rebuild-plan.yml
-      applied: false
-      planned: true
+      applied: true # the runner is deployed (2026-10-03); runner_only: no Semaphore template or playbook exists or is needed
+      runner_only: true
     extra_vars:
       target:
         type: string
@@ -501,8 +499,7 @@ actions:
     semaphore:
       template: aiops-start-guest
       playbook: ansible/playbooks/aiops-start-guest.yml
-      applied: false
-      planned: true
+      applied: true
     extra_vars:
       target:
         type: string
@@ -533,8 +530,7 @@ actions:
     semaphore:
       template: aiops-rebuild-converge
       playbook: ansible/playbooks/aiops-rebuild-converge.yml
-      applied: false
-      planned: true
+      applied: true
       task_fields:
         limit: '{target}'
     extra_vars:
@@ -610,8 +606,7 @@ actions:
     semaphore:
       template: aiops-rebuild-verify
       playbook: ansible/playbooks/aiops-rebuild-verify.yml
-      applied: false
-      planned: true
+      applied: true
     extra_vars:
       target:
         type: string

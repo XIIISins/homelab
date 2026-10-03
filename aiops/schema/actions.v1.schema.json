@@ -565,11 +565,45 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "template",
-            "playbook",
             "applied"
           ],
+          "if": {
+            "required": [
+              "runner_only"
+            ],
+            "properties": {
+              "runner_only": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "template"
+                  ]
+                },
+                {
+                  "required": [
+                    "playbook"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "template",
+              "playbook"
+            ]
+          },
           "properties": {
+            "runner_only": {
+              "type": "boolean",
+              "description": "10g: every step of the action runs on the Frigg rebuild runner (backend: runner), so there is no Semaphore template or playbook. `applied` then means the runner is deployed; lint requires all steps to be runner steps."
+            },
             "template": {
               "type": "string",
               "description": "Semaphore template name; defined in terraform/semaphore/templates.tf."

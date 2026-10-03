@@ -27,7 +27,7 @@ aiops_toolbelt_daily_run_cap: 40
 aiops_toolbelt_actions_enabled: true
 # Rebuild runner (Phase 10g). Empty = the Toolbelt is not given a socket and rebuild actions refuse. Set it to the runner's
 # socket (and let the unit join the runner's client group) only after roles/aiops-rebuild-runner is deployed.
-aiops_toolbelt_rebuild_socket: ""
+aiops_toolbelt_rebuild_socket: /run/aiops-rebuild/runner.sock # the runner is deployed (2026-10-03); "" = rebuild actions refuse
 aiops_toolbelt_rebuild_group: aiops-rebuild-clients
 aiops_toolbelt_approver_allow:
   - 10.0.11.222/32 # Ratatoskr (the Discord bot)
