@@ -157,6 +157,10 @@ class ResultSentenceTests(unittest.TestCase):
     def sentence(self, action_id, res):
         return logic.result_sentence(self.t0(action_id, res))
 
+    def test_a_lag_number_that_arrives_as_a_string_still_reads(self):
+        r = {"members": ["fulla:leader:running", "vor:replica:streaming"], "running_members": 2, "total_members": 2, "max_lag_bytes": "2048"}
+        self.assertIn("worst replica lag 2048 bytes", logic._sentence_patroni(r))
+
     def test_patroni_healthy_lag_and_no_leader(self):
         base = {"ok": True, "leader_present": True, "running_members": 3, "total_members": 3,
                 "members": ["Fulla:leader:running", "Vör:replica:streaming", "Idunn:replica:streaming"]}

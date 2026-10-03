@@ -273,6 +273,8 @@ def _sentence_patroni(r: dict) -> str:
     if down:
         out += " (not running: " + ", ".join(down[:3]) + ")"
     lag = r.get("max_lag_bytes")
+    if isinstance(lag, str) and lag.strip().lstrip("-").isdigit():
+        lag = int(lag)  # the engine stores Jinja-rendered fields: a number may arrive as a string
     if isinstance(lag, (int, float)) and not isinstance(lag, bool):
         return out + (", no lag." if lag <= 0 else f", worst replica lag {_s(int(lag), 20)} bytes.")
     return out + "."
