@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tools  # noqa: E402
 import diagnosis  # noqa: E402
 import actions  # noqa: E402
+import incident_draft  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
@@ -621,6 +622,19 @@ class Toolbelt:
         return self.engine.propose(action_id=action_id, params=body.get("params", {}), reason=body.get("reason"),
                                    source="chat" if conv_id is not None else "diagnosis", incident_id=inc_id,
                                    conversation_id=conv_id, thread_id=thread_id, replay=replay)
+
+    def incident_draft(self, incident_id: object) -> dict:
+        """GET /incident/<id>/draft (approver role): the mechanical incident write-up (Phase 10h3), scrubbed. Read-only."""
+        if not isinstance(incident_id, int) or isinstance(incident_id, bool):
+            raise Rejected(400, "incident id must be an integer")
+        with self._lock:
+            try:
+                text = incident_draft.build_draft(self.db, incident_id, redact=tools.redact)
+            except KeyError:
+                raise Rejected(404, f"no incident {incident_id}")
+            slug = incident_draft.slug_for(self.db, incident_id)
+        self.audit("incident_draft", incident=incident_id, chars=len(text))
+        return {"incident_id": incident_id, "slug": slug, "filename": f"{slug}.md", "markdown": text[:60000]}
 
     def status(self) -> dict:
         """GET /status (approver role): what /aiops status shows."""

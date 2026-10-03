@@ -24,6 +24,7 @@ Two credentials, two roles, two source-IP allow-lists. A caller holds exactly on
     POST /proposals/<id>/decision  {"decision": "approve|reject", "by": "<discord user id>", "ref": "...", "params_hash": "..."}
     POST /proposals/<id>/message   {"message_ref": "<discord message id>"}
     GET  /flags, POST /flags/<kill_switch|maintenance>   {"value": bool, "by": "<discord user id>", "reason": "..."}
+    GET  /incident/<id>/draft   (approver: the mechanical incident write-up, Phase 10h3)
     GET  /status, GET /stats, GET /report?days=N   (what autonomous healing did and why it did not: the soak's evidence)
 
   GET /healthz                     liveness (no auth, no data)
@@ -148,6 +149,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("GET", re.compile(r"^/flags$"), only_appr, lambda m, q: self._engine().flags()),
                 ("POST", _FLAG, only_appr, self._h_flag),
                 ("GET", re.compile(r"^/status$"), only_appr, lambda m, q: tb.status()),
+                ("GET", re.compile(rf"^/incident/{_ID}/draft$"), only_appr, lambda m, q: tb.incident_draft(int(m.group(1)))),
                 ("GET", re.compile(r"^/report$"), only_appr, lambda m, q: tb.report(int((q.get("days") or ["14"])[0] or 14))),
             ]
 

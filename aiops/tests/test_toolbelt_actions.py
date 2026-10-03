@@ -318,6 +318,26 @@ class DiagnosisProposalTests(unittest.TestCase):
         self.assertEqual(self.r.tb.engine.cfg.semaphore.started, [])
 
 
+class IncidentDraftRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.r = Rig()
+
+    def tearDown(self):
+        self.r.close()
+
+    def test_only_the_approver_reads_a_draft_and_it_is_scrubbed_markdown(self):
+        st, out = self.r.agent("POST", "/ingest/zabbix", zevent(host="canary-1"))
+        self.assertEqual(st, 200, out)
+        inc = out["incident_id"]
+        self.assertIn(self.r.agent("GET", f"/incident/{inc}/draft")[0], (401, 403))  # the agent role cannot read it
+        st, d = self.r.appr("GET", f"/incident/{inc}/draft")
+        self.assertEqual(st, 200, d)
+        self.assertTrue(d["filename"].endswith(".md") and d["slug"][:4].isdigit())
+        self.assertIn("DRAFT: generated from the Toolbelt's records", d["markdown"])
+        self.assertIn(f"# Incident #{inc}: canary-1", d["markdown"])
+        self.assertEqual(self.r.appr("GET", "/incident/9999/draft")[0], 404)
+
+
 class ChatTests(unittest.TestCase):
     def setUp(self):
         self.r = Rig(chat_conversation_turn_cap=3, chat_author_hourly_cap=4, chat_daily_turn_cap=5, chat_tool_calls_per_turn=2)
