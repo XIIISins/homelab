@@ -58,6 +58,7 @@
 | `10.0.11.215` | 1115 | Skuld | Tailscale 3 |
 | `10.0.11.220` | 1120 | Urd | Factorio + SFTPGo |
 | `10.0.11.221` | 1121 | Urd | Gná — AIOps agent host (n8n), 10d1 |
+| `10.0.11.222` | 1122 | Urd | Ratatoskr — AIOps Discord bot (chat transport + the only approver), 10e |
 | `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
 | `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
 | `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |
@@ -204,6 +205,16 @@ Node-level: `firewalld` is disabled on the K3s nodes (by the Ansible `k3s` prere
 | 4 | `AIOps - Egress Default Deny` | Block (syslog logging on) | Gná | any | on, **must be the last of these** |
 
 Verified 2026-10-03 from Gná: Discord, Anthropic, Debian, Zabbix and Cloudsmith reachable; `example.com`, Google, npm, nodejs, GitHub blocked (window paused); Toolbelt, Hugin, DNS and log shipping (all internal) unaffected. A cold re-test 15 minutes later with nothing primed gave the same result. Rationale and the gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md) (UCG zone policies).
+
+**Egress allow-list for Ratatoskr (`10.0.11.222`, the AIOps Discord bot) — the same pattern as Gná's, Internal → External (2026-10-03):**
+
+| # | Policy | Action | Source | Destination | State |
+|---|---|---|---|---|---|
+| 1 | `Allow OS Updates` | Allow | Gná **+ Ratatoskr** (add the host to the existing policy's source) | the Debian / Zabbix / Cloudsmith domains already listed | on |
+| 2 | `AIOps - Allow discord` (new; Gná keeps its own `discord-claude` policy) | Allow | Ratatoskr | domains `discord.com`, `gateway.discord.gg`; TCP 443 | on |
+| 3 | `AIOps - Egress Default Deny` | Block (syslog logging on) | Gná **+ Ratatoskr** (add the host to the source) | any | on, **must stay the last of these** |
+
+The bot installs from apt only (Debian `python3-discord`), so it needs **no Deploy Window** entry, and it must not reach Anthropic (that domain stays in Gná's policy only). Internal destinations (the Toolbelt on Frigg, Gná's Caddy, DNS, log shipping) are intra-zone and never cross these rules. The same UCG gotchas apply: editing a policy moves it to the bottom of the list, so re-check that the allows sit above the deny (zone-pair view), and allow ~1 minute for a change to take effect ([`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md)). Verify from Ratatoskr: `curl -m 8 -sI https://discord.com` and `https://gateway.discord.gg` answer; `https://example.com` does not.
 
 **Port-forwards are configured on UCG-Ultra only.** Adding a service that needs internet exposure: create the port-forward + auto-generated firewall allow rule in the UCG UI, nothing else. The KPN does not get touched.
 
