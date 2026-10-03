@@ -206,11 +206,115 @@ class N8nWorkflowLint(unittest.TestCase):
 
     def test_role_and_terraform_sources_must_agree(self):
         tf = self.tmp / "terraform/vault/main.tf"
-        tf.write_text(tf.read_text().replace('toset(["zabbix"])', 'toset(["zabbix", "semaphore"])'))
+        tf.write_text(tf.read_text().replace('toset(["zabbix", "chat"])', 'toset(["zabbix", "chat", "semaphore"])'))
         self.assertFinding(self.check(), "role n8n_ingest_sources")
 
     def test_invalid_json_reported(self):
         self.assertFinding(self.check(raw="{not json"), "invalid JSON")
+
+
+CHAT = REPO / "aiops" / "n8n" / "workflows" / "chat.json"
+
+
+class N8nChatWorkflow(unittest.TestCase):
+    """Phase 10e: the chat workflow the Discord bot calls. The security properties are tested, not just the layout."""
+
+    def setUp(self):
+        sys.path.insert(0, str(REPO / "aiops" / "n8n"))
+        sys.path.insert(0, str(REPO / "aiops" / "toolbelt"))
+        self.wf = json.loads(CHAT.read_text())
+        self.text = CHAT.read_text()
+
+    def test_committed_chat_workflow_is_what_the_generator_produces(self):
+        import build_ingest
+
+        self.assertEqual(build_ingest.CHAT_OUT.read_text(), build_ingest.render_chat(), "run python3 aiops/n8n/build_ingest.py")
+
+    def test_it_is_a_synchronous_authenticated_webhook_with_a_responder(self):
+        wh = next(n for n in self.wf["nodes"] if n["type"].endswith(".webhook"))
+        self.assertEqual((wh["parameters"]["path"], wh["parameters"]["authentication"], wh["parameters"]["responseMode"]),
+                         ("aiops/chat", "headerAuth", "responseNode"))
+        self.assertEqual(wh["credentials"]["httpHeaderAuth"]["name"], "aiops-ingest-chat")
+        self.assertTrue(any(n["type"].endswith("respondToWebhook") for n in self.wf["nodes"]))
+        self.assertFalse(self.wf["active"])
+
+    def test_n8n_holds_no_approval_authority_and_no_discord_credential_on_this_path(self):
+        for needle in ("/decision", "/flags", "/proposals/feed", "APPROVER", "approver", "AIOPS_DISCORD_URL", "kill_switch"):
+            self.assertNotIn(needle, self.text, f"the chat workflow must not touch {needle}")
+        urls = [n["parameters"].get("url", "") for n in self.wf["nodes"] if n["type"].endswith(("httpRequest", "toolHttpRequest"))]
+        self.assertTrue(urls and all("AIOPS_TOOLBELT_URL" in u for u in urls), urls)
+        propose = next(n for n in self.wf["nodes"] if n["name"] == "Propose action")
+        self.assertTrue(propose["parameters"]["url"].endswith("'/proposals' }}"))
+        self.assertEqual(propose["parameters"]["method"], "POST")
+
+    def test_the_read_tool_lists_exactly_the_allow_list_scoped_to_the_conversation(self):
+        import build_ingest
+        import tools
+
+        d = build_ingest.chat_tool_description()
+        listed = {ln[2:].split("(", 1)[0] for ln in d.splitlines() if ln.startswith("- ")}
+        self.assertEqual(listed, set(tools.SPEC))
+        self.assertIn("conversation_id and turn_id", d)
+        self.assertNotIn("incident_id (the integer", d)
+        tool = next(n for n in self.wf["nodes"] if n["name"] == "Toolbelt chat")
+        self.assertIn("{conversation_id}", tool["parameters"]["jsonBody"])
+        self.assertNotIn("incident_id", tool["parameters"]["jsonBody"])
+
+    def test_the_propose_tool_lists_exactly_the_registry_actions_and_their_params(self):
+        import re
+
+        import build_ingest
+        import yaml
+
+        reg = yaml.safe_load((REPO / "aiops" / "actions.yml").read_text())["actions"]
+        d = build_ingest.propose_tool_description()
+        listed = set(re.findall(r"^- ([a-z0-9-]+) \(T[0-3]\)", d, flags=re.M))
+        self.assertEqual(listed, set(reg))
+        for name, a in reg.items():
+            for var, spec in a.get("extra_vars", {}).items():
+                self.assertIn(var + ("*" if spec.get("required") else ""), d)
+
+    def test_the_chat_prompt_only_names_tools_that_exist_and_states_the_boundaries(self):
+        import re
+
+        import tools
+
+        text = (REPO / "aiops" / "n8n" / "prompts" / "chat.system.md").read_text()
+        prefixes = {n.split(".")[0] for n in tools.SPEC}
+        for name in set(re.findall(r"`([a-z]+\.[a-z_]+)`", text)):
+            if name.split(".")[0] in prefixes:
+                self.assertIn(name, tools.SPEC)
+        for must in ("cannot change anything", "only the operator can approve", "DATA", "propose_action", "no @mentions"):
+            self.assertIn(must.lower(), text.lower(), must)
+
+    def test_the_diagnosis_prompt_asks_for_params_on_every_proposal(self):
+        text = (REPO / "aiops" / "n8n" / "prompts" / "diagnose.system.md").read_text()
+        self.assertIn('"params":{"<declared var>":"<value>"}', text)
+        self.assertIn("nothing runs without that", text)
+
+    def test_lint_requires_a_responder_for_a_synchronous_source_and_forbids_one_elsewhere(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        for rel in ("ansible/roles/n8n-agent/defaults/main.yml", "terraform/vault/main.tf"):
+            dst = tmp / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(REPO / rel, dst)
+        (tmp / "aiops/n8n/workflows").mkdir(parents=True)
+
+        def errs(wf):
+            (tmp / "aiops/n8n/workflows/t.json").write_text(json.dumps(wf))
+            return lint.check_n8n_workflows(tmp)
+
+        self.assertEqual(errs(self.wf), [])
+        bad = copy.deepcopy(self.wf)
+        next(n for n in bad["nodes"] if n["type"].endswith(".webhook"))["parameters"]["responseMode"] = "onReceived"
+        self.assertTrue(any("synchronous source" in e for e in errs(bad)))
+        bad = copy.deepcopy(self.wf)
+        bad["nodes"] = [n for n in bad["nodes"] if not n["type"].endswith("respondToWebhook")]
+        self.assertTrue(any("synchronous source" in e for e in errs(bad)))
+        zab = json.loads(STUB.read_text())
+        next(n for n in zab["nodes"] if n["type"].endswith(".webhook"))["parameters"]["responseMode"] = "responseNode"
+        self.assertTrue(any("respond immediately" in e for e in errs(zab)))
 
 
 if __name__ == "__main__":

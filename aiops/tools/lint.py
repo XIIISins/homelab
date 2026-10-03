@@ -394,6 +394,7 @@ N8N_NODE_ALLOW = {
 }
 N8N_NODE_ALLOW_PREFIX: tuple = ()
 N8N_AGENT_MAX_ITERATIONS = 10
+N8N_SYNC_SOURCES = {"chat"}  # the bot waits for the answer: these webhooks respond from a Respond-to-Webhook node
 N8N_NODE_DENY = {  # defence in depth: also excluded at runtime via NODES_EXCLUDE
     "n8n-nodes-base.executeCommand", "n8n-nodes-base.ssh", "n8n-nodes-base.ftp",
     "n8n-nodes-base.readWriteFile", "n8n-nodes-base.localFileTrigger", "n8n-nodes-base.code",
@@ -477,7 +478,11 @@ def check_n8n_workflows(root: Path) -> list[str]:
                         errs.append(f"n8n: {rel}: webhook path {path!r} must be aiops/{source} to match its credential")
                     if source not in role_sources:
                         errs.append(f"n8n: {rel}: source {source!r} is not in n8n-agent n8n_ingest_sources")
-                if params.get("responseMode") != "onReceived":
+                sync = cname.removeprefix("aiops-ingest-") in N8N_SYNC_SOURCES
+                if sync:
+                    if params.get("responseMode") != "responseNode" or not any(x.get("type") == "n8n-nodes-base.respondToWebhook" for x in nodes):
+                        errs.append(f"n8n: {rel}: webhook {nname!r} (a synchronous source) needs responseMode responseNode and a Respond to Webhook node")
+                elif params.get("responseMode") != "onReceived":
                     errs.append(
                         f"n8n: {rel}: webhook {nname!r} must respond immediately (responseMode onReceived) so a slow "
                         f"agent can never make a monitoring system's send fail"

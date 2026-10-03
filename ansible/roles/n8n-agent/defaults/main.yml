@@ -83,6 +83,7 @@ n8n_toolbelt_url: "http://10.0.11.30:8090"
 # credential. Add a source here as it is cut over.
 n8n_ingest_sources:
   - zabbix
+  - chat # the Discord bot (Ratatoskr): synchronous, answers an @mention
 
 # ---- Workflows (git is the source of truth) ---------------------------------
 # Workflow JSON lives in the repo; this role imports it on every run. The
