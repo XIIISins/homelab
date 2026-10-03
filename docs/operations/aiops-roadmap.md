@@ -162,7 +162,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 *Detailed plan (drafted 2026-10-03): [`10h-predictive-change.md`](10h-predictive-change.md): forecasting signals and their data sources, the agent-PR gate, incident drafts. 10h1 is T0 and can start its shadow baseline before 10g.*
 
-- **10h1 — Forecasting.** Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
+- **10h1 — Forecasting.** *(Detectors built and tested 2026-10-03, not wired: [`procedures/aiops-forecasting.md`](../procedures/aiops-forecasting.md).)* Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
 - **10h2 — Agent-authored PRs.** Drift/incident → fix PR → CI plan-diff → human merge, on the `chart-bump` pattern.
 - **10h3 — Incident drafts.** The agent drafts `docs/incidents/` and known-issues updates for human edit.
 
