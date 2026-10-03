@@ -219,9 +219,21 @@ class Semaphore(Protocol):
 class SemaphoreAPI:
     """Semaphore's REST API with the executor token (Task Runner on the dedicated aiops project only)."""
 
-    def __init__(self, base: str, token: str, project: int, timeout: float = 20.0):
-        self.base, self.token, self.project, self.timeout = base.rstrip("/"), token, project, timeout
+    def __init__(self, base: str, token: str, project: int | None = None, timeout: float = 20.0, project_name: str = "aiops"):
+        self.base, self.token, self.project, self.timeout, self.project_name = base.rstrip("/"), token, project, timeout, project_name
         self._tpl: dict[str, int] = {}
+
+    def _pid(self) -> int:
+        """The project id, found by name on first use (the executor's user is a member of exactly one project, so
+        GET /projects returns just that one; the id is unknown until terraform/semaphore has been applied)."""
+        if self.project is None:
+            for pr in self._call("GET", "/projects") or []:
+                if pr.get("name") == self.project_name:
+                    self.project = int(pr["id"])
+                    break
+            else:
+                raise Refused(404, f"the executor's Semaphore user is not a member of a project named {self.project_name!r}")
+        return self.project
 
     def _call(self, method: str, path: str, body=None):
         req = urllib.request.Request(self.base + path, method=method, data=None if body is None else json.dumps(body).encode(),
@@ -238,10 +250,10 @@ class SemaphoreAPI:
 
     def template_id(self, name: str) -> int:
         if name not in self._tpl:
-            for t in self._call("GET", f"/project/{self.project}/templates") or []:
+            for t in self._call("GET", f"/project/{self._pid()}/templates") or []:
                 self._tpl[t["name"]] = t["id"]
         if name not in self._tpl:
-            raise Refused(404, f"Semaphore has no template named {name!r} in project {self.project}")
+            raise Refused(404, f"Semaphore has no template named {name!r} in project {self.project_name!r}")
         return self._tpl[name]
 
     def start(self, template_id: int, environment: dict, fields: dict) -> int:
@@ -251,14 +263,14 @@ class SemaphoreAPI:
             body["limit"] = str(fields["limit"])
         if fields.get("arguments"):
             body["arguments"] = json.dumps(list(fields["arguments"]))
-        res = self._call("POST", f"/project/{self.project}/tasks", body)
+        res = self._call("POST", f"/project/{self._pid()}/tasks", body)
         return int(res["id"])
 
     def status(self, task_id: int) -> str:
-        return str((self._call("GET", f"/project/{self.project}/tasks/{task_id}") or {}).get("status", "unknown"))
+        return str((self._call("GET", f"/project/{self._pid()}/tasks/{task_id}") or {}).get("status", "unknown"))
 
     def output(self, task_id: int) -> list[str]:
-        return [_ANSI.sub("", o.get("output", "")) for o in (self._call("GET", f"/project/{self.project}/tasks/{task_id}/output") or [])]
+        return [_ANSI.sub("", o.get("output", "")) for o in (self._call("GET", f"/project/{self._pid()}/tasks/{task_id}/output") or [])]
 
 
 def parse_output(lines: list[str], target_host: str | None, result_from: str = "aiops_result") -> dict:
