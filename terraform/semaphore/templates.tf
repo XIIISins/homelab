@@ -536,7 +536,10 @@ resource "semaphoreui_project_template" "aiops_rebuild_converge" {
   inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
   environment_id = semaphoreui_project_environment.aiops_default.id
 
-  allow_override_args_in_task = false
+  # true: the executor sets the task `limit` (registry task_fields limit: '{target}'); without it Semaphore ignores the limit
+  # and the play's guard runs against the first inventory host (found live 2026-10-03). The playbook's own guard asserts
+  # ansible_limit == target, so a wrong or missing limit is refused there.
+  allow_override_args_in_task = true
 
   vaults = [
     {
