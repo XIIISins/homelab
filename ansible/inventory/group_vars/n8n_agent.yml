@@ -54,3 +54,7 @@ vlagent_log_inputs:
     service: syslog
   - path: /var/log/caddy/gna-ingest.log
     service: caddy-gna
+
+# Caddyfile changes must APPLY: the role's Caddyfile has `admin off`, so `systemctl reload caddy` cannot work
+# (docs/known-issues/caddy.md). A sub-second restart does; certs persist on disk.
+caddy_reload_method: restarted

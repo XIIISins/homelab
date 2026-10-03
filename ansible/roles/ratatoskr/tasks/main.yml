@@ -172,9 +172,9 @@
   when: not ansible_check_mode
   tags: [ratatoskr, ratatoskr:verify]
 
-- name: The bot reached the Discord gateway (a `ready` line in its own log)
+- name: The bot reached the Discord gateway (a `ready` line in the CURRENT run's log)
   ansible.builtin.shell: >-
-    journalctl -u {{ ratatoskr_unit_name }}.service --since '-3min' -o cat | grep -q '"event": "ready"'
+    journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value {{ ratatoskr_unit_name }}.service) -o cat | grep -q '"event": "ready"'
   register: ratatoskr_ready
   retries: 12
   delay: 5

@@ -116,7 +116,7 @@ async def cmd_pending(interaction: discord.Interaction) -> None:
     bot: Ratatoskr = interaction.client  # type: ignore[assignment]
     st, body = await asyncio.to_thread(bot.tb.status)
     rows = [p for p in body.get("open_proposals", []) if p["state"] == "pending"] if st == 200 else []
-    await interaction.response.send_message("\n".join(f"- #{p['id']} `{p['action_id']}` on `{logic.sanitize(p['target'], 40)}` (thread <#{p['thread_id']}>)"
+    await interaction.response.send_message("\n".join(f"- #{logic.num(p)} (id {p['id']}) `{p['action_id']}` on `{logic.sanitize(p['target'], 40)}` (thread <#{p['thread_id']}>)"
                                                       for p in rows) or "Nothing is waiting for you.", ephemeral=True)
 
 
