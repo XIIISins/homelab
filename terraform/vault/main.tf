@@ -249,7 +249,7 @@ resource "vault_kv_secret_v2" "n8n_owner_password" {
 # Add a source here as it is cut over (zabbix first; prober, semaphore, patroni,
 # frigg follow). for_each keeps one resource shape per source.
 locals {
-  n8n_ingest_sources = toset(["zabbix"])
+  n8n_ingest_sources = toset(["zabbix", "chat"])
 }
 
 resource "random_password" "n8n_ingest_token" {
