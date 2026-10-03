@@ -40,6 +40,8 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 import autonomy
+import rebuild
+import rebuild_exec
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS proposals (
@@ -93,7 +95,10 @@ _NEXT = {
 }
 # autonomy = the master switch for autonomous healing (default OFF); autonomy_breaker = tripped by the system after repeated
 # autonomous failures, re-armed only by an operator.
-FLAGS = ("kill_switch", "maintenance", "autonomy", "autonomy_breaker")
+# 10g: autonomy_rebuild = the SEPARATE master switch for unattended rebuilds (default OFF, only an operator turns it on, the
+# system never does); autonomy_rebuild_breaker = tripped by the system after one failed or unverified rebuild, re-armed only by an operator.
+FLAGS = ("kill_switch", "maintenance", "autonomy", "autonomy_breaker", "autonomy_rebuild", "autonomy_rebuild_breaker")
+BREAKERS = ("autonomy_breaker", "autonomy_rebuild_breaker")
 AUTO_STATES = ("approved", "running", "succeeded", "failed", "verify_failed")  # an autonomous run that actually started counts against the limits
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -120,6 +125,8 @@ class Registry:
         self.actions: dict = data["actions"]
         self.tiers: dict = data.get("host_tiers", {})
         self.autonomy = autonomy.Autonomy.from_registry(data)
+        self.rebuild = rebuild.RebuildPolicy.from_registry(data)  # 10g: scope, limits, deny list (None = nothing is ever eligible)
+        self.rebuild_raw: dict = data.get("rebuild") or {}
 
     @classmethod
     def from_file(cls, path: Path) -> "Registry":
@@ -182,6 +189,7 @@ class Registry:
             p.append(f"{action_id} has max_autonomy none: it can never be proposed")
         if not a.get("semaphore", {}).get("applied", False):
             p.append(f"the Semaphore template for {action_id} is not applied yet (operator gate)")
+        p += self._rebuild_guard(action_id, a, clean)
         host = clean.get("target_host")
         if g.get("target_policy") == "host_tiers.T1" and host not in self.tiers.get("T1", []):
             p.append(f"{host!r} is not a T1 host; {action_id} may only touch T1 hosts")
@@ -195,9 +203,45 @@ class Registry:
             p.append(f"HelmRelease {clean.get('hr_name')!r} is on the stateful deny-list")
         return p
 
+    def dependencies(self, action_id: str) -> list[str]:
+        """The other registry actions a multi-step action runs (its steps, its verify action, its required prior): each one's
+        own `applied` gate must be open too, or the flow would stall half-way."""
+        a = self.get(action_id)
+        if not a.get("steps"):
+            return []
+        deps = [s["action"] for s in a["steps"] if s.get("action")]
+        deps += [a["guard"]["requires_prior"]] if a.get("guard", {}).get("requires_prior") else []
+        deps += [a["verify"]["action"]] if a.get("verify", {}).get("action") else []
+        return sorted({d for d in deps if d != action_id})
+
+    def _rebuild_guard(self, action_id: str, a: dict, clean: dict) -> list[str]:
+        """10g: a rebuild-scope action may only touch a target in a rebuild class of the right kind, never a deny-listed one,
+        and every action its flow runs must itself be applied."""
+        p: list[str] = []
+        for dep in self.dependencies(action_id):
+            if not self.get(dep).get("semaphore", {}).get("applied", False):
+                p.append(f"{action_id} also runs {dep}, which is not applied yet (operator gate)")
+        if a.get("scope") != "rebuild":
+            return p
+        pol, t = self.rebuild, clean.get("target")
+        if pol is None:
+            return p + ["the registry has no rebuild section"]
+        vmid = pol.vmid_of(t) if isinstance(t, str) else None
+        if t in pol.deny_names or (vmid is not None and vmid in pol.deny_vmids):
+            return p + [f"{t!r} is on the rebuild deny list and can never be touched by this loop"]
+        cls = pol.class_of(t) if isinstance(t, str) else None
+        if cls is None:
+            return p + [f"{t!r} is not in any rebuild class"]
+        kinds = rebuild_exec.ACTION_KINDS.get(action_id)
+        if kinds and cls.kind not in kinds:
+            p.append(f"{action_id} does not apply to a {cls.kind} ({t!r})")
+        return p
+
     def target_of(self, action_id: str, clean: dict) -> str:
         if "target_host" in clean:
             return clean["target_host"]
+        if "target" in clean:
+            return clean["target"]
         if "hr_name" in clean:
             return f"hr:{clean.get('hr_namespace', '?')}/{clean['hr_name']}"
         return f"action:{action_id}"
@@ -349,6 +393,12 @@ class ActionConfig:
     stale_approval_seconds: int = 300    # an approval older than this when the Toolbelt (re)starts is not run
     semaphore: Semaphore | None = None
     reader: Callable[[str, dict], dict] | None = None  # read-only Toolbelt tool (kube.get) for the autonomy prechecks
+    # 10g rebuild loop (all injectable; None = the flow refuses with 501, nothing is guessed)
+    runner: "rebuild_exec.RunnerClient | None" = None
+    runner_socket: str | None = None                    # built into a RunnerClient when `runner` is not given
+    facts: "rebuild_exec.FactsProvider | None" = None   # default: ReaderFacts over `reader`
+    verifier: "rebuild_exec.VerifyProvider | None" = None  # default: SemaphoreVerify (the rebuild-verify template)
+    auto_resume: bool = True                            # resume an interrupted rebuild on start (tests call resume_rebuilds())
     sleep: Callable[[float], None] = time.sleep
 
 
@@ -361,7 +411,16 @@ class Engine:
         self._bump, self._counter = bump, counter
         self._run_slots = threading.Semaphore(cfg.max_running)
         self.db.executescript(SCHEMA)
+        self.db.executescript(rebuild_exec.SCHEMA)
+        if cfg.runner is None and cfg.runner_socket:
+            cfg.runner = rebuild_exec.RunnerClient(cfg.runner_socket)
+        if cfg.facts is None and cfg.reader is not None:
+            cfg.facts = rebuild_exec.ReaderFacts(cfg.reader)
+        self.verifier = cfg.verifier or rebuild_exec.SemaphoreVerify(self)
+        self._resumable: list[int] = []
         self._recover()
+        if cfg.auto_resume and self._resumable:
+            threading.Thread(target=self.resume_rebuilds, daemon=True, name="rebuild-resume").start()
 
     def now(self) -> int:
         return int(self.clock())
@@ -382,8 +441,12 @@ class Engine:
     def set_flag(self, name: str, value: bool, by: str, reason: str = "", system: bool = False) -> dict:
         if name not in FLAGS:
             raise Refused(400, f"unknown flag {name!r}")
-        if name == "autonomy_breaker" and value and not system:
+        if name in BREAKERS and value and not system:
             raise Refused(403, "only the system trips the circuit breaker")
+        if name in BREAKERS and not value and system:
+            raise Refused(403, "only an operator re-arms a circuit breaker")
+        if name == "autonomy_rebuild" and value and system:
+            raise Refused(403, "only an operator turns unattended rebuilds on")
         if not system:
             self._check_operator(by)
         with self.lock:
@@ -429,11 +492,26 @@ class Engine:
         not run (it was approved for a situation that may have passed)."""
         now = self.now()
         with self.lock:
+            self._resumable = rebuild_exec.recover(self, now)  # a rebuild whose apply had begun resumes from state, never replays
             for r in self.db.execute("SELECT id, state, decided_at FROM proposals WHERE state IN ('running','approved')").fetchall():
+                if r["state"] == "running" and r["id"] in self._resumable:
+                    continue
                 if r["state"] == "running":
                     self._move(r["id"], "failed", "recovered", {"reason": "the Toolbelt restarted mid-run"}, finished_at=now)
                 elif now - (r["decided_at"] or 0) > self.cfg.stale_approval_seconds:
                     self._move(r["id"], "cancelled", "recovered", {"reason": "approval went stale across a restart"})
+
+    def resume_rebuilds(self) -> list[dict]:
+        """After a restart: continue each rebuild that was interrupted past its apply (the kill switch does not stop it: a
+        half-built guest is worse than a finished one). The apply is never re-sent without asking the runner first."""
+        out = []
+        for pid in list(self._resumable):
+            self._resumable.remove(pid)
+            out.append(self.execute(pid, resume=True))
+        return out
+
+    def spawn(self, pid: int, kind: str = "exec") -> None:
+        threading.Thread(target=self.execute, args=(pid,), daemon=True, name=f"{kind}-{pid}").start()
 
     def sweep(self) -> int:
         """Expire proposals nobody decided in time."""
@@ -475,6 +553,11 @@ class Engine:
             self.audit("proposal_rejected", action=action_id, source=source, problems=len(problems), why=str(problems[0])[:160])
             raise Refused(422, "proposal failed validation", {"problems": problems})
         a = self.reg.get(action_id)
+        prep = None if replay else rebuild_exec.prepare(self, action_id, clean)  # 10g: eligibility + a plan bound to the proposal
+        if prep and "duplicate" in prep:
+            return self._view(prep["duplicate"], duplicate=True)
+        if prep:
+            clean = prep["clean"]
         h = params_hash(action_id, clean)
         with self.lock:
             dup = self.db.execute("SELECT id FROM proposals WHERE action_id=? AND params_hash=? AND state IN ('pending','approved','running') "
@@ -494,8 +577,11 @@ class Engine:
                 "INSERT INTO proposals(incident_id, conversation_id, thread_id, source, action_id, params_json, params_hash, tier, target, "
                 "reason, state, replay, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
                 (incident_id, conversation_id, thread_id, source, action_id, json.dumps(clean, sort_keys=True), h, a["tier"],
-                 self.reg.target_of(action_id, clean), reason, int(replay), now, now + self.cfg.proposal_ttl))
+                 self.reg.target_of(action_id, clean), reason, int(replay), now,
+                 min(now + self.cfg.proposal_ttl, prep["expires_at"]) if prep else now + self.cfg.proposal_ttl))  # never outlives its plan
             pid = cur.lastrowid
+            if prep:
+                rebuild_exec.record_run(self, pid, prep, clean["target"])
             self._event(pid, "created", {"action": action_id, "target": self.reg.target_of(action_id, clean), "source": source})
         self.audit("proposal_created", proposal=pid, action=action_id, tier=a["tier"], source=source, incident=incident_id, replay=replay)
         return self._view(pid)
@@ -536,11 +622,19 @@ class Engine:
             raise Refused(501, "the executor is not configured (no Semaphore credential)")
         return self.cfg.semaphore
 
-    def _run_task(self, pid: int, action_id: str, clean: dict, step: str) -> tuple[str, dict, list[str]]:
-        """One Semaphore task from the registry. Returns (status, parsed result, redacted output tail)."""
+    def _run_task(self, pid: int, action_id: str, clean: dict, step: str, resume_task: int | None = None,
+                  on_start: Callable[[int], None] | None = None, extra_env: dict | None = None) -> tuple[str, dict, list[str]]:
+        """One Semaphore task from the registry. Returns (status, parsed result, redacted output tail). `resume_task`
+        re-attaches to a task a previous run started (a restart mid-rebuild); `on_start` records the id of a new one."""
         sem = self._sem()
-        template, env, fields = self.reg.semaphore_task(action_id, clean)
-        task_id = sem.start(sem.template_id(template), env, fields)
+        if resume_task is not None:
+            task_id = resume_task
+        else:
+            template, env, fields = self.reg.semaphore_task(action_id, clean)
+            env.update(extra_env or {})
+            task_id = sem.start(sem.template_id(template), env, fields)
+            if on_start is not None:
+                on_start(task_id)
         with self.lock:
             self._event(pid, "step_started", {"step": step, "action": action_id, "task": task_id})
         deadline = self.now() + self.cfg.task_timeout
@@ -570,12 +664,12 @@ class Engine:
         self.audit("step", proposal=pid, step=step, action=action_id, task=task_id, status=status, ok=result.get("ok"))
         return status, result, tail
 
-    def execute(self, pid: int) -> dict:
+    def execute(self, pid: int, resume: bool = False) -> dict:
         """Run an approved proposal: guard again, optional prior step, the action, then the registry verify. Never raises
         out of a worker thread: every failure lands in the proposal's state and the audit log."""
         with self._run_slots:
             try:
-                self._execute(pid)
+                self._execute(pid, resume)
             except Refused as e:
                 self._fail(pid, "failed", f"{e.message}")
             except Exception as e:  # noqa: BLE001 - the worker must report, not die silently
@@ -594,7 +688,13 @@ class Engine:
                            result_json=json.dumps({"why": why, **(extra or {})}, sort_keys=True))
         self.audit("proposal_" + state, proposal=pid, why=why[:120])
 
-    def _execute(self, pid: int) -> dict:
+    def _execute(self, pid: int, resume: bool = False) -> dict:
+        if resume:  # an interrupted rebuild: already running, already past its apply (not under the lock: it is a long flow)
+            with self.lock:
+                row = self._row(pid)
+            if row["state"] == "running":
+                rebuild_exec.execute(self, pid, row, json.loads(row["params_json"]), self.reg.get(row["action_id"]), resume=True)
+            return self._view(pid)
         with self.lock:
             row = self._row(pid)
             if row["state"] != "approved":
@@ -606,6 +706,11 @@ class Engine:
             if busy is not None:
                 self._move(pid, "cancelled", "cancelled", {"reason": f"proposal {busy['id']} is already running on {row['target']}"})
                 return self._view(pid)
+            if self.reg.get(row["action_id"]).get("steps"):
+                why = rebuild_exec.busy_reason(self, pid)  # 10g queue length 1, fleet-wide
+                if why:
+                    self._move(pid, "cancelled", "cancelled", {"reason": why})
+                    return self._view(pid)
             self._move(pid, "running", "started", {}, started_at=self.now())
         action_id, clean = row["action_id"], json.loads(row["params_json"])
         # re-validate: the registry may have changed between propose and approve
@@ -614,9 +719,12 @@ class Engine:
             self._fail(pid, "failed", "guard refused at execution time", {"problems": problems})
             return self._view(pid)
         a = self.reg.get(action_id)
+        if a.get("steps"):  # 10g: plan -> apply -> converge -> verify, with a backend per step
+            rebuild_exec.execute(self, pid, row, clean, a)
+            return self._view(pid)
         steps: list[dict] = []
         pol = self._auto_policy(row)
-        if pol is not None and pol.precheck in ("unit-not-active", "helmrelease-stalled"):
+        if pol is not None and pol.precheck in ("unit-not-active", "helmrelease-stalled", "guest-dead"):
             verdict, why = self._precheck(pid, pol, clean, steps)  # the Toolbelt's OWN read of reality, never the model's say-so
             if verdict != "go":
                 return self._end_precheck(pid, verdict, why, steps)
@@ -659,7 +767,10 @@ class Engine:
     # -- autonomy (10f) -------------------------------------------------------------------------------------
     def _auto_policy(self, row) -> "autonomy.Policy | None":
         by = row["decided_by"] or ""
-        return self.reg.autonomy.policies.get(by[5:]) if by.startswith("auto:") and self.reg.autonomy else None
+        if not by.startswith("auto:"):
+            return None
+        pol = self.reg.autonomy.policies.get(by[5:]) if self.reg.autonomy else None
+        return pol or (self.reg.rebuild.policies.get(by[5:]) if self.reg.rebuild else None)
 
     def _auto_log(self, pid: int, policy: str, outcome: str, reason: str = "") -> None:
         with self.lock:
@@ -681,6 +792,8 @@ class Engine:
     def consider_auto(self, pid: int, diag: dict) -> dict:
         """May this fresh proposal run itself? Returns {"auto": bool, "reason"|"policy": ...}. Every refusal is recorded
         (auto_log + audit) so `/aiops report` can say why nothing ran. The proposal then simply waits for a human, as in 10e."""
+        if self.reg.get(self._row(pid)["action_id"]).get("scope") == "rebuild":  # 10g: its own switch, breaker and prechecks
+            return rebuild_exec.consider_auto(self, pid, diag)
         au = self.reg.autonomy
         if au is None:
             return {"auto": False, "reason": "no-autonomy-section"}
@@ -727,6 +840,13 @@ class Engine:
             if status != "success":
                 return "stop", f"the precheck read ended {status}: not acting without it"
             return autonomy.Autonomy.unit_verdict(res.get("active_state"))
+        if pol.precheck == "guest-dead":  # the start-guest rung: the Toolbelt reads the guest itself
+            try:
+                verdict, why = rebuild_exec.start_verdict(rebuild_exec.gather(self, clean["target"], "auto", exclude_pid=pid))
+            except Refused as e:
+                return "stop", f"the guest could not be read ({e.message}): not acting without it"
+            steps.append({"step": "precheck:guest", "status": "success", "result": {"verdict": verdict}})
+            return verdict, why
         if pol.precheck == "helmrelease-stalled":
             if self.cfg.reader is None:
                 return "stop", "no read-only Kubernetes access is configured for the precheck"
@@ -757,8 +877,8 @@ class Engine:
             return
         self._auto_log(pid, by[5:], row["state"])
         au = self.reg.autonomy
-        if au is None or row["state"] not in ("failed", "verify_failed"):
-            return
+        if (self.reg.rebuild and by[5:] in self.reg.rebuild.policies) or au is None or row["state"] not in ("failed", "verify_failed"):
+            return  # a rebuild-section run has its own one-failure breaker, tripped inside rebuild_exec
         with self.lock:
             n = self.db.execute("SELECT COUNT(*) FROM proposals WHERE decided_by LIKE 'auto:%' AND state IN ('failed','verify_failed') AND finished_at>?",
                                 (self.now() - au.limits.breaker_window_seconds,)).fetchone()[0]
@@ -786,7 +906,7 @@ class Engine:
             by_policy[pol][r["state"]] += 1
             times.setdefault(r["target"], []).append(r["decided_at"])
         flapping = sorted(t for t, ts in times.items() if any(ts[i + 2] - ts[i] <= 6 * 3600 for i in range(len(ts) - 2)))
-        return {"days": days, "autonomous_runs": len(rows), "by_policy": by_policy,
+        return {"days": days, "autonomous_runs": len(rows), "by_policy": by_policy, "rebuild": rebuild_exec.rebuild_report(self, since),
                 "by_target": {t: len(ts) for t, ts in sorted(times.items())},
                 "skipped_reasons": {r["reason"]: r["n"] for r in skipped}, "breaker_trips": trips,
                 "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()}}
@@ -811,6 +931,7 @@ class Engine:
             "rollback": a.get("rollback", ""), "verify": a["verify"]["expect"],
             "requires_prior": a.get("guard", {}).get("requires_prior"),
             "result": json.loads(r["result_json"]) if r["result_json"] else None,
+            "rebuild": rebuild_exec.describe(self, r["id"]),
         }
         if duplicate:
             out["duplicate"] = True
@@ -859,7 +980,7 @@ class Engine:
         with self.lock:
             counts = {r["state"]: r["n"] for r in self.db.execute("SELECT state, COUNT(*) n FROM proposals GROUP BY state").fetchall()}
         au = self.reg.autonomy
-        return {"proposals": counts, "flags": {k: v["value"] for k, v in self.flags().items()},
+        return {"proposals": counts, "flags": {k: v["value"] for k, v in self.flags().items()}, "rebuild": rebuild_exec.rebuild_summary(self),
                 "proposals_today": self._counter("proposals"), "daily_proposal_cap": self.cfg.max_proposals_per_day,
                 "autonomy": None if au is None else {
                     "hosts": sorted(au.hosts), "policies": {n: p.enabled for n, p in au.policies.items()},
