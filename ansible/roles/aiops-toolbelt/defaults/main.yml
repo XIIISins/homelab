@@ -86,6 +86,7 @@ aiops_toolbelt_source_files:
   - toolbelt/tools.py
   - toolbelt/diagnosis.py
   - toolbelt/actions.py
+  - toolbelt/autonomy.py
   - toolbelt/placement_sync.py
   - tools/normalize.py
   - tools/zabbix_event.py

@@ -161,7 +161,7 @@ def _target(a: dict) -> str:
 
 
 def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 0, proposals: list | None = None,
-           refused: list | None = None) -> str:
+           refused: list | None = None, autos: list | None = None) -> str:
     """Discord-ready markdown, under the 2000-character limit. No mentions are ever produced."""
     lines = [f"**Likely layer: {_LAYER_LABEL[d['layer']]}** - confidence {d['confidence']}"
              + (" - needs a human" if d["needs_human"] else ""), "", d["summary"]]
@@ -175,12 +175,16 @@ def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 
         lines += ["", f"Runbook: `{d['runbook_id']}`"]
     if d.get("proposed_actions"):
         live = bool(proposals) and any(proposals)
-        lines += ["", "**Proposed actions (nothing runs unless the operator approves each one in this thread)**" if live
+        any_auto = bool(autos) and any(a and a.get("auto") for a in autos)
+        lines += ["", ("**Proposed actions (the operator approves each one in this thread; those marked automatic run under a reviewed policy)**" if any_auto
+                       else "**Proposed actions (nothing runs unless the operator approves each one in this thread)**") if live
                   else "**Proposed actions (proposals only - nothing was executed)**"]
         for i, a in enumerate(d["proposed_actions"]):
-            pid = proposals[i]["id"] if proposals and i < len(proposals) and proposals[i] else None
+            pid = proposals[i].get("number", proposals[i]["id"]) if proposals and i < len(proposals) and proposals[i] else None
             tgt = _target(a)
-            lines.append(f"- `{a['action_id']}`" + (f" {tgt}" if tgt else "") + f": {a['reason']}" + (f" (proposal #{pid})" if pid else ""))
+            auto = autos[i] if autos and i < len(autos) and autos[i] and autos[i].get("auto") else None
+            lines.append(f"- `{a['action_id']}`" + (f" {tgt}" if tgt else "") + f": {a['reason']}" + (f" (proposal #{pid}" if pid else "")
+                         + (f", running automatically by policy `{auto['policy']}`" if auto else "") + (")" if pid else ""))
         for r in refused or []:
             lines.append(f"- `{r['action_id']}` was NOT proposed: {r['why']}")
     if d.get("next_checks"):

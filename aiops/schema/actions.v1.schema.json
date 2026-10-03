@@ -5,54 +5,175 @@
   "description": "Every action the agent may ever take: a named entry mapping to one Semaphore template, with typed extra-vars, a tier, a guard, a verify step and a rollback note. No registry entry = no action. The executor (10e1) may trigger only the templates listed here; the playbooks re-enforce the guard independently of the executor.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "host_tiers", "actions"],
+  "required": [
+    "schema_version",
+    "host_tiers",
+    "actions"
+  ],
   "properties": {
-    "schema_version": { "const": "aiops.actions/v1" },
+    "schema_version": {
+      "const": "aiops.actions/v1"
+    },
     "host_tiers": {
       "description": "Inventory hostnames the mutating actions may target, by tier. Read by the playbooks (lookup of this file) AND by the agent. A host absent here is T2/T3 by default, i.e. never the target of a T1 action.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["T1"],
+      "required": [
+        "T1"
+      ],
       "properties": {
         "T1": {
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          }
         }
       }
     },
     "actions": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
-      "additionalProperties": { "$ref": "#/$defs/action" }
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "autonomy": {
+      "description": "The scope autonomous healing (10f) may act in. Runtime switches (autonomy on/off, kill switch, maintenance, breaker) live in the Toolbelt.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hosts",
+        "limits",
+        "policies"
+      ],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "description": "Hosts an autonomous action may target; must be a subset of host_tiers.T1."
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "per_target_per_hour",
+            "per_policy_per_day",
+            "breaker_failures",
+            "breaker_window_seconds"
+          ],
+          "properties": {
+            "per_target_per_hour": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "per_policy_per_day": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "breaker_failures": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "breaker_window_seconds": {
+              "type": "integer",
+              "minimum": 60
+            }
+          }
+        },
+        "policies": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/policy"
+          }
+        }
+      }
     }
   },
   "$defs": {
     "var": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "enum": ["string", "integer", "boolean", "enum"] },
-        "required": { "type": "boolean" },
-        "pattern": { "type": "string", "description": "Full-match regex for string vars." },
-        "values": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "enum"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Full-match regex for string vars."
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
         "default": {},
-        "description": { "type": "string" }
+        "description": {
+          "type": "string"
+        }
       }
     },
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["description", "tier", "max_autonomy", "semaphore", "extra_vars", "guard", "verify", "rollback", "idempotent"],
+      "required": [
+        "description",
+        "tier",
+        "max_autonomy",
+        "semaphore",
+        "extra_vars",
+        "guard",
+        "verify",
+        "rollback",
+        "idempotent"
+      ],
       "properties": {
-        "description": { "type": "string", "minLength": 10 },
-        "tier": { "enum": ["T0", "T1", "T2", "T3"] },
+        "description": {
+          "type": "string",
+          "minLength": 10
+        },
+        "tier": {
+          "enum": [
+            "T0",
+            "T1",
+            "T2",
+            "T3"
+          ]
+        },
         "max_autonomy": {
           "description": "Ceiling the registry allows for this action. Stage gates (10e approval, 10f auto) decide what is actually enabled; raising a ceiling is a reviewed PR. T0 actions are read-only so they may be auto; every mutator starts at approval (or none) until the 10f1 guards exist.",
-          "enum": ["none", "approval", "auto"]
+          "enum": [
+            "none",
+            "approval",
+            "auto"
+          ]
         },
         "idempotent": {
           "description": "true only if replaying the action is provably safe (see `idempotency`). Does not by itself raise max_autonomy.",
@@ -65,13 +186,29 @@
         "semaphore": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["template", "playbook", "applied"],
+          "required": [
+            "template",
+            "playbook",
+            "applied"
+          ],
           "properties": {
-            "template": { "type": "string", "description": "Semaphore template name; defined in terraform/semaphore/templates.tf." },
-            "playbook": { "type": "string", "description": "Repo-relative playbook the template runs; must exist." },
-            "applied": { "type": "boolean", "description": "false = defined in Terraform but not yet applied (operator gate)." },
+            "template": {
+              "type": "string",
+              "description": "Semaphore template name; defined in terraform/semaphore/templates.tf."
+            },
+            "playbook": {
+              "type": "string",
+              "description": "Repo-relative playbook the template runs; must exist."
+            },
+            "applied": {
+              "type": "boolean",
+              "description": "false = defined in Terraform but not yet applied (operator gate)."
+            },
             "result_from": {
-              "enum": ["aiops_result", "recap"],
+              "enum": [
+                "aiops_result",
+                "recap"
+              ],
               "description": "Where the executor reads the outcome: the playbook's AIOPS_RESULT line (default), or `recap` = ok/changed from the target host's PLAY RECAP line (for playbooks that cannot see their own stats)."
             },
             "task_fields": {
@@ -84,7 +221,9 @@
         "extra_vars": {
           "description": "Typed extra-vars the executor may pass (Semaphore task `environment`). Anything not declared here must be rejected by the executor.",
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/var" }
+          "additionalProperties": {
+            "$ref": "#/$defs/var"
+          }
         },
         "fixed_vars": {
           "description": "Extra-vars the executor always sets to a constant (distinguishes actions sharing a template).",
@@ -93,39 +232,162 @@
         "guard": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["summary", "target_policy"],
+          "required": [
+            "summary",
+            "target_policy"
+          ],
           "properties": {
-            "summary": { "type": "string", "minLength": 10 },
-            "target_policy": { "enum": ["any-inventory-host", "host_tiers.T1", "n/a"] },
+            "summary": {
+              "type": "string",
+              "minLength": 10
+            },
+            "target_policy": {
+              "enum": [
+                "any-inventory-host",
+                "host_tiers.T1",
+                "n/a"
+              ]
+            },
             "allowed_units": {
               "type": "object",
               "description": "host -> systemd units restart-unit may touch.",
-              "additionalProperties": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
             },
-            "allowed_tags": { "type": "array", "items": { "type": "string" } },
-            "allowed_releases": { "type": "array", "items": { "type": "string" } },
-            "denied_releases": { "type": "array", "items": { "type": "string" } },
-            "requires_prior": { "type": "string", "description": "Another action that must have run (and succeeded) first." },
-            "needs": { "type": "string", "description": "Tooling/credential the template relies on (documented, not enforced here)." }
+            "allowed_tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowed_releases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "denied_releases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "requires_prior": {
+              "type": "string",
+              "description": "Another action that must have run (and succeeded) first."
+            },
+            "needs": {
+              "type": "string",
+              "description": "Tooling/credential the template relies on (documented, not enforced here)."
+            }
           }
         },
         "verify": {
           "description": "Post-condition. `self` = the action's own AIOPS_RESULT must satisfy `expect`; `action` = run that (T0) action afterwards and require `expect` on its result.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["expect"],
+          "required": [
+            "expect"
+          ],
           "properties": {
-            "self": { "const": true },
-            "action": { "type": "string" },
-            "vars": { "type": "object", "additionalProperties": { "type": "string" } },
-            "expect": { "type": "object", "minProperties": 1 }
+            "self": {
+              "const": true
+            },
+            "action": {
+              "type": "string"
+            },
+            "vars": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "expect": {
+              "type": "object",
+              "minProperties": 1
+            }
           },
           "oneOf": [
-            { "required": ["self"] },
-            { "required": ["action"] }
+            {
+              "required": [
+                "self"
+              ]
+            },
+            {
+              "required": [
+                "action"
+              ]
+            }
           ]
         },
-        "rollback": { "type": "string", "minLength": 5 }
+        "rollback": {
+          "type": "string",
+          "minLength": 5
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "action",
+        "runbook",
+        "layers",
+        "min_confidence",
+        "precheck"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "action": {
+          "type": "string",
+          "description": "A T1 registry action; when enabled its max_autonomy must be auto."
+        },
+        "runbook": {
+          "type": "string",
+          "pattern": "^RB-[A-Z0-9-]+$",
+          "description": "The diagnosis must name this runbook (an automatable: auto one)."
+        },
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "host",
+              "hypervisor",
+              "workload",
+              "network",
+              "drift",
+              "external"
+            ]
+          }
+        },
+        "min_confidence": {
+          "enum": [
+            "medium",
+            "high"
+          ]
+        },
+        "precheck": {
+          "enum": [
+            "unit-not-active",
+            "helmrelease-stalled",
+            "drift-present"
+          ],
+          "description": "The Toolbelt's own read of reality that must confirm the fault before it acts."
+        },
+        "max_changed": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "drift-present only: the largest dry-run diff (changed tasks) it may converge on its own."
+        }
       }
     }
   }

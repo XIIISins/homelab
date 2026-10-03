@@ -24,8 +24,11 @@
 # misbehaving executor cannot widen a guard by passing different vars.
 #
 # Initial scope is T0/T1 only. T2 entries arrive with 10e. Every mutator is
-# `max_autonomy: approval`: raising a ceiling to `auto` is a reviewed PR that
-# belongs to 10f1 (kill switch, rate limit, circuit breaker, maintenance flag).
+# `max_autonomy: approval` unless a reviewed PR raises it: `auto` (10f) is allowed ONLY for a T1, idempotent
+# action that an `autonomy.policies` entry below covers. A ceiling is not a trigger: autonomy also needs the runtime
+# master switch (`/aiops autonomy on`, default OFF), the kill switch off, the maintenance flag off, the circuit breaker
+# closed, the target inside `autonomy.hosts`, the rate limits, a diagnosis naming the policy's runbook with enough
+# confidence, and the Toolbelt's OWN independent check that the fault is real right now (never the model's say-so).
 #
 # `semaphore.applied: false` = the template is defined in
 # terraform/semaphore/templates.tf but nobody has run `terraform apply` yet
@@ -51,6 +54,50 @@ host_tiers:
     - canary-1
     - canary-2
     - canary-3
+
+# ---- Phase 10f: autonomous T1 healing ------------------------------------------------------------------------------
+# The SCOPE autonomy may act in. Widening any list below is a reviewed PR; the runtime switches (autonomy on/off, kill
+# switch, maintenance, circuit breaker) live in the Toolbelt and are driven from Discord (/aiops).
+autonomy:
+  # Autonomous actions may target ONLY these hosts (a subset of host_tiers.T1). Start with the disposable canaries for
+  # the ~14-day soak; widen to real replicas (mimir, kvasir, the Tailscale LXCs, hermod) only after it passes.
+  hosts:
+    - canary-1
+    - canary-2
+    - canary-3
+  limits:
+    per_target_per_hour: 2 # autonomous actions on one target
+    per_policy_per_day: 10 # autonomous actions of one policy, fleet-wide
+    breaker_failures: 3 # failed / unverified autonomous runs inside the window trip the breaker (autonomy stops until an operator resets it)
+    breaker_window_seconds: 3600
+  policies:
+    # A stopped or failed allow-listed unit on a host that is alive. The diagnosis must name the runbook; the Toolbelt then
+    # reads the unit's state itself (service-status) and acts only if it is really failed/inactive.
+    restart-failed-unit:
+      enabled: true
+      action: restart-unit
+      runbook: RB-UNIT-STOPPED-T1
+      layers: [workload, host]
+      min_confidence: medium
+      precheck: unit-not-active
+    # Off until the canary soak passes: reset a Stalled HelmRelease of a stateless release (kube read confirms Stalled=True).
+    reset-stalled-helmrelease:
+      enabled: false
+      action: flux-reconcile-reset
+      runbook: RB-FLUX-HR-STALLED
+      layers: [workload]
+      min_confidence: medium
+      precheck: helmrelease-stalled
+    # Off until the soak passes and a drift trigger exists (the Semaphore drift-check is not an n8n source yet): replay a
+    # role on a drifted T1 host after a clean dry run whose diff is small.
+    replay-drifted-baseline:
+      enabled: false
+      action: replay-role
+      runbook: RB-LXC-BOOT-DRIFT
+      layers: [drift]
+      min_confidence: medium
+      precheck: drift-present
+      max_changed: 10
 
 actions:
   # === T0: read-only =========================================================
@@ -166,7 +213,7 @@ actions:
   restart-unit:
     description: Restart one systemd unit on one T1 host, then wait until it reports active.
     tier: T1
-    max_autonomy: approval
+    max_autonomy: auto # only through autonomy.policies.restart-failed-unit (10f), on autonomy.hosts
     idempotent: true
     idempotency: systemctl restart converges to the same running state on replay; the unit allow-list excludes units whose restart moves state (keepalived VIP, databases).
     semaphore:

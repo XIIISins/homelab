@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 CUSTOM_ID = re.compile(r"^aiops:(approve|reject):(\d+):([0-9a-f]{16})$")
-TERMINAL = {"rejected", "expired", "cancelled", "succeeded", "failed", "verify_failed"}
+TERMINAL = {"rejected", "expired", "cancelled", "succeeded", "failed", "verify_failed", "skipped"}
 TIER_COLOUR = {"T0": 0x57F287, "T1": 0xFEE75C, "T2": 0xED4245, "T3": 0xED4245}
 _MENTION = re.compile(r"<@[!&]?\d+>")
 ZWSP = "​"
@@ -118,6 +118,9 @@ class Toolbelt:
     def set_flag(self, name: str, value: bool, by: str, reason: str = "") -> tuple[int, dict]:
         return _call("POST", f"{self.base}/flags/{name}", self.h, {"value": value, "by": by, "reason": reason})
 
+    def report(self, days: int = 14) -> tuple[int, dict]:
+        return _call("GET", f"{self.base}/report?days={int(days)}", self.h)
+
     def status(self) -> tuple[int, dict]:
         return _call("GET", f"{self.base}/status", self.h)
 
@@ -191,7 +194,14 @@ STATE_LINE = {
     "rejected": "Rejected. Nothing ran.",
     "expired": "Expired without a decision. Nothing ran.",
     "cancelled": "Cancelled before it started. Nothing ran.",
+    "skipped": "Skipped: the fault had already healed, so nothing ran.",
 }
+
+
+def auto_policy(p: dict) -> str | None:
+    """The policy name when the Toolbelt (not a person) approved this proposal under autonomy, else None."""
+    by = p.get("decided_by") or ""
+    return by[5:] if by.startswith("auto:") else None
 
 
 def num(p: dict) -> int:
@@ -204,7 +214,9 @@ def card(p: dict) -> dict:
     params = "\n".join(f"{k} = {v}" for k, v in p["params"].items()) or "(none)"
     st = p["state"]
     state = STATE_LINE.get(st, st)
-    if st in ("approved", "running", "succeeded", "failed", "verify_failed", "rejected") and p.get("decided_by"):
+    if auto_policy(p):
+        state = f"Auto-approved by policy `{sanitize(auto_policy(p), 60)}` (no human decision). " + state
+    elif st in ("approved", "running", "succeeded", "failed", "verify_failed", "rejected") and p.get("decided_by"):
         state += f" (decided by <@{p['decided_by']}>)"
     fields = [
         ("Action", f"`{p['action_id']}` ({p['tier']})", True),
@@ -234,7 +246,8 @@ def result_summary(p: dict) -> str:
     head = {"succeeded": "Proposal #%d succeeded and verified." % num(p), "failed": "Proposal #%d FAILED." % num(p),
             "verify_failed": "Proposal #%d ran but its post-condition did NOT hold." % num(p),
             "rejected": "Proposal #%d was rejected." % num(p), "expired": "Proposal #%d expired undecided." % num(p),
-            "cancelled": "Proposal #%d was cancelled before it started." % num(p)}.get(p["state"], f"Proposal #{num(p)}: {p['state']}")
+            "cancelled": "Proposal #%d was cancelled before it started." % num(p),
+            "skipped": "Proposal #%d was skipped: the fault had already healed." % num(p)}.get(p["state"], f"Proposal #{num(p)}: {p['state']}")
     lines = [head]
     if r.get("why"):
         lines.append(sanitize(r["why"], 400))
@@ -250,7 +263,7 @@ def result_summary(p: dict) -> str:
 
 @dataclass
 class Action:
-    kind: str        # post_card | edit_card | announce
+    kind: str        # post_card | edit_card | announce | breaker
     proposal: dict
 
 
@@ -280,15 +293,22 @@ class State:
 def plan_feed(events: list[dict], state: State) -> list[Action]:
     """One action per proposal touched by this batch, decided from its CURRENT state (events are hints, the proposal is truth)."""
     seen: dict[int, dict] = {}
+    plan: list[Action] = []
     for e in events:
         seen[e["proposal"]["id"]] = e["proposal"]
-    plan: list[Action] = []
+        if e.get("kind") == "breaker_tripped" and e["proposal"].get("thread_id"):
+            plan.append(Action("breaker", {**e["proposal"], "breaker": e.get("data") or {}}))
     for pid, p in seen.items():
         if p.get("replay"):
             continue                                        # acceptance runs never reach a human
         if p["state"] == "pending":
             if not p.get("message_ref") and p.get("thread_id"):
                 plan.append(Action("post_card", p))
+            continue
+        if auto_policy(p) and not p.get("message_ref") and p.get("thread_id"):
+            plan.append(Action("post_card", p))            # decided by policy before any card existed: show it, without buttons
+            if p["state"] in TERMINAL and pid not in state.announced:
+                plan.append(Action("announce", p))
             continue
         if p.get("message_ref"):
             plan.append(Action("edit_card", p))
@@ -297,11 +317,35 @@ def plan_feed(events: list[dict], state: State) -> list[Action]:
     return plan
 
 
+def breaker_notice(p: dict) -> str:
+    d = p.get("breaker") or {}
+    return (f"**Autonomy circuit breaker TRIPPED**: {d.get('failures', '?')} autonomous runs failed or did not verify within "
+            f"{int(d.get('window_seconds', 0)) // 60} minutes (last: proposal #{num(p)} on `{sanitize(p['target'], 40)}`). "
+            "Autonomous healing is stopped; proposals now wait for you as usual. Look at why, then `/aiops autonomy reset-breaker`.")
+
+
+def format_report(r: dict) -> str:
+    lines = [f"**Autonomy, last {r.get('days', '?')} day(s):** {r.get('autonomous_runs', 0)} autonomous run(s) | breaker trips {r.get('breaker_trips', 0)} | "
+             f"master switch {'ON' if r.get('flags', {}).get('autonomy') else 'off'}"]
+    for pol, states in sorted(r.get("by_policy", {}).items()):
+        lines.append(f"- `{sanitize(pol, 40)}`: " + ", ".join(f"{k} {v}" for k, v in sorted(states.items())))
+    if r.get("by_target"):
+        lines.append("By target: " + ", ".join(f"`{sanitize(t, 30)}` {n}" for t, n in r["by_target"].items()))
+    if r.get("skipped_reasons"):
+        lines.append("Not run, and why: " + ", ".join(f"{sanitize(k, 40)} {v}" for k, v in sorted(r["skipped_reasons"].items())))
+    if r.get("flapping_targets"):
+        lines.append("**Flapping** (3+ autonomous runs within 6h): " + ", ".join(f"`{sanitize(t, 30)}`" for t in r["flapping_targets"]))
+    return "\n".join(lines)[:1900]
+
+
 def format_status(s: dict) -> str:
     a = s.get("actions", {})
     flags = a.get("flags", {})
     lines = [f"**Kill switch:** {'ENGAGED' if flags.get('kill_switch') else 'off'} | **Maintenance:** {'on' if flags.get('maintenance') else 'off'}",
              f"Open incidents: {s.get('open_incidents', '?')} | agent runs today: {s.get('runs_today', '?')}/{s.get('daily_run_cap', '?')} | chat turns today: {s.get('chat_turns_today', 0)}",
+             f"Autonomy: {'ON' if flags.get('autonomy') else 'off'}" + (" | **BREAKER TRIPPED**" if flags.get("autonomy_breaker") else "")
+             + (f" | policies on: {', '.join(sorted(n for n, on in a['autonomy']['policies'].items() if on)) or 'none'} | hosts: {', '.join(a['autonomy']['hosts'])}"
+                if a.get("autonomy") else ""),
              f"Proposals today: {a.get('proposals_today', 0)}/{a.get('daily_proposal_cap', '?')} | by state: " + (", ".join(f"{k} {v}" for k, v in sorted(a.get('proposals', {}).items())) or "none")]
     for p in s.get("open_proposals", [])[:8]:
         lines.append(f"- #{num(p)} (id {p['id']}) `{p['action_id']}` on `{sanitize(p['target'], 40)}`: {p['state']}")

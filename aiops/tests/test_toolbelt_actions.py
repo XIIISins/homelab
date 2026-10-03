@@ -277,6 +277,36 @@ class DiagnosisProposalTests(unittest.TestCase):
         self.assertEqual(out["proposals"], [])
         self.assertTrue(out["proposals_refused"])
 
+    def auto_diag(self, inc, params=RESTART):
+        self.r.tb.call_tool("registry.runbook", {"id": "RB-UNIT-STOPPED-T1"}, inc)  # evidence must match a call the Toolbelt served
+        d = self.diag(inc, [{"action_id": "restart-unit", "params": params, "reason": "the unit is stopped"}])
+        d["diagnosis"].update(layer="workload", confidence="high", needs_human=False, runbook_id="RB-UNIT-STOPPED-T1",
+                              evidence=[{"tool": "registry.runbook", "args": {"id": "RB-UNIT-STOPPED-T1"}, "finding": "the stopped-unit runbook applies"}])
+        return d
+
+    def test_autonomy_end_to_end_through_the_real_server(self):
+        self.r.close()
+        sem = FakeSemaphore({"aiops-service-status": [("success", [result_line(action="service-status", ok=True, active_state="failed")]),
+                                                      ("success", [result_line(action="service-status", ok=True, active_state="active")])],
+                             "aiops-restart-unit": [("success", [result_line(action="restart-unit", ok=True, active_state="active")])]})
+        self.r = Rig(sem)
+        inc = self.incident()
+        st, out = self.r.agent("POST", f"/diagnosis/{inc}", self.auto_diag(inc))  # master switch is off by default
+        self.assertEqual((st, out["auto"]), (200, [{"auto": False, "reason": "autonomy-off"}]), out)
+        self.assertEqual(sem.started, [])
+        self.assertEqual(self.r.agent("POST", "/flags/autonomy", {"value": True, "by": OP})[0], 403)  # the agent role cannot flip it
+        self.assertEqual(self.r.appr("POST", "/flags/autonomy", {"value": True, "by": OP, "reason": "test"})[0], 200)
+        inc2 = self.incident(host="canary-2")
+        st, out = self.r.agent("POST", f"/diagnosis/{inc2}", self.auto_diag(inc2, {"target_host": "canary-2", "unit": "vlagent.service"}))
+        self.assertEqual((st, out["auto"][0]["auto"]), (200, True), out)
+        self.assertIn("running automatically by policy `restart-failed-unit`", out["content"])
+        done = self.r.wait_state(out["proposals"][0], "succeeded")
+        self.assertEqual((done["state"], done["decided_by"]), ("succeeded", "auto:restart-failed-unit"))
+        st, rep = self.r.appr("GET", "/report?days=7")
+        self.assertEqual((st, rep["autonomous_runs"], rep["skipped_reasons"]), (200, 1, {"autonomy-off": 1}))
+        self.assertEqual(self.r.agent("GET", "/report")[0], 403)  # the agent role cannot read it either
+        self.assertEqual(self.r.appr("POST", "/flags/autonomy_breaker", {"value": True, "by": OP})[0], 403)  # only the system trips it
+
     def test_replay_incidents_produce_replay_proposals_that_can_never_be_decided(self):
         inc = self.incident(replay="canary-agent-down")
         st, out = self.r.agent("POST", f"/diagnosis/{inc}", self.diag(inc, [{"action_id": "restart-unit", "params": RESTART, "reason": "vlagent stopped"}]))

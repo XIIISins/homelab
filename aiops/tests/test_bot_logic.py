@@ -26,6 +26,9 @@ PROPOSAL = {
 }
 
 
+OP_ID = "111111111111111111"
+
+
 def p(**kw):
     return {**PROPOSAL, **kw}
 
@@ -159,6 +162,33 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan(ev(p(replay=True))), [])
         self.assertEqual(self.plan(ev(p(message_ref="9"))), [])
 
+    def test_a_proposal_the_toolbelt_ran_itself_still_gets_a_buttonless_card_and_an_announcement(self):
+        auto = p(state="succeeded", decided_by="auto:restart-failed-unit")
+        self.assertEqual(self.plan(ev(auto)), [("post_card", 12), ("announce", 12)])
+        self.assertEqual(self.plan(ev(p(state="skipped", decided_by="auto:restart-failed-unit"))), [("post_card", 12), ("announce", 12)])
+        self.assertEqual(self.plan(ev(p(state="succeeded", decided_by=OP_ID))), [])  # a human decision always had a card already
+        self.assertEqual(self.plan(ev(p(state="succeeded", decided_by="auto:x", thread_id=None))), [])
+        self.assertEqual(self.plan(ev(p(state="succeeded", decided_by="auto:x", replay=True))), [])
+
+    def test_an_autonomy_card_says_policy_and_has_no_buttons(self):
+        c = logic.card(p(state="running", decided_by="auto:restart-failed-unit"))
+        self.assertFalse(c["buttons"])
+        self.assertIn("Auto-approved by policy `restart-failed-unit`", c["description"])
+        self.assertNotIn("<@", c["description"].split("**")[1] if "**" in c["description"] else "")
+        self.assertIn("already healed", logic.card(p(state="skipped", decided_by="auto:x"))["description"])
+        self.assertIn("skipped", logic.result_summary(p(state="skipped", decided_by="auto:x")))
+
+    def test_the_breaker_notice_goes_to_the_thread_of_the_run_that_tripped_it(self):
+        e = ev(p(state="failed", decided_by="auto:x"), "breaker_tripped")
+        e["data"] = {"failures": 3, "window_seconds": 3600}
+        plan = logic.plan_feed([e], self.state)
+        self.assertEqual([a.kind for a in plan], ["breaker", "post_card", "announce"])
+        text = logic.breaker_notice(plan[0].proposal)
+        self.assertIn("TRIPPED", text)
+        self.assertIn("3 autonomous runs", text)
+        self.assertIn("60 minutes", text)
+        self.assertIn("reset-breaker", text)
+
     def test_the_latest_state_in_the_batch_wins(self):
         self.assertEqual(self.plan(ev(p(state="pending", message_ref="9"), i=1), ev(p(state="approved", message_ref="9"), "approved", 2)), [("edit_card", 12)])
 
@@ -189,6 +219,26 @@ class PlanTests(unittest.TestCase):
                                              "proposals": {"pending": 1}}, "open_proposals": [PROPOSAL]})
         self.assertIn("ENGAGED", s)
         self.assertIn("#12", s)
+
+
+    def test_status_shows_autonomy_and_a_tripped_breaker(self):
+        a = {"flags": {"kill_switch": False, "maintenance": False, "autonomy": True, "autonomy_breaker": True}, "proposals_today": 0,
+             "daily_proposal_cap": 30, "proposals": {}, "autonomy": {"hosts": ["canary-1"], "policies": {"restart-failed-unit": True, "replay-drifted-baseline": False}}}
+        s = logic.format_status({"actions": a, "open_proposals": []})
+        self.assertIn("Autonomy: ON", s)
+        self.assertIn("BREAKER TRIPPED", s)
+        self.assertIn("policies on: restart-failed-unit", s)
+        self.assertNotIn("replay-drifted-baseline", s)
+        off = logic.format_status({"actions": {**a, "flags": {"autonomy": False}, "autonomy": None}, "open_proposals": []})
+        self.assertIn("Autonomy: off", off)
+
+    def test_format_report(self):
+        r = {"days": 14, "autonomous_runs": 3, "by_policy": {"restart-failed-unit": {"succeeded": 2, "failed": 1}}, "by_target": {"canary-1": 3},
+             "skipped_reasons": {"autonomy-off": 4}, "breaker_trips": 1, "flapping_targets": ["canary-1"], "flags": {"autonomy": True}}
+        t = logic.format_report(r)
+        for needle in ("3 autonomous run", "breaker trips 1", "master switch ON", "succeeded 2", "`canary-1` 3", "autonomy-off 4", "Flapping"):
+            self.assertIn(needle, t)
+        self.assertIn("0 autonomous run", logic.format_report({"days": 1}))
 
 
 class FakeBrain(BaseHTTPRequestHandler):

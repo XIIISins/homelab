@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# scripts/canary/fault — stop or restore one allow-listed unit on one canary (Phase 10f soak).
+#
+#   fault stop    <canary-1|canary-2|canary-3> <vlagent.service|zabbix-agent2.service>
+#   fault restore <canary-1|canary-2|canary-3> <vlagent.service|zabbix-agent2.service>
+#   fault status  <canary-1|canary-2|canary-3> <vlagent.service|zabbix-agent2.service>
+#
+# `stop` is the fault the autonomy policy `restart-failed-unit` is meant to heal: Zabbix raises the problem, Gna
+# diagnoses it (runbook RB-UNIT-STOPPED-T1) and, with `/aiops autonomy on`, the Toolbelt reads the unit itself and
+# restarts it. `restore` is the manual undo if you do not want to wait; `status` shows ActiveState.
+#
+# Canary only, two units only: the same allow-list as the registry's restart-unit. Nothing else can be stopped
+# with this script, and it never touches a real host (docs/procedures/canary-pool.md "Guardrails").
+# Runs ansible from this checkout with the warm IaC env; one ansible-playbook at a time rule does not apply
+# (ad-hoc, single host), but do not run it while a playbook is mid-flight on the same canary.
+set -euo pipefail
+
+usage() { sed -n '2,15p' "$0"; exit "${1:-2}"; }
+[ "$#" -eq 3 ] || usage
+verb="$1" host="$2" unit="$3"
+
+case "$verb" in stop|restore|status) ;; -h|--help) usage 0 ;; *) usage ;; esac
+case "$host" in canary-1|canary-2|canary-3) ;; *) echo "fault: '$host' is not a canary" >&2; exit 2 ;; esac
+case "$unit" in vlagent.service|zabbix-agent2.service) ;; *) echo "fault: '$unit' is not an allow-listed canary unit" >&2; exit 2 ;; esac
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+[ -r "$HOME/.cache/homelab/env.sh" ] && . "$HOME/.cache/homelab/env.sh"   # a plain exports file: source it, never cat it
+cd "$root/ansible"
+
+case "$verb" in
+  stop)    args="name=$unit state=stopped" ;;
+  restore) args="name=$unit state=started" ;;
+  status)  args="" ;;
+esac
+
+if [ "$verb" = status ]; then
+  exec ansible -i inventory/hosts.yml "$host" -b -m ansible.builtin.command -a "systemctl is-active $unit"
+fi
+ansible -i inventory/hosts.yml "$host" -b -m ansible.builtin.systemd -a "$args"
+echo "fault: $verb $unit on $host done at $(date -u +%FT%TZ)"

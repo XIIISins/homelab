@@ -163,6 +163,8 @@ class Toolbelt:
         self._migrate()
         self.engine: actions.Engine | None = None
         if registry is not None and cfg.actions is not None:
+            if cfg.actions.reader is None:
+                cfg.actions.reader = self._read_tool
             self.engine = actions.Engine(self.db, self._lock, self.clock, self.audit, registry, cfg.actions, self._bump, self._counter)
 
     def _migrate(self) -> None:
@@ -551,10 +553,20 @@ class Toolbelt:
                        evidence=len(diag["evidence"]), tool_calls=n_calls)
             inc = self._incident(incident_id)
         proposals, refused = self._propose_from(diag, inc)
+        autos: list = []
+        for p in proposals:  # autonomy is the Toolbelt's own decision from the registry; a replay can never qualify
+            autos.append(self.engine.consider_auto(p["id"], diag) if (p and self.engine is not None and not inc["replay"]) else None)
         return {"ok": True, "content": diagnosis.render(diag, alert_count=n_alerts, model=model, tool_calls=n_calls,
-                                                        proposals=proposals, refused=refused),
+                                                        proposals=proposals, refused=refused, autos=autos),
                 "layer": diag["layer"], "confidence": diag["confidence"], "needs_human": diag["needs_human"],
-                "proposals": [p["id"] for p in proposals if p], "proposals_refused": refused}
+                "proposals": [p["id"] for p in proposals if p], "proposals_refused": refused,
+                "auto": [a for a in autos if a]}
+
+    def _read_tool(self, name: str, args: dict) -> dict:
+        """One read-only tool call for the engine's autonomy prechecks (the same allow-list the agent is held to)."""
+        if self.cfg.live is None:
+            raise tools.ToolError(501, "live tools are not configured")
+        return tools.live(self.cfg.live, name, tools.validate(name, args))
 
     def _propose_from(self, diag: dict, inc) -> tuple[list, list]:
         """Turn a validated diagnosis's proposed_actions into stored proposals (never executions). One that fails the
@@ -617,6 +629,12 @@ class Toolbelt:
             out["actions"] = self.engine.summary()
             out["open_proposals"] = self.engine.list(("pending", "approved", "running"))
         return out
+
+    def report(self, days: int = 14) -> dict:
+        """GET /report (approver role): what autonomy did, why it did not, breaker trips, flapping (the soak's evidence)."""
+        if self.engine is None:
+            raise Rejected(501, "actions are not enabled on this Toolbelt")
+        return self.engine.report(days)
 
     # ---- chat (Phase 10e): a human talks to the agent in Discord ---------------------------------------
     def chat_turn(self, thread_id: object, author: object, content: object) -> dict:

@@ -12,9 +12,10 @@
 | Approve or reject a proposed action | Press **Approve** or **Reject** on the card in the incident's thread. Only the operator's Discord account works (the bot and the Toolbelt both check the user id). The card is edited as it runs and verifies, and a result note follows. |
 | Stop everything | `/aiops kill [reason]`: nothing may be approved or started, approved-but-unstarted proposals are cancelled, a running task finishes. `/aiops resume` releases it. |
 | See what is going on | `/aiops status` (kill switch, budgets, open proposals), `/aiops pending`. |
-| Mark a maintenance window | `/aiops maintenance on` / `off` (the flag 10f's autonomy will respect). |
+| Mark a maintenance window | `/aiops maintenance on` / `off` (autonomous healing stays off while it is on). |
+| Autonomous healing (10f) | `/aiops autonomy on` / `off` / `reset-breaker`, `/aiops report [days]`: [`aiops-autonomy.md`](aiops-autonomy.md). |
 
-A card expires after 30 minutes undecided and nothing runs. If a card says the post-condition **did not hold**, read its "If it goes wrong" line: a restart has no inverse, so escalate to the unit's runbook.
+Cards are numbered `#1, #2, #3` within their conversation (or incident), which is also how the agent refers to them; the footer shows the global `id`, which is what the audit log, `/aiops status` (`#1 (id 4)`) and the API use. A card expires after 30 minutes undecided and nothing runs. If a card says the post-condition **did not hold**, read its "If it goes wrong" line: a restart has no inverse, so escalate to the unit's runbook.
 
 ## Deploy (operator, from the main checkout; every step is CLI)
 

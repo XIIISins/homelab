@@ -54,15 +54,19 @@ class CommittedDataIsClean(unittest.TestCase):
                     self.assertTrue(a["runbook_id"], p.name)
         self.assertGreaterEqual(n, 8)
 
-    def test_nothing_is_auto_and_no_t3_above_none(self):
+    def test_only_policy_covered_t1_work_is_auto_and_no_t3_above_none(self):
         rb, reg, _ = docs()
+        covered = {p["action"] for p in reg["autonomy"]["policies"].values()}
+        covered_rb = {p["runbook"] for p in reg["autonomy"]["policies"].values()}
         for r in rb["runbooks"]:
-            self.assertNotEqual(r["automatable"], "auto", r["id"])
+            if r["automatable"] == "auto":
+                self.assertIn(r["id"], covered_rb, r["id"])
             if r["tier"] == "T3":
                 self.assertEqual(r["automatable"], "none", r["id"])
         for n, a in reg["actions"].items():
-            if a["tier"] != "T0":
-                self.assertNotEqual(a["max_autonomy"], "auto", n)
+            if a["tier"] != "T0" and a["max_autonomy"] == "auto":
+                self.assertEqual(a["tier"], "T1", n)
+                self.assertIn(n, covered, n)
 
     def test_replay_actions_share_one_tag_allowlist(self):
         _, reg, _ = docs()
