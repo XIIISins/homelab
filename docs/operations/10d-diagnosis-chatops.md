@@ -132,7 +132,7 @@ Each tool is an endpoint of the Toolbelt API backed by a read-only credential; n
 | `vault-status` | none (`sys/health`, `sys/seal-status` unauthenticated) | per-pod seal state via `kube` — closes follow-up 10 |
 | `registry` | none | reads `runbooks.yml`/`actions.yml`; lists actions the agent may *propose* (never invoke) |
 
-- [ ] Mint each identity in its owning IaC (TF for Proxmox/Vault policy, Flux for the SA, Ansible for Zabbix/Semaphore/NetBox), secrets to Vault `secret/ansible/aiops/*`; operator mirrors to 1P (standing rule).
+- [ ] Mint each identity in its owning IaC (TF for Proxmox/Vault policy, Flux for the SA, Ansible for Zabbix/Semaphore/NetBox), secrets to Vault `secret/ansible/aiops/*`; mirrored to 1P with `scripts/secrets/vault-1p-mirror` (standing rule).
 - [ ] **Negative tests per credential** — the actual deliverable of "write-less": a script attempts one write with each and asserts denial; re-run after any credential change.
 - [ ] Root loader `aiops-toolbelt-env` (AppRole, narrow policy `aiops-toolbelt-read`: exactly those KV paths).
 - [ ] **Replay mode:** a request header `X-AIOPS-Replay: <scenario>` makes every endpoint return recorded responses from `aiops/replays/<scenario>/` keyed by (tool, normalized args) instead of touching the network; an unrecorded call returns `NO_RECORDING` (counted). This makes the acceptance incidents repeatable — you cannot re-freeze Skuld.

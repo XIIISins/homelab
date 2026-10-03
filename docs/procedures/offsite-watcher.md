@@ -35,7 +35,7 @@ The single listener (UI + `/metrics` + push API) binds **only** `100.102.131.126
    # Verify without printing: expect 64 (piped, vault kv get -field adds no newline).
    vault kv get -field=token secret/ansible/do1/gatus-heartbeat | wc -c
    ```
-   Then mirror both into the 1Password Homelab vault (offline mirror rule; item names per the 1P convention). The roles **fail early with these instructions** if either secret is absent or malformed (`do1.yml --skip-tags gatus` runs the rest of the play meanwhile).
+   Then mirror both into 1Password with `scripts/secrets/vault-1p-mirror` ([procedure](secret-mirroring.md); the map already has them). The roles **fail early with these instructions** if either secret is absent or malformed (`do1.yml --skip-tags gatus` runs the rest of the play meanwhile).
 3. **Tailscale ACL: no change needed.** Existing grants cover everything: `tag:offsite -> tag:server tcp:22`, `tag:offsite -> 10.0.11.22 tcp:80`, and `tag:server -> *` (Frigg's heartbeat reaches `do1:8080`). Confirm the Hermod grant is applied (`terraform plan` in `terraform/tailscale` shows no diff).
 4. **Converge `do1`** (one `ansible-playbook` at a time; Vault env loaded):
    ```

@@ -492,7 +492,7 @@ terraform -chdir=terraform/adguard apply       # DNS rewrites (write-to-origin S
 terraform -chdir=terraform/proxmox/zabbix-access apply   # PVE user/token for Zabbix HTTP scrape
 ```
 
-For **Path B** also re-mint `ansible-awx` via `rotate-semaphore-approle`, and hand-restore any operator-minted KV from 1P mirrors (Hermod Discord webhooks `secret/ansible/hermod/discord/*`, Zabbix SAML SP keypair, etc.).
+For **Path B** also re-mint `ansible-awx` via `rotate-semaphore-approle`, and restore any operator-minted KV from the 1P mirrors with `scripts/secrets/vault-1p-mirror to-vault` ([procedure](secret-mirroring.md); it verifies each write and puts a PEM's final newline back) (Hermod Discord webhooks `secret/ansible/hermod/discord/*`, Zabbix SAML SP keypair, etc.).
 
 Then the Flux **apps** (`k8s/asgard/apps/`) converge once their ExternalSecrets resolve (authentik, netbox, outline, semaphore, teamspeak, victorialogs, victoriametrics, apex-static, zabbix-ingress):
 
