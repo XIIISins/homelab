@@ -130,7 +130,7 @@ class RegistryTests(unittest.TestCase):
     def test_task_building_resolves_placeholders_and_fixed_vars(self):
         tpl, env, fields = REGISTRY.semaphore_task("replay-role-check", {"target_host": "canary-1", "role_tag": "vlagent"})
         self.assertEqual(tpl, "aiops-replay-role-check")
-        self.assertEqual(fields, {"limit": "canary-1", "arguments": ["--check", "--diff", "--tags", "vlagent"]})
+        self.assertEqual(fields, {"arguments": ["--limit", "canary-1", "--check", "--diff", "--tags", "vlagent"]})  # --limit goes through `arguments`: Semaphore drops the limit field
         _, env, _ = REGISTRY.semaphore_task("flux-reconcile-reset", {"hr_name": "vmagent", "hr_namespace": "monitoring"})
         self.assertIs(env["reset"], True)
 
@@ -346,7 +346,7 @@ class ExecuteTests(unittest.TestCase):
         out = eng.execute(p["id"])
         self.assertEqual(out["state"], "failed")
         self.assertEqual([s[0] for s in sem.started], ["aiops-replay-role-check"])  # the converge never started
-        self.assertEqual(sem.started[0][2]["arguments"], ["--check", "--diff", "--tags", "vlagent"])
+        self.assertEqual(sem.started[0][2]["arguments"], ["--limit", "canary-1", "--check", "--diff", "--tags", "vlagent"])
 
     def test_replay_role_success_path_verifies_with_a_clean_check(self):
         sem = FakeSemaphore({

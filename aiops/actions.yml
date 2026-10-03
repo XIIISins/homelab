@@ -30,6 +30,8 @@
 # closed, the target inside `autonomy.hosts`, the rate limits, a diagnosis naming the policy's runbook with enough
 # confidence, and the Toolbelt's OWN independent check that the fault is real right now (never the model's say-so).
 #
+# `task_fields.limit` is NOT honoured by this Semaphore (stored at creation, dropped at run, found live 2026-10-03):
+# pass `--limit` through `arguments` (the template needs allow_override_args_in_task = true).
 # `semaphore.applied: false` = the template is defined in
 # terraform/semaphore/templates.tf but nobody has run `terraform apply` yet
 # (operator gate, from the main checkout). Flip to true in the PR that follows
@@ -285,8 +287,7 @@ actions:
       applied: true
       result_from: recap
       task_fields:
-        limit: '{target_host}'
-        arguments: ['--check', '--diff', '--tags', '{role_tag}']
+        arguments: ['--limit', '{target_host}', '--check', '--diff', '--tags', '{role_tag}']
     extra_vars:
       target_host:
         type: string
@@ -363,8 +364,7 @@ actions:
       applied: true
       result_from: recap
       task_fields:
-        limit: '{target_host}'
-        arguments: ['--tags', '{role_tag}']
+        arguments: ['--limit', '{target_host}', '--tags', '{role_tag}']
     extra_vars:
       target_host:
         type: string
@@ -532,7 +532,7 @@ actions:
       playbook: ansible/playbooks/aiops-rebuild-converge.yml
       applied: true
       task_fields:
-        limit: '{target}'
+        arguments: ['--limit', '{target}']
     extra_vars:
       target:
         type: string
@@ -574,7 +574,7 @@ actions:
       applied: false
       planned: true
       task_fields:
-        limit: '{target}'
+        arguments: ['--limit', '{target}']
     extra_vars:
       target:
         type: string
