@@ -302,3 +302,7 @@ Slotted **after** Phase 8c (Zabbix LXC). Until Zabbix exists, this phase has not
 - Concrete Caddy version pin (apt `caddy` package version, or pin to a release) — capture at role-write time (5h.2.d).
 - Critical-tag avatar URL — pick a static-served image at smoketest time (Caddy apex-static pod can serve from `/icons/` if desired; otherwise omit).
 - `@here` vs `@everyone` for `critical` — confirm at smoketest time. `@everyone` pings users while offline (correct for true-2am-pageable alerts); `@here` only currently-online users. Decision can be deferred safely — it's a one-character Apprise URL parameter (`&mentions=@everyone` vs `&mentions=@here`) to flip later.
+
+## Operator ping from an unattended Claude session
+
+`scripts/notify/ping-operator "<title>" "<body>" [info|alert|critical]` posts to Hermod's `/notify/<key>` (the key is read from Vault `secret/ansible/hermod/config-key` inside the process, never printed). From a non-allow-listed source (the Mac) Hermod answers 403, so it retries from Frigg over SSH with the key on stdin. Use the `alert` tier for "I need you"; `info` is the FYI channel. Added 2026-10-03 for the unattended 10f/10g run.
