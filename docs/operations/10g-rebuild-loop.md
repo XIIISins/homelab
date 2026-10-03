@@ -104,6 +104,18 @@ Side effects worth knowing: planned actions are hidden from the chat agent's `pr
 
 **Not built:** runner, PVE pool and scoped token, engine `steps` / `backend` and the `guest-dead` / `guest-broken` prechecks, `autonomy_rebuild` and the rebuild breaker in the engine, converge/verify/plan playbooks and Semaphore templates, the canary High trigger and `RB-GUEST-*` runbooks and routing, `scripts/canary/fault kill|destroy`, replay scenarios, bot cards, PBS last-chance backup, Vault/Kubernetes drain identities, `do1` fast check, the procedure doc.
 
+## As built: slice C (playbooks, detection, harness; code only, nothing applied)
+
+| Piece | Where | State |
+|---|---|---|
+| `aiops-start-guest.yml` (rung 0: `pct start` through Urd, hostname-checked, canary VMID 1190-1192 only), `aiops-rebuild-converge.yml` (guard needs `--limit` equal to `target`; waits for SSH; Day-1 baseline as root only where root still answers; then `asgard-canary.yml` as `ansible`), `aiops-rebuild-verify.yml` (the six canary post-conditions as separate fields, Zabbix read through the JSON-RPC API; fails the run when any is false) | `ansible/playbooks/` | built; ansible-lint and `--syntax-check` clean; never run |
+| Semaphore templates `aiops-start-guest`, `aiops-rebuild-converge`, `aiops-rebuild-verify` in the `aiops` project | `terraform/semaphore/templates.tf` | HCL only; `terraform fmt` clean; **operator apply pending**; the registry entries stay `planned: true` until then |
+| `RB-GUEST-DEAD`, `RB-GUEST-BROKEN` (`automatable: approval`: `rebuild-guest` caps at approval until a policy is enabled), route `zbx-canary-guest-down` before `zbx-host-unavailable`, native fixture, replay scenarios `canary-dead` (a burst of two correlated alerts) and `rebuild-refused` (Saga, deny-listed) | `aiops/` | built, lint passes; replays not run live |
+| `Canary smoke: guest unreachable (ICMP ping loss)` (High, `icmpping[,3]`) | `canary-smoke-test.yml` | built; import and `fping` on Hugin to confirm at the operator apply |
+| `scripts/canary/fault kill|destroy` + `aiops/tests/test_rebuild_playbooks.py` (argument validation through the `FAULT_VALIDATE_ONLY` hook, playbook safety text, template names, trigger routing) | `scripts/canary/` | built, tested |
+
+Findings: `rebuild-plan` and `rebuild-worker` playbooks are not in this slice (plan runs on the Frigg runner; workers are stage C). The playbooks assume the engine passes `target` (and `plan_hash` to converge) and sets the task `limit` for converge; verify and start-guest must run without `--limit` or, for verify, with one equal to the target. The registry's `rebuild-guest` still lists `semaphore.template: aiops-rebuild-converge` as a single template; the plan -> apply -> converge -> verify composition is the engine slice.
+
 ## Registry shape
 
 A sketch of the shape (names, tiers and ceilings are the decision; field spelling is finalised in the PR that adds the schema). It extends 10f's pattern: a **scope** section a reviewed PR can widen, and a **policy** per class that points at an action.
