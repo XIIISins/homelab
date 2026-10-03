@@ -45,6 +45,19 @@ From the **main** checkout (never a worktree):
 
 To retire a canary permanently: remove it from `canary_nodes` (Terraform), the `vms.tf` entries, `hosts.yml` and the `aiops/actions.yml` T1 list in one PR.
 
+## The "Canary smoke test" Zabbix template (High and Disaster on demand)
+
+The stock "agent not available" trigger is **Average**, and the diagnosis agent (Gná) only receives **High and Disaster**, so a stopped canary agent alone never reaches it. The canaries therefore carry their own template, `Canary smoke test` ([`ansible/playbooks/files/zabbix/canary-smoke-test.yml`](../../ansible/playbooks/files/zabbix/canary-smoke-test.yml)), imported by `playbooks/zabbix-host-groups.yml` and linked only through `group_vars/canary.yml` (so it never reaches a real host):
+
+| Trigger | Severity | Fires when | Use |
+|---|---|---|---|
+| `Canary smoke: agent service down (zabbix-agent2)` | High | the agent has not answered for 3 min (`nodata` on a heartbeat item) | the 10f autonomous restart (`scripts/canary/fault stop <canary> zabbix-agent2.service`) |
+| `Canary smoke: vlagent not active` | High | `systemd.unit.info[vlagent.service,ActiveState]` is not `active` | the same for `vlagent.service` |
+| `Canary smoke: synthetic High flag set` | High | the file `/var/lib/aiops-smoke/high` exists | a High problem with no service touched (`scripts/canary/fault flag <canary> high`; `unflag` clears it) |
+| `Canary smoke: synthetic Disaster flag set` | Disaster | `/var/lib/aiops-smoke/disaster` exists | the Disaster path end to end |
+
+Canary alerts stay capped at the Hermod `info` tier (below), so none of these pages anyone. The two service-fault triggers are routed to `RB-UNIT-STOPPED-T1` (`aiops/alert-routing.yml` `zbx-canary-unit-down`); the synthetic ones fall to the Zabbix catch-all and exercise the plumbing. Item keys are deliberately not keys that "Linux by Zabbix agent" already defines (Zabbix refuses two linked templates defining the same key on one host). To change the template: edit the YAML, then `ansible-playbook playbooks/asgard-canary.yml --tags zabbix-agent:canary-template,zabbix-agent:register --limit canary`.
+
 ## Fault injection: stay scoped to `canary-*`
 
 Urd also hosts **PBS (1101), Hugin (1102), Saga (1110), Bifrost (1113), Factorio (1120), Vör (1131), Hlin (1133), the asgard K3s CP gondul (2001) and worker einherjar-urd (2101)**. LXCs share Urd's kernel and its network/storage. Rules for any 10f/10g test:
