@@ -147,6 +147,88 @@ class CardTests(unittest.TestCase):
         self.assertLessEqual(len(logic.result_summary(p(state="failed", result={"why": "x" * 5000}))), 1900)
 
 
+class ResultSentenceTests(unittest.TestCase):
+    """A succeeded read-only proposal also relays what the probe found, from the stored fields."""
+
+    def t0(self, action_id, res, **kw):
+        steps = [{"step": "action", "status": "success", "result": res}, {"step": f"verify:{action_id}", "status": "success", "result": {"ok": True}}]
+        return p(state="succeeded", tier="T0", action_id=action_id, result={"steps": steps}, **kw)
+
+    def sentence(self, action_id, res):
+        return logic.result_sentence(self.t0(action_id, res))
+
+    def test_patroni_healthy_lag_and_no_leader(self):
+        base = {"ok": True, "leader_present": True, "running_members": 3, "total_members": 3,
+                "members": ["Fulla:leader:running", "Vör:replica:streaming", "Idunn:replica:streaming"]}
+        self.assertEqual(self.sentence("patroni-status", {**base, "max_lag_bytes": 0}),
+                         "Checked Patroni: leader is Fulla, 3 of 3 members running, no lag.")
+        self.assertIn("worst replica lag 4096 bytes", self.sentence("patroni-status", {**base, "max_lag_bytes": 4096}))
+        self.assertTrue(self.sentence("patroni-status", base).endswith("members running."))   # lag not reported: say nothing about it
+        nolead = self.sentence("patroni-status", {"ok": True, "running_members": 1, "total_members": 3,
+                                                  "members": ["Fulla:replica:stopped", "Vör:replica:running", "Idunn:replica:crashed"]})
+        self.assertIn("NO leader", nolead)
+        self.assertIn("not running: Fulla (stopped), Idunn (crashed)", nolead)
+        self.assertIn("no PG node answered", self.sentence("patroni-status", {"ok": "False"}))
+
+    def test_service_status_active_and_failed(self):
+        act = self.sentence("service-status", {"target_host": "canary-1", "unit": "vlagent.service", "load_state": "loaded",
+                                               "active_state": "active", "sub_state": "running", "n_restarts": "0"})
+        self.assertEqual(act, "Checked vlagent.service on canary-1: active (running).")
+        bad = self.sentence("service-status", {"target_host": "canary-1", "unit": "vlagent.service", "load_state": "loaded",
+                                               "active_state": "failed", "sub_state": "failed", "n_restarts": "3", "active_since": "Fri 2026-10-02"})
+        self.assertEqual(bad, "Checked vlagent.service on canary-1: failed (failed), restarted 3 times, since Fri 2026-10-02.")
+        self.assertIn("not loaded", self.sentence("service-status", {"target_host": "h", "unit": "x.service", "load_state": "not-found"}))
+
+    def test_vault_sealed_and_unsealed(self):
+        self.assertEqual(self.sentence("vault-status", {"ok": True, "sealed": False, "initialized": True, "ha_enabled": True, "version": "1.18.2", "storage_type": "raft"}),
+                         "Checked Vault: unsealed, initialized, HA enabled, version 1.18.2, storage raft.")
+        self.assertTrue(self.sentence("vault-status", {"ok": "True", "sealed": "true"}).startswith("Checked Vault: SEALED"))
+        self.assertIn("no status document", self.sentence("vault-status", {"ok": False}))
+
+    def test_replay_role_check_changed_and_clean(self):
+        self.assertEqual(self.sentence("replay-role-check", {"ok": True, "changed": 0, "target_host": "canary-1"}),
+                         "Dry run on canary-1: nothing would change, the host is in sync.")
+        self.assertIn("would change 4 tasks", self.sentence("replay-role-check", {"ok": True, "changed": 4, "target_host": "canary-1"}))
+        self.assertIn("1 task.", self.sentence("replay-role-check", {"ok": True, "changed": 1, "target_host": "canary-1"}))
+        self.assertIn("did not finish cleanly", self.sentence("replay-role-check", {"ok": False, "failed": 1, "unreachable": 0, "target_host": "c"}))
+
+    def test_unknown_action_gets_a_bounded_scalar_line(self):
+        s = self.sentence("brand-new-probe", {"action": "brand-new-probe", "ok": True, "a": 1, "b": "x", "nested": {"k": "v"}, "c": 3, "d": 4, "e": 5, "f": 6})
+        self.assertEqual(s, "Checked brand-new-probe: ok=True, a=1, b=x, c=3, d=4.")
+        self.assertNotIn("{", s)
+
+    def test_hostile_text_is_sanitised_and_bounded(self):
+        s = self.sentence("service-status", {"target_host": "h", "unit": "@everyone <@123456789012345678> " + "y" * 500, "load_state": "loaded",
+                                             "active_state": "@here", "sub_state": "x"})
+        self.assertNotIn("@everyone", s)
+        self.assertNotIn("<@", s)
+        self.assertNotIn("@here", s)
+        self.assertLessEqual(len(s), 400)
+        out = logic.result_summary(self.t0("service-status", {"unit": "@everyone", "target_host": "h"}))
+        self.assertNotIn("@everyone", out)
+        self.assertLessEqual(len(out), 1900)
+
+    def test_a_formatter_error_falls_back_to_the_generic_line(self):
+        res = {"members": 5, "running_members": 1}     # members is not a list: the patroni formatter's own input is odd
+        orig = logic.RESULT_SENTENCES["patroni-status"]
+        logic.RESULT_SENTENCES["patroni-status"] = lambda r: 1 / 0
+        try:
+            s = self.sentence("patroni-status", res)
+        finally:
+            logic.RESULT_SENTENCES["patroni-status"] = orig
+        self.assertEqual(s, "Checked patroni-status: members=5, running_members=1.")
+
+    def test_only_succeeded_t0_proposals_with_an_action_result_relay(self):
+        res = {"ok": True, "sealed": False}
+        self.assertEqual(logic.result_sentence({**self.t0("vault-status", res), "tier": "T1"}), "")           # mutating tier keeps today's summary
+        self.assertEqual(logic.result_sentence({**self.t0("vault-status", res), "state": "failed"}), "")
+        self.assertEqual(logic.result_sentence(p(state="succeeded", tier="T0", action_id="vault-status", result={"steps": [{"step": "verify:vault-status", "result": res}]})), "")
+        self.assertEqual(logic.result_sentence(p(state="succeeded", tier="T0", action_id="vault-status", result=None)), "")
+        self.assertEqual(logic.result_sentence(p(state="succeeded", tier="T0", action_id="vault-status", result={"steps": "garbage"})), "")
+        self.assertIn("Checked Vault: unsealed", logic.result_summary(self.t0("vault-status", res)))
+        self.assertNotIn("Checked", logic.result_summary(p(state="succeeded", tier="T1", result={"steps": [{"step": "action", "status": "success", "result": res}]})))
+
+
 class PlanTests(unittest.TestCase):
     def setUp(self):
         self.state = logic.State(Path(tempfile.mkdtemp()) / "state.json")

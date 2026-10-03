@@ -240,6 +240,115 @@ def card(p: dict) -> dict:
     }
 
 
+# ---- relaying a read-only action's answer ----------------------------------------------------------------------
+# "Succeeded and verified" says the probe ran, not what it found. For a T0 proposal the thread also gets one plain
+# sentence built from the stored result fields (never from a model). Every value goes through sanitize().
+
+def _flag(v: object) -> bool | None:
+    """The engine stores Jinja-rendered fields, so a bool may arrive as 'True'/'false'; None means unknown."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str) and v.strip().lower() in ("true", "false"):
+        return v.strip().lower() == "true"
+    return None
+
+
+def _s(v: object, limit: int = 60) -> str:
+    return sanitize(v, limit)
+
+
+def _count(n: object, noun: str) -> str:
+    return f"{_s(n, 12)} {noun}{'' if str(n) == '1' else 's'}"
+
+
+def _sentence_patroni(r: dict) -> str:
+    if _flag(r.get("ok")) is False:
+        return "Checked Patroni: no PG node answered the /cluster probe."
+    members = [str(m).split(":") for m in (r.get("members") or []) if isinstance(m, str)]
+    leaders = [m[0] for m in members if len(m) > 1 and m[1] in ("leader", "master", "primary")]
+    lead = f"leader is {_s(leaders[0])}" if leaders else "NO leader"
+    total = r.get("total_members", len(members))
+    out = f"Checked Patroni: {lead}, {_s(r.get('running_members', '?'), 12)} of {_s(total, 12)} members running"
+    down = [f"{_s(m[0])} ({_s(m[2])})" for m in members if len(m) > 2 and m[2] not in ("running", "streaming")]
+    if down:
+        out += " (not running: " + ", ".join(down[:3]) + ")"
+    lag = r.get("max_lag_bytes")
+    if isinstance(lag, (int, float)) and not isinstance(lag, bool):
+        return out + (", no lag." if lag <= 0 else f", worst replica lag {_s(int(lag), 20)} bytes.")
+    return out + "."
+
+
+def _sentence_service(r: dict) -> str:
+    unit, host = _s(r.get("unit", "the unit")), _s(r.get("target_host", "?"))
+    if r.get("load_state") not in (None, "loaded"):
+        return f"Checked {unit} on {host}: unit is {_s(r.get('load_state'))}, not loaded."
+    out = f"Checked {unit} on {host}: {_s(r.get('active_state', 'unknown'))} ({_s(r.get('sub_state', 'unknown'))})"
+    if str(r.get("n_restarts", "")).strip() not in ("", "0"):
+        out += f", restarted {_count(r['n_restarts'], 'time')}"
+    if r.get("active_since"):
+        out += f", since {_s(r['active_since'], 40)}"
+    return out + "."
+
+
+def _sentence_vault(r: dict) -> str:
+    if _flag(r.get("ok")) is False:
+        return "Checked Vault: no status document came back."
+    sealed = _flag(r.get("sealed"))
+    out = "Checked Vault: " + {True: "SEALED", False: "unsealed", None: "seal state unknown"}[sealed]
+    bits = []
+    if _flag(r.get("initialized")) is not None:
+        bits.append("initialized" if _flag(r["initialized"]) else "NOT initialized")
+    if _flag(r.get("ha_enabled")) is not None:
+        bits.append("HA enabled" if _flag(r["ha_enabled"]) else "HA off")
+    if r.get("version"):
+        bits.append("version " + _s(r["version"], 30))
+    if r.get("storage_type"):
+        bits.append("storage " + _s(r["storage_type"], 30))
+    return out + "".join(", " + b for b in bits) + "."
+
+
+def _sentence_replay_check(r: dict) -> str:
+    host = _s(r.get("target_host", "the host"))
+    if _flag(r.get("ok")) is False:
+        return f"Dry run on {host} did not finish cleanly (failed={_s(r.get('failed', '?'), 12)}, unreachable={_s(r.get('unreachable', '?'), 12)})."
+    ch = r.get("changed")
+    if ch in (0, "0"):
+        return f"Dry run on {host}: nothing would change, the host is in sync."
+    return f"Dry run on {host}: a replay would change {_count(ch, 'task') if ch is not None else 'an unknown number of tasks'}."
+
+
+RESULT_SENTENCES = {
+    "patroni-status": _sentence_patroni,
+    "service-status": _sentence_service,
+    "vault-status": _sentence_vault,
+    "replay-role-check": _sentence_replay_check,
+}
+
+
+def _sentence_generic(action_id: str, r: dict) -> str:
+    """An action without a formatter: up to five scalar fields, never raw JSON."""
+    bits = [f"{_s(k, 30)}={_s(v, 60)}" for k, v in r.items() if k != "action" and isinstance(v, (str, int, float, bool))][:5]
+    return f"Checked {_s(action_id, 40)}: " + (", ".join(bits) if bits else "no details reported") + "."
+
+
+def result_sentence(p: dict) -> str:
+    """One human sentence for a succeeded T0 proposal, '' for anything else. Never raises."""
+    try:
+        if p.get("state") != "succeeded" or p.get("tier") != "T0":
+            return ""
+        r = next((s.get("result") for s in (p.get("result") or {}).get("steps", [])
+                  if isinstance(s, dict) and s.get("step") == "action"), None)
+        if not isinstance(r, dict) or not r:
+            return ""
+        fn = RESULT_SENTENCES.get(p["action_id"])
+        try:
+            return sanitize(fn(r), 400) if fn else sanitize(_sentence_generic(p["action_id"], r), 400)
+        except Exception:  # noqa: BLE001 - odd fields degrade to the generic line, never break the announcement
+            return sanitize(_sentence_generic(p["action_id"], r), 400)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def result_summary(p: dict) -> str:
     """A short outcome for a terminal proposal, from the stored result (already redacted by the engine)."""
     r = p.get("result") or {}
@@ -249,6 +358,9 @@ def result_summary(p: dict) -> str:
             "cancelled": "Proposal #%d was cancelled before it started." % num(p),
             "skipped": "Proposal #%d was skipped: the fault had already healed." % num(p)}.get(p["state"], f"Proposal #{num(p)}: {p['state']}")
     lines = [head]
+    answer = result_sentence(p)
+    if answer:
+        lines.append(answer)
     if r.get("why"):
         lines.append(sanitize(r["why"], 400))
     for s in r.get("steps", []):
