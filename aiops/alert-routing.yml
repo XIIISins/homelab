@@ -38,6 +38,15 @@ routes:
     runbook_id: RB-UNIT-STOPPED-T1
     note: The canary smoke-test template's service-fault triggers (ansible/playbooks/files/zabbix/canary-smoke-test.yml). The host answers, so this is the SERVICE; 10f's restart-failed-unit policy heals it.
 
+  - id: zbx-canary-guest-down
+    source: zabbix
+    severity: any
+    match: 'Canary smoke: guest unreachable'
+    service: host
+    check: '@slug'
+    runbook_id: RB-GUEST-DEAD
+    note: The canary template's guest-level trigger (ICMP/SSH, not the agent). MUST stay before zbx-host-unavailable, whose `unreachable` would otherwise catch it and name RB-HOST-HARD-FREEZE. The 10g rebuild loop starts here.
+
   - id: zbx-host-unavailable
     source: zabbix
     severity: any

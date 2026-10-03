@@ -495,6 +495,85 @@ resource "semaphoreui_project_template" "aiops_flux_reconcile" {
   suppress_success_alerts = false
 }
 
+# --- Phase 10g rebuild loop (canary class first; engine wiring is a separate slice, the registry actions stay
+# applied: false / planned: true until this block is applied and the engine can drive them) ---
+#
+# start-guest runs against the PVE host (pct start, canary VMIDs 1190-1192 only); rebuild-converge needs a single-host
+# `limit` task field equal to `target` (the executor sets it); rebuild-verify is read-only. All three re-check the
+# registry (aiops/actions.yml) inside the playbook, so the template is not the authority.
+
+resource "semaphoreui_project_template" "aiops_start_guest" {
+  project_id     = semaphoreui_project.aiops.id
+  name           = "aiops-start-guest"
+  description    = "AIOps T1 (10g rung 0): start ONE stopped canary LXC (VMID 1190-1192) through its PVE host with pct; never creates or destroys."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-start-guest.yml"
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
+}
+
+resource "semaphoreui_project_template" "aiops_rebuild_converge" {
+  project_id     = semaphoreui_project.aiops.id
+  name           = "aiops-rebuild-converge"
+  description    = "AIOps T1 (10g step 6): Day-1 baseline as root (only if root still answers) then the canary full play as ansible, after Terraform recreated the guest. Needs --limit equal to target."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-rebuild-converge.yml"
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
+}
+
+resource "semaphoreui_project_template" "aiops_rebuild_verify" {
+  project_id     = semaphoreui_project.aiops.id
+  name           = "aiops-rebuild-verify"
+  description    = "AIOps T0 (10g step 7): read-only canary post-conditions (ssh as ansible, vlagent + zabbix-agent2 active, Zabbix group and template, alert cleared)."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-rebuild-verify.yml"
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
 # === Schedules ===
 
 resource "semaphoreui_project_schedule" "refresh_netbox_inventory" {
