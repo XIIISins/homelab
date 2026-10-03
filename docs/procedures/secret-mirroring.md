@@ -24,7 +24,23 @@ scripts/secrets/vault-1p-mirror mirror-to 1p <vault-path>/<field> <1p-uuid>/<fie
 scripts/secrets/vault-1p-mirror mirror-to 1p <vault-path>/<field> <new-uuid-or-name>/credential --title '[Asgard] - Mirror - X - Y' --apply
 ```
 
-A new secret: add a `[[mirror]]` block to the map (names only), `status`, then `to-1p --apply`. After a create, the script prints the new item's UUID: put it in the map as `op_id` so a later title rename is harmless.
+## Keeping the map current
+
+The map is a hand-edited file; **adding an item to 1Password or a secret to Vault does not update it by itself.** Two commands keep it honest:
+
+```bash
+scripts/secrets/vault-1p-mirror unmapped   # Vault paths in neither [[mirror]] nor [[ignore]], and 1P "Mirror" items no entry points at (exit 2 if any)
+scripts/secrets/vault-1p-mirror pin        # write op_id into the map for entries whose 1P item now exists
+```
+
+- **New Vault secret:** run `unmapped`, then add a `[[mirror]]` block (names only: `vault_path`, `op_title`, `fields = { vault_field = "1P label" }`) or an `[[ignore]]` block with a reason. `status`, then `to-1p --apply`.
+- **`to-1p --apply` that creates an item pins it:** the new item's UUID is written into the map as `op_id` automatically, so a later title rename in 1P is harmless.
+- **An item you add to 1Password by hand:** point a `[[mirror]]` entry at it (`op_title`, then run `pin`), or use `mirror-to` for a one-off. Until then `unmapped` lists it if its title contains "Mirror".
+- A pair marked `GUESSED` in a `# NOTE:` comment was matched by title because the values differed. Read `status` before ever using `--overwrite` on it.
+
+## Initial state of the map (2026-10-03)
+
+88 entries: 34 point at items that already existed in 1Password (matched by comparing value hashes, so nothing is duplicated), 54 are new `[Asgard] - Mirror - ...` / `[DO - Offsite] - Mirror - ...` items that `to-1p --apply` creates. Seven Vault paths are `[[ignore]]`d with a reason (Terraform-minted Tailscale auth keys, the `iac-env` aggregate, a derived hash, a Document-type 1P item, an unaddressable field name, the removed n8n). Items of type SSH Key cannot be edited by the `op` CLI, so for those only `to-vault` and `status` work.
 
 ## What it guarantees
 
