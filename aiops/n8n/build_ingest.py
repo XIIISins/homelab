@@ -85,6 +85,12 @@ def cond(left, op, right):
             "combinator": "and"}
 
 
+def cond_true(left):
+    return {"options": {"caseSensitive": True, "leftValue": "", "typeValidation": "loose"},
+            "conditions": [{"id": nid(), "leftValue": left, "rightValue": "",
+                            "operator": {"type": "boolean", "operation": "true", "singleValue": True}}], "combinator": "and"}
+
+
 def switch_rule(key, values):
     return {"conditions": {"options": {"caseSensitive": True, "leftValue": "", "typeValidation": "loose"},
                            "conditions": [{"id": nid(), "leftValue": "={{ $json.action }}", "rightValue": v,
@@ -218,6 +224,19 @@ def build() -> dict:
         post_discord("Post thread", [2880, -160], thread=False),
         http("Mark posted", [3140, -160], "POST", f"={{{{ {TB} + '/group/' + {ID} + '/state' }}}}",
              "={{ JSON.stringify({ state: 'posted', thread_id: $json.channel_id }) }}"),
+        # --- after the thread is posted: close it if there is nothing left to resolve ---
+        # A replay run is synthetic (it never sends a recovery), and a real alert may have recovered while the agent was
+        # still working, before any thread existed for the recovery to update. Either way the thread would otherwise sit
+        # at "firing" forever.
+        http("Get final state", [3400, -160], "GET", f"={{{{ {TB} + '/group/' + {ID} }}}}"),
+        {"parameters": {"conditions": cond_true("={{ Boolean($json.replay) || $json.alerts.every(a => a._state.status === 'resolved') }}"), "options": {}},
+         "id": nid(), "name": "Needs a closing note?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [3660, -160]},
+        setn("Render closing note", [3920, -200], {
+            "thread_id": "={{ $('Post thread').item.json.channel_id }}",
+            "content": "={{ $json.replay ? '\u2705 **Replay run finished.** This was a synthetic replay: there is no real alert, so there is nothing to resolve.' : '\u2705 **RESOLVED**: the alert recovered before this analysis was posted.' }}"}),
+        post_discord("Post closing note", [4180, -200], thread=True),
+        http("Mark closed", [4440, -200], "POST", f"={{{{ {TB} + '/group/' + {ID} + '/state' }}}}",
+             "={{ JSON.stringify({ state: 'resolved' }) }}", on_error=True),
         {"parameters": {"conditions": cond("={{ String($json.error && $json.error.message) }}", "contains", "first"), "options": {}},
          "id": nid(), "name": "First breach today?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [1580, 220]},
         setn("Render budget notice", [1840, 260], {
@@ -269,6 +288,11 @@ def build() -> dict:
         "Render diagnosis": link(["Post thread"]),
         "Render fallback": link(["Post thread"]),
         "Post thread": link(["Mark posted"]),
+        "Mark posted": link(["Get final state"]),
+        "Get final state": link(["Needs a closing note?"]),
+        "Needs a closing note?": link(["Render closing note"], []),
+        "Render closing note": link(["Post closing note"]),
+        "Post closing note": link(["Mark closed"]),
         "First breach today?": link(["Render budget notice"], []),
         "Render budget notice": link(["Post notice"]),
         "Thread exists?": link(["Render update"], []),

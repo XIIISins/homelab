@@ -343,9 +343,20 @@ class Toolbelt:
         with self._lock:
             now = self.now()
             inc = self._incident(inc_id)
-            if state not in _FORWARD[inc["state"]]:
+            after_resolved = False
+            if inc["state"] == "resolved" and state in ("posted", "resolved"):
+                # The alert recovered while the run was still going (running -> resolved by the recovery event). The run
+                # then finishes and posts its thread: record the thread and keep the incident resolved, never a 409.
+                if state == "posted":
+                    self.db.execute("UPDATE incidents SET posted_at=COALESCE(posted_at, ?), thread_id=COALESCE(?, thread_id) WHERE id=?",
+                                    (now, thread_id, inc_id))
+                    self.audit("state", incident=inc_id, state="posted-after-resolved", thread_id=thread_id)
+                after_resolved = True
+            elif state not in _FORWARD[inc["state"]]:
                 raise Rejected(409, f"cannot move incident {inc_id} from {inc['state']} to {state}")
-            if state == "running":
+            if after_resolved:
+                pass  # handled above
+            elif state == "running":
                 if self._counter("runs") >= self.cfg.daily_run_cap:
                     first = self._bump("budget_exhausted") == 1
                     self.audit("budget_exhausted", incident=inc_id, cap=self.cfg.daily_run_cap)

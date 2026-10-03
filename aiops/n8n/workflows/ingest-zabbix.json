@@ -657,6 +657,31 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Toolbelt ingest').item.json.incident_id }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "a1000000-0000-4000-8000-000000000039",
+      "name": "Get final state",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        -160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      }
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -665,7 +690,118 @@
           },
           "conditions": [
             {
-              "id": "a1000000-0000-4000-8000-000000000039",
+              "id": "a1000000-0000-4000-8000-000000000040",
+              "leftValue": "={{ Boolean($json.replay) || $json.alerts.every(a => a._state.status === 'resolved') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000041",
+      "name": "Needs a closing note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3660,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000042",
+              "name": "thread_id",
+              "type": "string",
+              "value": "={{ $('Post thread').item.json.channel_id }}"
+            },
+            {
+              "id": "a1000000-0000-4000-8000-000000000043",
+              "name": "content",
+              "type": "string",
+              "value": "={{ $json.replay ? '\u2705 **Replay run finished.** This was a synthetic replay: there is no real alert, so there is nothing to resolve.' : '\u2705 **RESOLVED**: the alert recovered before this analysis was posted.' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000044",
+      "name": "Render closing note",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3920,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_DISCORD_URL + '?wait=true&thread_id=' + $json.thread_id }}",
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, allowed_mentions: { parse: [] } }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000045",
+      "name": "Post closing note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4180,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AIOPS_TOOLBELT_URL + '/group/' + $('Toolbelt ingest').item.json.incident_id + '/state' }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ state: 'resolved' }) }}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000046",
+      "name": "Mark closed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4440,
+        -200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "aiopsToolbelt01",
+          "name": "aiops-toolbelt"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a1000000-0000-4000-8000-000000000047",
               "leftValue": "={{ String($json.error && $json.error.message) }}",
               "rightValue": "first",
               "operator": {
@@ -678,7 +814,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000040",
+      "id": "a1000000-0000-4000-8000-000000000048",
       "name": "First breach today?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -692,13 +828,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "a1000000-0000-4000-8000-000000000041",
+              "id": "a1000000-0000-4000-8000-000000000049",
               "name": "thread_name",
               "type": "string",
               "value": "Diagnosis budget exhausted"
             },
             {
-              "id": "a1000000-0000-4000-8000-000000000042",
+              "id": "a1000000-0000-4000-8000-000000000050",
               "name": "content",
               "type": "string",
               "value": "The daily diagnosis cap was reached. Alerts still arrive in Discord via Hermod; further incidents today are not analysed."
@@ -707,7 +843,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000043",
+      "id": "a1000000-0000-4000-8000-000000000051",
       "name": "Render budget notice",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -726,7 +862,7 @@
           },
           "conditions": [
             {
-              "id": "a1000000-0000-4000-8000-000000000044",
+              "id": "a1000000-0000-4000-8000-000000000052",
               "leftValue": "={{ $json.thread_id }}",
               "rightValue": "",
               "operator": {
@@ -739,7 +875,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000045",
+      "id": "a1000000-0000-4000-8000-000000000053",
       "name": "Thread exists?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -753,13 +889,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "a1000000-0000-4000-8000-000000000046",
+              "id": "a1000000-0000-4000-8000-000000000054",
               "name": "thread_id",
               "type": "string",
               "value": "={{ $json.thread_id }}"
             },
             {
-              "id": "a1000000-0000-4000-8000-000000000047",
+              "id": "a1000000-0000-4000-8000-000000000055",
               "name": "content",
               "type": "string",
               "value": "={{ ('**' + $json.action.toUpperCase() + '**: ' + $json.alert.host + ' - ' + $json.alert.check + ' - ' + $json.alert.summary).slice(0, 1900) }}"
@@ -768,7 +904,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000048",
+      "id": "a1000000-0000-4000-8000-000000000056",
       "name": "Render update",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -788,7 +924,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ content: $json.content, allowed_mentions: { parse: [] } }) }}"
       },
-      "id": "a1000000-0000-4000-8000-000000000049",
+      "id": "a1000000-0000-4000-8000-000000000057",
       "name": "Post update",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -802,13 +938,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "a1000000-0000-4000-8000-000000000050",
+              "id": "a1000000-0000-4000-8000-000000000058",
               "name": "thread_name",
               "type": "string",
               "value": "={{ ('[resolved] ' + $json.alert.host + ' - ' + $json.alert.check + ' (problem not seen)').slice(0, 95) }}"
             },
             {
-              "id": "a1000000-0000-4000-8000-000000000051",
+              "id": "a1000000-0000-4000-8000-000000000059",
               "name": "content",
               "type": "string",
               "value": "={{ ('**RESOLVED** with no matching problem (the agent was unreachable when it fired).\\n' + $json.alert.summary).slice(0, 1900) }}"
@@ -817,7 +953,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000052",
+      "id": "a1000000-0000-4000-8000-000000000060",
       "name": "Render orphan",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -836,7 +972,7 @@
           },
           "conditions": [
             {
-              "id": "a1000000-0000-4000-8000-000000000053",
+              "id": "a1000000-0000-4000-8000-000000000061",
               "leftValue": "={{ String($json.first_drop_today) }}",
               "rightValue": "true",
               "operator": {
@@ -849,7 +985,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000054",
+      "id": "a1000000-0000-4000-8000-000000000062",
       "name": "First drop today?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -863,13 +999,13 @@
         "assignments": {
           "assignments": [
             {
-              "id": "a1000000-0000-4000-8000-000000000055",
+              "id": "a1000000-0000-4000-8000-000000000063",
               "name": "thread_name",
               "type": "string",
               "value": "Diagnosis queue full"
             },
             {
-              "id": "a1000000-0000-4000-8000-000000000056",
+              "id": "a1000000-0000-4000-8000-000000000064",
               "name": "content",
               "type": "string",
               "value": "Too many open incidents; new alerts are not being analysed until some close. Alerts still arrive via Hermod."
@@ -878,7 +1014,7 @@
         },
         "options": {}
       },
-      "id": "a1000000-0000-4000-8000-000000000057",
+      "id": "a1000000-0000-4000-8000-000000000065",
       "name": "Render queue notice",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -898,7 +1034,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ thread_name: $json.thread_name, content: $json.content, allowed_mentions: { parse: [] } }) }}"
       },
-      "id": "a1000000-0000-4000-8000-000000000058",
+      "id": "a1000000-0000-4000-8000-000000000066",
       "name": "Post notice",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -1178,6 +1314,62 @@
         [
           {
             "node": "Mark posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark posted": {
+      "main": [
+        [
+          {
+            "node": "Get final state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get final state": {
+      "main": [
+        [
+          {
+            "node": "Needs a closing note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a closing note?": {
+      "main": [
+        [
+          {
+            "node": "Render closing note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Render closing note": {
+      "main": [
+        [
+          {
+            "node": "Post closing note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post closing note": {
+      "main": [
+        [
+          {
+            "node": "Mark closed",
             "type": "main",
             "index": 0
           }

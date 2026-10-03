@@ -903,7 +903,7 @@ class FakeObs:
                 outer.seen.append(self.path)
                 path = urlparse(self.path).path
                 if path == "/select/logsql/query":
-                    raw, ctype = logs.encode(), "application/x-ndjson"
+                    raw, ctype = (getattr(outer, "logs_override", None) or logs).encode(), "application/x-ndjson"
                 elif path == "/api/v1/query":
                     raw, ctype = json.dumps({"status": "success", "data": {"resultType": "vector", "result": [{"metric": {"job": "node"}, "value": [1790000000, "1"]}]}}).encode(), "application/json"
                 elif path == "/api/v1/query_range":
@@ -949,6 +949,18 @@ class LogsMetricsTools(unittest.TestCase):
         self.assertIn("[redacted]", out["lines"][0]["msg"])
         self.assertTrue(out["window_start"].endswith("Z"))  # a relative default became an RFC3339 instant
         self.assertIn("start=", self.o.seen[0])
+
+    def test_kubernetes_label_noise_is_dropped_but_the_source_fields_stay(self):
+        noisy = {"_time": "2026-10-03T00:00:01Z", "_stream": "{}", "_msg": "oops", "level": "error",
+                 "kubernetes.pod_name": "web-1", "kubernetes.pod_namespace": "apps", "kubernetes.container_name": "c",
+                 "kubernetes.node_name": "n1", "kubernetes.container_id": "containerd://abc", "kubernetes.pod_ip": "10.1.2.3",
+                 "kubernetes.pod_labels.app.kubernetes.io/name": "x"}
+        self.o.logs_override = json.dumps(noisy)
+        row = self.tb.call_tool("logs.query", {"query": "oops"}, self.inc)["result"]["lines"][0]
+        self.assertEqual(row["kubernetes.pod_name"], "web-1")
+        self.assertEqual(row["level"], "error")
+        self.assertNotIn("kubernetes.container_id", row)
+        self.assertFalse(any(k.startswith("kubernetes.pod_labels") for k in row))
 
     def test_relative_times_are_converted_and_absolute_ones_pass_through(self):
         self.tb.call_tool("logs.query", {"query": "x", "start": "2h"}, self.inc)

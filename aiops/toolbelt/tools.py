@@ -594,8 +594,12 @@ def _logs(cfg: LiveConfig, args: dict) -> dict:
             row = json.loads(ln)
         except ValueError:
             continue
+        # Kubernetes log lines carry a dozen label fields (container id, pod ip, helm labels...) that only cost the model
+        # tokens: keep the four that locate the source, drop the rest. Other (non-underscore) fields such as `level` stay.
+        keep_k8s = {"kubernetes.pod_name", "kubernetes.pod_namespace", "kubernetes.container_name", "kubernetes.node_name"}
         lines.append({"time": row.get("_time"), "stream": row.get("_stream"), "msg": redact(str(row.get("_msg", "")))[:500],
-                      **{k: str(v)[:120] for k, v in row.items() if k not in ("_time", "_stream", "_msg", "_stream_id") and not k.startswith("_")}})
+                      **{k: str(v)[:120] for k, v in row.items() if k not in ("_time", "_stream", "_msg", "_stream_id")
+                         and not k.startswith("_") and (not k.startswith("kubernetes.") or k in keep_k8s)}})
     out, size = [], 0
     for row in lines:
         size += len(json.dumps(row))
