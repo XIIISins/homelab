@@ -267,9 +267,12 @@ class N8nChatWorkflow(unittest.TestCase):
         import yaml
 
         reg = yaml.safe_load((REPO / "aiops" / "actions.yml").read_text())["actions"]
+        planned = {n for n, a in reg.items() if a["semaphore"].get("planned")}  # 10g: planned actions are never advertised
+        reg = {n: a for n, a in reg.items() if n not in planned}
         d = build_ingest.propose_tool_description()
         listed = set(re.findall(r"^- ([a-z0-9-]+) \(T[0-3]\)", d, flags=re.M))
         self.assertEqual(listed, set(reg))
+        self.assertFalse(planned & listed)
         for name, a in reg.items():
             for var, spec in a.get("extra_vars", {}).items():
                 self.assertIn(var + ("*" if spec.get("required") else ""), d)

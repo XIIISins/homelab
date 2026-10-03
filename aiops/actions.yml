@@ -54,6 +54,13 @@ host_tiers:
     - canary-1
     - canary-2
     - canary-3
+  # T2 = stateful or hard to replace: approval-gated at best, NEVER a target of a T1 action. Listed here only so the
+  # `rebuild` section (10g) can name them; they are not in any T1 allow-list.
+  T2:
+    - einherjar-urd   # asgard K3s workers (local-path data: see the rebuild data manifest)
+    - einherjar-verd
+    - einherjar-skuld
+    - do1             # DigitalOcean offsite (also the outside watcher)
 
 # ---- Phase 10f: autonomous T1 healing ------------------------------------------------------------------------------
 # The SCOPE autonomy may act in. Widening any list below is a reviewed PR; the runtime switches (autonomy on/off, kill
@@ -98,6 +105,98 @@ autonomy:
       min_confidence: medium
       precheck: drift-present
       max_changed: 10
+
+# ---- Phase 10g: fleet rebuild loop (POLICY DATA ONLY; the engine, runner and playbooks are not built) -----------------
+# docs/operations/10g-rebuild-loop.md. Same rule as `autonomy`: this is the SCOPE a reviewed PR can widen. The pure
+# decisions that read it live in toolbelt/rebuild.py; nothing here runs yet, every policy is disabled and the five
+# actions below are `applied: false`. The runtime master switch `autonomy_rebuild` is separate from 10f's `autonomy`
+# and is OFF after every deploy and every Toolbelt database reset.
+rebuild:
+  autonomy_rebuild_default: false
+  limits:
+    per_target_per_day: 1 # a second rebuild inside 24 h means the first did not fix it: escalate
+    per_target_per_week: 2
+    per_class_per_day: 2
+    fleet_per_day: 3
+    breaker_failures: 1 # a failed or unverified rebuild leaves a half-built guest: stop and page
+    plan_max_age_seconds: 900
+  dead:
+    probe_count: 3 # reach.tcp failures after the last success ...
+    probe_span_seconds: 600 # ... spanning at least this long, with the Zabbix agent silent
+    backup_max_age_hours: 36 # a dead guest with data needs a nightly PBS backup this recent
+  broken:
+    drift_max_changed: 10 # a dry-run replay larger than this that a role replay cannot fix
+  stages:
+    A: {classes: [canary], autonomy: auto}
+    B1: {classes: [adguard-replica], autonomy: approval-then-auto, approvals_before_auto: 2}
+    B2: {classes: [tailscale-router], autonomy: approval} # root-ticket module: an unattended runner must never hold root@pam
+    B3: {classes: [offsite], autonomy: approval}
+    C: {classes: [worker], autonomy: approval}
+  classes:
+    canary:
+      stage: A
+      kind: lxc
+      module: asgard-lxcs
+      pool: aiops-canary
+      backup: none
+      converge: asgard-canary
+      hosts:
+        canary-1: {vmid: 1190, node: urd}
+        canary-2: {vmid: 1191, node: urd}
+        canary-3: {vmid: 1192, node: urd}
+      post_conditions: [ssh-as-ansible, agents-active, alert-cleared, vlagent-active, zabbix-agent2-active, zabbix-group-canary, canary-template-linked]
+    adguard-replica:
+      stage: B1
+      kind: lxc
+      module: asgard-lxcs
+      pool: aiops-replica
+      backup: pbs-last-chance
+      converge: asgard-adguard
+      leader_aware: vrrp-master
+      neighbours: [saga, mimir, kvasir]
+      hosts: # Saga (1110) is the Terraform/sync origin and VRRP priority holder: never in scope
+        mimir: {vmid: 1111, node: verd}
+        kvasir: {vmid: 1112, node: skuld}
+      post_conditions: [ssh-as-ansible, agents-active, alert-cleared, adguard-answers-rewrite, keepalived-priority, sync-parity, vip-answers]
+    tailscale-router: # approval only; gjallarbru is the sole exit node (singleton): out
+      stage: B2
+      kind: lxc
+      module: asgard-lxcs-root
+      backup: pbs-last-chance
+      converge: asgard-tailscale
+      hosts:
+        bifrost: {vmid: 1113, node: urd}
+        heimdall: {vmid: 1114, node: skuld}
+      post_conditions: [ssh-as-ansible, agents-active, alert-cleared, tailscaled-up-tagged, routes-advertised-approved, peer-router-online]
+    offsite:
+      stage: B3
+      kind: droplet
+      module: digitalocean
+      backup: pbs-last-chance
+      converge: do1
+      hosts:
+        do1: {vmid: 9900, node: digitalocean}
+      post_conditions: [ssh-as-ansible, agents-active, alert-cleared, public-health-via-reserved-ip, containers-up, gatus-heartbeat-accepted, tailnet-tag-offsite]
+    worker:
+      stage: C
+      kind: k8s-worker
+      module: asgard-k3s
+      backup: manifest # the data-loss manifest (worker_data_manifest) gates it, not a PBS last-chance backup
+      converge: asgard-k3s
+      hosts:
+        einherjar-urd: {vmid: 2101, node: urd}
+        einherjar-verd: {vmid: 2102, node: verd}
+        einherjar-skuld: {vmid: 2103, node: skuld}
+      post_conditions: [node-ready, calico-pod-running, vault-3-voters, no-pvc-pending, helmreleases-ready, local-path-serving, alert-cleared]
+  deny: # refused at validation AND re-checked in the runner; lint pins the quorum/CP/brain members so they cannot be dropped
+    names: [saga, fulla, vor, idunn, hlin, eir, snotra, hugin, factorio, gna, ratatoskr, frigg, gondul, hlokk, sigrun, pbs]
+    vmids: [1101, 1102, 1110, 1120, 1121, 1122, 1130, 1131, 1132, 1133, 1134, 1135, 2001, 2002, 2003, 2900]
+  policies: # all disabled: enabling one is a reviewed PR once its stage's gate has passed
+    start-dead-canary: {enabled: false, action: start-guest, class: canary, runbook: RB-GUEST-DEAD, layers: [host, workload], min_confidence: medium, precheck: guest-dead}
+    start-dead-replica: {enabled: false, action: start-guest, class: adguard-replica, runbook: RB-GUEST-DEAD, layers: [host, workload], min_confidence: medium, precheck: guest-dead}
+    rebuild-dead-canary: {enabled: false, action: rebuild-guest, class: canary, runbook: RB-GUEST-DEAD, layers: [host, workload], min_confidence: medium, precheck: guest-dead}
+    rebuild-broken-canary: {enabled: false, action: rebuild-guest, class: canary, runbook: RB-GUEST-BROKEN, layers: [workload, drift], min_confidence: medium, precheck: guest-broken}
+    rebuild-dead-replica: {enabled: false, action: rebuild-guest, class: adguard-replica, runbook: RB-GUEST-DEAD, layers: [host, workload], min_confidence: medium, precheck: guest-dead} # flipped by PR after 2 clean approvals each
 
 actions:
   # === T0: read-only =========================================================
@@ -355,3 +454,152 @@ actions:
         ok: true
         ready: 'True'
     rollback: --reset has no inverse. If the release fails again it stays Stalled and the alert stays open; do not loop (the 10f1 circuit breaker caps attempts per target).
+
+  # === Phase 10g: fleet rebuild loop (planned; policy data only, nothing is built) ============================
+  # `semaphore.planned: true` = the template and playbook are NOT written yet (10g2), so lint does not require them
+  # to exist; `applied: false` keeps the engine from running them regardless. Classes, targets and guards live in the
+  # `rebuild:` section above; every target is re-checked against it by the Toolbelt AND the (future) runner.
+
+  rebuild-plan:
+    description: Plan the replace (or create) of ONE rebuild-class guest on the Frigg rebuild runner and machine-check that the plan is exactly one in-scope change; changes nothing.
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Read-only (`terraform plan -replace -target -out`); the saved plan is a file, no state is written.
+    semaphore:
+      template: aiops-rebuild-plan
+      playbook: ansible/playbooks/aiops-rebuild-plan.yml
+      applied: false
+      planned: true
+    extra_vars:
+      target:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+        description: One name from a rebuild.classes host list (never a group or pattern).
+    guard:
+      summary: Target must be in a rebuild class and not on rebuild.deny; the plan must pass the shape rules (one replace or create, identity unchanged, nothing else).
+      target_policy: n/a
+      needs: the Frigg rebuild runner (10g1 slice 1); not built.
+    verify:
+      self: true
+      expect:
+        ok: true
+        plan_ok: true
+    rollback: Nothing changed.
+
+  start-guest:
+    description: Rung 0 of the rebuild ladder - start (or reboot) ONE stopped rebuild-class guest through the PVE API; never creates or destroys.
+    tier: T1
+    max_autonomy: auto # only through a rebuild.policies entry (start-dead-*), classes canary and adguard-replica; all disabled today
+    idempotent: true
+    idempotency: Starting a running guest is a no-op; the action never creates or destroys.
+    semaphore:
+      template: aiops-start-guest
+      playbook: ansible/playbooks/aiops-start-guest.yml
+      applied: false
+      planned: true
+    extra_vars:
+      target:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+    guard:
+      summary: Target must be in a rebuild class, not on rebuild.deny, on a healthy node; start only.
+      target_policy: n/a
+    verify:
+      self: true
+      expect:
+        ok: true
+        running: true
+    rollback: None needed (a started guest can be stopped again by the operator).
+
+  rebuild-guest:
+    description: Destroy and recreate ONE rebuild-class LXC or droplet from the repo in place (steps plan, apply the saved plan, converge, verify); same node, VMID, name and IP.
+    tier: T1
+    max_autonomy: approval # auto only through a rebuild.policies entry per class, under the separate autonomy_rebuild switch; none enabled today
+    idempotent: true
+    idempotency: Resumable from state, not blind replay. Re-proposing after a mid-way failure re-plans from what Terraform and the guest report, and the apply is bound to the plan hash.
+    semaphore:
+      template: aiops-rebuild-converge
+      playbook: ansible/playbooks/aiops-rebuild-converge.yml
+      applied: false
+      planned: true
+    extra_vars:
+      target:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      plan_hash:
+        type: string
+        required: true
+        pattern: '[0-9a-f]{64}'
+        description: The hash of the plan rebuild-plan produced and checked; the apply refuses any other.
+    guard:
+      summary: rebuild.classes allow-list (not worker), not on rebuild.deny, healthy node, peers healthy, leader-aware, rate limits and breaker closed, one in flight; requires a rebuild-plan with the same hash.
+      target_policy: n/a
+      requires_prior: rebuild-plan
+    verify:
+      action: rebuild-verify
+      vars:
+        target: '{target}'
+      expect:
+        ok: true
+    rollback: Restore the last-chance PBS backup to the same VMID (`pct restore`); for canaries nothing to restore, rebuild again.
+
+  rebuild-worker:
+    description: Replace ONE asgard K3s worker VM (cordon and drain, backup gate, plan and apply, delete the node object, converge, uncordon); approval only, behind the data-loss manifest.
+    tier: T2
+    max_autonomy: approval # always, until the 10g3 gate (three consecutive approved rebuilds, a restore drill, a clean manifest)
+    idempotent: true
+    idempotency: Resumable from state (Terraform and the cluster say where it stopped); the apply is bound to the plan hash.
+    semaphore:
+      template: aiops-rebuild-worker
+      playbook: ansible/playbooks/aiops-rebuild-worker.yml
+      applied: false
+      planned: true
+    extra_vars:
+      target:
+        type: string
+        required: true
+        pattern: 'einherjar-(urd|verd|skuld)'
+      plan_hash:
+        type: string
+        required: true
+        pattern: '[0-9a-f]{64}'
+    guard:
+      summary: Worker allow-list only (never a control-plane VM), all other nodes Ready and etcd 3/3, Vault unsealed with 3 peers, the data manifest does not block (single-instance data needs a PBS backup of /data within 24 h), a rebuild-plan with the same hash.
+      target_policy: n/a
+      requires_prior: rebuild-plan
+    verify:
+      action: rebuild-verify
+      vars:
+        target: '{target}'
+      expect:
+        ok: true
+    rollback: The node is replaceable. Data restore is the worker /data PBS backup (single-instance PVs) or Raft resync (Vault).
+
+  rebuild-verify:
+    description: Class-specific post-conditions for a rebuilt guest (rebuild.classes post_conditions, plus the originating alert cleared); read-only.
+    tier: T0
+    max_autonomy: auto
+    idempotent: true
+    idempotency: Read-only checks.
+    semaphore:
+      template: aiops-rebuild-verify
+      playbook: ansible/playbooks/aiops-rebuild-verify.yml
+      applied: false
+      planned: true
+    extra_vars:
+      target:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+    guard:
+      summary: Any rebuild-class target; read-only.
+      target_policy: n/a
+    verify:
+      self: true
+      expect:
+        ok: true
+    rollback: Nothing to roll back (read-only).

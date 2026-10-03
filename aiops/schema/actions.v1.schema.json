@@ -30,6 +30,15 @@
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]*$"
           }
+        },
+        "T2": {
+          "description": "Stateful or hard-to-replace hosts the rebuild section may name (approval-gated at best); never a target of a T1 action.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          }
         }
       }
     },
@@ -99,6 +108,338 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/policy"
+          }
+        }
+      }
+    },
+    "rebuild": {
+      "description": "Phase 10g fleet rebuild loop: scope (classes, hosts, ladder stages), hard limits, deny list and policies. Policy data only; the runtime switch autonomy_rebuild lives in the Toolbelt and is off by default.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "autonomy_rebuild_default",
+        "limits",
+        "dead",
+        "broken",
+        "stages",
+        "classes",
+        "deny",
+        "policies"
+      ],
+      "properties": {
+        "autonomy_rebuild_default": {
+          "const": false
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "per_target_per_day",
+            "per_target_per_week",
+            "per_class_per_day",
+            "fleet_per_day",
+            "breaker_failures",
+            "plan_max_age_seconds"
+          ],
+          "properties": {
+            "per_target_per_day": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "per_target_per_week": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "per_class_per_day": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "fleet_per_day": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "breaker_failures": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "plan_max_age_seconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "dead": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "probe_count",
+            "probe_span_seconds",
+            "backup_max_age_hours"
+          ],
+          "properties": {
+            "probe_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "probe_span_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "backup_max_age_hours": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "broken": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "drift_max_changed"
+          ],
+          "properties": {
+            "drift_max_changed": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "stages": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": [
+              "A",
+              "B1",
+              "B2",
+              "B3",
+              "C"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "classes",
+              "autonomy"
+            ],
+            "properties": {
+              "classes": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
+                }
+              },
+              "autonomy": {
+                "enum": [
+                  "auto",
+                  "approval-then-auto",
+                  "approval"
+                ]
+              },
+              "approvals_before_auto": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "classes": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "stage",
+              "kind",
+              "module",
+              "backup",
+              "converge",
+              "hosts",
+              "post_conditions"
+            ],
+            "properties": {
+              "stage": {
+                "enum": [
+                  "A",
+                  "B1",
+                  "B2",
+                  "B3",
+                  "C"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "lxc",
+                  "droplet",
+                  "k8s-worker"
+                ]
+              },
+              "module": {
+                "enum": [
+                  "asgard-lxcs",
+                  "asgard-lxcs-root",
+                  "asgard-k3s",
+                  "digitalocean"
+                ]
+              },
+              "pool": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "backup": {
+                "enum": [
+                  "none",
+                  "pbs-last-chance",
+                  "manifest"
+                ]
+              },
+              "converge": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "leader_aware": {
+                "enum": [
+                  "vrrp-master"
+                ]
+              },
+              "neighbours": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
+                }
+              },
+              "hosts": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "vmid",
+                    "node"
+                  ],
+                  "properties": {
+                    "vmid": {
+                      "type": "integer",
+                      "minimum": 100
+                    },
+                    "node": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]*$"
+                    }
+                  }
+                }
+              },
+              "post_conditions": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]*$"
+                }
+              }
+            }
+          }
+        },
+        "deny": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "names",
+            "vmids"
+          ],
+          "properties": {
+            "names": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              }
+            },
+            "vmids": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "policies": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "action",
+              "class",
+              "runbook",
+              "layers",
+              "min_confidence",
+              "precheck"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "action": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "class": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "runbook": {
+                "type": "string",
+                "pattern": "^RB-[A-Z0-9-]+$"
+              },
+              "layers": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "host",
+                    "hypervisor",
+                    "workload",
+                    "network",
+                    "drift",
+                    "external"
+                  ]
+                }
+              },
+              "min_confidence": {
+                "enum": [
+                  "medium",
+                  "high"
+                ]
+              },
+              "precheck": {
+                "enum": [
+                  "guest-dead",
+                  "guest-broken"
+                ]
+              }
+            }
           }
         }
       }
@@ -215,6 +556,10 @@
               "type": "object",
               "description": "Semaphore task fields the executor must set (not extra-vars). Values may reference extra_vars as {name}.",
               "additionalProperties": true
+            },
+            "planned": {
+              "type": "boolean",
+              "description": "true = the template and playbook are not written yet (planned in a phase doc); lint skips their existence checks. Requires applied: false."
             }
           }
         },

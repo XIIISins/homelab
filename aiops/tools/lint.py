@@ -151,9 +151,10 @@ def check_actions(reg: dict, root: Path) -> list[str]:
         if tier == "T2" and AUTONOMY[auto] > AUTONOMY["approval"]:
             errs.append(f"actions: {name}: T2 action may not exceed approval")
         if tier != "T0" and auto == "auto":
-            covered = any(p.get("action") == name for p in (reg.get("autonomy") or {}).get("policies", {}).values())
+            pols = list((reg.get("autonomy") or {}).get("policies", {}).values()) + list((reg.get("rebuild") or {}).get("policies", {}).values())
+            covered = any(p.get("action") == name for p in pols)
             if tier != "T1" or not covered:
-                errs.append(f"actions: {name}: mutating action may not be auto unless it is T1 and an autonomy policy covers it (10f)")
+                errs.append(f"actions: {name}: mutating action may not be auto unless it is T1 and an autonomy or rebuild policy covers it (10f/10g)")
         if auto != "none" and not a["idempotent"]:
             errs.append(f"actions: {name}: non-idempotent action cannot have max_autonomy {auto}")
         if a["idempotent"] and not a.get("idempotency"):
@@ -204,6 +205,11 @@ def check_actions(reg: dict, root: Path) -> list[str]:
 
         # semaphore template + playbook
         sem = a["semaphore"]
+        if sem.get("planned"):
+            # 10g: template and playbook are planned, not written. Never let a planned action look runnable.
+            if sem["applied"]:
+                errs.append(f"actions: {name}: semaphore.planned needs applied: false")
+            continue
         if sem["template"] not in tf:
             errs.append(f"actions: {name}: Semaphore template {sem['template']!r} not defined in terraform/semaphore/templates.tf")
         elif tf[sem["template"]] != sem["playbook"]:
@@ -259,6 +265,123 @@ def check_autonomy(reg: dict, rb_doc: dict) -> list[str]:
                 errs.append(f"autonomy: policy {pname} is enabled but runbook {p['runbook']} is automatable {rb['automatable']} (needs auto)")
             if a.get("guard", {}).get("target_policy") == "host_tiers.T1" and not au["hosts"]:
                 errs.append(f"autonomy: policy {pname}: a host-targeted action needs autonomy.hosts")
+    return errs
+
+
+# 10g hard limits, pinned here so a PR cannot quietly drop one from the deny list (docs/operations/10g-rebuild-loop.md).
+REBUILD_DENY_NAMES = {"saga", "fulla", "vor", "idunn", "hlin", "eir", "snotra", "hugin", "factorio", "gna", "ratatoskr", "frigg",
+                      "gondul", "hlokk", "sigrun", "pbs"}
+REBUILD_DENY_VMIDS = {1101, 1102, 1110, 1120, 1121, 1122, 1130, 1131, 1132, 1133, 1134, 1135, 2001, 2002, 2003, 2900}
+CONTROL_PLANE_NAMES = {"gondul", "hlokk", "sigrun", "rota", "hildr", "kara"}
+PBS_NAME, PBS_VMID = "pbs", 1101
+CANARY_VMIDS = {1190, 1191, 1192}
+# action -> (tier, max_autonomy) exactly as the plan's table says
+REBUILD_ACTIONS = {
+    "rebuild-plan": ("T0", "auto"),
+    "start-guest": ("T1", "auto"),
+    "rebuild-guest": ("T1", "approval"),
+    "rebuild-worker": ("T2", "approval"),
+    "rebuild-verify": ("T0", "auto"),
+}
+REBUILD_PRECHECK_ACTIONS = {"guest-dead": {"start-guest", "rebuild-guest"}, "guest-broken": {"rebuild-guest"}}
+
+
+def check_rebuild(reg: dict, rb_doc: dict) -> list[str]:
+    """The rebuild section (10g): scope, hard limits and policies must be consistent with host_tiers, the actions and the
+    runbooks. This is the file a reviewer reads to know what the loop may destroy."""
+    errs: list[str] = []
+    rb = reg.get("rebuild")
+    if not rb:
+        return errs
+    actions = reg["actions"]
+    tiers = reg["host_tiers"]
+    known = set(tiers.get("T1", [])) | set(tiers.get("T2", []))
+    runbooks = {r["id"]: r for r in rb_doc["runbooks"]}
+    deny_names, deny_vmids = set(rb["deny"]["names"]), set(rb["deny"]["vmids"])
+    for n in sorted(REBUILD_DENY_NAMES - deny_names):
+        errs.append(f"rebuild: deny.names must keep {n!r} (quorum member, state-bearing, control plane or the loop's own agent)")
+    for v in sorted(REBUILD_DENY_VMIDS - deny_vmids):
+        errs.append(f"rebuild: deny.vmids must keep {v}")
+    if rb["limits"]["breaker_failures"] != 1:
+        errs.append("rebuild: limits.breaker_failures must be 1 (a failed rebuild leaves a half-built guest: stop and page)")
+
+    stage_of_class: dict[str, str] = {}
+    for sname, st in rb["stages"].items():
+        for c in st["classes"]:
+            if c not in rb["classes"]:
+                errs.append(f"rebuild: stage {sname} lists unknown class {c!r}")
+            stage_of_class[c] = sname
+        if sname != "A" and st["autonomy"] == "auto":
+            errs.append(f"rebuild: stage {sname}: only stage A (the canaries) may be unattended from the start")
+        if sname == "A" and st["autonomy"] != "auto":
+            errs.append("rebuild: stage A is the canary stage and is auto")
+        if st["autonomy"] == "approval-then-auto" and "approvals_before_auto" not in st:
+            errs.append(f"rebuild: stage {sname}: approval-then-auto needs approvals_before_auto")
+        if st["autonomy"] != "approval-then-auto" and "approvals_before_auto" in st:
+            errs.append(f"rebuild: stage {sname}: approvals_before_auto only applies to approval-then-auto")
+    seen_hosts: dict[str, str] = {}
+    for cname, c in rb["classes"].items():
+        if stage_of_class.get(cname) != c["stage"]:
+            errs.append(f"rebuild: class {cname}: stage {c['stage']} does not list it")
+        if c["kind"] == "k8s-worker" and (c["stage"] != "C" or c["module"] != "asgard-k3s"):
+            errs.append(f"rebuild: class {cname}: workers are stage C in the asgard-k3s module")
+        if c["module"] == "asgard-lxcs-root" and c["stage"] not in ("B2",):
+            errs.append(f"rebuild: class {cname}: the root-ticket module is approval-only (stage B2)")
+        for n in c.get("neighbours", []):
+            if n not in known and n not in deny_names:
+                errs.append(f"rebuild: class {cname}: neighbour {n!r} is neither a known host nor a denied one")
+        if c.get("leader_aware") and not c.get("neighbours"):
+            errs.append(f"rebuild: class {cname}: leader_aware needs neighbours")
+        for h, info in c["hosts"].items():
+            if h in seen_hosts:
+                errs.append(f"rebuild: host {h!r} is in classes {seen_hosts[h]} and {cname}")
+            seen_hosts[h] = cname
+            if h not in known:
+                errs.append(f"rebuild: class {cname}: host {h!r} is not in host_tiers (T1 or T2)")
+            if h in deny_names or info["vmid"] in deny_vmids:
+                errs.append(f"rebuild: class {cname}: host {h!r} (vmid {info['vmid']}) is on the deny list")
+            if h in CONTROL_PLANE_NAMES or 2000 < info["vmid"] <= 2003 or 3000 < info["vmid"] <= 3003:
+                errs.append(f"rebuild: class {cname}: {h!r} is a control-plane node (etcd member): never in the loop")
+            if h == PBS_NAME or info["vmid"] == PBS_VMID:
+                errs.append(f"rebuild: class {cname}: PBS is never rebuilt by the loop and never placed on Skuld")
+            is_canary = h.startswith("canary-") or info["vmid"] in CANARY_VMIDS
+            if is_canary and c["stage"] != "A":
+                errs.append(f"rebuild: class {cname}: canary {h!r} belongs only in stage A")
+            if cname == "canary" and (not is_canary or info["node"] != "urd"):
+                errs.append(f"rebuild: class canary: {h!r} must be a canary-N guest on urd")
+            if c["stage"] == "A" and not is_canary:
+                errs.append(f"rebuild: stage A is canaries only; {h!r} is not one")
+            if c["kind"] != "k8s-worker" and h not in tiers.get("T1", []) and c["kind"] == "lxc":
+                errs.append(f"rebuild: class {cname}: LXC {h!r} must be in host_tiers.T1")
+            if c["kind"] == "k8s-worker" and h not in tiers.get("T2", []):
+                errs.append(f"rebuild: class {cname}: worker {h!r} must be in host_tiers.T2")
+    for aname, (tier, auto) in REBUILD_ACTIONS.items():
+        a = actions.get(aname)
+        if a is None:
+            errs.append(f"rebuild: action {aname} is missing from the registry")
+        elif (a["tier"], a["max_autonomy"]) != (tier, auto):
+            errs.append(f"rebuild: action {aname} must be {tier} / max_autonomy {auto} (is {a['tier']} / {a['max_autonomy']})")
+    for pname, p in rb["policies"].items():
+        a = actions.get(p["action"])
+        stage = rb["stages"].get(rb["classes"].get(p["class"], {}).get("stage", ""), {})
+        if p["class"] not in rb["classes"]:
+            errs.append(f"rebuild: policy {pname}: unknown class {p['class']!r}")
+        if p["action"] not in ("start-guest", "rebuild-guest"):
+            errs.append(f"rebuild: policy {pname}: only start-guest and rebuild-guest may run unattended (not {p['action']})")
+        elif p["action"] == "start-guest" and p["class"] not in ("canary", "adguard-replica"):
+            errs.append(f"rebuild: policy {pname}: start-guest policies cover canary and adguard-replica only")
+        if p["action"] not in REBUILD_PRECHECK_ACTIONS.get(p["precheck"], set()):
+            errs.append(f"rebuild: policy {pname}: precheck {p['precheck']} does not belong to action {p['action']}")
+        if p["enabled"]:
+            if stage.get("autonomy") not in ("auto", "approval-then-auto"):
+                errs.append(f"rebuild: policy {pname} is enabled but its class is approval-only")
+            if a is not None and a["max_autonomy"] != "auto":
+                errs.append(f"rebuild: policy {pname} is enabled but action {p['action']} has max_autonomy {a['max_autonomy']} (needs auto)")
+            r = runbooks.get(p["runbook"])
+            if r is None:
+                errs.append(f"rebuild: policy {pname}: runbook {p['runbook']} is not in runbooks.yml")
+            elif p["action"] not in r.get("remediation", []):
+                errs.append(f"rebuild: policy {pname}: runbook {p['runbook']} does not list {p['action']} as a remediation")
     return errs
 
 
@@ -651,6 +774,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_actions(reg, root)
     errs += check_runbooks(rb, reg, root)
     errs += check_autonomy(reg, rb)
+    errs += check_rebuild(reg, rb)
     errs += check_routing(rt, rb)
     errs += check_fixtures(root, rt["routes"])
     errs += check_zabbix_native(root, rt["routes"], {r["id"] for r in rb["runbooks"]})
