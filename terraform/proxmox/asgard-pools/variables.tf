@@ -30,7 +30,7 @@ variable "sdn_zone_id" {
 }
 
 variable "canary_vmids" {
-  description = "VMIDs of the canary LXCs (asgard-lxcs canary_nodes). The runner token gets read-only VM.Audit on exactly these paths so a refresh of a DESTROYED canary answers 404 instead of 403 (it leaves the pool when destroyed)."
+  description = "VMIDs of the canary LXCs (asgard-lxcs canary_nodes). The runner token gets the guest role (not just audit) on exactly these paths, so a DESTROYED canary (it leaves the pool) can be refreshed and re-created."
   type        = list(number)
   default     = [1190, 1191, 1192]
 }
