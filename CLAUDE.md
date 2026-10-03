@@ -262,7 +262,7 @@ Runtime quick-reference only. Full K3s install/VM detail in [`docs/services/asga
 
 **In flight / pending:**
 - 🟡 **Phase 6 — Secret mgmt (Vault OIDC) + Frigg watchtower.** Stage 1 (Vault OIDC, `homelab-admin` read-only, `VAULT_ADDR` cut to HTTPS FQDN) ✅. Stage 2 (Frigg HA control-node VM 2900, Vault-backed shim, `claude remote-control` as systemd, remote-host ansible) ✅ core LIVE. Vault listener TLS flip (`tls_disable=1` → cert-manager internal CA) ✅ landed 2026-06-20 (`.11` serves HTTPS, no plaintext endpoint) — no longer a Phase 7 gate; see [`docs/procedures/vault-tls-migration.md`](docs/procedures/vault-tls-migration.md). **2026-09-22: the RC login-invalidation crash-loop is now self-healing** — `frigg-reauth-listener` auto-detects, re-authenticates via a Discord-URL + internal paste-back-form flow, and restarts the service unattended; see [`docs/known-issues/frigg-control-node.md`](docs/known-issues/frigg-control-node.md). **2026-10-02: the fleet `ansible_niflheim` SSH key lives only in a memory-only ssh-agent on Frigg** (`roles/frigg-ssh-agent`: root loader pulls it from Vault straight into agent memory; the shim exports `SSH_AUTH_SOCK` + the key's `.pub`; no private key file on Frigg by design; reboot-tested).
-- ✅ **Services** — Startpage ✅, MicroBin ✅, n8n ✅, Immich ✅.
+- ✅ **Services** — Startpage ✅, MicroBin ✅, Immich ✅. (The asgard-K3s n8n was removed 2026-10-03: one never-activated scratch workflow. `n8n` now means the AIOps agent on Gná, internal-only.)
 - 🔲 Remaining asgard LXCs (Jellyfin — privileged LXC on Urd, QuickSync passthrough)
 - 🔲 **Phase 7 — Jotunheim K3s**
 - 🔲 Phase 8b — vm-operator migration (VLSingle/VMSingle CRDs + VMServiceScrape)
