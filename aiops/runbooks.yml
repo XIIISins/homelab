@@ -51,6 +51,50 @@ runbooks:
       why: The simplest stateless heal and the roadmap's first 10f2 class ("restart a failed stateless unit"); agent-not-available on a canary is the live test. Canary-only until the 14-day soak passes.
     maturity: curated
 
+  # --- rebuild loop (10g) ---------------------------------------------------------
+  # approval, not auto, until the rebuild policies are enabled by a reviewed PR: rebuild-guest caps at approval in the
+  # registry (a policy entry under the separate autonomy_rebuild switch is what lets it run unattended), and the linter
+  # requires an `auto` runbook to be backed by auto-capable actions. The rungs are ordered: start-guest first.
+
+  - id: RB-GUEST-DEAD
+    title: A rebuild-class guest is dead (stopped, hung, or unreachable) while its hypervisor node is healthy
+    source: docs/procedures/canary-pool.md
+    tier: T1
+    automatable: approval
+    preconditions:
+      - The target is in a rebuild class (rebuild.classes) and not on rebuild.deny; today only the canaries (LXCs 1190-1192 on Urd)
+      - The hypervisor node is online and its other guests answer, so this is the GUEST, not the host (roadmap principle 2, the Skuld freeze)
+      - The Toolbelt's own reads agree it is dead (PVE says stopped or hung, or reach.tcp fails repeatedly with the Zabbix agent silent)
+      - Rung 0 first (start-guest); rebuild only after the start failed or cannot apply
+      - Rebuild autonomy master switch on, kill switch off, no maintenance window, rebuild breaker closed, no other rebuild in flight
+    diagnostics: []
+    remediation: [start-guest, rebuild-guest]
+    verify:
+      action: rebuild-verify
+    selection:
+      basis: both
+      why: The 10g canary kill test (scripts/canary/fault kill) and the first rung of the rebuild ladder; a dead guest also silences the agent heartbeat trigger, so the High "guest unreachable" trigger is the one that reaches the agent.
+    maturity: curated
+
+  - id: RB-GUEST-BROKEN
+    title: A rebuild-class guest is up but broken beyond a unit restart or a role replay (breaker tripped, or drift a replay cannot fix)
+    source: docs/procedures/canary-pool.md
+    tier: T1
+    automatable: approval
+    preconditions:
+      - The target is in a rebuild class and not on rebuild.deny; today only the canaries
+      - The hypervisor node is healthy and the guest answers, so lower rungs were tried first
+      - The 10f restart breaker tripped for this target in the last 24 h, or a dry-run replay shows drift larger than rebuild.broken.drift_max_changed that a role replay cannot fix
+      - Rebuild autonomy master switch on, kill switch off, no maintenance window, rebuild breaker closed, no other rebuild in flight
+    diagnostics: []
+    remediation: [rebuild-guest]
+    verify:
+      action: rebuild-verify
+    selection:
+      basis: both
+      why: The 10g broken-not-dead acceptance case; the rebuild resets the target's restart budget so the 10f breaker and this loop do not fight.
+    maturity: curated
+
   # --- recurrence-selected ---------------------------------------------------
 
   - id: RB-FLUX-HR-STALLED

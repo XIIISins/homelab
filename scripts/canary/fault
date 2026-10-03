@@ -6,6 +6,8 @@
 #   fault status  <canary-1|canary-2|canary-3> <vlagent.service|zabbix-agent2.service>
 #   fault flag    <canary-1|canary-2|canary-3> <high|disaster>    # synthetic High/Disaster problem, no service touched
 #   fault unflag  <canary-1|canary-2|canary-3> <high|disaster>
+#   fault kill    <canary-1|canary-2|canary-3>                    # stop the WHOLE container (pct stop, via its PVE host)
+#   fault destroy <canary-1|canary-2|canary-3> --yes-destroy      # stop + pct destroy --purge (the Terraform state then lies)
 #
 # `stop` is the fault the autonomy policy `restart-failed-unit` is meant to heal: the "Canary smoke test" Zabbix template
 # (ansible/playbooks/files/zabbix/canary-smoke-test.yml) raises a High problem, Gna diagnoses it (runbook
@@ -21,29 +23,42 @@
 # Runs ad-hoc ansible from this checkout with the warm IaC env.
 set -euo pipefail
 
-usage() { sed -n '2,19p' "$0"; exit "${1:-2}"; }
-[ "$#" -eq 3 ] || usage
-verb="$1" host="$2" what="$3"
+usage() { sed -n '2,25p' "$0"; exit "${1:-2}"; }
+[ "$#" -ge 2 ] || usage
+verb="$1" host="$2" what="${3:-}"
 
-case "$verb" in stop|restore|status|flag|unflag) ;; -h|--help) usage 0 ;; *) usage ;; esac
+case "$verb" in stop|restore|status|flag|unflag|kill|destroy) ;; -h|--help) usage 0 ;; *) usage ;; esac
 case "$host" in canary-1|canary-2|canary-3) ;; *) echo "fault: '$host' is not a canary" >&2; exit 2 ;; esac
 case "$verb" in
-  flag|unflag) case "$what" in high|disaster) ;; *) echo "fault: '$what' is not high|disaster" >&2; exit 2 ;; esac ;;
-  *) case "$what" in vlagent.service|zabbix-agent2.service) ;; *) echo "fault: '$what' is not an allow-listed canary unit" >&2; exit 2 ;; esac ;;
+  flag|unflag) [ "$#" -eq 3 ] || usage; case "$what" in high|disaster) ;; *) echo "fault: '$what' is not high|disaster" >&2; exit 2 ;; esac ;;
+  kill) [ "$#" -eq 2 ] || usage ;;
+  destroy) [ "$#" -eq 3 ] || usage; [ "$what" = "--yes-destroy" ] || { echo "fault: destroy needs the explicit --yes-destroy flag" >&2; exit 2; } ;;
+  *) [ "$#" -eq 3 ] || usage; case "$what" in vlagent.service|zabbix-agent2.service) ;; *) echo "fault: '$what' is not an allow-listed canary unit" >&2; exit 2 ;; esac ;;
 esac
+
+# kill/destroy act on a whole container, so the VMID is derived from the validated name AND re-validated: only the
+# canary VMIDs 1190-1192 on Urd can ever reach `pct`. Anything else is refused before any command runs.
+vmid=$((1189 + ${host#canary-}))
+case "$vmid" in 1190|1191|1192) ;; *) echo "fault: VMID $vmid is outside the canary range 1190-1192" >&2; exit 2 ;; esac
+if [ "${FAULT_VALIDATE_ONLY:-}" = "1" ]; then echo "fault: valid: $verb $host (VMID $vmid)"; exit 0; fi  # test hook: no ansible, no SSH
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [ -r "$HOME/.cache/homelab/env.sh" ] && . "$HOME/.cache/homelab/env.sh"   # a plain exports file: source it, never cat it
 cd "$root/ansible"
 
 run() { ansible -i inventory/hosts.yml "$host" -b "$@"; }
+# kill/destroy run on the PVE host (root over SSH, group_vars/proxmox.yml); the hostname check ties the VMID to the name.
+pve() { ansible -i inventory/hosts.yml urd -m ansible.builtin.shell -a "$1"; }
+guard="pct config $vmid | grep -qx 'hostname: $host'"
 
 case "$verb" in
   stop)    run -m ansible.builtin.systemd -a "name=$what state=stopped" ;;
   restore) run -m ansible.builtin.systemd -a "name=$what state=started" ;;
   status)  run -m ansible.builtin.command -a "systemctl is-active $what" ;;
+  kill)    pve "set -e; $guard; pct status $vmid | grep -q stopped || pct stop $vmid" ;;
+  destroy) pve "set -e; $guard; pct status $vmid | grep -q stopped || pct stop $vmid; pct destroy $vmid --purge" ;;
   flag)    run -m ansible.builtin.file -a "path=/var/lib/aiops-smoke state=directory mode=0755"
            run -m ansible.builtin.file -a "path=/var/lib/aiops-smoke/$what state=touch mode=0644" ;;
   unflag)  run -m ansible.builtin.file -a "path=/var/lib/aiops-smoke/$what state=absent" ;;
 esac
-echo "fault: $verb $what on $host done at $(date -u +%FT%TZ)"
+echo "fault: $verb ${what:-} on $host done at $(date -u +%FT%TZ)"

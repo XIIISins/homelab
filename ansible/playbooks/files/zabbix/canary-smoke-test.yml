@@ -13,6 +13,18 @@
 #   stop zabbix-agent2.service  -> "agent service down" (High, after ~3 min of no data)
 #   stop vlagent.service        -> "vlagent not active" (High)
 #   flag <canary> high|disaster -> a synthetic problem with no service touched (pipeline test, High / Disaster)
+#   kill <canary>               -> the whole guest stops (pct stop): "guest unreachable (ICMP ping loss)" (High, ~3 min)
+#
+# "Guest unreachable" semantics (Phase 10g rebuild loop): the ICMP simple check is run by the Zabbix SERVER (fping),
+# not the agent, so it keeps producing data when the guest is dead. It needs an interface on the host (the agent
+# interface's IP is used) and fping on Hugin (zabbix_server.conf FpingLocation). It fires after 3 minutes without a
+# single echo reply (6 consecutive 30 s samples at 0) and recovers on the first reply. The item key `icmpping[,3]` is
+# not defined by "Linux by Zabbix agent", so the two templates do not collide on one host.
+# KNOWN LIMIT: a dead guest ALSO silences the agent heartbeat, so "agent service down (zabbix-agent2)" fires too
+# (nodata). Both are High and both reach the agent; the Toolbelt correlates them per host and the guest-level
+# routing (aiops/alert-routing.yml zbx-canary-guest-down, before the generic host-unavailable route) names
+# RB-GUEST-DEAD for this trigger. The agent-down trigger routes to RB-UNIT-STOPPED-T1, whose own precheck refuses
+# when the host does not answer on port 22, so a kill never turns into a unit restart attempt.
 zabbix_export:
   version: '7.0'
   template_groups:
@@ -39,6 +51,23 @@ zabbix_export:
               name: 'Canary smoke: agent service down (zabbix-agent2)'
               priority: HIGH
               description: The canary's zabbix-agent2 has not answered for 3 minutes (stopped unit on a live host).
+              tags:
+                - tag: aiops
+                  value: canary-smoke
+        - uuid: e42e69d848f646f6bc2762694171d798
+          name: 'Canary smoke: guest ICMP reply'
+          type: SIMPLE
+          key: 'icmpping[,3]'
+          delay: 30s
+          history: 1d
+          trends: '0'
+          description: 1 while the guest answers ICMP (checked by the Zabbix server, so it works when the guest is dead), 0 when it does not.
+          triggers:
+            - uuid: 5a6d50fc86334def80a0036bece9f427
+              expression: 'max(/Canary smoke test/icmpping[,3],3m)=0'
+              name: 'Canary smoke: guest unreachable (ICMP ping loss)'
+              priority: HIGH
+              description: The canary guest has not answered ICMP for 3 minutes (stopped, hung or destroyed container). Distinct from the agent service being down on a live guest.
               tags:
                 - tag: aiops
                   value: canary-smoke

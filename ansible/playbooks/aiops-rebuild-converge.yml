@@ -1,0 +1,117 @@
+# ansible/playbooks/aiops-rebuild-converge.yml
+---
+# Phase 10g step 6 `rebuild-converge` (registry action `rebuild-guest`, steps plan -> apply -> converge -> verify; the
+# template is `aiops-rebuild-converge`). Runs AFTER Terraform created the empty guest: the Day-1 baseline as root, then
+# the class's full play as `ansible` (docs/procedures/canary-pool.md "Destroy / recreate").
+#
+# Canary class only. The guard reads aiops/actions.yml itself: the target must be a canary in rebuild.classes.canary
+# (name `canary-[123]`, VMID 1189+N in 1190-1192, node urd), not on rebuild.deny, and the run must be a single-host
+# --limit equal to `target`. Any other class is refused until a reviewed PR extends this file.
+#
+# Extra-vars: target (one canary name), plan_hash (optional here, 64 hex, echoed into the result for the audit trail;
+# the plan/apply binding is enforced by the runner and the engine, not by Ansible).
+# Run: --limit <target> (task field). NOT check-mode safe: it converges, and the guard refuses --check.
+# Result line: AIOPS_RESULT {"action": "rebuild-converge", "ok": ..., "day1_ran": ..., "target": ...}
+#
+# Flow:
+#   1. guard (hosts: all + run_once tripwire, like aiops-replay-guard.yml: a `hosts: localhost` play would be skipped
+#      under --limit, which would bypass the guard exactly when it matters)
+#   2. wait for SSH on the new guest (up to 10 min)
+#   3. probe `root` (the new guest has only the Terraform-injected key); group_by the answer
+#   4. Day-1 baseline as root, ONLY for hosts that still answer as root (a re-run after hardening must not need it)
+#   5. asgard-canary.yml as `ansible` (baseline, vlagent, zabbix-agent, hardening: root SSH is locked out at the end)
+#   6. result line
+# host_key_checking is False in ansible.cfg, so the recreated guest's new host key needs no ssh-keygen -R here.
+
+- name: AIOps rebuild-converge - guard
+  hosts: all
+  gather_facts: false
+  become: false
+  any_errors_fatal: true
+  run_once: true
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _canaries: "{{ _registry.rebuild.classes.canary.hosts }}"
+    _deny: "{{ _registry.rebuild.deny }}"
+  tasks:
+    - name: Assert single-host --limit equal to a registered canary target (name, VMID, node, deny list, no check mode)
+      ansible.builtin.assert:
+        that:
+          - target is defined
+          - target is match('^canary-[123]$')
+          - ansible_limit is defined
+          - ansible_limit == target
+          - target in _canaries
+          - target in groups['canary']
+          - target not in _deny.names
+          - _canaries[target].vmid not in _deny.vmids
+          - _canaries[target].vmid | int == 1189 + (target[-1] | int)
+          - _canaries[target].vmid | int >= 1190
+          - _canaries[target].vmid | int <= 1192
+          - _canaries[target].node == 'urd'
+          - plan_hash is not defined or plan_hash is match('^[0-9a-f]{64}$')
+          - not ansible_check_mode
+        fail_msg: >-
+          rebuild-converge refused: target={{ target | default('<unset>') }} must be a registered canary
+          (canary-1..3, VMID 1190-1192 on urd, not on rebuild.deny), --limit must equal it
+          (got {{ ansible_limit | default('<none>') }}), plan_hash (if given) 64 hex, and check mode is not allowed.
+        quiet: true
+
+- name: AIOps rebuild-converge - wait for SSH and probe the Day-1 state
+  hosts: "{{ target | default('aiops-no-target') }}" # default only keeps --syntax-check/ansible-lint parseable; the guard fails first when unset
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Wait for SSH on the recreated guest
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        timeout: 600
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Probe whether the guest still answers as root (a fresh guest has only the Terraform-injected key)
+      ansible.builtin.raw: "true"
+      vars:
+        ansible_user: root
+        ansible_become: false
+      register: _aiops_root_probe
+      failed_when: false
+      ignore_unreachable: true
+      changed_when: false
+      retries: 5
+      delay: 10
+      until: _aiops_root_probe is not unreachable and (_aiops_root_probe.rc | default(1)) == 0
+
+    - name: Group the host by the root probe result
+      ansible.builtin.group_by:
+        key: "aiops_day1_{{ (_aiops_root_probe is not unreachable and (_aiops_root_probe.rc | default(1)) == 0) | lower }}"
+
+- name: AIOps rebuild-converge - Day-1 baseline as root (only where root still answers)
+  hosts: aiops_day1_true
+  gather_facts: true
+  become: true
+  vars:
+    ansible_user: root
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+- name: AIOps rebuild-converge - Canary pool - ensure Zabbix host groups and run the full canary play as ansible
+  ansible.builtin.import_playbook: asgard-canary.yml
+
+- name: AIOps rebuild-converge - result
+  hosts: "{{ target | default('aiops-no-target') }}"
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Emit machine-readable result (failed/changed come from the PLAY RECAP)
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result:
+          action: rebuild-converge
+          ok: true
+          target: "{{ target }}"
+          plan_hash: "{{ plan_hash | default('') }}"
+          day1_ran: "{{ target in (groups['aiops_day1_true'] | default([])) }}"
