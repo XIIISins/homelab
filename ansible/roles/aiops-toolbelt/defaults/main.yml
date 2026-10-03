@@ -25,6 +25,10 @@ aiops_toolbelt_daily_run_cap: 40
 # approver (the Discord bot, Ratatoskr) can decide. Each has its own token and its own source address; the unit lets
 # both addresses in, the app lets each reach only its own routes (aiops/toolbelt/server.py).
 aiops_toolbelt_actions_enabled: true
+# Rebuild runner (Phase 10g). Empty = the Toolbelt is not given a socket and rebuild actions refuse. Set it to the runner's
+# socket (and let the unit join the runner's client group) only after roles/aiops-rebuild-runner is deployed.
+aiops_toolbelt_rebuild_socket: ""
+aiops_toolbelt_rebuild_group: aiops-rebuild-clients
 aiops_toolbelt_approver_allow:
   - 10.0.11.222/32 # Ratatoskr (the Discord bot)
 aiops_toolbelt_approver_token_vault_path: secret/data/ansible/aiops/approver-token # terraform/vault
@@ -96,6 +100,7 @@ aiops_toolbelt_source_files:
   - toolbelt/actions.py
   - toolbelt/autonomy.py
   - toolbelt/rebuild.py
+  - toolbelt/rebuild_exec.py
   - toolbelt/forecast.py
   - toolbelt/forecast_run.py
   - toolbelt/incident_draft.py

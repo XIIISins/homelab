@@ -209,11 +209,29 @@ def num(p: dict) -> int:
     return p.get("number", p["id"])
 
 
+def rebuild_fields(rb: dict) -> list[tuple]:
+    """The informed-approval sections of a rebuild card (10g): the plan, what gets destroyed, the data-loss manifest and the
+    age of the last backup. Everything comes from the Toolbelt's stored plan and manifest, never from a model."""
+    ident = rb.get("identity") or {}
+    plan = (f"`{sanitize(rb.get('plan_action'), 12)}` of `{sanitize(ident.get('name'), 40)}` (vmid {sanitize(ident.get('vmid'), 8)} on "
+            f"{sanitize(ident.get('node'), 20)}), {sanitize(rb.get('plan_changes'), 4)} change; main `{sanitize(rb.get('origin_main'), 12)}`; "
+            f"plan `{sanitize(rb.get('plan_id'), 64)[:12]}`" + (f", valid until <t:{int(rb['plan_expires_at'])}:R>" if isinstance(rb.get("plan_expires_at"), int) else ""))
+    out = [("Plan", plan[:600], False), ("What gets destroyed", sanitize(rb.get("destroys"), 400), False)]
+    if rb.get("manifest"):
+        lines = "\n".join(sanitize(ln, 120) for ln in str(rb["manifest"]).splitlines()[:14])
+        out.append(("Data-loss manifest", f"```\n{lines[:900]}\n```", False))
+    age = rb.get("backup_age_hours")
+    out.append(("Last backup", f"{age:.0f} h ago" if isinstance(age, (int, float)) and not isinstance(age, bool) else "none (a canary has no data) or unknown", True))
+    return out
+
+
 def card(p: dict) -> dict:
     """The embed for one proposal, from Toolbelt data only. `buttons` is True only while it can still be decided."""
     params = "\n".join(f"{k} = {v}" for k, v in p["params"].items()) or "(none)"
     st = p["state"]
     state = STATE_LINE.get(st, st)
+    if st == "running" and (p.get("rebuild") or {}).get("stage"):
+        state = f"Rebuilding: step `{sanitize(p['rebuild']['stage'], 20)}` (done: {', '.join(sanitize(d, 20) for d in p['rebuild'].get('done', [])) or 'none yet'})."
     if auto_policy(p):
         state = f"Auto-approved by policy `{sanitize(auto_policy(p), 60)}` (no human decision). " + state
     elif st in ("approved", "running", "succeeded", "failed", "verify_failed", "rejected") and p.get("decided_by"):
@@ -225,7 +243,10 @@ def card(p: dict) -> dict:
         ("What it does", sanitize(p["description"], 250), False),
         ("Then it verifies", ", ".join(f"{k}={v}" for k, v in p["verify"].items()) or "-", True),
     ]
-    if p.get("requires_prior"):
+    rb = p.get("rebuild")
+    if rb:
+        fields += rebuild_fields(rb)
+    elif p.get("requires_prior"):
         fields.append(("Runs first", f"`{p['requires_prior']}` (dry run) must pass", True))
     fields.append(("If it goes wrong", sanitize(p["rollback"], 250), False))
     return {
@@ -351,6 +372,19 @@ def result_sentence(p: dict) -> str:
         return ""
 
 
+def plan_sentence(p: dict) -> str:
+    """One sentence for a `rebuild-plan` result (its step is `action`, whose result carries the runner's plan summary)."""
+    if p.get("action_id") != "rebuild-plan" or not p.get("result"):
+        return ""
+    r = next((s.get("result") for s in p["result"].get("steps", []) if isinstance(s, dict) and s.get("step") == "action"), None) or {}
+    s = r.get("summary") or {}
+    ident = s.get("identity") or {}
+    if r.get("plan_ok") is True:
+        return sanitize(f"Plan ok: {s.get('action')} of {ident.get('name')} (vmid {ident.get('vmid')} on {ident.get('node')}), {s.get('changes')} change, "
+                        f"plan {str(r.get('plan_id'))[:12]}, from main {str(r.get('origin_main'))[:12]}. Nothing was changed.", 400)
+    return sanitize("The plan did not pass: " + "; ".join(str(x) for x in (r.get("problems") or ["no detail"])[:3]) + ". Nothing was changed.", 400)
+
+
 def result_summary(p: dict) -> str:
     """A short outcome for a terminal proposal, from the stored result (already redacted by the engine)."""
     r = p.get("result") or {}
@@ -360,14 +394,25 @@ def result_summary(p: dict) -> str:
             "cancelled": "Proposal #%d was cancelled before it started." % num(p),
             "skipped": "Proposal #%d was skipped: the fault had already healed." % num(p)}.get(p["state"], f"Proposal #{num(p)}: {p['state']}")
     lines = [head]
-    answer = result_sentence(p)
+    answer = result_sentence(p) or plan_sentence(p)
     if answer:
         lines.append(answer)
     if r.get("why"):
         lines.append(sanitize(r["why"], 400))
+    if p.get("action_id") in ("rebuild-guest", "rebuild-worker"):
+        ident = (p.get("rebuild") or {}).get("identity") or {}
+        lines.append(f"Rebuild of `{sanitize(p['target'], 40)}` (vmid {sanitize(ident.get('vmid'), 8)}, {sanitize(ident.get('node'), 20)}), plan "
+                     f"`{sanitize(r.get('plan_id') or (p.get('rebuild') or {}).get('plan_id'), 64)[:12]}`.")
+        if r.get("nothing_changed"):
+            lines.append("Nothing was changed: the refusal came before the apply.")
+        elif p["state"] in ("failed", "verify_failed"):
+            lines.append("The guest may be half-built. The rebuild breaker is TRIPPED: no further rebuild runs until an operator runs `/aiops rebuild reset-breaker`.")
     for s in r.get("steps", []):
         if isinstance(s, dict):
-            lines.append(f"- {s.get('step')}: {s.get('status')}")
+            secs = s.get("seconds")
+            lines.append(f"- {s.get('step')}: {s.get('status')}" + (f" ({int(secs)} s)" if isinstance(secs, (int, float)) and not isinstance(secs, bool) else ""))
+    if isinstance(r.get("timings"), dict) and isinstance(r["timings"].get("total"), (int, float)):
+        lines.append(f"Total {int(r['timings']['total'])} s.")
     if r.get("rollback"):
         lines.append("If it goes wrong: " + sanitize(r["rollback"], 250))
     return "\n".join(lines)[:1900]
@@ -433,6 +478,10 @@ def plan_feed(events: list[dict], state: State) -> list[Action]:
 
 def breaker_notice(p: dict) -> str:
     d = p.get("breaker") or {}
+    if d.get("kind") == "rebuild":
+        return (f"**Rebuild circuit breaker TRIPPED**: the rebuild of `{sanitize(p['target'], 40)}` (proposal #{num(p)}) failed or did not verify "
+                f"({sanitize(d.get('why', ''), 150)}). The guest may be half-built. No further rebuild runs, attended or not, until an operator looks and "
+                "runs `/aiops rebuild reset-breaker`.")
     return (f"**Autonomy circuit breaker TRIPPED**: {d.get('failures', '?')} autonomous runs failed or did not verify within "
             f"{int(d.get('window_seconds', 0)) // 60} minutes (last: proposal #{num(p)} on `{sanitize(p['target'], 40)}`). "
             "Autonomous healing is stopped; proposals now wait for you as usual. Look at why, then `/aiops autonomy reset-breaker`.")
@@ -449,6 +498,18 @@ def format_report(r: dict) -> str:
         lines.append("Not run, and why: " + ", ".join(f"{sanitize(k, 40)} {v}" for k, v in sorted(r["skipped_reasons"].items())))
     if r.get("flapping_targets"):
         lines.append("**Flapping** (3+ autonomous runs within 6h): " + ", ".join(f"`{sanitize(t, 30)}`" for t in r["flapping_targets"]))
+    rb = r.get("rebuild")
+    if rb:
+        flags = r.get("flags", {})
+        lines.append(f"**Rebuilds, same period:** {rb.get('runs', 0)} run(s), {rb.get('unattended', 0)} unattended | breaker trips {rb.get('breaker_trips', 0)} | "
+                     f"rebuild autonomy {'ON' if flags.get('autonomy_rebuild') else 'off'}" + (" | **BREAKER TRIPPED**" if flags.get("autonomy_rebuild_breaker") else "")
+                     + (f" | median {int(rb['median_seconds'])} s" if isinstance(rb.get("median_seconds"), (int, float)) else ""))
+        if rb.get("by_outcome"):
+            lines.append("Rebuild outcomes: " + ", ".join(f"{sanitize(k, 20)} {v}" for k, v in sorted(rb["by_outcome"].items())))
+        if rb.get("by_target"):
+            lines.append("Rebuilt: " + ", ".join(f"`{sanitize(t, 30)}` {n}" for t, n in rb["by_target"].items()))
+        for x in rb.get("rebuilding", [])[:3]:
+            lines.append(f"- REBUILDING `{sanitize(x.get('target'), 30)}`: step {sanitize(x.get('stage'), 20)}")
     return "\n".join(lines)[:1900]
 
 
@@ -461,6 +522,12 @@ def format_status(s: dict) -> str:
              + (f" | policies on: {', '.join(sorted(n for n, on in a['autonomy']['policies'].items() if on)) or 'none'} | hosts: {', '.join(a['autonomy']['hosts'])}"
                 if a.get("autonomy") else ""),
              f"Proposals today: {a.get('proposals_today', 0)}/{a.get('daily_proposal_cap', '?')} | by state: " + (", ".join(f"{k} {v}" for k, v in sorted(a.get('proposals', {}).items())) or "none")]
+    rb = a.get("rebuild")
+    if rb:
+        lines.append(f"Rebuild autonomy: {'ON' if flags.get('autonomy_rebuild') else 'off'}" + (" | **REBUILD BREAKER TRIPPED**" if flags.get("autonomy_rebuild_breaker") else "")
+                     + (f" | policies on: {', '.join(sorted(n for n, on in rb.get('policies', {}).items() if on)) or 'none'}"))
+        for x in rb.get("rebuilding", [])[:3]:
+            lines.append(f"- **REBUILDING** `{sanitize(x.get('target'), 30)}` (proposal {sanitize(x.get('proposal'), 8)}): step `{sanitize(x.get('stage'), 20)}`")
     for p in s.get("open_proposals", [])[:8]:
         lines.append(f"- #{num(p)} (id {p['id']}) `{p['action_id']}` on `{sanitize(p['target'], 40)}`: {p['state']}")
     return "\n".join(lines)[:1900]

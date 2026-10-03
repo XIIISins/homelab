@@ -52,11 +52,37 @@ The stock "agent not available" trigger is **Average**, and the diagnosis agent 
 | Trigger | Severity | Fires when | Use |
 |---|---|---|---|
 | `Canary smoke: agent service down (zabbix-agent2)` | High | the agent has not answered for 3 min (`nodata` on a heartbeat item) | the 10f autonomous restart (`scripts/canary/fault stop <canary> zabbix-agent2.service`) |
+| `Canary smoke: guest unreachable (ICMP ping loss)` | High | no ICMP echo reply for 3 min (`icmpping[,3]` simple check, run by the Zabbix **server**, so it keeps producing data when the guest is dead) | the 10g rebuild loop (`scripts/canary/fault kill <canary>`); routed to `RB-GUEST-DEAD` |
 | `Canary smoke: vlagent not active` | High | `systemd.unit.info[vlagent.service,ActiveState]` is not `active` | the same for `vlagent.service` |
 | `Canary smoke: synthetic High flag set` | High | the file `/var/lib/aiops-smoke/high` exists | a High problem with no service touched (`scripts/canary/fault flag <canary> high`; `unflag` clears it) |
 | `Canary smoke: synthetic Disaster flag set` | Disaster | `/var/lib/aiops-smoke/disaster` exists | the Disaster path end to end |
 
 Canary alerts stay capped at the Hermod `info` tier (below), so none of these pages anyone. The two service-fault triggers are routed to `RB-UNIT-STOPPED-T1` (`aiops/alert-routing.yml` `zbx-canary-unit-down`); the synthetic ones fall to the Zabbix catch-all and exercise the plumbing. Item keys are deliberately not keys that "Linux by Zabbix agent" already defines (Zabbix refuses two linked templates defining the same key on one host). To change the template: edit the YAML, then `ansible-playbook playbooks/asgard-canary.yml --tags zabbix-agent:canary-template,zabbix-agent:register --limit canary`.
+
+**Guest-unreachable semantics (10g).** The ICMP item needs an interface on the host (the agent interface's IP is used) and `fping` on Hugin (`FpingLocation` in `zabbix_server.conf`; the Debian `zabbix-server` package depends on it). The trigger fires after 3 minutes with no echo reply (six 30 s samples at 0) and recovers on the first reply. **Known limit:** a dead guest also silences the agent heartbeat, so `Canary smoke: agent service down (zabbix-agent2)` fires too; both are High and both reach Gná, which correlates them per host. Routing sends the ICMP trigger to `RB-GUEST-DEAD` (the route sits before the generic `zbx-host-unavailable`, whose `unreachable` would otherwise name `RB-HOST-HARD-FREEZE`) and the heartbeat trigger to `RB-UNIT-STOPPED-T1`, whose precheck refuses a host that does not answer on port 22, so a kill never becomes a unit restart. If `fping` is missing the ICMP item goes unsupported and the trigger never fires: check Data collection, Hosts, canary-N, Items after the first apply.
+
+## Rebuild runbooks and the kill/destroy helpers (10g)
+
+<!-- runbook: RB-GUEST-DEAD -->
+**A canary is dead (stopped, hung or destroyed) on a healthy Urd.** Ladder: `start-guest` (rung 0, `pct start` through Urd, VMID 1190-1192 only) first; a `rebuild-guest` only if the start failed or cannot apply. Both are `approval` today; the policies in `aiops/actions.yml` (`rebuild.policies`) are disabled and a reviewed PR enables them for stage A. The playbooks are `aiops-start-guest.yml`, `aiops-rebuild-converge.yml` and `aiops-rebuild-verify.yml`; each re-reads the registry and refuses a target that is not `canary-1..3` / VMID 1190-1192 on Urd or that is on `rebuild.deny`.
+
+<!-- runbook: RB-GUEST-BROKEN -->
+**A canary is up but broken beyond a restart or a role replay** (the 10f restart breaker tripped for it, or a dry-run replay drifts beyond `rebuild.broken.drift_max_changed`): `rebuild-guest` straight away; the rebuild resets the target's restart budget.
+
+Fault helpers, both validate the name (`^canary-[123]$`) and the VMID (1190-1192) and refuse everything else before any command runs; they act through `pct` on Urd after a `hostname:` check ties the VMID to the name:
+
+| Command | Effect |
+|---|---|
+| `scripts/canary/fault kill canary-2` | `pct stop 1191`: the whole container stops (rung 0 heals it) |
+| `scripts/canary/fault destroy canary-2 --yes-destroy` | stop + `pct destroy 1191 --purge`: Terraform now disagrees (the rebuild plan is a `create`, which the shape rules accept) |
+
+Acceptance for the rebuild test, canary stage (nothing runs unattended until the engine, runner and policies are deployed; with `autonomy_rebuild` off every step below is approval-gated):
+
+1. `fault kill canary-2`. Within ~4 min Zabbix shows `Canary smoke: guest unreachable (ICMP ping loss)` plus the agent heartbeat problem; Gná posts one diagnosis (layer `host`, runbook `RB-GUEST-DEAD`, not `RB-HOST-HARD-FREEZE`). Pass: `start-guest` is the proposal, not a rebuild.
+2. After the start the problems recover on their own; `rebuild-verify canary-2` returns `ok` with all six fields true.
+3. `fault destroy canary-2 --yes-destroy`. Pass: `rebuild-plan` is a single `create`, `rebuild-guest` converges (Day-1 baseline as root only if root answers, then `asgard-canary.yml` as `ansible`) and verify passes; time from fault to verified under 15 min.
+4. Negative: `fault kill saga`, `fault kill canary-4`, `fault destroy canary-1` (no flag) are all refused by the script; the `rebuild-refused` replay shows the agent offers no rebuild for a deny-listed guest.
+5. Replays: `python3 aiops/tools/replay_run.py canary-dead` and `rebuild-refused` (live: needs the homelab env and Gná).
 
 ## Fault injection: stay scoped to `canary-*`
 

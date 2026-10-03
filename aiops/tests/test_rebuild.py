@@ -512,9 +512,9 @@ class RegistryAndLintTests(unittest.TestCase):
     def test_enabled_policy_rules(self):
         r = self.reg()
         r["rebuild"]["policies"]["rebuild-dead-canary"]["enabled"] = True
-        errs = self.lint(r)  # rebuild-guest caps at approval and RB-GUEST-DEAD does not exist yet
+        errs = self.lint(r)  # rebuild-guest caps at approval, so an enabled policy is refused until a PR raises it
         self.assertTrue(any("needs auto" in e for e in errs), errs)
-        self.assertTrue(any("RB-GUEST-DEAD is not in runbooks.yml" in e for e in errs), errs)
+        self.assertFalse(any("is not in runbooks.yml" in e for e in errs), errs)  # RB-GUEST-DEAD exists since 10g slice C
         r = self.reg()
         r["rebuild"]["policies"]["rebuild-worker-auto"] = {"enabled": True, "action": "rebuild-worker", "class": "worker", "runbook": "RB-GUEST-DEAD",
                                                            "layers": ["host"], "min_confidence": "high", "precheck": "guest-dead"}

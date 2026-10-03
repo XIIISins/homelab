@@ -1,0 +1,66 @@
+{
+  "description": "The canary template's guest-unreachable trigger (ICMP loss) routes to RB-GUEST-DEAD, ahead of the generic host-unavailable route (10g)",
+  "received_at": "2026-10-03T11:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "51020",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "canary-2",
+    "host_id": "10413",
+    "host_ip": "10.0.11.191",
+    "host_groups": "Linux servers,Asgard/LXCs/Canary",
+    "trigger_id": "28810",
+    "trigger_name": "Canary smoke: guest unreachable (ICMP ping loss)",
+    "trigger_description": "The canary guest has not answered ICMP for 3 minutes (stopped, hung or destroyed container). Distinct from the agent service being down on a live guest.",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "aiops",
+        "value": "canary-smoke"
+      }
+    ],
+    "runbook_id": "",
+    "items": [],
+    "opdata": "",
+    "fired_at": "2026-10-03T11:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-03T11:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "info",
+      "host": "canary-2",
+      "service": "host",
+      "check": "canary-smoke-guest-unreachable-icmp-ping-loss",
+      "summary": "[Zabbix] High: Canary smoke: guest unreachable (ICMP ping loss)",
+      "detail": "**Host:** canary-2\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Canary smoke: guest unreachable (ICMP ping loss)\n**Severity:** High\n**Host:** canary-2\n**Started at:** 2026.10.03 13:00:00\n**Event ID:** 51020",
+      "runbook_id": "RB-GUEST-DEAD",
+      "fingerprint": "a8a589d296f5db8b",
+      "fired_at": "2026-10-03T11:00:00Z",
+      "received_at": "2026-10-03T11:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "aiops_canary": "true",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10413",
+        "zabbix_host_ip": "10.0.11.191",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs/Canary",
+        "zabbix_trigger_id": "28810",
+        "zabbix_trigger_description": "The canary guest has not answered ICMP for 3 minutes (stopped, hung or destroyed container). Distinct from the agent service being down on a live guest.",
+        "zabbix_tags": "[{\"tag\":\"aiops\",\"value\":\"canary-smoke\"}]",
+        "zabbix_sent_at": "2026-10-03T11:00:01Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "51020"
+    }
+  ]
+}
