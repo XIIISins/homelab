@@ -152,6 +152,32 @@ async def cmd_maintenance(interaction: discord.Interaction, enabled: bool) -> No
     await interaction.response.send_message(f"Maintenance {'ON' if enabled else 'off'}." if st == 200 else f"Could not set it (HTTP {st}).", allowed_mentions=NO_MENTIONS)
 
 
+@aiops.command(name="autonomy", description="Autonomous healing: turn the master switch on or off, or re-arm the circuit breaker")
+@app_commands.describe(action="on, off or reset-breaker")
+@app_commands.choices(action=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off"),
+                              app_commands.Choice(name="reset-breaker", value="reset-breaker")])
+async def cmd_autonomy(interaction: discord.Interaction, action: app_commands.Choice[str]) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    flag, value = ("autonomy_breaker", False) if action.value == "reset-breaker" else ("autonomy", action.value == "on")
+    st, _ = await asyncio.to_thread(bot.tb.set_flag, flag, value, str(interaction.user.id), f"/aiops autonomy {action.value}")
+    log("flag", flag=flag, value=value, status=st)
+    await interaction.response.send_message(
+        (f"Autonomy {'ON' if value else 'OFF'}." if flag == "autonomy" else "Circuit breaker re-armed.") if st == 200
+        else f"Could not set it (HTTP {st}).", allowed_mentions=NO_MENTIONS)
+
+
+@aiops.command(name="report", description="What autonomous healing did (and why it did not) over the last days")
+@app_commands.describe(days="1 to 90, default 14")
+async def cmd_report(interaction: discord.Interaction, days: app_commands.Range[int, 1, 90] = 14) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.tb.report, days)
+    await interaction.response.send_message(logic.format_report(body) if st == 200 else f"The Toolbelt answered HTTP {st}.", ephemeral=True)
+
+
 class Ratatoskr(discord.Client):
     def __init__(self, cfg: logic.Config):
         intents = discord.Intents.default()  # no message_content: mentions are delivered with their content anyway
@@ -212,10 +238,10 @@ class Ratatoskr(discord.Client):
         p = act.proposal
         if act.kind == "post_card":
             st, fresh = await asyncio.to_thread(self.tb.get, p["id"])
-            if st != 200 or fresh.get("message_ref") or fresh["state"] != "pending":
+            if st != 200 or fresh.get("message_ref") or not (fresh["state"] == "pending" or logic.auto_policy(fresh)):
                 return
             ch = await self._channel(p["thread_id"])
-            msg = await ch.send(embed=embed_of(fresh), view=card_view(fresh), allowed_mentions=NO_MENTIONS)
+            msg = await ch.send(embed=embed_of(fresh), view=card_view(fresh) if logic.card(fresh)["buttons"] else None, allowed_mentions=NO_MENTIONS)
             await asyncio.to_thread(self.tb.set_message, p["id"], str(msg.id))
             log("card_posted", proposal=p["id"], thread=str(p["thread_id"])[-6:])
         elif act.kind == "edit_card":
@@ -223,6 +249,10 @@ class Ratatoskr(discord.Client):
             part = ch.get_partial_message(int(p["message_ref"]))
             c = logic.card(p)
             await part.edit(embed=embed_of(p), view=card_view(p) if c["buttons"] else None)
+        elif act.kind == "breaker":
+            ch = await self._channel(p["thread_id"])
+            await ch.send(logic.breaker_notice(p), allowed_mentions=NO_MENTIONS)
+            log("breaker_notice", proposal=p["id"])
         elif act.kind == "announce":
             ch = await self._channel(p["thread_id"])
             await ch.send(logic.result_summary(p), allowed_mentions=NO_MENTIONS,

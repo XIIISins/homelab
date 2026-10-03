@@ -61,6 +61,16 @@ def fake_vault(secret_value=TOKEN, login_ok=True, missing=()):
     return srv, seen
 
 
+class Deployment(unittest.TestCase):
+    def test_every_toolbelt_module_is_shipped_to_frigg(self):
+        """actions.py imports autonomy.py: a module missing from the role's file list crashes the service at start (found in 10f)."""
+        import re
+        text = (REPO / "ansible" / "roles" / "aiops-toolbelt" / "defaults" / "main.yml").read_text()
+        shipped = set(re.findall(r"^  - (toolbelt/[a-z_]+\.py)$", text, re.M))
+        present = {f"toolbelt/{p.name}" for p in (REPO / "aiops" / "toolbelt").glob("*.py")}
+        self.assertEqual(present - shipped, set())
+
+
 class Loader(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -180,7 +180,7 @@ def render(d: dict, *, alert_count: int = 1, model: str = "", tool_calls: int = 
                        else "**Proposed actions (nothing runs unless the operator approves each one in this thread)**") if live
                   else "**Proposed actions (proposals only - nothing was executed)**"]
         for i, a in enumerate(d["proposed_actions"]):
-            pid = proposals[i]["id"] if proposals and i < len(proposals) and proposals[i] else None
+            pid = proposals[i].get("number", proposals[i]["id"]) if proposals and i < len(proposals) and proposals[i] else None
             tgt = _target(a)
             auto = autos[i] if autos and i < len(autos) and autos[i] and autos[i].get("auto") else None
             lines.append(f"- `{a['action_id']}`" + (f" {tgt}" if tgt else "") + f": {a['reason']}" + (f" (proposal #{pid}" if pid else "")
