@@ -43,6 +43,13 @@ resource "vault_policy" "homelab_admin" {
     path "secret/metadata/*" {
       capabilities = ["read", "list"]
     }
+    # Operator identity keys (operator-ssh.tf) are never browsable from the UI.
+    path "secret/data/operator/*" {
+      capabilities = ["deny"]
+    }
+    path "secret/metadata/operator/*" {
+      capabilities = ["deny"]
+    }
     path "sys/wrapping/wrap" {
       capabilities = ["update"]
     }

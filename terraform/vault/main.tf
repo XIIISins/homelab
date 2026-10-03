@@ -27,6 +27,14 @@ resource "vault_policy" "eso" {
     path "secret/data/*" {
       capabilities = ["read"]
     }
+    # Operator identity keys (operator-ssh.tf) are for the MacBook and Frigg only.
+    # An explicit deny beats the wildcard read above.
+    path "secret/data/operator/*" {
+      capabilities = ["deny"]
+    }
+    path "secret/metadata/operator/*" {
+      capabilities = ["deny"]
+    }
   EOT
 }
 
@@ -101,7 +109,7 @@ resource "vault_policy" "ansible" {
 resource "vault_approle_auth_backend_role" "ansible_local" {
   backend        = vault_auth_backend.approle.path
   role_name      = "ansible-local"
-  token_policies = ["ansible"]
+  token_policies = ["ansible", "operator-ssh-read"]
   token_ttl      = 1800    # 30min — short-lived working tokens
   token_max_ttl  = 3600    # 1h hard ceiling
   secret_id_ttl  = 7776000 # 90 days — manual rotation cadence
