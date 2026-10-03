@@ -67,6 +67,15 @@ resource "proxmox_virtual_environment_role" "rebuild_net" {
   privileges = ["SDN.Use"]
 }
 
+# A destroyed canary leaves the pool, so the pool ACL no longer covers its VMID, and Proxmox answers a refresh of
+# /vms/<vmid> with 403 (VM.Audit) instead of "not found": the runner could then never plan the re-creation of a guest that
+# was deleted behind Terraform's back (found live 2026-10-03, canary-3). Read-only audit on EXACTLY the canary VMIDs, never
+# a wildcard, fixes that without widening what the token can change.
+resource "proxmox_virtual_environment_role" "rebuild_vm_audit" {
+  role_id    = "AiopsRebuildVmAudit"
+  privileges = ["VM.Audit"]
+}
+
 resource "proxmox_virtual_environment_user" "aiops_rebuild" {
   user_id = "aiops-rebuild@pve"
   comment = "AIOps rebuild runner (pool-scoped writes, no ACL on /). Managed by terraform/proxmox/asgard-pools."
@@ -78,6 +87,15 @@ resource "proxmox_virtual_environment_acl" "rebuild_pool" {
   role_id   = proxmox_virtual_environment_role.rebuild_guest.role_id
   user_id   = proxmox_virtual_environment_user.aiops_rebuild.user_id
   propagate = true
+}
+
+resource "proxmox_virtual_environment_acl" "rebuild_vm_audit" {
+  for_each = toset([for v in var.canary_vmids : tostring(v)])
+
+  path      = "/vms/${each.value}"
+  role_id   = proxmox_virtual_environment_role.rebuild_vm_audit.role_id
+  user_id   = proxmox_virtual_environment_user.aiops_rebuild.user_id
+  propagate = false
 }
 
 resource "proxmox_virtual_environment_acl" "rebuild_storage" {
