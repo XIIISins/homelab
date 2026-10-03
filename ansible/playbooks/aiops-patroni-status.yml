@@ -9,7 +9,7 @@
 # restapi auth and are never called here.
 #
 # Result line: AIOPS_RESULT {"action": "patroni-status", "ok": ..., "leader_present": ...,
-#                            "running_members": N, "members": [...]}
+#                            "running_members": N, "max_lag_bytes": N, "members": [...]}
 
 - name: AIOps patroni-status
   hosts: localhost
@@ -42,6 +42,7 @@
           leader_present: "{{ (_members | selectattr('role', 'in', ['leader', 'master', 'primary']) | list | length) > 0 }}"
           running_members: "{{ _members | selectattr('state', 'in', ['running', 'streaming']) | list | length }}"
           total_members: "{{ _members | length }}"
+          max_lag_bytes: "{{ ((_members | map(attribute='lag', default=0) | select('number') | list) + [0]) | max }}"
           members: "{{ _members | map(attribute='name') | zip(_members | map(attribute='role'), _members | map(attribute='state')) | map('join', ':') | list }}"
       vars:
         _answered: "{{ _patroni_probe.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
