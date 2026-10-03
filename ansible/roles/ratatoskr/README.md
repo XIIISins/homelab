@@ -28,7 +28,7 @@ ansible-playbook playbooks/asgard-ratatoskr.yml          # full play as `ansible
 ansible-playbook playbooks/asgard-ratatoskr.yml --tags ratatoskr   # just the bot
 ```
 
-First provisioning needs only apt (Debian `python3-discord`, 2.5 in trixie): the Deploy Window policy can stay paused.
+The bot itself needs only apt (Debian `python3-discord`, 2.5 in trixie), but the `vlagent` role in the same play downloads a release from github.com: add `10.0.11.222` to the **AIOps - Deploy Window** policy's source and unpause it for the first run, then pause it again.
 The role fails early, with the fix in the message, if the Vault secrets are missing or malformed, and verifies that the
 bot reached the Discord gateway (a `ready` line in its journal). If that check fails on a fresh host, the UCG egress policy
 for `10.0.11.222` is the usual cause (needs `discord.com` and `gateway.discord.gg`): see `docs/architecture/network.md`.

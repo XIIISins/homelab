@@ -10,8 +10,9 @@
 # Prerequisites (operator, from the main checkout, CLI only): `terraform apply` in terraform/proxmox/asgard-lxcs
 # (the LXC), terraform/vault (the approver + chat tokens), terraform/netbox (-parallelism=2) and terraform/adguard (the
 # name); the Discord values seeded with scripts/secrets/seed-discord-bot; and the UCG egress policy for 10.0.11.222
-# (docs/architecture/network.md). The first provisioning run needs ONLY Debian mirrors (apt), so the
-# "AIOps - Deploy Window" policy can stay paused.
+# (docs/architecture/network.md). The bot itself installs from Debian (apt), but the vlagent role downloads a
+# release from github.com, so add 10.0.11.222 to the source of the "AIOps - Deploy Window" policy and UNPAUSE it for the
+# first provisioning run (and for a vlagent upgrade), then pause it again.
 - name: Configure Ratatoskr (AIOps Discord bot)
   hosts: discord_bot
   become: true
