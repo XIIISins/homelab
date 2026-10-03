@@ -1,0 +1,76 @@
+{# ansible/roles/aiops-rebuild-runner/templates/aiops-rebuild-runner.service.j2 #}
+# Managed by Ansible (roles/aiops-rebuild-runner). Do not edit.
+[Unit]
+Description=AIOps rebuild runner (allow-listed terraform plan/apply from a clean main checkout)
+Documentation=https://github.com/XIIISins/homelab/blob/main/docs/procedures/aiops-rebuild.md
+After=network-online.target {{ aiops_rebuild_runner_creds_unit_name }}.service
+Wants=network-online.target
+Requires={{ aiops_rebuild_runner_creds_unit_name }}.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ aiops_rebuild_runner_user }}
+# The primary group is the CLIENTS group: the runtime directory (and so the path to the socket) is then reachable by
+# exactly that group, while the state directory below stays 0700 (owner only).
+Group={{ aiops_rebuild_runner_group }}
+RuntimeDirectory={{ aiops_rebuild_runner_runtime_dir_name }}
+RuntimeDirectoryMode=0750
+StateDirectory={{ aiops_rebuild_runner_state_dir_name }}
+StateDirectoryMode=0700
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Credentials: written by the root loader (a dependency, re-run on every start); injected by systemd, unreadable by this user.
+EnvironmentFile={{ aiops_rebuild_runner_env_file }}
+ExecStart=/usr/bin/python3 {{ aiops_rebuild_runner_home }}/aiops/runner/rebuild_runner.py \
+  --socket {{ aiops_rebuild_runner_socket }} \
+  --socket-group {{ aiops_rebuild_runner_group }} \
+  --checkout /var/lib/{{ aiops_rebuild_runner_state_dir_name }}/checkout \
+  --plan-dir /var/lib/{{ aiops_rebuild_runner_state_dir_name }}/plans \
+  --data-dir /var/lib/{{ aiops_rebuild_runner_state_dir_name }}/tfdata \
+  --plugin-cache /var/lib/{{ aiops_rebuild_runner_state_dir_name }}/plugin-cache \
+  --terraform {{ aiops_rebuild_runner_terraform }} \
+{% for c in aiops_rebuild_runner_classes %}
+  --enable-class {{ c }} \
+{% endfor %}
+{% for u in aiops_rebuild_runner_clients %}
+  --allow-user {{ u }} \
+{% endfor %}
+  --repo-url {{ aiops_rebuild_runner_repo_url }}
+ExecStopPost=+/bin/rm -f {{ aiops_rebuild_runner_env_file }}
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+# stdout is the audit log (one JSON line per event) and goes to journald -> vlagent -> VictoriaLogs.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aiops-rebuild-runner
+
+# No IPAddressDeny: terraform must reach the PVE API, the S3 state backend, the provider registry and GitHub. What bounds
+# it instead is the credentials it holds (a pool-scoped PVE token, a state-only AWS identity) and what it accepts.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target
