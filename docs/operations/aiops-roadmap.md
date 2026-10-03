@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c and 10d done 2026-10-01/03; 10e code complete 2026-10-03 (awaiting deployment)**; 10f next (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c, 10d and 10e done 2026-10-01/03; 10f code complete 2026-10-03 (deploy, then the 14-day canary soak)**; the restore drill, then 10g (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -141,6 +141,8 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 - **Exit:** ≥ N real incidents handled via propose → approve → verified, with a complete audit trail.
 
 ## 10f — Stage 3: autonomous T1 healing
+
+*As built 2026-10-03: [`10f-autonomous-healing.md`](10f-autonomous-healing.md). One policy (`restart-failed-unit`) is enabled, on the canaries only; the HelmRelease reset and drift-replay policies ship disabled; the syslog-flood vacuum and semaphore auto-apply-on-drift are deferred.*
 
 - **10f1 — Guards first.** Kill switch (Vault KV flag + Discord command), per-target rate limit, circuit breaker, maintenance-window flag, check-mode/diff-scope gate (abort if the dry-run diff is outside the action's declared scope).
 - **10f2 — First classes (all T1).** Restart a failed stateless unit; `flux reconcile --reset` for `Stalled`/`RetriesExceeded` HelmReleases; replay drifted baseline on a replica LXC; known-condition cleanups (e.g. the syslog-flood vacuum); Semaphore **auto-apply on detected drift for T1 hosts only**, notify after the fact.

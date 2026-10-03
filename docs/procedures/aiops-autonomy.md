@@ -44,13 +44,13 @@ This is the fault class `restart-failed-unit` heals. The unit must be on the `re
 
 Goal: prove the loop heals real faults, never flaps, and never acts when it should not. Do **not** widen `autonomy.hosts` or enable another policy until it passes.
 
-1. **Deploy** the 10f code (Frigg: `asgard-control.yml --tags aiops-toolbelt`; Ratatoskr: `asgard-ratatoskr.yml --tags ratatoskr`; Gná: `asgard-gna.yml --tags n8n`), then `/aiops autonomy on`.
-2. **Inject faults on the canaries only** with `scripts/canary/fault` (it refuses any host that is not `canary-N`): `scripts/canary/fault stop canary-2 zabbix-agent2` stops the unit, then follows the loop and prints the timeline (alert → diagnosis → autonomous restart → verified). Run the matrix below at least once each, spread over the soak; leave the rest to chance and to the canaries' ordinary behaviour.
+1. **Deploy** the 10f code (Frigg: `asgard-control.yml --tags aiops-toolbelt`, which now also ships `autonomy.py`; Ratatoskr: `asgard-ratatoskr.yml --tags ratatoskr`, which registers `/aiops autonomy` and `/aiops report`; Gná: `asgard-gna.yml --tags n8n`, which re-imports the chat workflow with the proposal-number wording), then `/aiops autonomy on`.
+2. **Inject faults on the canaries only** with `scripts/canary/fault` (it refuses any host that is not `canary-N`): `scripts/canary/fault stop canary-2 zabbix-agent2.service` stops the unit (`restore` and `status` are the other verbs; only the two canary units are accepted). Then watch the incident thread: alert → diagnosis → an auto card → verified, and `/aiops report`. Run the matrix below at least once each, spread over the soak; leave the rest to chance and to the canaries' ordinary behaviour.
 3. **Matrix** (each row must end as stated):
 
 | Injected | Expected |
 |---|---|
-| `zabbix-agent2` stopped on a canary | restarted autonomously, verified, thread card says "Executed automatically by policy restart-failed-unit" |
+| `zabbix-agent2` stopped on a canary | restarted autonomously, verified, the card (no buttons) says "Auto-approved by policy `restart-failed-unit` (no human decision)" and ends Succeeded |
 | `vlagent` stopped on a canary | same (if an alert fires; otherwise nothing, and that is correct) |
 | the unit is restarted by hand before the loop acts | proposal ends `skipped` (already active) |
 | the same unit stopped 3 times within an hour | the per-target limit stops the 3rd; later faults wait for a human |
