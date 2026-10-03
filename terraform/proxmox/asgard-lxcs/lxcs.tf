@@ -1135,10 +1135,17 @@ resource "proxmox_virtual_environment_container" "canary" {
 
   # bpg/proxmox doesn't return template_file_id or user_account from the API
   # on read — see Hugin's identical block above for the gotcha details.
+  #
+  # pool_id is the same class of problem: the provider does not read it back, and a change to it FORCES REPLACEMENT, so
+  # without ignoring it the first plan after the pool existed wanted to destroy and recreate all three canaries
+  # (found 2026-10-03). The existing canaries were added to the pool through the PVE API
+  # (`pvesh set /pools/aiops-canary --vms ...`); a NEW or `-replace`d canary is still created in the pool, because
+  # ignore_changes only applies to updates of an existing resource, never to its creation.
   lifecycle {
     ignore_changes = [
       operating_system[0].template_file_id,
       initialization[0].user_account,
+      pool_id,
     ]
   }
 }
