@@ -95,6 +95,7 @@ aiops_toolbelt_source_files:
   - toolbelt/diagnosis.py
   - toolbelt/actions.py
   - toolbelt/autonomy.py
+  - toolbelt/rebuild.py
   - toolbelt/forecast.py
   - toolbelt/forecast_run.py
   - toolbelt/placement_sync.py

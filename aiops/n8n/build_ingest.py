@@ -355,6 +355,8 @@ def propose_tool_description() -> str:
         "Actions (tier; * = required parameter):",
     ]
     for name, a in reg["actions"].items():
+        if a["semaphore"].get("planned"):
+            continue  # planned in a phase doc (10g), not built: never advertise an action that cannot run
         parts = []
         for k, v in a.get("extra_vars", {}).items():
             t = "one of " + "|".join(v["values"]) if v["type"] == "enum" else f"string matching {v.get('pattern', '.*')}" if v["type"] == "string" else v["type"]

@@ -56,7 +56,7 @@ class CommittedDataIsClean(unittest.TestCase):
 
     def test_only_policy_covered_t1_work_is_auto_and_no_t3_above_none(self):
         rb, reg, _ = docs()
-        covered = {p["action"] for p in reg["autonomy"]["policies"].values()}
+        covered = {p["action"] for p in reg["autonomy"]["policies"].values()} | {p["action"] for p in reg["rebuild"]["policies"].values()}
         covered_rb = {p["runbook"] for p in reg["autonomy"]["policies"].values()}
         for r in rb["runbooks"]:
             if r["automatable"] == "auto":
