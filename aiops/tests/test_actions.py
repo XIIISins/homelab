@@ -80,7 +80,7 @@ def make(sem=None, clock=None, **cfg):
         return r["n"] if r else 0
 
     ac = actions.ActionConfig(operators=frozenset({OP}), semaphore=sem, sleep=lambda s: setattr(clock, "t", clock.t + s), **cfg)
-    eng = actions.Engine(db, threading.Lock(), clock, lambda event, **kw: audit.append({"event": event, **kw}), REGISTRY, ac, bump, counter)
+    eng = actions.Engine(db, threading.RLock(), clock, lambda event, **kw: audit.append({"event": event, **kw}), REGISTRY, ac, bump, counter)
     return eng, clock, audit, db
 
 
@@ -374,7 +374,7 @@ class ExecuteTests(unittest.TestCase):
         with eng.lock:
             eng._move(a["id"], "running", "started")
         clock.t += 1000  # the old approval of b is stale by the time the Toolbelt comes back
-        eng2 = actions.Engine(db, threading.Lock(), clock, lambda *a, **k: None, REGISTRY, eng.cfg, eng._bump, eng._counter)
+        eng2 = actions.Engine(db, threading.RLock(), clock, lambda *a, **k: None, REGISTRY, eng.cfg, eng._bump, eng._counter)
         self.assertEqual(eng2._view(a["id"])["state"], "failed")
         self.assertEqual(eng2._view(b["id"])["state"], "cancelled")
 

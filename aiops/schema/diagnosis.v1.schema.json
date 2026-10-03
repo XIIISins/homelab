@@ -48,6 +48,7 @@
         "required": ["action_id", "reason"],
         "properties": {
           "action_id": { "type": "string", "pattern": "^[a-z0-9-]+$", "description": "Must be a key of aiops/actions.yml." },
+          "params": { "type": "object", "maxProperties": 6, "description": "The registry extra-vars for this action (e.g. target_host, unit). Validated against the registry when the proposal is created; an invalid one is refused, not run." },
           "reason": { "type": "string", "minLength": 3, "maxLength": 300 }
         }
       }

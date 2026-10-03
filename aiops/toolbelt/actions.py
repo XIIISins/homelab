@@ -324,6 +324,8 @@ class ActionConfig:
 class Engine:
     def __init__(self, db, lock: threading.Lock, clock: Callable[[], float], audit: Callable[..., None], registry: Registry,
                  cfg: ActionConfig, bump: Callable[[str], int], counter: Callable[[str], int]):
+        if not hasattr(lock, "_is_owned"):
+            raise TypeError("Engine needs the Toolbelt's re-entrant lock (threading.RLock)")
         self.db, self.lock, self.clock, self.audit, self.reg, self.cfg = db, lock, clock, audit, registry, cfg
         self._bump, self._counter = bump, counter
         self._run_slots = threading.Semaphore(cfg.max_running)
@@ -335,13 +337,15 @@ class Engine:
 
     # -- flags ---------------------------------------------------------------------------------------------
     def flag(self, name: str) -> bool:
-        row = self.db.execute("SELECT value FROM flags WHERE name=?", (name,)).fetchone()
+        with self.lock:
+            row = self.db.execute("SELECT value FROM flags WHERE name=?", (name,)).fetchone()
         return bool(row["value"]) if row else False
 
     def flags(self) -> dict:
         out = {n: {"value": False, "set_by": None, "set_at": None, "reason": None} for n in FLAGS}
-        for r in self.db.execute("SELECT * FROM flags"):
-            out[r["name"]] = {"value": bool(r["value"]), "set_by": r["set_by"], "set_at": r["set_at"], "reason": r["reason"]}
+        with self.lock:
+            for r in self.db.execute("SELECT * FROM flags").fetchall():
+                out[r["name"]] = {"value": bool(r["value"]), "set_by": r["set_by"], "set_at": r["set_at"], "reason": r["reason"]}
         return out
 
     def set_flag(self, name: str, value: bool, by: str, reason: str = "") -> dict:
@@ -471,9 +475,10 @@ class Engine:
             else:
                 self._move(pid, "rejected", "rejected", {"by": by, "ref": ref}, decided_at=now, decided_by=by, decision_ref=ref[:80])
         self.audit("proposal_" + ("approved" if decision == "approve" else "rejected"), proposal=pid, by=by, action=row["action_id"], ref=ref[:40])
+        out = self._view(pid)  # the state AT the decision, taken before the executor can move it on
         if decision == "approve" and run:
             threading.Thread(target=self.execute, args=(pid,), daemon=True, name=f"exec-{pid}").start()
-        return self._view(pid)
+        return out
 
     # -- execute -------------------------------------------------------------------------------------------
     def _sem(self) -> Semaphore:
@@ -582,7 +587,8 @@ class Engine:
 
     # -- views ---------------------------------------------------------------------------------------------
     def _view(self, pid: int, duplicate: bool = False) -> dict:
-        r = self._row(pid)
+        with self.lock:
+            r = self._row(pid)
         a = self.reg.get(r["action_id"])
         out = {
             "id": r["id"], "state": r["state"], "action_id": r["action_id"], "tier": r["tier"], "target": r["target"],
@@ -602,6 +608,17 @@ class Engine:
         self.sweep()
         return self._view(pid)
 
+    def bind_thread(self, incident_id: int, thread_id: str) -> int:
+        """The incident's Discord thread now exists: tell the bot where each still-pending proposal's card belongs."""
+        n = 0
+        with self.lock:
+            for r in self.db.execute("SELECT id FROM proposals WHERE incident_id=? AND state='pending' AND (thread_id IS NULL OR thread_id!=?)",
+                                     (incident_id, thread_id)).fetchall():
+                self.db.execute("UPDATE proposals SET thread_id=? WHERE id=?", (thread_id, r["id"]))
+                self._event(r["id"], "thread_bound", {"thread_id": thread_id})
+                n += 1
+        return n
+
     def set_message(self, pid: int, message_ref: str) -> dict:
         with self.lock:
             self._row(pid)
@@ -612,7 +629,8 @@ class Engine:
     def feed(self, after: int = 0, limit: int = 50) -> dict:
         """State changes for the bot to render: events after a cursor, each with the proposal as it is now."""
         self.sweep()
-        rows = self.db.execute("SELECT * FROM proposal_events WHERE id>? ORDER BY id LIMIT ?", (int(after), min(int(limit), 200))).fetchall()
+        with self.lock:
+            rows = self.db.execute("SELECT * FROM proposal_events WHERE id>? ORDER BY id LIMIT ?", (int(after), min(int(limit), 200))).fetchall()
         events = [{"id": r["id"], "kind": r["kind"], "ts": r["ts"], "data": json.loads(r["data_json"]), "proposal": self._view(r["proposal_id"])}
                   for r in rows]
         return {"events": events, "next": events[-1]["id"] if events else int(after)}
@@ -620,10 +638,13 @@ class Engine:
     def list(self, states: tuple = ("pending", "approved", "running")) -> list[dict]:
         self.sweep()
         q = ",".join("?" * len(states))
-        return [self._view(r["id"]) for r in self.db.execute(f"SELECT id FROM proposals WHERE state IN ({q}) ORDER BY id", states)]
+        with self.lock:
+            ids = [r["id"] for r in self.db.execute(f"SELECT id FROM proposals WHERE state IN ({q}) ORDER BY id", states).fetchall()]
+        return [self._view(i) for i in ids]
 
     def summary(self) -> dict:
         self.sweep()
-        counts = {r["state"]: r["n"] for r in self.db.execute("SELECT state, COUNT(*) n FROM proposals GROUP BY state")}
+        with self.lock:
+            counts = {r["state"]: r["n"] for r in self.db.execute("SELECT state, COUNT(*) n FROM proposals GROUP BY state").fetchall()}
         return {"proposals": counts, "flags": {k: v["value"] for k, v in self.flags().items()},
                 "proposals_today": self._counter("proposals"), "daily_proposal_cap": self.cfg.max_proposals_per_day}
