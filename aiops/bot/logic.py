@@ -194,6 +194,11 @@ STATE_LINE = {
 }
 
 
+def num(p: dict) -> int:
+    """The number a human reads for a proposal (1, 2, 3 within its conversation); the primary key is only the fallback."""
+    return p.get("number", p["id"])
+
+
 def card(p: dict) -> dict:
     """The embed for one proposal, from Toolbelt data only. `buttons` is True only while it can still be decided."""
     params = "\n".join(f"{k} = {v}" for k, v in p["params"].items()) or "(none)"
@@ -212,10 +217,10 @@ def card(p: dict) -> dict:
         fields.append(("Runs first", f"`{p['requires_prior']}` (dry run) must pass", True))
     fields.append(("If it goes wrong", sanitize(p["rollback"], 250), False))
     return {
-        "title": f"Proposal #{p['id']}: {p['action_id']}",
+        "title": f"Proposal #{num(p)}: {p['action_id']}",
         "description": f"{sanitize(p['reason'])}\n\n**{state}**",
         "fields": fields,
-        "footer": f"params {p['params_hash']} | incident {p['incident_id'] or '-'} | {p['source']}"
+        "footer": f"id {p['id']} | params {p['params_hash']} | incident {p['incident_id'] or '-'} | {p['source']}"
                   + (f" | expires <t:{p['expires_at']}:R>" if st == "pending" else ""),
         "colour": TIER_COLOUR.get(p["tier"], 0x99AAB5) if st == "pending" else
                   (0x57F287 if st == "succeeded" else 0xED4245 if st in ("failed", "verify_failed") else 0x99AAB5),
@@ -226,10 +231,10 @@ def card(p: dict) -> dict:
 def result_summary(p: dict) -> str:
     """A short outcome for a terminal proposal, from the stored result (already redacted by the engine)."""
     r = p.get("result") or {}
-    head = {"succeeded": "Proposal #%d succeeded and verified." % p["id"], "failed": "Proposal #%d FAILED." % p["id"],
-            "verify_failed": "Proposal #%d ran but its post-condition did NOT hold." % p["id"],
-            "rejected": "Proposal #%d was rejected." % p["id"], "expired": "Proposal #%d expired undecided." % p["id"],
-            "cancelled": "Proposal #%d was cancelled before it started." % p["id"]}.get(p["state"], f"Proposal #{p['id']}: {p['state']}")
+    head = {"succeeded": "Proposal #%d succeeded and verified." % num(p), "failed": "Proposal #%d FAILED." % num(p),
+            "verify_failed": "Proposal #%d ran but its post-condition did NOT hold." % num(p),
+            "rejected": "Proposal #%d was rejected." % num(p), "expired": "Proposal #%d expired undecided." % num(p),
+            "cancelled": "Proposal #%d was cancelled before it started." % num(p)}.get(p["state"], f"Proposal #{num(p)}: {p['state']}")
     lines = [head]
     if r.get("why"):
         lines.append(sanitize(r["why"], 400))
@@ -299,5 +304,5 @@ def format_status(s: dict) -> str:
              f"Open incidents: {s.get('open_incidents', '?')} | agent runs today: {s.get('runs_today', '?')}/{s.get('daily_run_cap', '?')} | chat turns today: {s.get('chat_turns_today', 0)}",
              f"Proposals today: {a.get('proposals_today', 0)}/{a.get('daily_proposal_cap', '?')} | by state: " + (", ".join(f"{k} {v}" for k, v in sorted(a.get('proposals', {}).items())) or "none")]
     for p in s.get("open_proposals", [])[:8]:
-        lines.append(f"- #{p['id']} `{p['action_id']}` on `{sanitize(p['target'], 40)}`: {p['state']}")
+        lines.append(f"- #{num(p)} (id {p['id']}) `{p['action_id']}` on `{sanitize(p['target'], 40)}`: {p['state']}")
     return "\n".join(lines)[:1900]

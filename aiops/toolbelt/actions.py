@@ -601,9 +601,15 @@ class Engine:
     def _view(self, pid: int, duplicate: bool = False) -> dict:
         with self.lock:
             r = self._row(pid)
+            # What a human reads in chat: 1, 2, 3 within the conversation (or incident) the proposal belongs to.
+            # The primary key stays the identity everything else (buttons, audit, API) uses.
+            col, val = (("conversation_id", r["conversation_id"]) if r["conversation_id"] is not None
+                        else ("incident_id", r["incident_id"]) if r["incident_id"] is not None else (None, None))
+            number = (self.db.execute(f"SELECT COUNT(*) FROM proposals WHERE {col}=? AND id<=?", (val, pid)).fetchone()[0]
+                      if col else r["id"])
         a = self.reg.get(r["action_id"])
         out = {
-            "id": r["id"], "state": r["state"], "action_id": r["action_id"], "tier": r["tier"], "target": r["target"],
+            "id": r["id"], "number": number, "state": r["state"], "action_id": r["action_id"], "tier": r["tier"], "target": r["target"],
             "params": json.loads(r["params_json"]), "params_hash": r["params_hash"], "reason": r["reason"],
             "incident_id": r["incident_id"], "conversation_id": r["conversation_id"], "thread_id": r["thread_id"],
             "source": r["source"], "replay": bool(r["replay"]), "created_at": r["created_at"], "expires_at": r["expires_at"],
