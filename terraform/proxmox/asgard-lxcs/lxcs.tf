@@ -919,6 +919,108 @@ resource "proxmox_virtual_environment_container" "gna" {
 }
 
 # ----------------------------------------------------------------------------
+# LXC 1122 - Ratatoskr - the AIOps Discord bot (Urd) - Phase 10e
+# ----------------------------------------------------------------------------
+# The bot is the mouth, the ears and the ONLY approver of the AIOps loop (docs/operations/10e-approval-actions.md): it
+# forwards an @mention to Gna, posts the answer, renders proposal cards from the Toolbelt's feed, and turns a button press
+# by the operator's Discord user id into a decision at the Toolbelt. It lives on its own host, NOT on Gna, because Gna
+# reads attacker-influenced text through an LLM: the party that can approve an action must not share a machine, a user
+# or a credential store with it. Ratatoskr, the squirrel that carries messages up and down the world tree.
+#
+# Outbound only (the Discord gateway websocket); nothing listens. Egress is enforced at the UCG like Gna's (Discord +
+# Debian only, deny last: docs/architecture/network.md) AND by the unit (internal ranges denied except the Toolbelt, Gna
+# and DNS). Native systemd with the Debian discord.py package: no Docker, no pip, no PyPI egress.
+#
+# Placement: Urd, like Gna (Verd hosts Frigg, Skuld hard-freezes). Sizing: 1 vCPU / 512 MB / 4 GB; discord.py idles at
+# ~60 MB.
+#
+# See: ansible/roles/ratatoskr/, ansible/playbooks/asgard-ratatoskr.yml, aiops/bot/
+# ----------------------------------------------------------------------------
+
+resource "random_password" "ratatoskr_root" {
+  length  = 32
+  special = true
+}
+
+resource "proxmox_virtual_environment_container" "ratatoskr" {
+  description = "Ratatoskr - AIOps Discord bot (approver), 10e"
+
+  node_name = "urd"
+  vm_id     = 1122
+  tags      = ["asgard", "lxc", "ratatoskr", "aiops", "managed-by-terraform"]
+
+  unprivileged  = true
+  start_on_boot = true
+  started       = true
+
+  cpu {
+    cores = 1
+  }
+
+  memory {
+    dedicated = 512 # MB - discord.py + vlagent + zabbix-agent
+    swap      = 256
+  }
+
+  disk {
+    datastore_id = var.lxc_storage
+    size         = 4 # GB - Debian + python3-discord + state (a cursor file)
+  }
+
+  network_interface {
+    name     = "eth0"
+    bridge   = var.lxc_network_bridge
+    vlan_id  = 11
+    firewall = false
+    enabled  = true
+  }
+
+  initialization {
+    hostname = "ratatoskr"
+
+    ip_config {
+      ipv4 {
+        address = "10.0.11.222/24"
+        gateway = "10.0.11.1"
+      }
+    }
+
+    # PVE owns resolv.conf (see Gna / factorio); baseline_manage_resolv_conf=false in group_vars/ratatoskr.yml.
+    dns {
+      domain  = "niflheim.xiiisins.com"
+      servers = ["10.0.10.200", "10.0.254.1"]
+    }
+
+    user_account {
+      keys     = [trimspace(var.ssh_public_key)]
+      password = random_password.ratatoskr_root.result
+    }
+  }
+
+  operating_system {
+    template_file_id = var.lxc_template
+    type             = "debian"
+  }
+
+  features {
+    nesting = true # systemd 257 on Debian 13 - see gotchas
+  }
+
+  console {
+    enabled = true
+    type    = "tty"
+  }
+
+  # bpg/proxmox doesn't return template_file_id or user_account from the API on read.
+  lifecycle {
+    ignore_changes = [
+      operating_system[0].template_file_id,
+      initialization[0].user_account,
+    ]
+  }
+}
+
+# ----------------------------------------------------------------------------
 # LXCs 1190/1191/1192 — canary pool (Urd ONLY) — Phase 10b1
 # ----------------------------------------------------------------------------
 # Disposable T1 test substrate for the AIOps loop (aiops-roadmap.md 10b1):

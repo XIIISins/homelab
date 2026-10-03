@@ -288,6 +288,27 @@ resource "vault_kv_secret_v2" "toolbelt_token" {
   })
 }
 
+# -----------------------------------------------------------------------------
+# Approver token (Phase 10e): the Discord bot (Ratatoskr) -> the Toolbelt's APPROVER role
+# -----------------------------------------------------------------------------
+# A second, separate bearer token for a second role: the agent token (above) can create proposals but never decide
+# one; this one can decide, flip the kill switch and read the feed, and can do nothing the agent can. It is read by the
+# Ratatoskr role (written to the bot host) and by the Frigg token loader (the Toolbelt's approver credential); the
+# Toolbelt also allow-lists the bot's source address, so the token alone is not enough. Rotate: taint + apply, then
+# re-run the Ratatoskr role and restart the Toolbelt.
+resource "random_password" "approver_token" {
+  length  = 48
+  special = false # sent in an Authorization header
+}
+
+resource "vault_kv_secret_v2" "approver_token" {
+  mount = vault_mount.kv.path
+  name  = "ansible/aiops/approver-token"
+  data_json = jsonencode({
+    value = random_password.approver_token.result
+  })
+}
+
 # NOTE (Wave S3): the SFTPGo admin password (secret/ansible/sftpgo/admin-password)
 # and the Factorio operator password (secret/ansible/factorio/operator-password)
 # are NOT TF-managed. Both were *preserved* existing values lifted into Vault
