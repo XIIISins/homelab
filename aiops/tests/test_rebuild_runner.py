@@ -56,6 +56,8 @@ if cmd == "init":
     sys.exit(sc.get("init_rc", 0))
 if cmd == "plan":
     out = [a for a in sys.argv if a.startswith("-out=")][0][5:]
+    if sc.get("fail_with_replace") and any(a.startswith("-replace=") for a in sys.argv):
+        sys.stderr.write("Error: no such resource instance in state"); sys.exit(1)
     if sc.get("plan_rc", 0):
         sys.stderr.write("Error: boom"); sys.exit(sc["plan_rc"])
     open(out, "w").write(json.dumps(sc.get("plan_json")) + str(sc.get("nonce", "")))
@@ -147,6 +149,23 @@ class _Sink:
 
 
 class PlanApplyTests(Base):
+    def test_a_destroyed_guest_is_planned_without_replace(self):
+        """A guest deleted behind Terraform's back: `-replace` of an address not in state fails, so the runner retries
+        once with a plain single-resource plan (a create); the plan checker still decides."""
+        self.scenario({"plan_json": good_plan(), "fail_with_replace": True})
+        r = self.plan()
+        self.assertTrue(r["ok"], r)
+        plans = [c["argv"] for c in self.calls() if c["argv"][0] == "plan"]
+        self.assertEqual(len(plans), 2)
+        self.assertTrue(any(a.startswith("-replace=") for a in plans[0]))
+        self.assertFalse(any(a.startswith("-replace=") for a in plans[1]))
+        self.assertEqual(sum(1 for a in plans[1] if a.startswith("-target=")), 1)  # still exactly one target
+
+    def test_a_plan_that_fails_both_ways_is_refused(self):
+        self.scenario({"plan_json": good_plan(), "plan_rc": 1})
+        r = self.plan()
+        self.assertFalse(r["ok"])
+        self.assertIn("terraform-failed", r["error"])
     def test_happy_plan_then_apply(self):
         r = self.plan()
         self.assertTrue(r["ok"], r)
