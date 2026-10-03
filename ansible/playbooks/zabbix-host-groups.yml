@@ -85,3 +85,31 @@
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
       tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:macros]
+
+    # Phase 10f - the canary pool's own smoke-test template (High/Disaster triggers the AIOps loop can act on; the stock
+    # agent-unavailable trigger is Average, which Gna never receives). Linked only via group_vars/canary.yml, and it must
+    # exist BEFORE register-host links it, hence it lives in this bootstrap play. Template source:
+    # playbooks/files/zabbix/canary-smoke-test.yml (item keys avoid the stock template's keys on purpose).
+    - name: Ensure the canary smoke-test template exists in Zabbix
+      when:
+        - not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
+        - "'canary' in groups"
+      community.zabbix.zabbix_template:
+        template_yaml: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/files/zabbix/canary-smoke-test.yml') }}"
+        state: present
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:canary-template]

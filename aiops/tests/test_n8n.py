@@ -290,7 +290,10 @@ class N8nChatWorkflow(unittest.TestCase):
     def test_the_diagnosis_prompt_asks_for_params_on_every_proposal(self):
         text = (REPO / "aiops" / "n8n" / "prompts" / "diagnose.system.md").read_text()
         self.assertIn('"params":{"<declared var>":"<value>"}', text)
-        self.assertIn("nothing runs without that", text)
+        # 10f: one narrow class may run under a Toolbelt policy; the prompt must say the model never decides that
+        self.assertIn("never on your say-so", text)
+        self.assertIn("RB-UNIT-STOPPED-T1", text)
+        self.assertIn("Actions are NOT tools", text)
 
     def test_lint_requires_a_responder_for_a_synchronous_source_and_forbids_one_elsewhere(self):
         tmp = Path(tempfile.mkdtemp())

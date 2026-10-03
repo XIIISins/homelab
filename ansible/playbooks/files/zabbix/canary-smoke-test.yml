@@ -1,0 +1,91 @@
+# ansible/playbooks/files/zabbix/canary-smoke-test.yml
+#
+# "Canary smoke test": a Zabbix 7.0 template linked ONLY to the canary pool (group_vars/canary.yml). It gives the AIOps
+# loop real High and Disaster problems to chew on, because the stock "agent not available" trigger is Average and the
+# diagnosis agent (Gna) only receives High and Disaster. Imported by playbooks/zabbix-host-groups.yml.
+#
+# Canary alerts are capped at the Hermod `info` tier (docs/procedures/canary-pool.md "Alerting caps"), so a High or
+# Disaster here never pages anyone; it exercises Zabbix -> Gna -> Toolbelt -> Discord thread and, for the two
+# service-fault triggers, the 10f autonomous restart. Item keys here are deliberately NOT keys that "Linux by Zabbix
+# agent" already defines (Zabbix refuses two linked templates that define the same key on one host).
+#
+# Faults (scripts/canary/fault):
+#   stop zabbix-agent2.service  -> "agent service down" (High, after ~3 min of no data)
+#   stop vlagent.service        -> "vlagent not active" (High)
+#   flag <canary> high|disaster -> a synthetic problem with no service touched (pipeline test, High / Disaster)
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 27ce0f37c4674fcba33a7e5065b78357
+      template: Canary smoke test
+      name: Canary smoke test
+      description: Synthetic High/Disaster problems for the AIOps canary pool. Never link this to a real host.
+      groups:
+        - name: Templates
+      items:
+        - uuid: bbab8d6b95374c75973070c62aece42e
+          name: 'Canary smoke: agent heartbeat'
+          key: 'vfs.file.exists[/etc/hostname]'
+          delay: 30s
+          history: 1d
+          trends: '0'
+          description: Always 1 while the agent answers; the nodata trigger below turns its silence into a High problem.
+          triggers:
+            - uuid: 2d29fcb3cd684fc6b9803b5a86ca251a
+              expression: 'nodata(/Canary smoke test/vfs.file.exists[/etc/hostname],3m)=1'
+              name: 'Canary smoke: agent service down (zabbix-agent2)'
+              priority: HIGH
+              description: The canary's zabbix-agent2 has not answered for 3 minutes (stopped unit on a live host).
+              tags:
+                - tag: aiops
+                  value: canary-smoke
+        - uuid: 1cf390fbecfe41639d7806542d6692f8
+          name: 'Canary smoke: vlagent state'
+          type: ZABBIX_PASSIVE
+          key: 'systemd.unit.info[vlagent.service,ActiveState]'
+          delay: 30s
+          history: 1d
+          trends: '0'
+          value_type: CHAR
+          triggers:
+            - uuid: e3f4391550194c0cb26fcdfa3270cea9
+              expression: 'last(/Canary smoke test/systemd.unit.info[vlagent.service,ActiveState])<>"active"'
+              name: 'Canary smoke: vlagent not active'
+              priority: HIGH
+              description: vlagent (the log shipper) is stopped or failed on a canary.
+              tags:
+                - tag: aiops
+                  value: canary-smoke
+        - uuid: d055fab56f584982b36dbd51008a026b
+          name: 'Canary smoke: synthetic High flag'
+          key: 'vfs.file.exists[/var/lib/aiops-smoke/high]'
+          delay: 30s
+          history: 1d
+          trends: '0'
+          triggers:
+            - uuid: c252f5a4b2d34e8b93f62f8bf857db20
+              expression: 'last(/Canary smoke test/vfs.file.exists[/var/lib/aiops-smoke/high])=1'
+              name: 'Canary smoke: synthetic High flag set'
+              priority: HIGH
+              description: The flag file /var/lib/aiops-smoke/high exists (scripts/canary/fault flag). No service is affected.
+              tags:
+                - tag: aiops
+                  value: canary-smoke
+        - uuid: b2c035117acf4466bba1f4ec7e969861
+          name: 'Canary smoke: synthetic Disaster flag'
+          key: 'vfs.file.exists[/var/lib/aiops-smoke/disaster]'
+          delay: 30s
+          history: 1d
+          trends: '0'
+          triggers:
+            - uuid: 4da3e40ec4df453db0471599f18271b7
+              expression: 'last(/Canary smoke test/vfs.file.exists[/var/lib/aiops-smoke/disaster])=1'
+              name: 'Canary smoke: synthetic Disaster flag set'
+              priority: DISASTER
+              description: The flag file /var/lib/aiops-smoke/disaster exists (scripts/canary/fault flag). No service is affected.
+              tags:
+                - tag: aiops
+                  value: canary-smoke
