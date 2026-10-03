@@ -10,7 +10,7 @@
 # cannot be minted here, and a private key must not enter TF state. 1Password stays the
 # offline copy. Place one with (root token, 1P item id from `op item list --categories 'SSH Key'`):
 #   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'private key' \
-#     operator/ssh/<name>/private_key --apply
+#     operator/ssh/<name>/private_key --op-vault Dev --apply
 #
 # WHO CAN READ `secret/operator/*` (the access rule, enforced here):
 #   - ansible-local  (the MacBook)  via operator-ssh-read below

@@ -15,8 +15,8 @@ Three personal keys from the 1Password `Dev` vault (`Personal SSH-RSA` — the g
 1. Merge the PR, then apply the policy from the main checkout with your own admin token: `cd terraform/vault && terraform apply`.
 2. Place each key, using the root token (the Homelab-vault 1P item is the source of the token, never typed into a command):
    ```bash
-   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'private key' operator/ssh/<name>/private_key --apply
-   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'public key'  operator/ssh/<name>/public_key  --apply
+   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'private key' operator/ssh/<name>/private_key --op-vault Dev --apply
+   scripts/secrets/vault-1p-mirror mirror-to vault <1p-item-id>/'public key'  operator/ssh/<name>/public_key  --op-vault Dev --apply
    ```
    `op item list --categories 'SSH Key' --format=json | jq -r '.[]|"\(.id)\t\(.vault.name)\t\(.title)"'` finds the ids. The tool reads each value back and compares its hash.
 3. Install the ssh override once: `scripts/ssh/operator-agent ssh-config > ~/.ssh/config.d/90-operator-agent`.
