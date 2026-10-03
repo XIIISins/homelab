@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- `vault` authenticated with a token that can **read** the paths, and for `to-vault` **write** them. The shim's AppRole token cannot write secrets: use your own Vault login (OIDC / admin) for `to-vault`.
+- **Operator-only tool.** It uses whatever Vault token is in your environment, so run it with your own admin/root login (the warm `homelab-env` cache, or `vault login`). The shim's AppRole token cannot write secrets and is not meant to run this.
 - `op` signed in (`op vault list` works).
 - Python 3.11+ (stdlib only).
 
