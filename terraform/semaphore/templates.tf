@@ -303,8 +303,9 @@ resource "semaphoreui_project_template" "infra_health_check" {
 # task `environment` (JSON), which Semaphore honours even with
 # allow_override_args_in_task = false.
 #
-# NOT YET APPLIED (operator gate): `terraform apply` from the main checkout,
-# then flip `semaphore.applied: true` in aiops/actions.yml.
+# These templates live in the dedicated `aiops` project (main.tf), NOT in `asgard`: the executor's Semaphore user is
+# Task Runner on that project only, so its token cannot start asgard-apply or any other fleet template.
+# Moving them recreates them (no schedules, no history that matters); the registry resolves templates by NAME.
 #
 # No wrapper-file concern: the new playbook filenames are absent from
 # hermod_summary's _MODES map, so they generate no Hermod traffic of their own.
@@ -312,14 +313,14 @@ resource "semaphoreui_project_template" "infra_health_check" {
 # --- T0: read-only ---
 
 resource "semaphoreui_project_template" "aiops_service_status" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-service-status"
   description    = "AIOps T0: read one systemd unit's state on one host (extra-vars target_host, unit)."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-service-status.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   allow_override_args_in_task = false
 
@@ -329,7 +330,7 @@ resource "semaphoreui_project_template" "aiops_service_status" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -338,14 +339,14 @@ resource "semaphoreui_project_template" "aiops_service_status" {
 }
 
 resource "semaphoreui_project_template" "aiops_vault_status" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-vault-status"
   description    = "AIOps T0: unauthenticated Vault seal/HA status via the vault CLI on Frigg."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-vault-status.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   allow_override_args_in_task = false
 
@@ -353,7 +354,7 @@ resource "semaphoreui_project_template" "aiops_vault_status" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -362,14 +363,14 @@ resource "semaphoreui_project_template" "aiops_vault_status" {
 }
 
 resource "semaphoreui_project_template" "aiops_patroni_status" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-patroni-status"
   description    = "AIOps T0: Patroni cluster state from the open GET /cluster endpoint on the PG trio."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-patroni-status.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   allow_override_args_in_task = false
 
@@ -377,7 +378,7 @@ resource "semaphoreui_project_template" "aiops_patroni_status" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -392,14 +393,14 @@ resource "semaphoreui_project_template" "aiops_patroni_status" {
 # the run unless the limit is one T1 host, the tag is allow-listed and the
 # check-mode matches. check variant bakes --check --diff as the default args.
 resource "semaphoreui_project_template" "aiops_replay_role_check" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-replay-role-check"
   description    = "AIOps T0: --check --diff of site.yml for ONE T1 host and ONE allow-listed role tag. Always precedes aiops-replay-role."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-replay-role-check.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   arguments                   = ["--check", "--diff"]
   allow_override_args_in_task = true
@@ -408,7 +409,7 @@ resource "semaphoreui_project_template" "aiops_replay_role_check" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -419,14 +420,14 @@ resource "semaphoreui_project_template" "aiops_replay_role_check" {
 # --- T1: mutating, approval-gated until the 10f1 guards exist ---
 
 resource "semaphoreui_project_template" "aiops_restart_unit" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-restart-unit"
   description    = "AIOps T1: restart one allow-listed systemd unit on one T1 host and wait for active."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-restart-unit.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   allow_override_args_in_task = false
 
@@ -434,7 +435,7 @@ resource "semaphoreui_project_template" "aiops_restart_unit" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -443,14 +444,14 @@ resource "semaphoreui_project_template" "aiops_restart_unit" {
 }
 
 resource "semaphoreui_project_template" "aiops_replay_role" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-replay-role"
   description    = "AIOps T1: converge ONE allow-listed role tag on ONE T1 host via site.yml --limit/--tags. Requires a clean aiops-replay-role-check first."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-replay-role.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   # No baked args: the executor supplies --tags; the guard rejects --check.
   allow_override_args_in_task = true
@@ -459,7 +460,7 @@ resource "semaphoreui_project_template" "aiops_replay_role" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]
@@ -471,14 +472,14 @@ resource "semaphoreui_project_template" "aiops_replay_role" {
 # flux-reconcile-reset (reset=true); the executor sets the fixed var.
 # Runs on Frigg (flux CLI + operator kubeconfig live there).
 resource "semaphoreui_project_template" "aiops_flux_reconcile" {
-  project_id     = semaphoreui_project.asgard.id
+  project_id     = semaphoreui_project.aiops.id
   name           = "aiops-flux-reconcile"
   description    = "AIOps T1: flux reconcile hr <hr_name> -n <hr_namespace> [--reset] on Frigg; stateful-release deny-list + reset allow-list enforced in the playbook."
   app            = "ansible"
   playbook       = "ansible/playbooks/aiops-flux-reconcile.yml"
-  repository_id  = semaphoreui_project_repository.homelab.id
-  inventory_id   = semaphoreui_project_inventory.netbox.id
-  environment_id = semaphoreui_project_environment.default.id
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
 
   allow_override_args_in_task = false
 
@@ -486,7 +487,7 @@ resource "semaphoreui_project_template" "aiops_flux_reconcile" {
     {
       name = "default"
       password = {
-        vault_key_id = semaphoreui_project_key.ansible_vault.id
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
       }
     },
   ]

@@ -96,20 +96,10 @@ resource "semaphoreui_project_inventory" "netbox" {
   }
 }
 
-# === Environment ===
-#
-# Carries env vars + secrets for every template. The community
-# .hashi_vault lookup plugin reads ANSIBLE_HASHI_VAULT_* — must
-# match the operator's `~/.config/ansible/vault-approle.env` shape.
-# All four are required for AppRole auth.
-#
-# HERMOD_MODE is set per-template (drift vs apply) so the
-# callback plugin can tag its POST correctly.
-resource "semaphoreui_project_environment" "default" {
-  project_id = semaphoreui_project.asgard.id
-  name       = "default"
-
-  environment = {
+# The environment every template runs with. Shared by the `asgard` and `aiops` projects (see below) through locals,
+# so the Vault address / AppRole / SSH key path / Hermod URL cannot drift between them.
+locals {
+  semaphore_environment = {
     # Point Ansible at our ansible.cfg (Semaphore runs from repo root,
     # ansible.cfg lives under ansible/). Inventory + roles + callbacks
     # all resolve relative to this file's location.
@@ -135,11 +125,7 @@ resource "semaphoreui_project_environment" "default" {
     ANSIBLE_PRIVATE_KEY_FILE = "/etc/ssh-keys/ansible_niflheim"
   }
 
-  # role_id, secret_id, and the full Hermod URL (config-key embedded)
-  # all stored encrypted at rest in Semaphore. role_id isn't strictly
-  # sensitive (paired with secret_id it auths against Vault) but it
-  # paths through encrypted state for free, so no reason to leak it.
-  secrets = [
+  semaphore_environment_secrets = [
     {
       name  = "ANSIBLE_HASHI_VAULT_ROLE_ID"
       type  = "env"
@@ -163,4 +149,98 @@ resource "semaphoreui_project_environment" "default" {
       value = "http://hermod.niflheim.xiiisins.com/notify/${data.vault_kv_secret_v2.hermod_config_key.data["value"]}"
     },
   ]
+}
+
+# === Environment ===
+#
+# Carries env vars + secrets for every template. The community
+# .hashi_vault lookup plugin reads ANSIBLE_HASHI_VAULT_* — must
+# match the operator's `~/.config/ansible/vault-approle.env` shape.
+# All four are required for AppRole auth.
+#
+# HERMOD_MODE is set per-template (drift vs apply) so the
+# callback plugin can tag its POST correctly.
+resource "semaphoreui_project_environment" "default" {
+  project_id = semaphoreui_project.asgard.id
+  name       = "default"
+
+  environment = local.semaphore_environment
+
+  # role_id, secret_id, and the full Hermod URL (config-key embedded)
+  # all stored encrypted at rest in Semaphore. role_id isn't strictly
+  # sensitive (paired with secret_id it auths against Vault) but it
+  # paths through encrypted state for free, so no reason to leak it.
+  secrets = local.semaphore_environment_secrets
+}
+
+# =============================================================================
+# Project `aiops` (Phase 10e): the ONLY project the AIOps executor may touch
+# =============================================================================
+# Semaphore roles are per PROJECT, not per template. The Toolbelt's executor must be able to run the aiops-*
+# templates and nothing else, so they live in their own project and the executor's user (`aiops-exec`, minted by
+# aiops/tools/mint_semaphore_exec.py) is Task Runner HERE only: a leaked executor token cannot start asgard-apply,
+# os-updates or any other template in the `asgard` project, and cannot edit a template anywhere. The keys,
+# repository, inventory and environment are copies of the asgard project's (keys are per project in Semaphore).
+# max_parallel_tasks = 1 serialises executor runs the same way asgard serialises ansible-playbook runs.
+
+resource "semaphoreui_project" "aiops" {
+  name               = "aiops"
+  alert              = true
+  max_parallel_tasks = 1
+}
+
+resource "semaphoreui_project_key" "aiops_github_deploy" {
+  project_id = semaphoreui_project.aiops.id
+  name       = "github-deploy"
+
+  ssh = {
+    private_key = data.vault_kv_secret_v2.github_deploy_key.data["private"]
+    login       = "git"
+  }
+}
+
+resource "semaphoreui_project_key" "aiops_ansible_ssh" {
+  project_id = semaphoreui_project.aiops.id
+  name       = "ansible-ssh"
+
+  ssh = {
+    private_key = data.vault_kv_secret_v2.host_ssh_key.data["private"]
+    login       = data.vault_kv_secret_v2.host_ssh_key.data["login"]
+  }
+}
+
+resource "semaphoreui_project_key" "aiops_ansible_vault" {
+  project_id = semaphoreui_project.aiops.id
+  name       = "ansible-vault-password"
+
+  login_password = {
+    login    = "ansible-vault"
+    password = data.vault_kv_secret_v2.ansible_vault_password.data["value"]
+  }
+}
+
+resource "semaphoreui_project_repository" "aiops_homelab" {
+  project_id = semaphoreui_project.aiops.id
+  name       = "homelab"
+  url        = "git@github.com:XIIISins/homelab.git"
+  branch     = "main"
+  ssh_key_id = semaphoreui_project_key.aiops_github_deploy.id
+}
+
+resource "semaphoreui_project_inventory" "aiops_netbox" {
+  project_id = semaphoreui_project.aiops.id
+  name       = "netbox-dynamic"
+  ssh_key_id = semaphoreui_project_key.aiops_ansible_ssh.id
+
+  file = {
+    path          = "ansible/inventory/netbox.yml"
+    repository_id = semaphoreui_project_repository.aiops_homelab.id
+  }
+}
+
+resource "semaphoreui_project_environment" "aiops_default" {
+  project_id  = semaphoreui_project.aiops.id
+  name        = "default"
+  environment = local.semaphore_environment
+  secrets     = local.semaphore_environment_secrets
 }
