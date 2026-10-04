@@ -124,8 +124,9 @@ class ChangeRequests:
             return None
         proposal = self.eng.pr_test_view(r["branch"]) if r["branch"] else None
         ev = self.db.execute("SELECT data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
-        reason = json.loads(ev["data_json"]).get("ineligible") if ev else None
-        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None))
+        data = json.loads(ev["data_json"]) if ev else {}
+        reason = data.get("ineligible")
+        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None), bool(data.get("transient")))
 
     # -- create --------------------------------------------------------------------------------------------
     def create(self, *, source: str, class_: str, title: str, body: str, allowed_paths=None, source_ref: str = "",
@@ -259,6 +260,22 @@ class ChangeRequests:
         self.audit("change_request_reported", cr=cid, state=state)
         if state == "pr-open":
             self._after_pr_open(cid)
+        return self.view(cid)
+
+    def retest(self, cid: int) -> dict:
+        """Ask again for a test proposal for an open PR whose first attempt hit a TEMPORARY GitHub problem (HTTP 0/403/429/5xx).
+        Only when no test exists for the branch and the last attempt was transient and at least two minutes old; the dispatcher
+        calls this from its reconcile loop."""
+        with self.lock:
+            r = self._row(cid)
+            ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
+        if r["state"] != "pr-open" or not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
+            raise Refused(409, "only an open PR of a canary-tested class can be retested")
+        if ev is None or not json.loads(ev["data_json"]).get("transient") or self.eng.pr_test_view(r["branch"] or "") is not None:
+            raise Refused(409, "there is nothing to retry")
+        if self.now() - ev["ts"] < 120:
+            raise Refused(429, "retried too recently")
+        self._after_pr_open(cid)
         return self.view(cid)
 
     def _after_pr_open(self, cid: int) -> None:

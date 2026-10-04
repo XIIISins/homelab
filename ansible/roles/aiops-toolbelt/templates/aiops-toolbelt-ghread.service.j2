@@ -1,0 +1,49 @@
+{# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-ghread.service.j2 #}
+# Managed by Ansible (roles/aiops-toolbelt). Do not edit.
+# A loopback-only, read-only window onto TWO GitHub API paths (an agent branch's head and its compare against main) for the
+# Toolbelt's PR canary-test check. Its own unit because the Toolbelt's unit has IPAddressDeny=any by design (it holds read tokens
+# for most of the homelab): this one may reach the internet and nothing private, holds no credential, and serves nothing else.
+[Unit]
+Description=AIOps Toolbelt GitHub read proxy (loopback, two GET paths)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ aiops_toolbelt_user }}
+Group={{ aiops_toolbelt_user }}
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/github_read_proxy.py --listen 127.0.0.1:{{ aiops_toolbelt_ghread_port }} --repo {{ aiops_toolbelt_ghread_repo }}
+Restart=on-failure
+RestartSec=5
+
+# The internet, yes; every private range, no (the resolvers are allowed back in: IPAddressAllow beats IPAddressDeny).
+IPAddressDeny={{ aiops_toolbelt_ghread_deny_ranges | join(' ') }}
+IPAddressAllow=127.0.0.0/8 {{ aiops_toolbelt_ghread_dns_allow | join(' ') }}
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+LimitCORE=0
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

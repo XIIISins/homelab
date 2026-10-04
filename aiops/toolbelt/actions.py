@@ -582,8 +582,8 @@ class Engine:
         guard = self.reg.get("pr-canary-test")["guard"]["pr_scope"]
         got = pr_test.inspect_pr(self.cfg.pr_fetch, branch, guard["classes"], guard["roles"], self.cfg.pr_repo)
         if not got["ok"]:
-            self.audit("pr_test_ineligible", cr=change_request_id, why=got["reason"][:160])
-            return {"ineligible": got["reason"]}
+            self.audit("pr_test_ineligible", cr=change_request_id, why=got["reason"][:160], transient=bool(got.get("transient")))
+            return {"ineligible": got["reason"], "transient": bool(got.get("transient"))}
         canaries = [h for h in self.reg.tiers.get("T1", []) if pr_test.CANARY.match(h)]
         if not canaries:
             return {"ineligible": "no canary is defined"}

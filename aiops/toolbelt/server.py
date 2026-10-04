@@ -175,6 +175,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("POST", re.compile(rf"^/change-requests/{_ID}/message$"), only_appr, self._h_cr_message),
                 ("POST", re.compile(r"^/change-requests/claim$"), (AUTHOR,), lambda m, q: self._cr().claim()),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/report$"), (AUTHOR,), self._h_cr_report),
+                ("POST", re.compile(rf"^/change-requests/{_ID}/pr-test$"), (AUTHOR,), lambda m, q: self._cr().retest(int(m.group(1)))),
                 ("GET", re.compile(r"^/flags$"), only_appr, lambda m, q: self._engine().flags()),
                 ("POST", _FLAG, only_appr, self._h_flag),
                 ("GET", re.compile(r"^/status$"), only_appr, lambda m, q: tb.status()),
@@ -346,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--author-tools-allow", action="append", default=[], help="CIDR the AUTHOR-TOOLS role may call from (repeatable)")
     ap.add_argument("--change-requests", action="store_true", help="enable 10h2 change requests (needs --actions)")
     ap.add_argument("--author-repo", default="XIIISins/homelab", help="owner/name a reported PR URL must belong to")
+    ap.add_argument("--github-read-url", default="", help="the loopback GitHub read proxy (github_read_proxy.py) the PR canary-test check reads through; "
+                    "the Toolbelt's unit cannot reach the internet itself. Empty = talk to GitHub directly (tests, a laptop).")
     ap.add_argument("--author-daily-budget", type=int, default=6, help="drafts the author may start per UTC day")
     ap.add_argument("--placement-file", help="JSON {host: hypervisor-node}, refreshed from NetBox")
     ap.add_argument("--daily-run-cap", type=int, default=40)
@@ -400,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
             max_started_per_day=args.author_daily_budget)
         if cfg.actions is not None:  # 10h2: canary tests of agent PRs read the PR from GitHub (public, read-only, unauthenticated)
             import pr_test  # noqa: E402
-            cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.gh_fetch, args.author_repo
+            cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.make_fetch(args.github_read_url or None), args.author_repo
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)

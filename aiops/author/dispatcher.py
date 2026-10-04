@@ -211,6 +211,9 @@ class ToolbeltClient:
     def report(self, cid: int, **fields) -> tuple[int, object]:
         return http("POST", f"{self.base}/change-requests/{cid}/report", self.h, fields)
 
+    def retest(self, cid: int) -> tuple[int, object]:
+        return http("POST", f"{self.base}/change-requests/{cid}/pr-test", self.h, {})
+
     def open_prs(self) -> list[dict]:
         st, b = http("GET", self.base + "/change-requests?state=pr-open", self.h)
         return b.get("change_requests", []) if st == 200 and isinstance(b, dict) else []
@@ -292,6 +295,7 @@ class Dispatcher:
         self.start_session = start_session or self._systemd_session
         self._ident: tuple[float, dict] | None = None
         self._blocked_seen: dict[str, float] = {}  # why -> last time claim_blocked was logged (once per 10 min)
+        self._retest_seen: dict[int, float] = {}  # change request -> last time a transient test failure was retried
         self._canary_seen: dict[int, str] = {}  # PR number -> digest of the canary section last written
 
     # -- the safety guard ----------------------------------------------------------------------------------------
@@ -453,6 +457,13 @@ class Dispatcher:
             m = re.search(r"/pull/(\d+)$", cr.get("pr_url") or "")
             if not m:
                 continue
+            pt = cr.get("pr_test") or {}
+            if pt.get("status") == "not-tested" and pt.get("retry") and time.time() - self._retest_seen.get(cr["id"], 0) > 300:
+                self._retest_seen[cr["id"]] = time.time()  # a temporary GitHub problem stopped the first attempt: ask again, gently
+                rst, fresh = self.tb.retest(cr["id"])
+                if rst == 200 and isinstance(fresh, dict):
+                    cr = {**cr, "pr_test": fresh.get("pr_test")}
+                audit("pr_test_retry", cr=cr["id"], status=rst)
             self.sync_canary(int(m.group(1)), cr.get("pr_test"))
             state = self.gh.pr_state(int(m.group(1)))
             if state in ("merged", "closed"):
