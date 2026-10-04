@@ -21,6 +21,20 @@
 # baseline has already installed it; kept so the role stands alone.)
 # ============================================================================
 
+# ---- DNS (tasks/dns.yml) ----
+# AdGuard only: the VIP first, then two AdGuard nodes direct (same VLAN 11
+# as Frigg), so resolved's sticky server choice always lands on a resolver
+# that knows *.niflheim. Deliberately no UCG / public fallback: if all three
+# AdGuard nodes are down, internal names are gone anyway. group_vars/control.yml
+# sets this and baseline_nameservers (resolv.conf, which resolved reads as
+# its global scope) from one list.
+control_node_dns_servers:
+  - 10.0.10.200 # AdGuard VIP (keepalived across Saga/Mimir/Kvasir)
+  - 10.0.11.201 # Saga
+  - 10.0.11.202 # Mimir
+# The NIC netplan names `10-netplan-<if>.network` (cloud-init renders eth0).
+control_node_dns_interface: eth0
+
 # ---- Operator user ----
 # Who runs `claude` + SSHes in to drive a mobile session. bash login shell,
 # NOPASSWD sudo via a dedicated sudoers.d drop-in, real home dir.

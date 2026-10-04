@@ -1,0 +1,8 @@
+# Managed by Ansible (control-node role, tasks/dns.yml) — do not edit.
+# The empty DNS= drops the servers netplan rendered from cloud-init
+# (UCG + 1.1.1.1); only AdGuard answers *.niflheim correctly.
+[Network]
+DNS=
+{% for ns in control_node_dns_servers %}
+DNS={{ ns }}
+{% endfor %}

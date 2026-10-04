@@ -25,6 +25,21 @@ ssh_extra_allow_users:
 control_node_operator_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFmQmERjJi2CcKSBiVYbBUnHguBRUintOJiI0tKaZxkv ghost@Luxuria"
 
 # -----------------------------------------------------------------------------
+# DNS (baseline resolv.conf + control-node networkd drop-in)
+# -----------------------------------------------------------------------------
+# AdGuard only, no UCG fallback: systemd-resolved sticks to the last server
+# that answered, and the UCG can answer NXDOMAIN for *.niflheim (the Toolbelt
+# then fails mid-rebuild). resolved reads this foreign resolv.conf as its
+# global scope; the control-node role pins the same list on eth0 (the
+# per-link servers cloud-init/netplan set, which resolved actually uses).
+control_dns_servers:
+  - 10.0.10.200 # AdGuard VIP (keepalived across Saga/Mimir/Kvasir)
+  - 10.0.11.201 # Saga (same VLAN 11 as Frigg)
+  - 10.0.11.202 # Mimir
+baseline_nameservers: "{{ control_dns_servers }}"
+control_node_dns_servers: "{{ control_dns_servers }}"
+
+# -----------------------------------------------------------------------------
 # Tailscale (tailscale role)
 # -----------------------------------------------------------------------------
 # server tag — Frigg is infrastructure, not a user device. --ssh enables
