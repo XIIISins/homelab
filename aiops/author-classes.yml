@@ -1,0 +1,88 @@
+# aiops/author-classes.yml — Phase 10h2: what an agent-authored PR may touch.
+#
+# Read by aiops/author/scope.py from BOTH the dispatcher on Frigg (before it pushes) and the CI job
+# `agent-scope` (from the PR's BASE commit, so a PR cannot loosen its own rules). An agent cannot edit this
+# file: it is under `deny` below. Plan: docs/operations/10h-predictive-change.md ("The PR gate").
+version: 1
+
+# A PR is agent-authored when its head branch is `agent/<class>/<change-request-id>-<slug>`. The dispatcher (not
+# the LLM session) creates that branch, so the session cannot pick or omit the name. Optional extra check: when
+# `agent_logins` is non-empty a PR from one of these logins must use the prefix.
+branch_prefix: agent/
+agent_logins: []
+
+limits:
+  max_files: 12
+  max_changed_lines: 600
+  allow_deletes: false      # nothing an agent PR does may delete a file (no data loss class)
+
+# No class may ever touch these: the files that define what agents may do, the CI itself, secrets and the
+# deploy path's guardrails. Patterns: `**` crosses directories, `*` does not.
+deny:
+  - ".github/**"
+  - ".claude/**"
+  - ".gitleaks.toml"
+  - "CLAUDE.md"
+  - "terraform/github/**"
+  - "terraform/vault/**"
+  - "terraform/semaphore/**"
+  - "terraform/proxmox/asgard-pools/**"
+  - "terraform/aws/**"
+  - "aiops/actions.yml"
+  - "aiops/runbooks.yml"
+  - "aiops/alert-routing.yml"
+  - "aiops/schema/**"
+  - "aiops/toolbelt/**"
+  - "aiops/bot/**"
+  - "aiops/n8n/**"
+  - "aiops/runner/**"
+  - "aiops/author/**"
+  - "aiops/author-classes.yml"
+  - "aiops/tools/**"
+  - "aiops/tests/**"
+  - "ansible/roles/aiops-*/**"
+  - "ansible/roles/ratatoskr/**"
+  - "ansible/roles/frigg-ssh-agent/**"
+  - "ansible/roles/control-node/**"
+  - "ansible/inventory/group_vars/all/vault.yml"
+  - "docs/operations/decisions.md"
+  - "docs/operations/open-questions.md"
+  - "docs/operations/build-sequence.md"
+  - "scripts/**"
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/*.tfstate*"
+  - "**/.env*"
+  - "**/vault.yml"
+
+# `enabled: false` classes are drafted nowhere: the dispatcher refuses them and CI fails a PR that names one.
+# The doc's order: docs first, capacity remedies second, drift third.
+classes:
+  docs:
+    enabled: true
+    summary: Incident write-ups and known-issue / procedure edits (10h3 uses this class).
+    allow:
+      - "docs/incidents/**"
+      - "docs/known-issues/**"
+      - "docs/procedures/**"
+    tested_on: repo CI (links, yamllint) in the author's worktree; no substrate needed
+  capacity:
+    enabled: false
+    summary: A forecast's known remedy, as a value change (a disk size, a prune policy, a Zabbix threshold).
+    allow:
+      - "terraform/proxmox/asgard-lxcs/*.tf"
+      - "terraform/proxmox/asgard-vms/*.tf"
+      - "ansible/inventory/group_vars/**"
+      - "ansible/roles/*/defaults/main.yml"
+      - "ansible/roles/zabbix-server/templates/**"
+    tested_on: a canary or burst run where one exercises the change; else no plan-diff
+  drift:
+    enabled: false
+    summary: Make the repo match intent after non-convergeable drift (the PR states the direction).
+    allow:
+      - "ansible/roles/*/tasks/**"
+      - "ansible/roles/*/templates/**"
+      - "ansible/roles/*/defaults/**"
+      - "ansible/roles/*/handlers/**"
+      - "ansible/playbooks/**"
+    tested_on: canary check-mode then a real run + idempotence where a canary exercises the role
