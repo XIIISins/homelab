@@ -16,6 +16,8 @@ ratatoskr_unit_name: ratatoskr
 ratatoskr_toolbelt_url: "http://10.0.11.30:8090" # Frigg: proposal feed, decisions, kill switch (approver role)
 ratatoskr_n8n_chat_url: "http://10.0.11.221:8081/webhook/aiops/chat" # Gna's Caddy listener, chat path (this host's address only)
 ratatoskr_poll_seconds: 3
+# Forecast cards (10h1) go here when set (a quiet #forecasts channel: create it, put its id here); 0 = the AIOps chat channel.
+ratatoskr_forecasts_channel_id: 0
 
 # Vault (KV v2, mount `secret`, read via the ansible AppRole at play time; same model as the n8n-agent role).
 ratatoskr_vault_discord_path: ansible/ratatoskr/discord-bot # operator-seeded: scripts/secrets/seed-discord-bot
@@ -26,6 +28,7 @@ ratatoskr_vault_chat_token_path: ansible/aiops/n8n-ingest-token/chat # terraform
 ratatoskr_source_files:
   - bot/logic.py
   - bot/drafts.py
+  - bot/fcast.py
   - bot/bot.py
 
 # The unit's own egress filter (defence in depth; the UCG policy is the real boundary, see docs/architecture/network.md).

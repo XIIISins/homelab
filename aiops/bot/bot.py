@@ -8,7 +8,7 @@ privileged intents: it hears messages that @mention it, plus button presses and 
               -> forwarded to n8n -> the answer is posted back. Read-only questions are open to everyone in those channels.
     cards     each pending proposal in the Toolbelt's feed becomes an embed with Approve / Reject buttons in its thread,
               edited as it runs and verifies. Only an operator user id can press them (checked here AND at the Toolbelt).
-    commands  /aiops status | pending | kill | resume | maintenance | draft | draft-incident | drafts   (operator only)
+    commands  /aiops status | pending | kill | resume | maintenance | draft | draft-incident | drafts | forecasts   (operator only)
     drafts    /aiops draft files a request for ONE agent-authored PR (Phase 10h2); its card in AIOps-chat has Approve / Reject,
               the PR link and result are posted as replies. The operator merges; the author never applies anything.
 
@@ -28,6 +28,7 @@ from discord import app_commands
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import drafts  # noqa: E402
+import fcast  # noqa: E402
 import logic  # noqa: E402
 
 NO_MENTIONS = discord.AllowedMentions.none()
@@ -137,6 +138,61 @@ class DraftButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:cr
             pass  # the feed poller edits the card anyway
         await interaction.followup.send({"approve": "Approved. The author will draft it and post the PR link here.",
                                          "reject": "Rejected. Nothing will be drafted.", "cancel": "Cancelled."}[self.act], ephemeral=True)
+
+
+def embed_of_fc(fc: dict) -> discord.Embed:
+    c = fcast.card(fc)
+    e = discord.Embed(title=c["title"], description=c["description"], colour=discord.Colour(c["colour"]))
+    for name, value, inline in c["fields"]:
+        e.add_field(name=name, value=value[:1024] or "-", inline=inline)
+    e.set_footer(text=c["footer"][:2000])
+    return e
+
+
+class ForecastButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:fc-(?P<act>useful|noise):(?P<fid>[0-9]+)"):
+    """Useful / Noise on a forecast card (Phase 10h1). The only decision a forecast asks for: a label that tunes thresholds later."""
+
+    LABELS = {"useful": ("Useful", discord.ButtonStyle.success), "noise": ("Noise", discord.ButtonStyle.secondary)}
+
+    def __init__(self, act: str, fid: int):
+        label, style = self.LABELS[act]
+        super().__init__(discord.ui.Button(label=label, style=style, custom_id=fcast.custom_id(act, fid)))
+        self.act, self.fid = act, fid
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /):
+        return cls(match["act"], int(match["fid"]))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        if bot.cfg.is_operator(interaction.user.id):
+            return True
+        await interaction.response.send_message("Only the operator can label a forecast.", ephemeral=True)
+        return False
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        await interaction.response.defer(ephemeral=True)
+        st, body = await asyncio.to_thread(bot.forecasts.label, self.fid, self.act, str(interaction.user.id))
+        log("forecast_labeled", forecast=self.fid, label=self.act, status=st, by=str(interaction.user.id)[-4:])
+        if st != 200:
+            await interaction.followup.send(f"Not done: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+            return
+        try:
+            await interaction.message.edit(embed=embed_of_fc(body), view=forecast_view(body))
+        except discord.HTTPException:
+            pass  # the feed poller edits the card anyway
+        await interaction.followup.send("Thanks, noted." if self.act == "useful" else "Noted as noise: it will not be reposted weekly.", ephemeral=True)
+
+
+def forecast_view(fc: dict) -> discord.ui.View | None:
+    acts = fcast.buttons(fc)
+    if not acts:
+        return None
+    v = discord.ui.View(timeout=None)
+    for a in acts:
+        v.add_item(ForecastButton(a, fc["id"]))
+    return v
 
 
 def draft_view(cr: dict) -> discord.ui.View | None:
@@ -290,6 +346,20 @@ async def cmd_draft_incident(interaction: discord.Interaction, incident: app_com
                                             ephemeral=True)
 
 
+@aiops.command(name="forecasts", description="Open forecasts: things trending toward a limit (heads-ups, never alerts)")
+async def cmd_forecasts(interaction: discord.Interaction) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.forecasts.list)
+    if st != 200:
+        await interaction.response.send_message(f"The Toolbelt answered HTTP {st}.", ephemeral=True)
+        return
+    rows = body.get("forecasts", [])[:15]
+    await interaction.response.send_message("\n".join(f"- #{f['id']} `{logic.sanitize(str(f['target']), 40)}` {fcast.SIGNALS.get(f['metric'], 'signal')}: {fcast.eta_text(f)}"
+                                                      + (f" ({f['label']})" if f.get("label") else "") for f in rows) or "Nothing is forecast to fill.", ephemeral=True)
+
+
 @aiops.command(name="drafts", description="Open draft requests and their PRs")
 async def cmd_drafts(interaction: discord.Interaction) -> None:
     if not await _operator_only(interaction):
@@ -310,12 +380,14 @@ class Ratatoskr(discord.Client):
         self.drafts = drafts.Client(cfg)
         self.state = logic.State.load(cfg.state_dir)
         self.dstate = drafts.State.load(cfg.state_dir)
+        self.forecasts = fcast.Client(cfg)
+        self.fstate = fcast.State.load(cfg.state_dir)
         self.tree = app_commands.CommandTree(self)
         self.locks: dict[int, asyncio.Lock] = {}
         self._last_feed_error = 0.0
 
     async def setup_hook(self) -> None:
-        self.add_dynamic_items(DecisionButton, DraftButton)
+        self.add_dynamic_items(DecisionButton, DraftButton, ForecastButton)
         guild = discord.Object(id=self.cfg.guild_id)
         self.tree.add_command(aiops, guild=guild)
         await self.tree.sync(guild=guild)
@@ -433,6 +505,45 @@ class Ratatoskr(discord.Client):
             self.dstate.announced.add(f"{cr['id']}:{cr['state']}")
             log("draft_announced", change_request=cr["id"], state=cr["state"])
 
+    async def _apply_forecast(self, act: fcast.Action) -> None:
+        fc = act.fc
+        ch = await self._channel(str(self.cfg.forecasts_channel_id or self.cfg.chat_channel_id))
+        if act.kind == "post_card":
+            st, fresh = await asyncio.to_thread(self.forecasts.get, fc["id"])
+            if st != 200 or fresh.get("message_ref") or fresh["state"] != "open":
+                return
+            msg = await ch.send(embed=embed_of_fc(fresh), view=forecast_view(fresh), allowed_mentions=NO_MENTIONS)
+            await asyncio.to_thread(self.forecasts.set_message, fc["id"], str(msg.id), str(ch.id))
+            log("forecast_card_posted", forecast=fc["id"])
+        elif act.kind == "edit_card":
+            st, fresh = await asyncio.to_thread(self.forecasts.get, fc["id"])
+            if st == 200 and fresh.get("message_ref"):
+                await ch.get_partial_message(int(fresh["message_ref"])).edit(embed=embed_of_fc(fresh), view=forecast_view(fresh))
+        elif act.kind == "notice" and act.text:
+            st, fresh = await asyncio.to_thread(self.forecasts.get, fc["id"])
+            ref = fresh.get("message_ref") if st == 200 else None
+            await ch.send(act.text[:1800], allowed_mentions=NO_MENTIONS,
+                          reference=ch.get_partial_message(int(ref)).to_reference(fail_if_not_exists=False) if ref else None)
+            log("forecast_notice", forecast=fc["id"])
+
+    async def _poll_forecasts_once(self) -> None:
+        st, body = await asyncio.to_thread(self.forecasts.feed, self.fstate.cursor)
+        if st != 200:
+            return  # 501 while the Toolbelt has forecasts off: quiet
+        events = body.get("events", [])
+        ok = True
+        for act in fcast.plan(events, self.fstate):
+            try:
+                await self._apply_forecast(act)
+                self.fstate.done.add(act.key)
+            except (discord.HTTPException, ValueError, KeyError) as e:
+                ok = False
+                log("apply_error", kind="forecast-" + act.kind, forecast=act.fc.get("id"), error=type(e).__name__)
+        if events and ok:
+            self.fstate.cursor = body["next"]  # a failed post is retried on the next poll, never skipped
+        if events:
+            self.fstate.save()
+
     async def _poll_drafts_once(self) -> None:
         st, body = await asyncio.to_thread(self.drafts.feed, self.dstate.cursor)
         if st != 200:
@@ -453,6 +564,7 @@ class Ratatoskr(discord.Client):
             try:
                 await self._poll_once()
                 await self._poll_drafts_once()
+                await self._poll_forecasts_once()
             except Exception as e:  # noqa: BLE001 - the loop must survive anything
                 log("poll_exception", error=type(e).__name__)
             await asyncio.sleep(self.cfg.poll_seconds)

@@ -52,6 +52,7 @@ class Config:
     guild_id: int
     diagnoses_channel_id: int
     chat_channel_id: int
+    forecasts_channel_id: int = 0  # optional quiet channel for forecast cards; 0 = use the chat channel
     state_dir: Path = Path("/var/lib/ratatoskr")
     poll_seconds: float = 3.0
     chat_timeout: float = 150.0
@@ -70,6 +71,7 @@ def load_config(static_path: str, secrets_path: str, approver_token_path: str, c
         n8n_chat_url=st["n8n_chat_url"], n8n_chat_token=Path(chat_token_path).read_text().strip(),
         operator_ids=frozenset(str(sec["operator_user_id"]).split(",")), guild_id=int(sec["guild_id"]),
         diagnoses_channel_id=int(sec["diagnoses_channel_id"]), chat_channel_id=int(sec["chat_channel_id"]),
+        forecasts_channel_id=int(st.get("forecasts_channel_id", 0) or 0),
         state_dir=Path(st.get("state_dir", "/var/lib/ratatoskr")), poll_seconds=float(st.get("poll_seconds", 3.0)))
     if not cfg.operator_ids or not all(i.isdigit() for i in cfg.operator_ids):
         raise SystemExit("operator_user_id must be one or more Discord user ids")

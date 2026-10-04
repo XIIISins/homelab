@@ -87,11 +87,13 @@ aiops_toolbelt_placement_file: /var/lib/aiops-toolbelt/placement.json
 aiops_toolbelt_placement_refresh: 15min
 aiops_toolbelt_placement_min_guests: 10
 aiops_toolbelt_placement_unit_name: aiops-toolbelt-placement
-# Forecasting (10h1), SHADOW mode only: a timer runs forecast_run.py, which appends findings to a local JSONL file and posts
-# nothing anywhere (docs/procedures/aiops-forecasting.md). `false` removes nothing: it just keeps the timer stopped.
+# Forecasting (10h1): a timer runs forecast_run.py hourly (VictoriaMetrics + Zabbix), which appends NEW findings to a local JSONL and
+# writes every finding that holds now to `forecast-current.json`; the Toolbelt ingests that file and the bot posts quiet cards with
+# Useful / Noise buttons (docs/procedures/aiops-forecasting.md). A forecast never pages. `false` keeps the timer stopped.
 aiops_toolbelt_forecast_enabled: true
 aiops_toolbelt_forecast_unit_name: aiops-toolbelt-forecast
-aiops_toolbelt_forecast_interval: 6h
+aiops_toolbelt_forecast_interval: 1h
+aiops_toolbelt_forecast_current: /var/lib/aiops-toolbelt/forecast-current.json
 aiops_toolbelt_forecast_log: /var/lib/aiops-toolbelt/forecast-shadow.jsonl
 aiops_toolbelt_forecast_state: /var/lib/aiops-toolbelt/forecast-state.json
 aiops_toolbelt_forecast_metrics_url: https://metrics-read.niflheim.xiiisins.com
@@ -120,6 +122,8 @@ aiops_toolbelt_source_files:
   - toolbelt/rebuild_exec.py
   - toolbelt/forecast.py
   - toolbelt/forecast_run.py
+  - toolbelt/forecast_zabbix.py
+  - toolbelt/forecast_store.py
   - toolbelt/incident_draft.py
   - toolbelt/change_requests.py
   - toolbelt/drift.py

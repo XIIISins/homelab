@@ -180,6 +180,7 @@ class Target:
     floor_per_hour: float = 0.0         # fast-rise absolute floor
     daily: str | None = None            # "max" | "min": collapse to daily extrema before slow-fill
     needs_data_source: bool = False
+    zabbix: tuple | None = None         # ("fs",) | ("memory",) | ("pve", (storage, ...)): read through forecast_zabbix.ZabbixSource
     note: str = ""
 
 
@@ -193,14 +194,16 @@ DEFAULT_TARGETS = (
            note="CSI/NFS PVCs only; local-path volumes are not reported by kubelet. 0.85 is an assumed alert threshold, tune in shadow."),
     Target("victorialogs-data-size", "vl_data_size_bytes", promql="vl_data_size_bytes", detectors=("fast-rise",),
            floor_per_hour=1e9, note="No capacity known here (retention-bound), so fast-rise only; floor 1 GB/h is an initial guess."),
-    Target("fleet-disk-used", "vfs.fs.size[*,pused]", needs_data_source=True,
-           note="Zabbix agent items on the fleet; needs a Toolbelt Zabbix history/trends read tool and confirmed 30+ day retention."),
-    Target("pve-thin-pool", "local-lvm thin pool usage", needs_data_source=True,
-           note="Zabbix Proxmox template storage items; confirm the per-node thin-pool item exists and is trended."),
-    Target("memory-available", "vm.memory.size[available]", needs_data_source=True, detectors=("slow-fill",),
-           note="Zabbix; memory is not linear: use the daily-minimum trend plus an allocation ledger, not a fill date."),
-    Target("pbs-datastore-used", "PBS status/datastore-usage", needs_data_source=True,
-           note="No automated source: needs an audit-only PBS API token. Fit the post-GC daily minimum."),
+    # The fleet, from Zabbix (31 days of history, 365 days of hourly trends). Thresholds are the alert levels these would cross; the
+    # Zabbix template defaults are 90 % (warn) for filesystems, the rest are the plan's values. Tune through a reviewed PR.
+    Target("fleet-fs-used", "vfs.fs.dependent.size[*,pused]", zabbix=("fs",), capacity=0.90, floor_per_hour=0.01, daily="max",
+           note="Every monitored filesystem (/, /boot, /data, LXC rootfs on the PVE hosts). The daily maximum removes log-rotation sawtooth."),
+    Target("pve-storage-used", "proxmox.node.disk/maxdisk", zabbix=("pve", ("local-lvm", "pbs-backup", "munin-nfs", "local")), capacity=0.85,
+           floor_per_hour=0.01, daily="max",
+           note="local-lvm is the thin pool; pbs-backup is the PBS datastore as PVE sees it (the plan's PBS-capacity signal); munin-nfs the NAS share. "
+                "The pool fills while every guest still looks fine, which is why it is its own series."),
+    Target("memory-used", "vm.memory.size[pavailable]", zabbix=("memory",), detectors=("slow-fill",), capacity=0.90, daily="max",
+           note="1 - available memory, daily high. Memory is not linear: this catches a steady creep, not a leak that fills it in hours."),
 )
 
 
@@ -213,10 +216,14 @@ def validate_targets(targets) -> list[str]:
         names.add(t.name)
         if not set(t.detectors) <= {"slow-fill", "fast-rise"} or not t.detectors:
             errs.append(f"{t.name}: bad detectors {t.detectors}")
-        if not t.needs_data_source and not t.promql:
-            errs.append(f"{t.name}: no promql and not marked needs_data_source")
+        if not t.needs_data_source and not t.promql and not t.zabbix:
+            errs.append(f"{t.name}: no promql, no zabbix selector and not marked needs_data_source")
         if t.needs_data_source and t.promql:
             errs.append(f"{t.name}: marked needs_data_source but has a promql")
+        if t.zabbix and (t.promql or t.needs_data_source):
+            errs.append(f"{t.name}: a zabbix target has no promql and is not needs_data_source")
+        if t.zabbix and (t.zabbix[0] not in ("fs", "memory", "pve") or (t.zabbix[0] == "pve" and not t.zabbix[1])):
+            errs.append(f"{t.name}: bad zabbix selector {t.zabbix}")
         if "slow-fill" in t.detectors and not t.needs_data_source and t.capacity is None:
             errs.append(f"{t.name}: slow-fill needs a capacity")
         if t.daily not in (None, "max", "min"):
@@ -240,21 +247,37 @@ def evaluate(t: Target, label: str, series: Series, now: float) -> list[Finding]
 
 
 def run_once(query, now: float, log_path: str | Path, targets=DEFAULT_TARGETS, dedup: Dedup | None = None,
-             lookback_days: float = 15, step: str = "1h") -> list[Finding]:
-    """One shadow pass. `query(promql, start, end, step)` returns [(label, series), ...] and is supplied by the caller
-    (production: the Toolbelt's metrics.range; tests: a fake). New findings are appended to `log_path` as JSONL and returned.
-    A failing query skips that target; one bad target never hides the others."""
+             lookback_days: float = 15, step: str = "1h", sources: dict | None = None, stats: dict | None = None,
+             current_path: str | Path | None = None) -> list[Finding]:
+    """One pass. `query(promql, start, end, step)` returns [(label, series), ...] for VictoriaMetrics targets; `sources["zabbix"]`
+    is `fn(target, start, end)` for Zabbix targets (forecast_zabbix.ZabbixSource.query). New findings (after de-duplication) are
+    appended to `log_path` as JSONL and returned. Every finding that holds RIGHT NOW goes to `current_path` (JSON, replaced
+    atomically) so a reader can tell "still open" from "gone". A failing query skips that target and says so in `stats`
+    ({target: {"series": n} | {"error": "..."}}): one bad source never hides the others, and is never silent either."""
     dedup = dedup or Dedup()
-    found = []
+    stats = {} if stats is None else stats
+    found, active = [], []
+    start, end = now - lookback_days * DAY, now
     for t in targets:
         if t.needs_data_source:
+            stats[t.name] = {"skipped": "no data source yet"}
             continue
         try:
-            rows = query(t.promql, now - lookback_days * DAY, now, step)
-        except Exception:
+            if t.zabbix:
+                src = (sources or {}).get("zabbix")
+                if src is None:
+                    stats[t.name] = {"error": "no zabbix source configured"}
+                    continue
+                rows = src(t, start, end)
+            else:
+                rows = query(t.promql, start, end, step)
+        except Exception as e:  # noqa: BLE001 - one target must not hide the rest
+            stats[t.name] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
             continue
+        stats[t.name] = {"series": len(rows), "points": sum(len(s) for _, s in rows)}
         for label, series in rows:
             for f in evaluate(t, label, series, now):
+                active.append(f)
                 if dedup.allow(f, now):
                     found.append(f)
     if found:
@@ -263,6 +286,12 @@ def run_once(query, now: float, log_path: str | Path, targets=DEFAULT_TARGETS, d
         with p.open("a") as fh:
             for f in found:
                 fh.write(json.dumps(f.to_dict(), sort_keys=True) + "\n")
+    if current_path:
+        c = Path(current_path)
+        c.parent.mkdir(parents=True, exist_ok=True)
+        tmp = c.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"ts": now, "findings": [f.to_dict() for f in active], "stats": stats}, sort_keys=True))
+        tmp.replace(c)
     return found
 
 

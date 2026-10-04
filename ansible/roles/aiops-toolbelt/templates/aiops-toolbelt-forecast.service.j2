@@ -1,12 +1,13 @@
 {# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-forecast.service.j2 #}
 # Managed by Ansible (roles/aiops-toolbelt). Do not edit.
-# One SHADOW forecasting pass (Phase 10h1): reads VictoriaMetrics through the same metrics-read route the agent's read tool
-# uses, runs the slow-fill and fast-rise detectors and appends findings to a local JSONL file. No Discord, ticket or Hermod
-# output exists in this slice. Its own unit: the API unit has no route to the metrics endpoint by design (IPAddressDeny=any).
+# One forecasting pass (Phase 10h1): reads VictoriaMetrics through the same metrics-read route the agent's read tool uses and
+# Zabbix with the Toolbelt's read-only credential, runs the slow-fill and fast-rise detectors, appends new findings to a local
+# JSONL and rewrites forecast-current.json (what holds now), which the Toolbelt ingests. It posts nothing itself and can never
+# page. Its own unit: the API unit has no route to the metrics endpoint by design (IPAddressDeny=any).
 # docs/procedures/aiops-forecasting.md
 [Unit]
-Description=AIOps Toolbelt forecasting shadow pass (VictoriaMetrics -> local JSONL)
-After=network-online.target
+Description=AIOps Toolbelt forecasting pass (VictoriaMetrics + Zabbix -> findings file)
+After=network-online.target {{ aiops_toolbelt_token_unit_name }}.service
 Wants=network-online.target
 
 [Service]
@@ -15,7 +16,7 @@ User={{ aiops_toolbelt_user }}
 Group={{ aiops_toolbelt_user }}
 StateDirectory=aiops-toolbelt
 StateDirectoryMode=0750
-ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/forecast_run.py --log {{ aiops_toolbelt_forecast_log }} --state {{ aiops_toolbelt_forecast_state }} --url {{ aiops_toolbelt_forecast_metrics_url }}
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/forecast_run.py --log {{ aiops_toolbelt_forecast_log }} --state {{ aiops_toolbelt_forecast_state }} --current {{ aiops_toolbelt_forecast_current }} --url {{ aiops_toolbelt_forecast_metrics_url }} --zabbix-creds {{ aiops_toolbelt_creds_dir }} --root {{ aiops_toolbelt_home }}
 TimeoutStartSec=300
 Environment=PYTHONDONTWRITEBYTECODE=1
 

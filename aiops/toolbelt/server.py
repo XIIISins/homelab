@@ -173,6 +173,11 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("GET", re.compile(rf"^/change-requests/{_ID}$"), (APPROVER, AUTHOR), lambda m, q: self._cr().get(int(m.group(1)))),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/decision$"), only_appr, self._h_cr_decision),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/message$"), only_appr, self._h_cr_message),
+                ("GET", re.compile(r"^/forecasts/feed$"), only_appr, lambda m, q: self._fc().feed(int((q.get("after") or ["0"])[0] or 0))),
+                ("GET", re.compile(r"^/forecasts$"), only_appr, self._h_fc_list),
+                ("GET", re.compile(rf"^/forecasts/{_ID}$"), only_appr, lambda m, q: self._fc().get(int(m.group(1)))),
+                ("POST", re.compile(rf"^/forecasts/{_ID}/label$"), only_appr, self._h_fc_label),
+                ("POST", re.compile(rf"^/forecasts/{_ID}/message$"), only_appr, self._h_fc_message),
                 ("POST", re.compile(r"^/change-requests/claim$"), (AUTHOR,), lambda m, q: self._cr().claim()),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/report$"), (AUTHOR,), self._h_cr_report),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/pr-test$"), (AUTHOR,), lambda m, q: self._cr().retest(int(m.group(1)))),
@@ -224,6 +229,27 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
             if tb.cr is None:
                 raise core.Rejected(501, "change requests are not enabled on this Toolbelt")
             return tb.cr
+
+        def _fc(self):
+            if tb.fc is None:
+                raise core.Rejected(501, "forecasts are not enabled on this Toolbelt")
+            return tb.fc
+
+        def _h_fc_list(self, m, q):
+            raw = (q.get("state") or [""])[0]
+            return {"forecasts": self._fc().list(tuple(s for s in raw.split(",") if s) or ("open",))}
+
+        def _h_fc_label(self, m, q):
+            b = self._obj()
+            self._fc()
+            return tb.label_forecast(int(m.group(1)), str(b.get("label", "")), b.get("by"))
+
+        def _h_fc_message(self, m, q):
+            b = self._obj()
+            try:
+                return self._fc().set_message(int(m.group(1)), str(b.get("message_ref", "")), str(b.get("thread_id", "")))
+            except core.forecast_store.Refused as e:
+                raise core.Rejected(e.status, e.message)
 
         def _h_cr_create(self, m, q):
             b = self._obj()
@@ -282,7 +308,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 if matched_other_role:
                     tb.audit("denied", reason="role", role=role, method=method, path=path)
                     return self._send(403, {"error": "forbidden"})
-            except (core.Rejected, core.actions.Refused) as e:
+            except (core.Rejected, core.actions.Refused, core.forecast_store.Refused) as e:
                 return self._send(e.status, {"error": e.message, **e.detail})
             except Exception as e:  # never leak a traceback to the caller; the audit log has it
                 tb.audit("error", path=path, error=type(e).__name__)
@@ -346,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--author-tools-token-file", help="enables the author-tools role (the drafting session: read-only /tool/* only)")
     ap.add_argument("--author-tools-allow", action="append", default=[], help="CIDR the AUTHOR-TOOLS role may call from (repeatable)")
     ap.add_argument("--change-requests", action="store_true", help="enable 10h2 change requests (needs --actions)")
+    ap.add_argument("--forecast-current", default="", help="10h1: the forecast job's current-findings JSON (enables the forecasts table and routes)")
     ap.add_argument("--author-repo", default="XIIISins/homelab", help="owner/name a reported PR URL must belong to")
     ap.add_argument("--github-read-url", default="", help="the loopback GitHub read proxy (github_read_proxy.py) the PR canary-test check reads through; "
                     "the Toolbelt's unit cannot reach the internet itself. Empty = talk to GitHub directly (tests, a laptop).")
@@ -404,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
         if cfg.actions is not None:  # 10h2: canary tests of agent PRs read the PR from GitHub (public, read-only, unauthenticated)
             import pr_test  # noqa: E402
             cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.make_fetch(args.github_read_url or None), args.author_repo
+    if args.forecast_current:
+        cfg.forecast_file = Path(args.forecast_current)
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)
