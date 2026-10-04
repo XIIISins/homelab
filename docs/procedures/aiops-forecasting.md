@@ -11,7 +11,9 @@ Two pure functions over a series of `(unix_ts, value)`, because homelab series a
 | Detector | Question | Returns a finding when | Stays silent when |
 |---|---|---|---|
 | `slow_fill` | "When does this cross its capacity?" (least-squares line over a 14-day window) | the fitted line reaches `capacity` within `horizon_days` (14), with at least `min_points` samples and `r2 >= 0.7` | the slope is flat or negative, the fit is poor, the data has a gap larger than 30% of the window (including a series that stopped days ago), the value is already at or over capacity (that is an alert, not a forecast), or the crossing is further out than the horizon |
-| `fast_rise` | "Is it growing much faster than it was?" (rate over the last hour against the rate over the previous day) | the recent rate is above an absolute floor and at least 3x the baseline (or the baseline is flat) | the series is tiny (below the floor), falling, or a cleanup/rotation reset sits in the window (a reset is never read as a rise) |
+| `creep` | "Is it getting slower than last week?" (p95 of this week's hourly points against last week's) | the ratio is at least `creep_ratio` (1.5) and this week's p95 is above `creep_floor`, with 72+ points in each week | too few points, a tiny absolute value, a ratio under the bar |
+| `step_up` | "Did a counter that should stay flat move?" (latest value minus the lowest in the last 7 days) | the rise is at least `step_min` (SMART media errors 1, NVMe wear 3 points) | no rise, fewer than 3 points |
+| `fast_rise` | "Is it growing much faster than it was?" (rate over the last 6 hours against the rate over the previous day; the sources are hourly, so a 1-hour window holds one point and could never fire: fixed 2026-10-04) | the recent rate is above an absolute floor and at least 3x the baseline (or the baseline is flat) | the series is tiny (below the floor), falling, or a cleanup/rotation reset sits in the window (a reset is never read as a rise) |
 
 Confidence is `high` / `medium` / `low` from the fit's R squared. A `Dedup` helper reports a fingerprint at most once per 24 h unless the ETA at least halved. Neither detector predicts a sudden fault: those stay alerts. A forecast is a notification, never a page.
 
@@ -46,6 +48,9 @@ dismiss, and Useful / Noise gives the tuning signal immediately instead of after
 | `fleet-fs-used` | Zabbix `vfs.fs.dependent.size[<mount>,pused]`, hourly trends, daily max | 0.90 | `/`, `/boot`, `/data`, LXC rootfs on the PVE hosts; monitored hosts only (template items have no data) |
 | `pve-storage-used` | Zabbix `proxmox.node.disk` / `maxdisk` for `local-lvm`, `pbs-backup`, `munin-nfs`, `local` | 0.85 | `local-lvm` is the thin pool; `pbs-backup` is the PBS datastore as PVE sees it (the plan's PBS-capacity signal, no PBS API token needed); items are de-duplicated (every PVE host carries a copy) |
 | `memory-used` | Zabbix `vm.memory.size[pavailable]`, daily low-water mark | 0.90 | a steady creep only: memory does not fill linearly |
+| `nvme-latency-creep` | Zabbix `vfs.dev.{read,write}.await[nvme*]`, p95 of hourly averages, this week vs last | `creep` 1.5x, 1 ms floor | NVMe devices on the hypervisors only: a guest's virtual disk swings 2-3x week to week. First live read 2026-10-04: Urd +1.6x read / +1.7x write (the DRAM-less drive), Verd and Skuld flat |
+| `nvme-media-errors` | Zabbix `smart.disk.media_errors[nvme0]` ("SMART by Zabbix agent 2", linked on the PVE hosts) | `step_up` 1 in 7 days | needs the sudo + sudoers rule from the `proxmox-host` role: the agent's SMART plugin runs `sudo smartctl` as `zabbix` and PVE ships without sudo |
+| `nvme-wear` | Zabbix `smart.disk.percentage_used[nvme0]` | `step_up` 3 points in 7 days | normal wear is a point or two a year (Urd's NM790 read 7 % on 2026-10-04) |
 
 Zabbix keeps 31 days of raw history and 365 days of hourly trends (verified 2026-10-04), more than the 14-day fit needs. The forecast unit reads Zabbix with the Toolbelt's read-only credential
 (`*.get` methods only); the API unit itself has no route to metrics or Zabbix-history reads by design.
@@ -64,7 +69,7 @@ systemctl list-timers aiops-toolbelt-forecast.timer; journalctl -u aiops-toolbel
 - A **Draft fix PR** for `pve-storage-used`, Kubernetes volumes and VictoriaLogs: their fix is not a value in the paths the `capacity` class may touch (PBS retention and the NAS share live outside Git; PVC and retention values are under `k8s/`). The button exists for `fleet-fs-used` and `memory-used` ([`aiops-author.md`](aiops-author.md) "The `capacity` class").
 - A repo-held `aiops/forecast.yml` for thresholds (they live in `DEFAULT_TARGETS`, changed by PR).
 - (Built 2026-10-04: `aiops/tests/test_forecast_backtest.py` replays the syslog-flood shape through the real `fleet-fs-used` target: a root filesystem flat at 40 % that starts filling 4 points an hour is noted about 9.7 h before the 80 % alert, a 1.5-point-an-hour leak about 26 h before, and a flat or sawtooth series stays silent. A synthetic shape, not recorded Zabbix history: the first real-history backtest waits on the shadow period.)
-- An NVMe latency / SMART signal (needs `smartctl` data in Zabbix), a memory allocation ledger, a GitHub-issue sink.
+- (Built 2026-10-04: NVMe latency creep, SMART media errors and wear; see the targets table.) A memory allocation ledger, a GitHub-issue sink, SMART available-spare (not in the Zabbix template's items), etcd fsync metrics (not scraped).
 
 ## Adding a metric
 
