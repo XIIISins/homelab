@@ -382,6 +382,8 @@ def propose_tool_description() -> str:
     for name, a in reg["actions"].items():
         if a["semaphore"].get("planned"):
             continue  # planned in a phase doc (10g), not built: never advertise an action that cannot run
+        if a.get("internal"):
+            continue  # only the Toolbelt proposes it (10h2 PR canary tests): the model is never told it exists
         parts = []
         for k, v in a.get("extra_vars", {}).items():
             t = "one of " + "|".join(v["values"]) if v["type"] == "enum" else f"string matching {v.get('pattern', '.*')}" if v["type"] == "string" else v["type"]

@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 import autonomy
+import pr_test
 import rebuild
 import rebuild_exec
 
@@ -193,6 +194,8 @@ class Registry:
         host = clean.get("target_host")
         if g.get("target_policy") == "host_tiers.T1" and host not in self.tiers.get("T1", []):
             p.append(f"{host!r} is not a T1 host; {action_id} may only touch T1 hosts")
+        if g.get("target_policy") == "canaries" and not (pr_test.CANARY.match(str(host)) and host in self.tiers.get("T1", [])):
+            p.append(f"{host!r} is not a canary; {action_id} may only touch the disposable canary pool")
         if "allowed_units" in g and clean.get("unit") not in g["allowed_units"].get(host, []):
             p.append(f"unit {clean.get('unit')!r} is not allow-listed on {host!r} for {action_id}")
         if "allowed_tags" in g and clean.get("role_tag") not in g["allowed_tags"]:
@@ -333,6 +336,8 @@ class SemaphoreAPI:
             body["limit"] = str(fields["limit"])
         if fields.get("arguments"):
             body["arguments"] = json.dumps(list(fields["arguments"]))
+        if fields.get("git_branch"):  # 10h2: Semaphore 2.18 honours a per-task branch (the PR canary tests run the PR's code)
+            body["git_branch"] = str(fields["git_branch"])
         res = self._call("POST", f"/project/{self._pid()}/tasks", body)
         return int(res["id"])
 
@@ -408,6 +413,9 @@ class ActionConfig:
     verifier: "rebuild_exec.VerifyProvider | None" = None  # default: SemaphoreVerify (the rebuild-verify template)
     auto_resume: bool = True                            # resume an interrupted rebuild on start (tests call resume_rebuilds())
     sleep: Callable[[float], None] = time.sleep
+    # 10h2 PR canary tests: read-only GitHub GET (pr_test.gh_fetch); None = actions with a `pr_scope` guard refuse (fail closed)
+    pr_fetch: Callable[[str], tuple] | None = None
+    pr_repo: str = pr_test.REPO
 
 
 class Engine:
@@ -548,6 +556,49 @@ class Engine:
             return {**params, "unit": unit + ".service"}
         return params
 
+    # -- 10h2: prove an agent PR on a canary -----------------------------------------------------------------------
+    def _pr_problems(self, action_id: str, clean: dict) -> list[str]:
+        """For an action whose guard has a `pr_scope`: the PR must be one the Toolbelt itself would test, at the approved head.
+        The branch's own guard playbooks are never trusted, so this runs at propose time AND again right before the run."""
+        g = self.reg.get(action_id).get("guard", {})
+        if not g.get("pr_scope"):
+            return []
+        if self.cfg.pr_fetch is None:
+            return ["the PR checker is not configured, so a PR test cannot be proposed or run"]
+        return pr_test.check_params(self.cfg.pr_fetch, clean, g, self.cfg.pr_repo)
+
+    def pr_test_view(self, branch: str) -> dict | None:
+        """The newest pr-canary-test proposal for this PR branch (its view), or None."""
+        with self.lock:
+            row = self.db.execute(
+                "SELECT id FROM proposals WHERE action_id='pr-canary-test' AND json_extract(params_json, '$.pr_branch')=? "
+                "ORDER BY id DESC LIMIT 1", (branch,)).fetchone()
+        return self._view(row["id"]) if row else None
+
+    def propose_pr_test(self, branch: str, thread_id: str | None, change_request_id: int) -> dict:
+        """The Toolbelt proposes the canary test for an agent PR it can test, or says why it cannot. {proposal: id} or {ineligible: why}."""
+        if "pr-canary-test" not in self.reg.actions or self.cfg.pr_fetch is None:
+            return {"ineligible": "the canary test is not enabled on this Toolbelt"}
+        guard = self.reg.get("pr-canary-test")["guard"]["pr_scope"]
+        got = pr_test.inspect_pr(self.cfg.pr_fetch, branch, guard["classes"], guard["roles"], self.cfg.pr_repo)
+        if not got["ok"]:
+            self.audit("pr_test_ineligible", cr=change_request_id, why=got["reason"][:160])
+            return {"ineligible": got["reason"]}
+        canaries = [h for h in self.reg.tiers.get("T1", []) if pr_test.CANARY.match(h)]
+        if not canaries:
+            return {"ineligible": "no canary is defined"}
+        with self.lock:
+            busy = {r["target"] for r in self.db.execute(
+                "SELECT target FROM proposals WHERE action_id IN ('pr-canary-test','pr-test-check') AND state IN ('pending','approved','running')")}
+        target = next((c for c in canaries if c not in busy), canaries[0])
+        try:
+            p = self.propose(action_id="pr-canary-test", source="author", thread_id=thread_id,
+                             params={"target_host": target, "role_tag": got["role_tag"], "pr_branch": branch, "pr_sha": got["sha"]},
+                             reason=f"Agent PR for change request #{change_request_id}: run its {got['role_tag']} change on {target} (dry run, converge, second dry run)")
+        except Refused as e:
+            return {"ineligible": str((e.detail.get("problems") or [e.message])[0])[:200]}
+        return {"proposal": p["id"], "target": target}
+
     def propose(self, *, action_id: str, params: object, reason: object, source: str, incident_id: int | None = None,
                 conversation_id: int | None = None, thread_id: str | None = None, replay: bool = False) -> dict:
         self.sweep()
@@ -557,6 +608,10 @@ class Engine:
         clean, problems = self.reg.validate_params(action_id, params)
         if not problems:
             problems = self.reg.guard(action_id, clean)
+        if not problems and self.reg.get(action_id).get("internal") and source != "author":
+            problems = [f"{action_id} is proposed by the Toolbelt itself, not by {source}"]
+        if not problems:
+            problems = self._pr_problems(action_id, clean)
         if problems:
             self.audit("proposal_rejected", action=action_id, source=source, problems=len(problems), why=str(problems[0])[:160])
             raise Refused(422, "proposal failed validation", {"problems": problems})
@@ -634,6 +689,12 @@ class Engine:
                   on_start: Callable[[int], None] | None = None, extra_env: dict | None = None) -> tuple[str, dict, list[str]]:
         """One Semaphore task from the registry. Returns (status, parsed result, redacted output tail). `resume_task`
         re-attaches to a task a previous run started (a restart mid-rebuild); `on_start` records the id of a new one."""
+        if resume_task is None:
+            # 10h2: a PR canary test is three separate Semaphore tasks and each one checks the branch out afresh, so the PR is
+            # re-read before EVERY step: if its head moved or it stopped being testable, the next step never starts.
+            problems = self._pr_problems(action_id, clean)
+            if problems:
+                raise Refused(409, "the PR changed under the test: " + "; ".join(problems)[:240])
         sem = self._sem()
         if resume_task is not None:
             task_id = resume_task
@@ -724,7 +785,7 @@ class Engine:
             self._move(pid, "running", "started", {}, started_at=self.now())
         action_id, clean = row["action_id"], json.loads(row["params_json"])
         # re-validate: the registry may have changed between propose and approve
-        problems = self.reg.guard(action_id, self.reg.validate_params(action_id, clean)[0])
+        problems = self.reg.guard(action_id, self.reg.validate_params(action_id, clean)[0]) or self._pr_problems(action_id, clean)
         if problems:
             self._fail(pid, "failed", "guard refused at execution time", {"problems": problems})
             return self._view(pid)

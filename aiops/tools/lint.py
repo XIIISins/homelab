@@ -166,7 +166,10 @@ def check_actions(reg: dict, root: Path) -> list[str]:
             tgt = actions.get(v["action"])
             if tgt is None:
                 errs.append(f"actions: {name}: verify.action {v['action']!r} is not a registry action")
-            elif tgt["tier"] != "T0":
+            elif tgt["tier"] != "T0" and not (tgt.get("internal") and tgt.get("guard", {}).get("target_policy") == "canaries"
+                                              and tgt.get("idempotent")):
+                # 10h2: the PR canary test's second dry run executes the PR's own code, so it is T1 by honesty, not T0; it is allowed
+                # as a verify step only because it is Toolbelt-internal, idempotent and confined to the disposable canaries.
                 errs.append(f"actions: {name}: verify.action {v['action']!r} must be T0 (read-only)")
             else:
                 for k in v.get("vars", {}):

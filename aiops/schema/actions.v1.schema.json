@@ -661,7 +661,8 @@
               "enum": [
                 "any-inventory-host",
                 "host_tiers.T1",
-                "n/a"
+                "n/a",
+                "canaries"
               ]
             },
             "allowed_units": {
@@ -700,6 +701,31 @@
             "needs": {
               "type": "string",
               "description": "Tooling/credential the template relies on (documented, not enforced here)."
+            },
+            "pr_scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "classes",
+                "roles"
+              ],
+              "description": "10h2: the action runs a PR branch's code on a canary. The Toolbelt checks the PR itself (GitHub, read-only) before proposing and again before running: an agent PR of one of these classes, files only under ansible/roles/<role>/ for one of these roles, no deletions, no risky constructs in the added lines. The branch's own guard playbooks are never trusted.",
+              "properties": {
+                "classes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "roles": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         },
@@ -744,6 +770,10 @@
         "rollback": {
           "type": "string",
           "minLength": 5
+        },
+        "internal": {
+          "type": "boolean",
+          "description": "10h2: only the Toolbelt itself proposes this action (source `author`); the diagnosis and chat agents are never told about it and a proposal from them is refused."
         }
       }
     },

@@ -15,6 +15,7 @@ a token could push to main (= deploy). Override only on purpose (--allow-admin-t
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -34,6 +35,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "toolbelt"))
 import scope  # noqa: E402
 import tools  # noqa: E402  (redact)
+import pr_test  # noqa: E402  (the canary-test summary renderer)
 
 MAX_PATCH = 512 * 1024
 _TOKENISH = re.compile(r"\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[bpas]-[A-Za-z0-9-]{10,}")
@@ -150,6 +152,23 @@ def run_checks(repo: str, checks: list, timeout: int = 120) -> dict:
     return out
 
 
+CANARY_OPEN, CANARY_CLOSE = "<!-- canary-test -->", "<!-- /canary-test -->"
+
+
+def canary_block(summary: dict | None) -> str:
+    """The `## Canary test` section of an agent PR's description (counts and ids only: the repo is public)."""
+    return f"{CANARY_OPEN}\n## Canary test\n{pr_test.render(summary)}\n{CANARY_CLOSE}"
+
+
+def with_canary_block(body: str, block: str) -> str:
+    """Replace the section between the markers, or add it before `## Rollback` (else at the end)."""
+    i, j = body.find(CANARY_OPEN), body.find(CANARY_CLOSE)
+    if 0 <= i < j:
+        return body[:i] + block + body[j + len(CANARY_CLOSE):]
+    k = body.find("## Rollback")
+    return (body[:k] + block + "\n\n" + body[k:]) if k >= 0 else (body.rstrip("\n") + "\n\n" + block + "\n")
+
+
 def pr_body(cr: dict, summary: str, tests: dict | None, files: list[dict]) -> str:
     rows = "\n".join(f"- `{f['filename']}` (+{f['additions']} -{f['deletions']})" for f in files)
     t = "\n".join(f"- {k}: {v}" for k, v in (tests or {}).items()) or "- repo CI (links, yamllint, gitleaks) runs on this PR"
@@ -215,6 +234,13 @@ class GitHubClient:
     def label(self, number: int, label: str) -> None:
         http("POST", f"https://api.github.com/repos/{self.repo}/issues/{number}/labels", self.h, {"labels": [label]})
 
+    def get_pr_body(self, number: int) -> str | None:
+        st, p = http("GET", f"https://api.github.com/repos/{self.repo}/pulls/{number}", self.h)
+        return (p.get("body") or "") if st == 200 and isinstance(p, dict) else None
+
+    def set_pr_body(self, number: int, body: str) -> int:
+        return http("PATCH", f"https://api.github.com/repos/{self.repo}/pulls/{number}", self.h, {"body": body})[0]
+
     def pr_state(self, number: int) -> str:
         st, p = http("GET", f"https://api.github.com/repos/{self.repo}/pulls/{number}", self.h)
         if st != 200 or not isinstance(p, dict):
@@ -265,6 +291,7 @@ class Dispatcher:
         self.cfg, self.tb, self.gh, self.git, self.secrets = cfg, tb, gh, git, secrets
         self.start_session = start_session or self._systemd_session
         self._ident: tuple[float, dict] | None = None
+        self._canary_seen: dict[int, str] = {}  # PR number -> digest of the canary section last written
 
     # -- the safety guard ----------------------------------------------------------------------------------------
     def identity_ok(self, now: float | None = None) -> bool:
@@ -388,21 +415,44 @@ class Dispatcher:
             title = f"{kind}: {cr['title']}"[:100]
             self.git.run(["commit", "-q", "-m", f"{title}\n\nChange request #{cid} ({cr['class']}); agent-authored, operator-reviewed."], cwd=repo)
             self.git.run(["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=repo, push=True)
-        st, pr = self.gh.create_pr(branch, "main", title, pr_body(cr, summary, tests, files))
+        body = pr_body(cr, summary, tests, files)
+        if self.cfg.classes["classes"].get(cr["class"], {}).get("canary_test"):
+            body = with_canary_block(body, canary_block(None))  # filled in from the Toolbelt's view right after the report
+        st, pr = self.gh.create_pr(branch, "main", title, body)
         if st != 201 or not isinstance(pr, dict) or not pr.get("html_url"):
             return self._fail(cid, f"the branch was pushed but GitHub refused the pull request (HTTP {st})", res)
         self.gh.label(pr["number"], "agent-authored")
-        self.tb.report(cid, state="pr-open", pr_url=pr["html_url"], branch=branch, summary=summary,
-                       tests={**tests, "turns": res.get("turns"), "cost_usd": res.get("cost_usd")})
+        rst, view = self.tb.report(cid, state="pr-open", pr_url=pr["html_url"], branch=branch, summary=summary,
+                                   tests={**tests, "turns": res.get("turns"), "cost_usd": res.get("cost_usd")})
+        if rst == 200 and isinstance(view, dict):
+            self.sync_canary(pr["number"], view.get("pr_test"))
         audit("pr_opened", cr=cid, pr=pr["number"], branch=branch)
         return {"state": "pr-open", "pr": pr["html_url"]}
 
     # -- reconciling and the loop --------------------------------------------------------------------------------
+    def sync_canary(self, number: int, summary: dict | None) -> None:
+        """Keep the PR description's canary-test section equal to the Toolbelt's view (None = this class is not tested). Edits only
+        that section, never anything else the operator may have written, and only when it changed."""
+        if summary is None:
+            return
+        block = canary_block(summary)
+        digest = hashlib.sha256(block.encode()).hexdigest()
+        if self._canary_seen.get(number) == digest:
+            return
+        body = self.gh.get_pr_body(number)
+        if body is None:
+            return
+        new = with_canary_block(body, tools.redact(block))
+        if new == body or self.gh.set_pr_body(number, new[:60000]) == 200:
+            self._canary_seen[number] = digest
+            audit("canary_section", pr=number, status=summary.get("status"))
+
     def reconcile(self) -> None:
         for cr in self.tb.open_prs():
             m = re.search(r"/pull/(\d+)$", cr.get("pr_url") or "")
             if not m:
                 continue
+            self.sync_canary(int(m.group(1)), cr.get("pr_test"))
             state = self.gh.pr_state(int(m.group(1)))
             if state in ("merged", "closed"):
                 self.tb.report(cr["id"], state=state)
