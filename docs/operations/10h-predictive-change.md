@@ -79,14 +79,14 @@ The author runs on **Frigg** as a separate unix user (`aiops-author`), as a head
 
 | Has | Does not have |
 |---|---|
-| a GitHub App installation token (preferred over a PAT) with Contents + Pull requests write on this repo only | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
+| a **fine-grained PAT** (operator decision 2026-10-04: a long-lived token is accepted over a GitHub App) belonging to a dedicated machine user, scoped to this repo only with Contents + Pull requests read/write and a one-year expiry (calendar the renewal) | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
 | the Toolbelt's **read-only** tools through an *author* role token (so it can look at live state) | the approver and agent-propose tokens |
 | `terraform` / `helm` / `kubeconform` / `ansible-lint` binaries, offline | the ability to apply anything, the fleet SSH key, a DigitalOcean token |
 
 ### The PR gate (what makes "a human merges" real)
 
-1. **Scope check as a required CI job (GitHub-hosted, no Frigg dependency).** Keyed on the **PR author identity** (the App's bot login), never on a label the agent could omit. For an agent-authored PR it fails if the diff touches any of: `.github/` and `terraform/github/` (the ruleset and CI), `CLAUDE.md`, `aiops/actions.yml` and `aiops/runbooks.yml` and `aiops/schema/`, `aiops/toolbelt/`, `aiops/bot/`, `aiops/n8n/`, `terraform/vault/` (policies), `terraform/semaphore/`, `ansible/inventory/group_vars/all/vault.yml`, `docs/operations/decisions.md`, or any file it did not declare in the change request's allowed-path list. In other words **an agent cannot edit the files that define what agents may do**.
-2. **No ruleset change (operator decision 2026-10-04).** A four-eyes review rule is not enforced: this is a single-operator homelab, so the existing `CI gate`-only ruleset stays. "A human merges" holds because the App token is granted Contents + Pull requests write only (it cannot merge past the `CI gate` and the operator does the merge); the agent never enables auto-merge on its own PRs by convention, and the author-identity scope check in 1 is what keeps it away from its own guardrails.
+1. **Scope check as a required CI job (GitHub-hosted, no Frigg dependency).** Keyed on the **PR author identity** (the machine user's login, never the operator's own, which is why the PAT belongs to a separate account), never on a label the agent could omit. For an agent-authored PR it fails if the diff touches any of: `.github/` and `terraform/github/` (the ruleset and CI), `CLAUDE.md`, `aiops/actions.yml` and `aiops/runbooks.yml` and `aiops/schema/`, `aiops/toolbelt/`, `aiops/bot/`, `aiops/n8n/`, `terraform/vault/` (policies), `terraform/semaphore/`, `ansible/inventory/group_vars/all/vault.yml`, `docs/operations/decisions.md`, or any file it did not declare in the change request's allowed-path list. In other words **an agent cannot edit the files that define what agents may do**.
+2. **No ruleset change (operator decision 2026-10-04).** A four-eyes review rule is not enforced: this is a single-operator homelab, so the existing `CI gate`-only ruleset stays. "A human merges" holds because the operator does the merge. Honest limit: a write token *can* merge a PR once the `CI gate` is green and nothing technical stops the author doing so, so this is a convention backed by the scope check (it limits what a merged agent PR can contain) and by a negative probe in acceptance; accepted for a single-operator homelab; the agent never enables auto-merge on its own PRs by convention, and the author-identity scope check in 1 is what keeps it away from its own guardrails.
 3. **Test on throwaway substrate, never on prod (operator decision 2026-10-04).** The repo's CI is deliberately static: it never plans or applies (no state, no credentials). The author therefore proves a change on the substrates built for exactly that, and the **evidence** it attaches is the result of a real run, not a read-only guess against prod. The author holds **no fleet SSH key, no PVE/Vault/state credential and no DigitalOcean token**; it asks for a substrate and the operator approves, the same button pattern as 10e (the Toolbelt/runner does the stand-up and tear-down).
 
    | PR touches | Tested on | How | Needs |
@@ -113,7 +113,7 @@ Not in 10h2: any change to the registry, autonomy or rebuild scope, Flux structu
 
 ### Acceptance
 
-At least 3 agent-authored PRs merged with evidence and a burst/canary test summary attached; a deliberate probe PR that touches a forbidden path fails the scope check; the agent has no merge path (negative test: its token cannot merge); a drafting session that exceeds its budget is stopped and says so; every draft traceable to its change request and approval.
+At least 3 agent-authored PRs merged with evidence and a burst/canary test summary attached; a deliberate probe PR that touches a forbidden path fails the scope check; the agent never merges (probe: a green agent PR stays open until the operator merges); a drafting session that exceeds its budget is stopped and says so; every draft traceable to its change request and approval.
 
 ---
 
@@ -145,7 +145,7 @@ At least 3 agent-authored PRs merged with evidence and a burst/canary test summa
 | What a "ticket" is | a Toolbelt `forecasts` row + a quiet Discord thread, with a "Draft fix PR" button | no ticket system exists; revisit a GitHub-issue sink only if wanted |
 | Forecast vs Zabbix `forecast()` triggers | the Toolbelt job, not server-side triggers | Zabbix problems below High reach neither Hermod nor n8n, one method must span Zabbix and VictoriaMetrics sources, and dedupe/escalation live in one place |
 | Detector design | Theil-Sen on daily extrema + a fast-rise pass; shadow mode first | removes sawtooth; the flood class needs the fast pass; avoids a noisy launch |
-| Who authors PRs | a Frigg-side session as `aiops-author` with a GitHub App token, started by an operator click | the brain host reads untrusted text and must hold no write credentials |
+| Who authors PRs | a Frigg-side session as `aiops-author` with the machine user's fine-grained PAT, started by an operator click | the brain host reads untrusted text and must hold no write credentials |
 | How "human merges" is enforced | scope check keyed on author identity + the operator does the merge (no four-eyes rule; single-operator homelab) | labels can be omitted; identity cannot |
 | Testing | on throwaway substrate (burst K3s, canary pool), approved per run; summary in the PR, full output in the private thread | CI never has state or credentials; PR comments are public; the author holds no host or cloud credentials |
 | Terraform coverage | no plan against prod; value-only changes are exercised on canary/burst, the rest carries no plan-diff | a read-only state identity is not worth building until Terraform PRs are common |
@@ -163,7 +163,7 @@ Autonomous merge of anything; agent edits to autonomy/rebuild/registry/CI/rulese
 
 ## Operator steps (the ones Claude cannot do)
 
-- Create/install the GitHub App; store its key in Vault and mirror to 1Password (the mirror is the operator's).
+- Create the machine user (collaborator with write on this repo), generate its fine-grained PAT (this repo only, Contents + Pull requests read/write, 1-year expiry), store it in Vault (`secret/ansible/aiops/author-pat`) and mirror to 1Password (the mirror is the operator's); calendar the renewal.
 - Create the PBS audit-only API token, the Zabbix read scope for history/trends if the current token lacks it; each is a console or `terraform apply` step.
 - Hardware/host: install `smartctl` + the agent2 SMART plugin on the PVE hosts (a `proxmox-host` role change plus an operator-run playbook), and decide whether to expose etcd metrics (K3s config change on the CPs).
 - Decisions: the ticket sink, the author's per-day budget, and which PR classes are allowed first.
