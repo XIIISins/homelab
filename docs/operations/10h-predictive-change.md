@@ -81,37 +81,39 @@ The author runs on **Frigg** as a separate unix user (`aiops-author`), as a head
 |---|---|
 | a GitHub App installation token (preferred over a PAT) with Contents + Pull requests write on this repo only | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
 | the Toolbelt's **read-only** tools through an *author* role token (so it can look at live state) | the approver and agent-propose tokens |
-| `terraform` / `helm` / `kubeconform` / `ansible-lint` binaries, offline | the ability to apply anything |
+| `terraform` / `helm` / `kubeconform` / `ansible-lint` binaries, offline | the ability to apply anything, the fleet SSH key, a DigitalOcean token |
 
 ### The PR gate (what makes "a human merges" real)
 
 1. **Scope check as a required CI job (GitHub-hosted, no Frigg dependency).** Keyed on the **PR author identity** (the App's bot login), never on a label the agent could omit. For an agent-authored PR it fails if the diff touches any of: `.github/` and `terraform/github/` (the ruleset and CI), `CLAUDE.md`, `aiops/actions.yml` and `aiops/runbooks.yml` and `aiops/schema/`, `aiops/toolbelt/`, `aiops/bot/`, `aiops/n8n/`, `terraform/vault/` (policies), `terraform/semaphore/`, `ansible/inventory/group_vars/all/vault.yml`, `docs/operations/decisions.md`, or any file it did not declare in the change request's allowed-path list. In other words **an agent cannot edit the files that define what agents may do**.
 2. **No ruleset change (operator decision 2026-10-04).** A four-eyes review rule is not enforced: this is a single-operator homelab, so the existing `CI gate`-only ruleset stays. "A human merges" holds because the App token is granted Contents + Pull requests write only (it cannot merge past the `CI gate` and the operator does the merge); the agent never enables auto-merge on its own PRs by convention, and the author-identity scope check in 1 is what keeps it away from its own guardrails.
-3. **Plan-diff, as evidence not enforcement.** The repo's CI is deliberately static: it never plans (no state, no credentials; `terraform plan` on PRs is listed as a later option pending a read-only state role). 10h2 therefore produces plan-diffs **on Frigg**, from the author's worktree (planning from a worktree is allowed; only apply is restricted):
+3. **Test on throwaway substrate, never on prod (operator decision 2026-10-04).** The repo's CI is deliberately static: it never plans or applies (no state, no credentials). The author therefore proves a change on the substrates built for exactly that, and the **evidence** it attaches is the result of a real run, not a read-only guess against prod. The author holds **no fleet SSH key, no PVE/Vault/state credential and no DigitalOcean token**; it asks for a substrate and the operator approves, the same button pattern as 10e (the Toolbelt/runner does the stand-up and tear-down).
 
-   | PR touches | Plan-diff produced | Needs |
-   |---|---|---|
-   | `k8s/**` | `render-diff.sh` (old vs new render with our values) + `images-exist.sh`; kubeconform | nothing new |
-   | `ansible/**` | `ansible-playbook --check --diff --limit <host>` from the worktree under the one-at-a-time lock, or the `replay-role-check` shape | the existing fleet SSH agent on Frigg |
-   | `terraform/**` | `terraform plan` of the touched module | **new read-only identities**: a state-read-only IAM user, a PVE audit-only token, read access for providers that read Vault. Until they exist, Terraform PRs carry no plan-diff and are limited to docs/vars the reviewer can reason about |
+   | PR touches | Tested on | How | Needs |
+   |---|---|---|---|
+   | `k8s/**`, Helm values | an ephemeral **burst K3s** ([`procedures/burst-substrate.md`](../procedures/burst-substrate.md)) | `render-diff.sh` + `images-exist.sh` + `kubeconform` offline first; then applied to the burst cluster by the Toolbelt/runner and the touched workload checked (pods ready, the chart's own smoke test). One burst cluster per PR, TTL 4 h, the Frigg reaper is the cost guard | operator approval of the burst test; nothing new built |
+   | `ansible/roles/**` for LXC/VM roles | the **canary pool** (10b1, `site-nonprod.yml`), via the existing `replay-role-check` then `replay-role` shapes on a canary | `--check --diff` then a real run on a canary, then a second run for idempotence (`changed=0`); canary alerts stay capped at the Hermod `info` tier | operator approval; the executor runs it through Semaphore on the `aiops` project, the author never holds the SSH key |
+   | `k3s` role / cluster-level Ansible | burst K3s | the role is the one that builds burst clusters, so a PR to it is proven by building one | operator approval |
+   | `terraform/**` | not planned against prod. Pure-value changes (a size, a variable) that a rebuilt canary or burst cluster exercises are tested there; anything else (live Proxmox, Vault, NetBox, AdGuard state) carries **no plan-diff** and is limited to docs and values the reviewer can reason about | n/a | a state-read-only identity is **not** built for this; revisit only if Terraform PRs become common |
+   | `docs/**`, `aiops/` code, tests | the repo's own CI plus the offline linters in the author's worktree | n/a | nothing |
 
-   The **summary** (resource counts, addresses, pass/fail of each check) goes in the PR description; the **full diff goes to the private Discord thread**, because a PR comment on a public repo is public. Everything passes the same secret scrubber the Toolbelt uses on chat replies, plus the repo's gitleaks.
-4. **Human review and merge.** The PR links the evidence (alert fingerprint or forecast row, audit-trail ids), the plan-diff summary and a rollback line. Stale agent PRs close after 14 days; at most 3 are open; one PR per finding fingerprint; no force-push; commit identity is the bot's.
+   Every test run is bounded by the existing caps (rate limits, TTL, the kill switch and the maintenance flag apply). The **summary** (what ran where, resource counts, pass/fail per check, burst/canary ids) goes in the PR description; the **full output goes to the private Discord thread**, because a PR comment on a public repo is public. Everything passes the same secret scrubber the Toolbelt uses on chat replies, plus the repo's gitleaks.
+4. **Human review and merge.** The PR links the evidence (alert fingerprint or forecast row, audit-trail ids), the test summary (what ran on which burst/canary) and a rollback line. Stale agent PRs close after 14 days; at most 3 are open; one PR per finding fingerprint; no force-push; commit identity is the bot's.
 
 ### PR classes (start small)
 
-| Class | Trigger | Allowed paths | Plan-diff | Starts |
+| Class | Trigger | Allowed paths | Tested on | Starts |
 |---|---|---|---|---|
-| Docs / known-issue edits | incident, review comment | `docs/known-issues/**`, `docs/procedures/**`, `docs/incidents/**` (this is 10h3) | none | first |
-| Capacity remedies | forecast with a known remedy | a Terraform disk/size value in one module, an Ansible variable (e.g. PBS prune policy), a Zabbix template threshold | the matching row above | second |
-| Repo-matches-intent after drift | non-convergeable drift | the role/var that differs; the PR states the direction (Git is truth, so "change the live state" is the default and is a human action; "change Git" needs the operator's reason) | check-mode diff | third |
+| Docs / known-issue edits | incident, review comment | `docs/known-issues/**`, `docs/procedures/**`, `docs/incidents/**` (this is 10h3) | repo CI only | first |
+| Capacity remedies | forecast with a known remedy | a Terraform disk/size value in one module, an Ansible variable (e.g. PBS prune policy), a Zabbix template threshold | a canary/burst run (table above) | second |
+| Repo-matches-intent after drift | non-convergeable drift | the role/var that differs; the PR states the direction (Git is truth, so "change the live state" is the default and is a human action; "change Git" needs the operator's reason) | canary check-mode + real run where a canary exercises the role, else none | third |
 | Version bumps | `platform-version-drift` | stays with `chart-bump` | its own | not 10h2 |
 
 Not in 10h2: any change to the registry, autonomy or rebuild scope, Flux structure, Vault policies, secrets, firewall (UCG is not in IaC anyway), or anything that deletes data.
 
 ### Acceptance
 
-At least 3 agent-authored PRs merged with evidence and plan-diff attached; a deliberate probe PR that touches a forbidden path fails the scope check; the bot cannot approve or merge its own PR (negative test); a drafting session that exceeds its budget is stopped and says so; every draft traceable to its change request and approval.
+At least 3 agent-authored PRs merged with evidence and a burst/canary test summary attached; a deliberate probe PR that touches a forbidden path fails the scope check; the agent has no merge path (negative test: its token cannot merge); a drafting session that exceeds its budget is stopped and says so; every draft traceable to its change request and approval.
 
 ---
 
@@ -145,8 +147,8 @@ At least 3 agent-authored PRs merged with evidence and plan-diff attached; a del
 | Detector design | Theil-Sen on daily extrema + a fast-rise pass; shadow mode first | removes sawtooth; the flood class needs the fast pass; avoids a noisy launch |
 | Who authors PRs | a Frigg-side session as `aiops-author` with a GitHub App token, started by an operator click | the brain host reads untrusted text and must hold no write credentials |
 | How "human merges" is enforced | scope check keyed on author identity + the operator does the merge (no four-eyes rule; single-operator homelab) | labels can be omitted; identity cannot |
-| Plan-diff | produced on Frigg, summary in the PR, full diff in the private thread | CI never has state or credentials; PR comments are public |
-| Terraform plan coverage | after read-only identities exist; until then no plan-diff for Terraform PRs | no read-only state role today |
+| Testing | on throwaway substrate (burst K3s, canary pool), approved per run; summary in the PR, full output in the private thread | CI never has state or credentials; PR comments are public; the author holds no host or cloud credentials |
+| Terraform coverage | no plan against prod; value-only changes are exercised on canary/burst, the rest carries no plan-diff | a read-only state identity is not worth building until Terraform PRs are common |
 | Incident drafts | generated timeline, grounded narrative, hypothesis label, docs-only paths | an incident write-up that invents facts is worse than none |
 
 ## Not in 10h
@@ -156,12 +158,12 @@ Autonomous merge of anything; agent edits to autonomy/rebuild/registry/CI/rulese
 ## Exit criteria
 
 - **10h1:** shadow mode ran 14 days; after tuning, >= 3 real notes arrived >= 24 h ahead of what would have been an alert, <= 2 false notes per week; the backtest on the CP syslog flood passes; NVMe latency has a baseline for Urd/Verd/Skuld.
-- **10h2:** >= 3 agent-authored PRs merged by a human with evidence and plan-diff; the forbidden-path probe fails CI; the agent never merges its own PR.
+- **10h2:** >= 3 agent-authored PRs merged by a human with evidence and a burst/canary test summary; the forbidden-path probe fails CI; the agent never merges its own PR.
 - **10h3:** the next three incidents each began from a draft with no invented facts.
 
 ## Operator steps (the ones Claude cannot do)
 
 - Create/install the GitHub App; store its key in Vault and mirror to 1Password (the mirror is the operator's).
-- Create the PBS audit-only API token, the Zabbix read scope for history/trends if the current token lacks it, and (for Terraform plan-diff) the read-only state IAM user and PVE audit token; each is a console or `terraform apply` step.
+- Create the PBS audit-only API token, the Zabbix read scope for history/trends if the current token lacks it; each is a console or `terraform apply` step.
 - Hardware/host: install `smartctl` + the agent2 SMART plugin on the PVE hosts (a `proxmox-host` role change plus an operator-run playbook), and decide whether to expose etcd metrics (K3s config change on the CPs).
 - Decisions: the ticket sink, the author's per-day budget, and which PR classes are allowed first.
