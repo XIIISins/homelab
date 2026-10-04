@@ -39,7 +39,7 @@ Run once after deployment, and again after any change to the registry, the execu
 2. **Fault → proposal → approval → verified.** Make the temporary High trigger on `canary-2` and stop `zabbix-agent2` there, exactly as in [`aiops-diagnosis.md`](aiops-diagnosis.md) "Live pass on a canary" (the service is the fault, the guest is alive). Within ~5 minutes a diagnosis thread appears **with a `restart-unit` card** (`target_host = canary-2`, `unit = zabbix-agent2.service`; the agent may legitimately propose nothing if its evidence is weak, in which case re-run on a different canary or ask it in the thread: `@Gná propose a restart of zabbix-agent2 on canary-2`). Press **Approve**. Expect, in order: the card says *Approved. Starting.* → *Running.* → *Succeeded and verified.*, a result note follows, and `systemctl is-active zabbix-agent2` on the canary is `active`.
 3. **Fails closed** (each must refuse; do them on a second card or a fresh fault):
    - Someone else presses Approve: an ephemeral "Only the operator can approve", nothing runs.
-   - Wait 30 minutes on a pending card: it shows *Expired*, nothing ran.
+   - Wait 4 hours on a pending card: it shows *Expired*, nothing ran.
    - `/aiops kill`, then press Approve on a pending card: refused ("the kill switch is engaged"); `/aiops resume`.
    - A *replay* diagnosis (`python3 aiops/tools/replay_run.py canary-agent-down`) may propose actions but no card appears and the proposal cannot be decided.
 4. **Audit:** `journalctl -u aiops-toolbelt` shows `proposal_created` → `proposal_approved` (with the deciding user id) → `step` events → `proposal_succeeded`, joined by proposal id; the same lines reach VictoriaLogs through vlagent.
