@@ -46,6 +46,7 @@ import actions  # noqa: E402
 import incident_draft  # noqa: E402
 import change_requests  # noqa: E402
 import forecast_store  # noqa: E402
+import capacity_draft  # noqa: E402
 import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
@@ -630,6 +631,29 @@ class Toolbelt:
         try:
             return self.fc.label(fid, str(label), str(by))
         except forecast_store.Refused as e:
+            raise Rejected(e.status, e.message)
+
+    def draft_capacity(self, fid: int, by: object) -> dict:
+        """POST /forecasts/<id>/draft (approver role): an operator asks for a fix PR for an open forecast. Files a `capacity` change
+        request naming the finding (it still waits for its own Approve) when the forecast's metric has a remedy that lives in the
+        repository; the Toolbelt's usual per-finding and daily caps apply."""
+        if self.cr is None:
+            raise Rejected(501, "change requests are not enabled")
+        ops = self.cfg.actions.operators if self.cfg.actions is not None else frozenset()
+        if ops and str(by) not in ops:
+            raise Rejected(403, "only an operator may ask for a fix PR")
+        try:
+            fc = self.fc.get(fid)
+        except forecast_store.Refused as e:
+            raise Rejected(e.status, e.message)
+        if fc.get("state") != "open":
+            raise Rejected(409, "that forecast is no longer open")
+        if not capacity_draft.has_remedy(fc.get("metric", "")):
+            raise Rejected(409, "no fix in the repository exists for this kind of forecast (the remedy is outside Git)")
+        title, body = capacity_draft.capacity_request(fc)
+        try:
+            return self.cr.create(source="forecast", class_="capacity", title=title, body=body, source_ref=f"forecast-{int(fid)}", created_by=str(by))
+        except change_requests.Refused as e:
             raise Rejected(e.status, e.message)
 
     def author_tool(self, name: str, args: object, change_request_id: object) -> dict:

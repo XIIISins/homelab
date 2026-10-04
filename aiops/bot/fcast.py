@@ -13,7 +13,9 @@ from pathlib import Path
 
 import logic
 
-CUSTOM_ID = re.compile(r"^aiops:fc-(useful|noise):([0-9]+)$")
+CUSTOM_ID = re.compile(r"^aiops:fc-(useful|noise|draft):([0-9]+)$")
+# Metrics whose fix is a value in the repository (a copy of aiops/toolbelt/capacity_draft.py REMEDIES; a test holds the two equal).
+REMEDY_METRICS = ("vfs.fs.dependent.size[*,pused]", "vm.memory.size[pavailable]")
 COLOUR = {"hot": 0xE74C3C, "soon": 0xE67E22, "later": 0xF1C40F, "quiet": 0x99AAB5}
 SIGNALS = {
     "vfs.fs.dependent.size[*,pused]": "Filesystem fill",
@@ -51,12 +53,18 @@ class Client:
     def label(self, fid: int, label: str, by: str) -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/forecasts/{int(fid)}/label", self.h, {"label": label, "by": by})
 
+    def draft(self, fid: int, by: str) -> tuple[int, dict]:
+        return logic._call("POST", f"{self.base}/forecasts/{int(fid)}/draft", self.h, {"by": by})
+
     def set_message(self, fid: int, message_ref: str, thread_id: str = "") -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/forecasts/{int(fid)}/message", self.h, {"message_ref": message_ref, "thread_id": thread_id})
 
 
 def buttons(fc: dict) -> list[str]:
-    return ["useful", "noise"] if fc.get("state") == "open" and not fc.get("label") else []
+    if fc.get("state") != "open":
+        return []
+    acts = [] if fc.get("label") else ["useful", "noise"]
+    return acts + (["draft"] if fc.get("metric") in REMEDY_METRICS else [])
 
 
 def _pct(x) -> str:

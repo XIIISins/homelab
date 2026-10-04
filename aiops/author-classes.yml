@@ -79,16 +79,13 @@ classes:
     checks:
       - {name: doc links, script: .github/scripts/ci-doc-links.py}
   capacity:
-    enabled: false
-    summary: A forecast's known remedy, as a value change (a disk size, a prune policy, a Zabbix threshold).
+    enabled: true   # 2026-10-04: from a forecast card's "Draft fix PR" button (filesystem fill, memory creep): one Terraform size value
+    summary: A forecast's known remedy, as a value change (a guest's disk size or memory).
     allow:
       - "terraform/proxmox/asgard-lxcs/*.tf"
+      - "terraform/proxmox/asgard-lxcs-root/*.tf"
       - "terraform/proxmox/asgard-vms/*.tf"
-      - "ansible/inventory/group_vars/**"
-      - "ansible/roles/*/defaults/main.yml"
-      - "ansible/roles/zabbix-server/templates/**"
-    tested_on: a canary or burst run where one exercises the change; else no plan-diff
-    canary_test: true
+    tested_on: nothing to run it on (a Terraform size is not exercised by a canary); the reviewer reads the one-value diff, the operator runs terraform apply
   drift:
     enabled: true   # 2026-10-04: narrowed to the four roles the canary pool runs, so every PR can be proven on a canary
     summary: Make the repo match intent after non-convergeable drift (the PR states the direction). One role per PR.

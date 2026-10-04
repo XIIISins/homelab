@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/notify/ping-operator — send the operator a Discord message through Hermod (the independent alert path).
 #
-#   ping-operator "<title>" "<body>" [info|alert|critical]      (default tag: alert)
+#   ping-operator "<title>" "<body>" [info|alert|critical|none]   (default tag: alert; none = the untagged channel)
 #
 # For an unattended Claude session that needs a human ("needs input"): it posts to the same Hermod /notify endpoint
 # the burst reaper and the Frigg reauth listener use, with the soft-auth config key read from Vault INSIDE this
@@ -12,7 +12,7 @@ set -euo pipefail
 
 [ "$#" -ge 2 ] || { sed -n '2,10p' "$0"; exit 2; }
 title="$1" body="$2" tag="${3:-alert}"
-case "$tag" in info|alert|critical) ;; *) echo "ping-operator: tag must be info|alert|critical" >&2; exit 2 ;; esac
+case "$tag" in info|alert|critical|none) ;; *) echo "ping-operator: tag must be info|alert|critical|none" >&2; exit 2 ;; esac
 
 [ -r "$HOME/.cache/homelab/env.sh" ] && . "$HOME/.cache/homelab/env.sh"   # plain exports file: source it, never cat it
 export PATH="/opt/homebrew/bin:$PATH"
@@ -21,7 +21,7 @@ base="${HERMOD_BASE_URL:-http://hermod.niflheim.xiiisins.com}"
 key="$(vault kv get -field=value secret/ansible/hermod/config-key 2>/dev/null)" || { echo "ping-operator: could not read the Hermod key from Vault" >&2; exit 1; }
 [ -n "$key" ] || { echo "ping-operator: empty Hermod key" >&2; exit 1; }
 
-payload="$(TITLE="$title" BODY="$body" TAG="$tag" python3 -c 'import json,os; print(json.dumps({"title":os.environ["TITLE"][:200],"body":os.environ["BODY"][:1800],"tag":os.environ["TAG"],"format":"markdown"}))')"
+payload="$(TITLE="$title" BODY="$body" TAG="$tag" python3 -c 'import json,os; d={"title":os.environ["TITLE"][:200],"body":os.environ["BODY"][:1800],"format":"markdown"}; os.environ["TAG"]!="none" and d.update(tag=os.environ["TAG"]); print(json.dumps(d))')"
 post_direct() {
   printf '%s' "$payload" | curl -s -o /dev/null -w '%{http_code}' -m 15 -X POST -H 'Content-Type: application/json' --data-binary @- "$base/notify/$key" || true
 }

@@ -61,7 +61,7 @@ systemctl list-timers aiops-toolbelt-forecast.timer; journalctl -u aiops-toolbel
 
 ## Not built
 
-- The **Draft fix PR** button from the plan: no finding has a known remedy mapped to an author class yet (PBS capacity is a retention decision, a full disk is a human call); the `capacity` class waits on it.
+- A **Draft fix PR** for `pve-storage-used`, Kubernetes volumes and VictoriaLogs: their fix is not a value in the paths the `capacity` class may touch (PBS retention and the NAS share live outside Git; PVC and retention values are under `k8s/`). The button exists for `fleet-fs-used` and `memory-used` ([`aiops-author.md`](aiops-author.md) "The `capacity` class").
 - A repo-held `aiops/forecast.yml` for thresholds (they live in `DEFAULT_TARGETS`, changed by PR).
 - The backtest on the etcd syslog-flood replay, an NVMe latency / SMART signal (needs `smartctl` data in Zabbix), a memory allocation ledger, a GitHub-issue sink.
 

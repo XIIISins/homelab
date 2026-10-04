@@ -38,9 +38,10 @@ class Cards(unittest.TestCase):
             self.assertIsNone(fcast.parse_custom_id(bad))
 
     def test_buttons_only_while_open_and_unlabelled(self):
-        self.assertEqual(fcast.buttons(fc()), ["useful", "noise"])
-        self.assertEqual(fcast.buttons(fc(label="noise")), [])
+        self.assertEqual(fcast.buttons(fc()), ["useful", "noise", "draft"])               # a filesystem fill has a fix in the repository
+        self.assertEqual(fcast.buttons(fc(label="noise")), ["draft"])
         self.assertEqual(fcast.buttons(fc(state="resolved")), [])
+        self.assertEqual(fcast.buttons(fc(metric="proxmox.node.disk/maxdisk")), ["useful", "noise"])   # the PBS datastore / NAS: no fix in the repo
 
     def test_a_slow_fill_card_says_it_is_a_heads_up_and_gives_the_numbers(self):
         c = fcast.card(fc())
@@ -143,7 +144,7 @@ class AgainstTheRealToolbelt(unittest.TestCase):
             self.assertEqual((st, labelled["label"]), (200, "useful"))
             self.assertEqual(c.label(1, "noise", "999")[0], 403)
             self.assertEqual(c.get(99)[0], 404)
-            self.assertEqual(fcast.buttons(c.get(1)[1]), [])
+            self.assertEqual(fcast.buttons(c.get(1)[1]), ["draft"] if c.get(1)[1]["metric"] in fcast.REMEDY_METRICS else [])
         finally:
             r.close()
 
