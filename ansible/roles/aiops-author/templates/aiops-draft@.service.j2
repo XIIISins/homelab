@@ -26,7 +26,7 @@ SyslogIdentifier={{ aiops_author_draft_unit_name }}
 # The session reads untrusted text and runs a model: private ranges are denied (it reaches the Toolbelt on Frigg, the model
 # API and github.com, nothing else), it can write only its own job directory, and it is resource-capped.
 IPAddressDeny={{ aiops_author_deny_ranges | join(' ') }} 169.254.0.0/16 fc00::/7 fe80::/10
-IPAddressAllow=127.0.0.0/8 {{ aiops_author_toolbelt_ip }}
+IPAddressAllow=127.0.0.0/8 {{ aiops_author_toolbelt_ip }} {{ aiops_author_dns_allow | join(' ') }}
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=

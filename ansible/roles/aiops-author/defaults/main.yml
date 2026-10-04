@@ -55,6 +55,10 @@ aiops_author_deny_ranges:
   - 172.16.0.0/12
   - 192.168.0.0/16
   - 100.64.0.0/10
+# DNS must stay reachable (the private ranges above include the resolvers): the AdGuard VIP and the UCG fallback Frigg uses.
+aiops_author_dns_allow:
+  - 10.0.10.200
+  - 10.0.254.1
 aiops_author_toolbelt_ip: "{{ aiops_toolbelt_listen_host | default(ansible_host) }}"
 
 aiops_author_preflight: true # fail early when the Vault documents are missing
