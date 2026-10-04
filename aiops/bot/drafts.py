@@ -45,15 +45,28 @@ class Client:
     def list(self, states: str = "pending,approved,running,pr-open") -> tuple[int, dict]:
         return logic._call("GET", f"{self.base}/change-requests?state={states}", self.h)
 
-    def create(self, class_: str, title: str, body: str, by: str) -> tuple[int, dict]:
+    def create(self, class_: str, title: str, body: str, by: str, source: str = "operator", source_ref: str = "") -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/change-requests", self.h,
-                           {"source": "operator", "class": class_, "title": title, "body": body, "by": by})
+                           {"source": source, "class": class_, "title": title, "body": body, "by": by, "source_ref": source_ref})
 
     def decide(self, cid: int, decision: str, by: str, ref: str) -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/change-requests/{int(cid)}/decision", self.h, {"decision": decision, "by": by, "ref": ref})
 
     def set_message(self, cid: int, message_ref: str, thread_id: str = "") -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/change-requests/{int(cid)}/message", self.h, {"message_ref": message_ref, "thread_id": thread_id})
+
+
+def incident_request(incident_id: int) -> tuple[str, str]:
+    """(title, body) of the docs change request that turns Toolbelt incident #N's mechanical draft into an incident PR (10h3).
+    The body only names the incident: the session reads the draft with `incident.draft`, so nothing generated rides in a request."""
+    title = f"Incident write-up for incident #{int(incident_id)}"
+    body = (f"Write the incident write-up for Toolbelt incident #{int(incident_id)}. Call `incident.draft` with {{\"incident_id\": {int(incident_id)}}}: the answer "
+            "holds `markdown` (a mechanical draft: timeline, tool calls and actions, each line citing its source) and `filename`. "
+            "Write that markdown to docs/incidents/<filename> keeping its DRAFT banner and every cited line unchanged, add a row to "
+            "docs/incidents/README.md in the existing format, and add a short follow-ups list. You may add a known-issues entry ONLY "
+            "if the draft's evidence supports it, labelled as a hypothesis otherwise. Invent no timestamps, counts or causes. "
+            "Do not edit decisions.md, open-questions.md, build-sequence.md or CLAUDE.md: list what they would need instead.")
+    return title, body
 
 
 def buttons(cr: dict) -> list[str]:

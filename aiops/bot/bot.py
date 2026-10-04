@@ -8,7 +8,7 @@ privileged intents: it hears messages that @mention it, plus button presses and 
               -> forwarded to n8n -> the answer is posted back. Read-only questions are open to everyone in those channels.
     cards     each pending proposal in the Toolbelt's feed becomes an embed with Approve / Reject buttons in its thread,
               edited as it runs and verifies. Only an operator user id can press them (checked here AND at the Toolbelt).
-    commands  /aiops status | pending | kill | resume | maintenance | draft | drafts   (operator only)
+    commands  /aiops status | pending | kill | resume | maintenance | draft | draft-incident | drafts   (operator only)
     drafts    /aiops draft files a request for ONE agent-authored PR (Phase 10h2); its card in AIOps-chat has Approve / Reject,
               the PR link and result are posted as replies. The operator merges; the author never applies anything.
 
@@ -270,6 +270,22 @@ async def cmd_draft(interaction: discord.Interaction, kind: app_commands.Choice[
         await interaction.response.send_message(f"Not filed: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
         return
     await interaction.response.send_message(f"Filed request {body['id']}. Its card is in <#{bot.cfg.chat_channel_id}> in a few seconds: press Approve there to start the draft.",
+                                            ephemeral=True)
+
+
+@aiops.command(name="draft-incident", description="Ask for an incident write-up PR from the Toolbelt's own record of an incident (you approve the request on its card)")
+@app_commands.describe(incident="The Toolbelt incident number (shown in the diagnosis thread)")
+async def cmd_draft_incident(interaction: discord.Interaction, incident: app_commands.Range[int, 1, 999999999]) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    title, body_text = drafts.incident_request(incident)
+    st, body = await asyncio.to_thread(bot.drafts.create, "docs", title, body_text, str(interaction.user.id), "incident", f"incident-{incident}")
+    log("draft_incident_filed", status=st, incident=incident, by=str(interaction.user.id)[-4:])
+    if st != 200:
+        await interaction.response.send_message(f"Not filed: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+        return
+    await interaction.response.send_message(f"Filed request {body['id']} for incident #{incident}. Its card is in <#{bot.cfg.chat_channel_id}>: press Approve to start the write-up.",
                                             ephemeral=True)
 
 

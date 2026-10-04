@@ -519,6 +519,26 @@ class Toolbelt:
                    ms=int((time.monotonic() - t0) * 1000))
         return {"tool": name, "replayed": False, "result": out}
 
+    def _author_incident_draft(self, args: object, change_request_id: int) -> dict:
+        """incident.draft {incident_id}: the scrubbed, mechanical write-up (incident_draft.build_draft). Served only while the
+        change request is running, counted against the same per-request cap, audited against the request."""
+        if not isinstance(args, dict) or set(args) - {"incident_id"} or isinstance(args.get("incident_id"), bool) \
+                or not isinstance(args.get("incident_id"), int) or not 0 < args["incident_id"] < 10**9:
+            raise Rejected(400, "incident.draft takes exactly {incident_id: integer}")
+        try:
+            state = self.cr.view(change_request_id)["state"]
+        except Exception:  # noqa: BLE001
+            raise Rejected(404, f"no change request {change_request_id}")
+        if state != "running":
+            raise Rejected(409, f"change request {change_request_id} is {state}, not running")
+        with self._lock:
+            n = self._bump(f"authortools:{change_request_id}")
+        if n > self.cfg.max_tool_calls_per_change_request:
+            raise Rejected(429, "per-request tool-call cap reached")
+        out = self.incident_draft(args["incident_id"])  # 404 for an unknown incident; audits incident_draft
+        self.audit("tool_call", tool="incident.draft", args=str(args["incident_id"]), replayed=False, change_request=change_request_id)
+        return {"tool": "incident.draft", "replayed": False, "result": out}
+
     def author_tool(self, name: str, args: object, change_request_id: object) -> dict:
         """A read-only tool call from a drafting session (author-tools role): live only, attributed to its change request, which
         must exist and be `running`, and capped per request. No incident is involved."""
@@ -526,6 +546,8 @@ class Toolbelt:
             raise Rejected(501, "change requests are not enabled")
         if isinstance(change_request_id, bool) or not isinstance(change_request_id, int):
             raise Rejected(400, "change_request_id (integer) is required")
+        if name == "incident.draft":  # 10h3: the mechanical incident write-up (a DB read), for sessions only, never the n8n agent
+            return self._author_incident_draft(args, change_request_id)
         try:
             clean = tools.validate(name, args)
         except tools.ToolError as e:

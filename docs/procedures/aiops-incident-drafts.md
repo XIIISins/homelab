@@ -20,21 +20,17 @@ Everything is passed through the Toolbelt's redactor (bearer tokens, `password=`
 
 ## Using it
 
-Until the `/aiops draft-incident <id>` bot command lands, call it from a host the approver token is allowed from (Ratatoskr holds the token):
+In Discord: `/aiops draft-incident <incident number>` (the number is in the diagnosis thread). It files a `docs` change request whose body only
+names the incident; its card appears in the AIOps chat channel and you press **Approve**. The drafting session then fetches the
+mechanical draft with the read-only `incident.draft` tool (available to sessions only, while their request is running), writes it
+verbatim to `docs/incidents/<filename>`, adds the row to `docs/incidents/README.md` and a follow-ups list, and the dispatcher opens
+the PR for you to review and edit (see [`aiops-author.md`](aiops-author.md)). The session may not edit `decisions.md`,
+`open-questions.md`, `build-sequence.md` or `CLAUDE.md`; it lists what they need.
 
-```bash
-python3 - <<'PY'   # run on Ratatoskr as root; prints the markdown, nothing secret
-import json, urllib.request
-tok = open("/etc/ratatoskr/approver-token").read().strip()
-r = urllib.request.Request("http://10.0.11.30:8090/incident/<ID>/draft", headers={"Authorization": "Bearer " + tok})
-print(json.load(urllib.request.urlopen(r))["markdown"])
-PY
-```
-
-Copy it to `docs/incidents/<slug>.md`, write the real narrative, add the row to `docs/incidents/README.md`, and make the follow-up edits.
+To read the draft without a PR: the approver route `GET /incident/<id>/draft` (Ratatoskr holds the token).
 
 ## Known limits (honest)
 
 - The Toolbelt only knows what Zabbix sent it (High and Disaster) plus what the agent was asked. An incident worked interactively in an operator session leaves only git history and logs: for those the draft is a timeline skeleton at best.
 - Retention: the SQLite database keeps incidents until it is reset; how far back VictoriaLogs reaches is still an open question for older drafts.
-- Not built yet: the grounded narrative section (LLM, every claim citing an evidence id, ungrounded sentences dropped), the `/aiops draft-incident` command, automatic drafting on a trigger, and opening the PR (10h2, needs a GitHub App).
+- Not built yet: the grounded narrative section (LLM, every claim citing an evidence id, ungrounded sentences dropped), automatic drafting on a trigger (the command is manual: you pick the incident), and a grounded narrative beyond the mechanical draft.

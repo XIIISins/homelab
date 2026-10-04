@@ -256,6 +256,26 @@ class AuthorTools(unittest.TestCase):
         st, out = self.r.call(T_TOOLS, "POST", "/tool/registry.actions", {"args": {}, "incident_id": 1})
         self.assertEqual(st, 400)  # no change request: refused, whatever incident it names
 
+    def test_incident_draft_is_a_session_only_read_while_running_and_scrubbed(self):
+        import test_toolbelt as base
+        inc = self.r.tb.ingest_zabbix(base.ev())["incident_id"]
+        cid = self.running()
+        st, out = self.tool(cid, "incident.draft", {"incident_id": inc})
+        self.assertEqual(st, 200, out)
+        res = out["result"]
+        self.assertEqual(res["incident_id"], inc)
+        self.assertTrue(res["filename"].endswith(".md"))
+        self.assertIn("DRAFT", res["markdown"])
+        calls = [a for a in self.r.audit if a.get("event") == "tool_call" and a.get("tool") == "incident.draft"]
+        self.assertEqual(calls[-1]["change_request"], cid)
+        # exactly one integer argument; unknown incident is a 404; a finished request is refused; the agent role cannot call it
+        for bad in ({}, {"incident_id": "1"}, {"incident_id": True}, {"incident_id": inc, "x": 1}, {"incident_id": 0}):
+            self.assertEqual(self.tool(cid, "incident.draft", bad)[0], 400, bad)
+        self.assertEqual(self.tool(cid, "incident.draft", {"incident_id": 9999})[0], 404)
+        self.assertEqual(self.r.call(T_AGENT, "POST", "/tool/incident.draft", {"args": {"incident_id": inc}, "incident_id": inc})[0], 404)
+        self.r.call(T_AUTH, "POST", f"/change-requests/{cid}/report", {"state": "failed", "error": "x"})
+        self.assertEqual(self.tool(cid, "incident.draft", {"incident_id": inc})[0], 409)
+
     def test_the_agent_role_still_needs_an_incident(self):
         st, out = self.r.call(T_AGENT, "POST", "/tool/registry.actions", {"args": {}})
         self.assertEqual(st, 400)
