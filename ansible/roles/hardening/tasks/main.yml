@@ -108,6 +108,6 @@
       ******************************************************************
       * This system is part of the niflheim homelab cluster.           *
       * Unauthorized access is prohibited.                             *
-      * All activity is logged and monitored.                          *
+      * All activity is logged, monitored and audited.                 *
       ******************************************************************
     mode: "0644"
