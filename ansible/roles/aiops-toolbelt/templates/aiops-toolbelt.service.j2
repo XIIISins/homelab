@@ -54,6 +54,9 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% endif %}
 {% endif %}
   --replay-dir {{ aiops_toolbelt_replay_dir }} \
+{% if aiops_toolbelt_forecast_enabled %}
+  --forecast-current {{ aiops_toolbelt_forecast_current }} \
+{% endif %}
   --repo-dir {{ aiops_toolbelt_repo_dir }} \
   --creds-dir {{ aiops_toolbelt_creds_dir }} \
   --placement-file {{ aiops_toolbelt_placement_file }} \

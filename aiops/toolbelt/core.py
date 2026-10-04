@@ -45,6 +45,7 @@ import diagnosis  # noqa: E402
 import actions  # noqa: E402
 import incident_draft  # noqa: E402
 import change_requests  # noqa: E402
+import forecast_store  # noqa: E402
 import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
@@ -135,6 +136,9 @@ class Config:
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
     actions: actions.ActionConfig | None = None  # 10e: None = proposals/approval/execution are not enabled
     change_requests: change_requests.CRConfig | None = None  # 10h2: None = no agent-authored PR requests
+    forecast_file: Path | None = None  # 10h1: the forecast job's `current findings` JSON; None = forecasts are not ingested
+    forecast_poll_seconds: int = 60
+    forecast: forecast_store.ForecastConfig = field(default_factory=forecast_store.ForecastConfig)
     chat_daily_turn_cap: int = 100          # human messages the agent will answer per UTC day
     chat_author_hourly_cap: int = 10        # per Discord user, so anyone in the channel can ask but not run up the bill
     chat_conversation_turn_cap: int = 30    # user messages in one thread
@@ -175,8 +179,14 @@ class Toolbelt:
                 cfg.actions.reader = self._read_tool
             self.engine = actions.Engine(self.db, self._lock, self.clock, self.audit, registry, cfg.actions, self._bump, self._counter)
         self.cr: change_requests.ChangeRequests | None = None
+        self.fc: forecast_store.Forecasts | None = None
+        self._fc_mtime = 0.0
         if self.engine is not None and cfg.change_requests is not None:
             self.cr = change_requests.ChangeRequests(self.engine, cfg.change_requests)
+        if cfg.forecast_file is not None:
+            self.fc = forecast_store.Forecasts(self.db, self._lock, self.clock, self.audit, cfg.forecast)
+            self.ingest_forecasts()
+            threading.Thread(target=self._forecast_loop, daemon=True, name="forecast-ingest").start()
 
     def _migrate(self) -> None:
         """Additive schema changes for databases created by an older version (CREATE TABLE IF NOT EXISTS never alters)."""
@@ -539,6 +549,41 @@ class Toolbelt:
         self.audit("tool_call", tool="incident.draft", args=str(args["incident_id"]), replayed=False, change_request=change_request_id)
         return {"tool": "incident.draft", "replayed": False, "result": out}
 
+    # ---- 10h1: forecast findings -------------------------------------------------------------------------------------
+    def ingest_forecasts(self) -> dict | None:
+        """Read the forecast job's current-findings file if it changed since last time and apply it. Never raises: a bad file is
+        an audit line and the next pass tries again."""
+        if self.fc is None or self.cfg.forecast_file is None:
+            return None
+        try:
+            mt = self.cfg.forecast_file.stat().st_mtime
+            if mt == self._fc_mtime:
+                return None
+            data = json.loads(self.cfg.forecast_file.read_text())
+            out = self.fc.sync(data)
+            self._fc_mtime = mt
+            return out
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, TypeError, KeyError) as e:
+            self.audit("forecast_ingest_error", error=type(e).__name__)
+            return None
+
+    def _forecast_loop(self) -> None:
+        while True:
+            time.sleep(self.cfg.forecast_poll_seconds)
+            self.ingest_forecasts()
+
+    def label_forecast(self, fid: int, label: str, by: object) -> dict:
+        """POST /forecasts/<id>/label (approver role): Useful / Noise, by an operator. These labels are the tuning evidence."""
+        ops = self.cfg.actions.operators if self.cfg.actions is not None else frozenset()
+        if ops and str(by) not in ops:
+            raise Rejected(403, "only an operator may label a forecast")
+        try:
+            return self.fc.label(fid, str(label), str(by))
+        except forecast_store.Refused as e:
+            raise Rejected(e.status, e.message)
+
     def author_tool(self, name: str, args: object, change_request_id: object) -> dict:
         """A read-only tool call from a drafting session (author-tools role): live only, attributed to its change request, which
         must exist and be `running`, and capped per request. No incident is involved."""
@@ -750,6 +795,8 @@ class Toolbelt:
             out["open_proposals"] = self.engine.list(("pending", "approved", "running"))
         if self.cr is not None:
             out["change_requests"] = self.cr.summary()
+        if self.fc is not None:
+            out["forecasts"] = self.fc.summary()
         return out
 
     def report(self, days: int = 14) -> dict:

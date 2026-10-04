@@ -64,6 +64,9 @@ def main(argv: list | None = None, query=None, now: float | None = None) -> int:
     ap.add_argument("--log", required=True, help="JSONL file the findings are appended to (shadow mode: no other output)")
     ap.add_argument("--url", default=DEFAULT_URL, help="VictoriaMetrics read endpoint")
     ap.add_argument("--state", help="JSON file remembering when each finding was last reported (dedup across timer runs)")
+    ap.add_argument("--current", help="JSON file replaced each pass with every finding that holds now (the Toolbelt reads it)")
+    ap.add_argument("--zabbix-creds", help="directory holding the read-only zabbix.json credential (enables the Zabbix targets)")
+    ap.add_argument("--root", default="/opt/aiops-toolbelt", help="where aiops/toolbelt lives (for the Zabbix helper)")
     a = ap.parse_args(argv)
     dedup = forecast.Dedup()
     state = Path(a.state) if a.state else None
@@ -73,7 +76,14 @@ def main(argv: list | None = None, query=None, now: float | None = None) -> int:
             dedup._seen = {k: (float(v[0]), v[1]) for k, v in json.loads(state.read_text()).items()}
         except (OSError, ValueError, TypeError, IndexError):
             pass  # a bad state file only means a repeat report
-    found = forecast.run_once(query or make_query(a.url), t, a.log, dedup=dedup)
+    sources = {}
+    if a.zabbix_creds:
+        import forecast_zabbix
+        sources["zabbix"] = forecast_zabbix.ZabbixSource(forecast_zabbix.make_call(a.zabbix_creds, a.root)).query
+    stats: dict = {}
+    found = forecast.run_once(query or make_query(a.url), t, a.log, dedup=dedup, sources=sources, stats=stats, current_path=a.current)
+    for name, s in sorted(stats.items()):
+        print(f"forecast: {name}: " + ", ".join(f"{k}={v}" for k, v in s.items()))
     if state:
         state.parent.mkdir(parents=True, exist_ok=True)
         keep = {k: v for k, v in dedup._seen.items() if t - v[0] < 7 * 86400}

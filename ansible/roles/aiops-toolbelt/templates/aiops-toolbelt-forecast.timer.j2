@@ -1,7 +1,7 @@
 {# ansible/roles/aiops-toolbelt/templates/aiops-toolbelt-forecast.timer.j2 #}
 # Managed by Ansible (roles/aiops-toolbelt). Do not edit.
 [Unit]
-Description=AIOps forecasting shadow pass every {{ aiops_toolbelt_forecast_interval }}
+Description=AIOps forecasting pass every {{ aiops_toolbelt_forecast_interval }}
 
 [Timer]
 OnBootSec=10min
