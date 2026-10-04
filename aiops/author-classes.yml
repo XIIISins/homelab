@@ -66,6 +66,8 @@ classes:
       - "docs/known-issues/**"
       - "docs/procedures/**"
     tested_on: repo CI (links, yamllint) in the author's worktree; no substrate needed
+    checks:  # run by the dispatcher on the patched clone before it pushes; their results go in the PR body
+      - {name: doc links, script: .github/scripts/ci-doc-links.py}
   capacity:
     enabled: false
     summary: A forecast's known remedy, as a value change (a disk size, a prune policy, a Zabbix threshold).

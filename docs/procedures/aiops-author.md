@@ -47,6 +47,16 @@ Acceptance (done once): a probe PR from `agent/docs/<n>-x` touching `CLAUDE.md` 
 
 The `main` ruleset lets the **Admin** role bypass it. A token for an account with admin on this repo could therefore push to `main` (which Flux deploys) despite the CI gate. The dispatcher **refuses to claim anything** if the token's account has `admin` or `maintain` on the repo (`identity_refused` in its audit log), unless `aiops_author_allow_admin_token: true` is set on purpose. The intended identity is a dedicated GitHub user with *write* (not admin) on the repo and a fine-grained PAT scoped to this repo only (Contents + Pull requests read/write; no Workflows, Administration or Issues), so its branch pushes cannot skip the ruleset. It cannot be created through `gh` or the API: GitHub has no endpoint for minting PATs.
 
+## What the PR says it was tested with
+
+Before it pushes, the dispatcher applies the session's patch to its own clean clone and runs the class's `checks` (declared in
+`aiops/author-classes.yml`; for `docs`: `.github/scripts/ci-doc-links.py`) with a bare environment. The results are written
+into the PR body under **Checks** (`doc links: pass`, `scope rules: pass`, `secret scan: pass`) and reported to the Toolbelt;
+a failing check stops the push and fails the request with the check's output tail. These are run by the dispatcher, not claimed
+by the model. A check can only be a script already on `main` under `.github/scripts/` (the scope rules forbid a patch from
+touching `.github/`). Not built: a burst/canary test run per request for the classes that change infrastructure (`capacity`,
+`drift`); they stay disabled until that exists.
+
 ## Operating it
 
 - **Stop everything:** `/aiops kill` (nothing is approved or claimed; running sessions finish and report), or `systemctl stop aiops-author` on Frigg.
