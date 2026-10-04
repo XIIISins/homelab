@@ -254,6 +254,12 @@ class Loop(Rig):
         d2 = self.disp()
         d2.tick({1, 2})
         self.assertEqual(len(self.tb.claims), 1)
+        # a dry run publishes nothing, so an unsafe identity does not stop it from claiming
+        dry = dispatcher.Config(repo_url=self.url, work=str(self.work), classes=CLASSES, dry_run=True, max_parallel=1)
+        d3 = self.disp(gh=FakeGH(admin=True), cfg=dry)
+        d3.process = lambda cr: None
+        d3.tick(set())
+        self.assertEqual(len(self.tb.claims), 0)
 
 
 class Parse(unittest.TestCase):
