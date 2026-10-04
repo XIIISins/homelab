@@ -23,7 +23,7 @@ An operator-approved **change request** becomes **one pull request** that the op
 | Session (`aiops-draft@`) | **no** | yes | author-tools role: `/tool/*` only | yes |
 | Root launcher / loader | no | no | no | no |
 
-The session can read live state through the Toolbelt's read-only tools and nothing else inside the homelab: its unit denies every private range except the Toolbelt. A prompt-injected session can at worst produce a bad patch; the strict parse, the scope rules, the secret scan, CI and the operator's review all see that patch.
+The session can read live state through the Toolbelt's read-only tools and nothing else inside the homelab: its unit denies every private range except the Toolbelt. Its tool calls carry its change request id (`AIOPS_CR_ID`, sent by `toolcli`), not an incident id: the Toolbelt serves them only while that request is `running`, caps them at 60 per request, and audits each as `tool_call` with `change_request`. (Until 2026-10-04 every live call from a session was refused with `incident_id (integer) is required`; the first drift-note run found it.) A prompt-injected session can at worst produce a bad patch; the strict parse, the scope rules, the secret scan, CI and the operator's review all see that patch.
 
 ## Classes
 

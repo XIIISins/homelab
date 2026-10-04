@@ -202,6 +202,66 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual((got["state"], bool(got["error"])), ("failed", True))
 
 
+class AuthorTools(unittest.TestCase):
+    """A drafting session's tool calls are attributed to its change request, not to an incident (it has none)."""
+
+    def setUp(self):
+        self.r = Rig()
+
+    def tearDown(self):
+        self.r.close()
+
+    def tool(self, cid, name="registry.actions", args=None):
+        return self.r.call(T_TOOLS, "POST", f"/tool/{name}", {"args": args or {}, "change_request_id": cid})
+
+    def running(self):
+        cr = self.r.approved()
+        self.r.call(T_AUTH, "POST", "/change-requests/claim")
+        return cr["id"]
+
+    def test_a_running_request_can_call_a_live_tool_and_it_is_audited_against_the_request(self):
+        cid = self.running()
+        st, out = self.tool(cid)
+        self.assertEqual(st, 200, out)
+        self.assertFalse(out["replayed"])
+        calls = [a for a in self.r.audit if a.get("event") == "tool_call"]
+        self.assertEqual(calls[-1]["change_request"], cid)
+        self.assertNotIn("incident", calls[-1])
+
+    def test_only_a_running_request_may_call(self):
+        _, pending = self.r.file()
+        self.assertEqual(self.tool(pending["id"])[0], 409)
+        approved = self.r.approved(title="second")
+        self.assertEqual(self.tool(approved["id"])[0], 409)
+        self.assertEqual(self.tool(9999)[0], 404)
+        for bad in (None, "1", True, 1.5):
+            self.assertEqual(self.tool(bad)[0], 400, bad)
+        cid = self.running()
+        self.r.call(T_AUTH, "POST", f"/change-requests/{cid}/report", {"state": "failed", "error": "x"})
+        self.assertEqual(self.tool(cid)[0], 409)  # finished: the door closes
+
+    def test_the_per_request_cap_and_argument_validation_still_apply(self):
+        self.r.tb.cfg.max_tool_calls_per_change_request = 2
+        cid = self.running()
+        self.assertEqual(self.tool(cid)[0], 200)
+        self.assertEqual(self.tool(cid)[0], 200)
+        self.assertEqual(self.tool(cid)[0], 429)
+        self.assertEqual(self.tool(cid, "registry.runbook", {"id": "nope"})[0] in (400, 429), True)
+        self.assertEqual(self.tool(cid, "kube.delete")[0] in (404, 429), True)  # write-shaped names never reach a handler
+
+    def test_a_session_cannot_pose_as_an_incident_or_a_replay(self):
+        cid = self.running()
+        st, out = self.r.call(T_TOOLS, "POST", "/tool/registry.actions", {"args": {}, "incident_id": 1, "change_request_id": cid})
+        self.assertEqual(st, 200)
+        st, out = self.r.call(T_TOOLS, "POST", "/tool/registry.actions", {"args": {}, "incident_id": 1})
+        self.assertEqual(st, 400)  # no change request: refused, whatever incident it names
+
+    def test_the_agent_role_still_needs_an_incident(self):
+        st, out = self.r.call(T_AGENT, "POST", "/tool/registry.actions", {"args": {}})
+        self.assertEqual(st, 400)
+        self.assertIn("incident_id", out["error"])
+
+
 class Caps(unittest.TestCase):
     def test_kill_switch_and_maintenance_stop_claims_and_approvals(self):
         r = Rig()

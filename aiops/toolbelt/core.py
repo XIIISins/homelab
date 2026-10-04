@@ -126,6 +126,7 @@ class Config:
     placement: dict[str, str] = field(default_factory=dict)  # host -> hypervisor node (from NetBox)
     placement_file: Path | None = None  # JSON map written by placement_sync.py; hot-reloaded when its mtime changes
     max_tool_calls_per_incident: int = 40  # live tool calls one incident may make (replay is not counted)
+    max_tool_calls_per_change_request: int = 60  # live tool calls one drafting session (10h2) may make
     replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
     actions: actions.ActionConfig | None = None  # 10e: None = proposals/approval/execution are not enabled
@@ -473,6 +474,41 @@ class Toolbelt:
         self._record_call(incident_id, name, h, False, clean)
         self.audit("tool_call", tool=name, args=h, replayed=False, incident=incident_id,
                    ms=int((time.monotonic() - t0) * 1000))
+        return {"tool": name, "replayed": False, "result": out}
+
+    def author_tool(self, name: str, args: object, change_request_id: object) -> dict:
+        """A read-only tool call from a drafting session (author-tools role): live only, attributed to its change request, which
+        must exist and be `running`, and capped per request. No incident is involved."""
+        if self.cr is None:
+            raise Rejected(501, "change requests are not enabled")
+        if isinstance(change_request_id, bool) or not isinstance(change_request_id, int):
+            raise Rejected(400, "change_request_id (integer) is required")
+        try:
+            clean = tools.validate(name, args)
+        except tools.ToolError as e:
+            self.audit("tool_denied", tool=name, reason=e.message[:120], change_request=change_request_id)
+            raise Rejected(e.status, e.message)
+        try:
+            state = self.cr.view(change_request_id)["state"]
+        except Exception:  # noqa: BLE001 - an unknown id is the caller's problem, not a 500
+            raise Rejected(404, f"no change request {change_request_id}")
+        if state != "running":
+            raise Rejected(409, f"change request {change_request_id} is {state}, not running")
+        h = tools.args_hash(name, clean)
+        with self._lock:
+            n = self._bump(f"authortools:{change_request_id}")
+        if n > self.cfg.max_tool_calls_per_change_request:
+            self.audit("tool_denied", tool=name, reason="per-change-request-cap", change_request=change_request_id)
+            raise Rejected(429, "per-request tool-call cap reached")
+        if self.cfg.live is None:
+            raise Rejected(501, "live tools are not configured")
+        t0 = time.monotonic()
+        try:
+            out = tools.live(self.cfg.live, name, clean)
+        except tools.ToolError as e:
+            self.audit("tool_error", tool=name, args=h, status=e.status, change_request=change_request_id)
+            raise Rejected(e.status, e.message)
+        self.audit("tool_call", tool=name, args=h, replayed=False, change_request=change_request_id, ms=int((time.monotonic() - t0) * 1000))
         return {"tool": name, "replayed": False, "result": out}
 
     # ---- GET /replay/<scenario>/latest (acceptance harness, read-only) -------------------------

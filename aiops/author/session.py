@@ -76,7 +76,7 @@ def run(job: Path, env: dict | None = None, runner=subprocess.run) -> dict:
         home = job / "home"
         home.mkdir(exist_ok=True)
         cenv = {"PATH": "/usr/bin:/bin", "HOME": str(home), "ANTHROPIC_API_KEY": env["ANTHROPIC_API_KEY"],
-                "AIOPS_TOOLS_URL": spec["tools_url"], "AIOPS_TOOLS_TOKEN": env["AIOPS_TOOLS_TOKEN"], "GIT_TERMINAL_PROMPT": "0"}
+                "AIOPS_TOOLS_URL": spec["tools_url"], "AIOPS_TOOLS_TOKEN": env["AIOPS_TOOLS_TOKEN"], "AIOPS_CR_ID": str(spec["id"]), "GIT_TERMINAL_PROMPT": "0"}
         prompt = build_prompt(spec, str(out), spec["tools_cli"])
         p = runner(claude_argv(spec, agent_prompt(Path(spec["agent_file"])), str(out), prompt), cwd=str(repo), env=cenv,
                    capture_output=True, text=True, timeout=int(spec.get("timeout", 1680)))
