@@ -79,7 +79,7 @@ The author runs on **Frigg** as a separate unix user (`aiops-author`), as a head
 
 | Has | Does not have |
 |---|---|
-| a **fine-grained PAT** (operator decision 2026-10-04: a long-lived token is accepted over a GitHub App) belonging to a dedicated machine user, scoped to this repo only with Contents + Pull requests read/write and a one-year expiry (calendar the renewal) | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
+| a **fine-grained PAT** (operator decision 2026-10-04: a long-lived token is accepted over a GitHub App) belonging to a dedicated machine user with *write, not admin* on the repo, scoped to this repo only with Contents + Pull requests read/write and a one-year expiry (calendar the renewal). **Held only by the dispatcher**, a process that never runs an LLM; the drafting session has no GitHub credential and hands back a patch (built 2026-10-04, [procedure](../procedures/aiops-author.md)) | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
 | the Toolbelt's **read-only** tools through an *author* role token (so it can look at live state) | the approver and agent-propose tokens |
 | `terraform` / `helm` / `kubeconform` / `ansible-lint` binaries, offline | the ability to apply anything, the fleet SSH key, a DigitalOcean token |
 
