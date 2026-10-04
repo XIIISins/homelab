@@ -74,7 +74,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 | **10f** | Autonomous T1 healing | 10e + kill switch + canaries | Stage 3 |
 | **10g** | Fleet rebuild loop | 10f + restore-tested backups + PBS off Skuld | Stage 4 |
 | **10h** | Predictive & agent-authored change | 10f | Stage 5 |
-| **10i** | Workload rightsizing (VPA recommend-only + rightsizing PRs) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
+| **10i** | Workload + host memory rightsizing (VPA recommend-only, rightsizing PRs, guest shrink) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
 
 10a/10b/10c can run in parallel (disjoint scopes). Everything from 10d onward is sequential.
 
@@ -171,13 +171,14 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10i — Workload rightsizing (VPA recommend-only)
 
-*Detailed plan (drafted 2026-10-04): [`10i-rightsizing.md`](10i-rightsizing.md). Driven by the worker CPU-requests gotcha ([`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)): 84–90 % requested, ~5–10 % used.*
+*Detailed plan (drafted 2026-10-04): [`10i-rightsizing.md`](10i-rightsizing.md). Driven by the worker CPU-requests gotcha ([`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)): 84–90 % requested, ~5–10 % used; and by Proxmox hosts close to fully claimed on memory.*
 
 - **10i0 — Hand-trim** the obvious over-requests (NetBox, `authentik-server`) so the recommender fits.
 - **10i1 — VPA recommender only**, `updateMode: "Off"` objects in a new `vpa-config/` Kustomization, VPA metrics through kube-state-metrics. Changes nothing in the cluster.
 - **10i2 — Findings (T0).** The Toolbelt joins VPA recommendations with 14 days of VictoriaMetrics usage, posts quiet cards beside the forecasts, and gives Gná the data for `Insufficient cpu` diagnoses.
 - **10i3 — Rightsizing PRs.** A `rightsizing` author class changes only the `resources` of one allow-listed HelmRelease (CI-checked); the operator merges.
 - **10i4 — Post-merge watch** (72 h, built before 10i3 is enabled); a regression offers a revert PR, never an automatic one.
+- **10i5 — Host memory reclaim.** A memory allocation ledger per Proxmox host; worker VMs shrink by hand one at a time once pod memory is trimmed; over-sized LXCs/VMs shrink through a new `capacity` shrink direction. Target: ≤ 75 % of host RAM claimed.
 
 ---
 
