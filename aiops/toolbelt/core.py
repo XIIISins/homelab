@@ -44,6 +44,7 @@ import tools  # noqa: E402
 import diagnosis  # noqa: E402
 import actions  # noqa: E402
 import incident_draft  # noqa: E402
+import change_requests  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
@@ -128,6 +129,7 @@ class Config:
     replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
     actions: actions.ActionConfig | None = None  # 10e: None = proposals/approval/execution are not enabled
+    change_requests: change_requests.CRConfig | None = None  # 10h2: None = no agent-authored PR requests
     chat_daily_turn_cap: int = 100          # human messages the agent will answer per UTC day
     chat_author_hourly_cap: int = 10        # per Discord user, so anyone in the channel can ask but not run up the bill
     chat_conversation_turn_cap: int = 30    # user messages in one thread
@@ -167,6 +169,9 @@ class Toolbelt:
             if cfg.actions.reader is None:
                 cfg.actions.reader = self._read_tool
             self.engine = actions.Engine(self.db, self._lock, self.clock, self.audit, registry, cfg.actions, self._bump, self._counter)
+        self.cr: change_requests.ChangeRequests | None = None
+        if self.engine is not None and cfg.change_requests is not None:
+            self.cr = change_requests.ChangeRequests(self.engine, cfg.change_requests)
 
     def _migrate(self) -> None:
         """Additive schema changes for databases created by an older version (CREATE TABLE IF NOT EXISTS never alters)."""
@@ -642,6 +647,8 @@ class Toolbelt:
         if self.engine is not None:
             out["actions"] = self.engine.summary()
             out["open_proposals"] = self.engine.list(("pending", "approved", "running"))
+        if self.cr is not None:
+            out["change_requests"] = self.cr.summary()
         return out
 
     def report(self, days: int = 14) -> dict:
