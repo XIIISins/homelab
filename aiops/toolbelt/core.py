@@ -45,6 +45,7 @@ import diagnosis  # noqa: E402
 import actions  # noqa: E402
 import incident_draft  # noqa: E402
 import change_requests  # noqa: E402
+import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
@@ -127,6 +128,9 @@ class Config:
     placement_file: Path | None = None  # JSON map written by placement_sync.py; hot-reloaded when its mtime changes
     max_tool_calls_per_incident: int = 40  # live tool calls one incident may make (replay is not counted)
     max_tool_calls_per_change_request: int = 60  # live tool calls one drafting session (10h2) may make
+    drift_wait_seconds: int = 180     # how long /ingest/drift waits for the drift-check run to finish before it gives up
+    drift_repeat_seconds: int = 86400  # the same drift (same host, same check) inside this is a repeat, not a new incident
+    drift_sleep: Callable[[float], None] = time.sleep  # injectable so tests need no real waiting
     replay_dir: Path | None = None  # aiops/replays: recorded tool responses for acceptance scenarios
     live: tools.LiveConfig | None = None  # credential-free live tools (registry, repo history, reach)
     actions: actions.ActionConfig | None = None  # 10e: None = proposals/approval/execution are not enabled
@@ -249,6 +253,45 @@ class Toolbelt:
             return {"action": "ignored"}
         with self._lock:
             return self._ingest_alert(alerts[0], now, replay)
+
+    def ingest_drift(self, body: object) -> dict:
+        """POST /ingest/drift (agent role, relayed by Gná's drift webhook): a drift-check run that would change hosts.
+        The hand-off is only a hint. The run is re-read from Semaphore with the read-only token, waited for until it finishes,
+        and judged by its own recap; a clean or already-handled run answers `none` / `duplicate` and starts nothing."""
+        try:
+            hint = drift.validate(body)
+        except drift.DriftError as e:
+            self.audit("rejected", source="drift", reason="invalid-hand-off", problem=e.message[:120])
+            raise Rejected(e.status, e.message)
+        if self.cfg.live is None:
+            raise Rejected(501, "live tools are not configured")
+        try:
+            found = drift.verify(lambda p: tools._sem_get(self.cfg.live, p), self.cfg.live.semaphore_project, hint,
+                                 self.cfg.drift_wait_seconds, sleep=self.cfg.drift_sleep)
+        except drift.DriftError as e:
+            self.audit("rejected", source="drift", reason="unverifiable", problem=e.message[:120])
+            raise Rejected(e.status, e.message)
+        except tools.ToolError as e:
+            self.audit("rejected", source="drift", reason="semaphore", problem=e.message[:120])
+            raise Rejected(e.status, e.message)
+        now = self.now()
+        with self._lock:
+            if self._bump(f"drift-task:{found['task_id']}") > 1:
+                self.audit("drift_duplicate", task=found["task_id"], reason="task-already-handled")
+                return {"action": "duplicate", "reason": "task-already-handled", "task_id": found["task_id"]}
+            alert = drift.build_alert(self.routes, found, iso(now), hint["template"])
+            if alert is None:
+                self.audit("drift_clean", task=found["task_id"], claimed=sorted(hint["claimed"]))
+                return {"action": "none", "reason": "no-drift-in-run", "task_id": found["task_id"], "claimed": hint["claimed"]}
+            row = self.db.execute("SELECT * FROM alerts WHERE fingerprint=?", (alert["fingerprint"],)).fetchone()
+            if row is not None and now - row["first_seen"] < self.cfg.drift_repeat_seconds:
+                self.db.execute("UPDATE alerts SET count=count+1 WHERE fingerprint=?", (alert["fingerprint"],))
+                self.audit("drift_duplicate", task=found["task_id"], reason="same-drift-recent", incident=row["incident_id"])
+                return {"action": "duplicate", "reason": "same-drift-recent", "incident_id": row["incident_id"], "task_id": found["task_id"]}
+            out = self._ingest_alert(alert, now)
+        self.audit("drift_ingested", task=found["task_id"], hosts=sorted(found["changed"]), action=out.get("action"), incident=out.get("incident_id"))
+        out["drift"] = {"task_id": found["task_id"], "changed": found["changed"], "template": hint["template"]}
+        return out
 
     def _ingest_alert(self, alert: dict, now: int, replay: str | None = None) -> dict:
         scenario = None

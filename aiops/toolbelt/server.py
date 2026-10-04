@@ -5,6 +5,7 @@ Two credentials, two roles, two source-IP allow-lists. A caller holds exactly on
 
   agent     (Gna / n8n, the LLM host: it reads untrusted text, so it holds no authority)
     POST /ingest/zabbix            native aiops.zabbix-event/v1 -> {action, incident_id, ...}
+    POST /ingest/drift             a drift-check hand-off (verified against Semaphore) -> {action, incident_id, ...} (10h2)
     GET  /group/<id>               the correlated incident (alerts, state, priority, model hint)
     POST /group/<id>/state         {"state": "running|posted|resolved", "thread_id": "..."}
     POST /diagnosis/<id>           {"diagnosis": {...}, "model": "..."} -> validated + Discord-ready, or 422 + problems;
@@ -144,6 +145,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
         def _table(self):
             both, only_agent, only_appr = (AGENT, APPROVER), (AGENT,), (APPROVER,)
             return [
+                ("POST", re.compile(r"^/ingest/drift$"), only_agent, lambda m, q: tb.ingest_drift(self._body())),
                 ("POST", re.compile(r"^/ingest/zabbix$"), only_agent,
                  lambda m, q: tb.ingest_zabbix(self._body(), self.headers.get("X-AIOPS-Replay") or None)),
                 ("GET", re.compile(rf"^/group/{_ID}$"), only_agent, lambda m, q: tb.group(int(m.group(1)))),

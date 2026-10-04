@@ -151,7 +151,8 @@ def build() -> dict:
     _n[0] = 0
     A0 = "$('Get group').item.json.alerts[0]"
     G = "$('Get group').item.json"
-    ID = "$('Toolbelt ingest').item.json.incident_id"
+    # Both ingest nodes (Zabbix and the 10h2 drift hand-off) feed "Route action", so the id is read from there.
+    ID = "$('Route action').item.json.incident_id"
 
     prompt_expr = (
         "={{ 'Incident #' + " + G + ".incident_id + '. Priority: ' + " + G + ".priority + '. Hypervisors involved: ' + ("
@@ -159,7 +160,8 @@ def build() -> dict:
         "JSON.stringify(" + G + ".alerts.slice(0, 10).map(a => ({ host: a.host, service: a.service, check: a.check, summary: a.summary, "
         "severity: a.severity, native_severity: a.native_severity, status: a._state.status, fired_at: a.fired_at, runbook_id: a.runbook_id, "
         "labels: { trigger: a.labels.zabbix_trigger_expression, opdata: a.labels.zabbix_opdata, groups: a.labels.zabbix_host_groups, "
-        "items: a.labels.zabbix_items } })), null, 1).slice(0, 6000) + '\\n```\\n\\nInvestigate with the toolbelt tool, then answer with the "
+        "items: a.labels.zabbix_items, drift: a.labels.changed_hosts ? { template: a.labels.template, semaphore_task: a.labels.semaphore_task, "
+        "commit: a.labels.commit, changed_hosts: a.labels.changed_hosts } : undefined } })), null, 1).slice(0, 6000) + '\\n```\\n\\nInvestigate with the toolbelt tool, then answer with the "
         "diagnosis JSON for incident_id ' + " + G + ".incident_id + '.' }}")
 
     nodes = [
@@ -172,6 +174,15 @@ def build() -> dict:
              "={{ JSON.stringify($('Zabbix ingest').item.json.body) }}",
              # an acceptance replay names its scenario in this header; the Toolbelt remembers it on the incident
              headers={"X-AIOPS-Replay": "={{ $('Zabbix ingest').item.json.headers['x-aiops-replay'] || '' }}"}),
+        # Phase 10h2: Semaphore's drift-check callback hands a run that would change hosts to this path. No secret: Gná's Caddy
+        # admits it from the K3s node range only, and the Toolbelt re-reads the run from Semaphore before it believes it
+        # (a clean run or a repeat answers `none` / `duplicate`, which no branch below handles: silence).
+        {"parameters": {"httpMethod": "POST", "path": "aiops/drift", "authentication": "none",
+                        "responseMode": "onReceived", "options": {}},
+         "id": nid(), "name": "Drift ingest", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 520],
+         "webhookId": "aiops-drift-ingest"},
+        http("Toolbelt ingest drift", [260, 520], "POST", f"={{{{ {TB} + '/ingest/drift' }}}}",
+             "={{ JSON.stringify($('Drift ingest').item.json.body) }}", timeout=240000),
         {"parameters": {"rules": {"values": [
             switch_rule("leader", ["leader"]), switch_rule("update", ["resolved", "escalated", "reopened"]),
             switch_rule("orphan", ["orphan_resolved"]), switch_rule("dropped", ["dropped"])]}, "options": {}},
@@ -232,6 +243,17 @@ def build() -> dict:
         post_discord("Post thread", [2880, -160], thread=False),
         http("Mark posted", [3140, -160], "POST", f"={{{{ {TB} + '/group/' + {ID} + '/state' }}}}",
              "={{ JSON.stringify({ state: 'posted', thread_id: $json.channel_id }) }}"),
+        # --- a drift incident also gets a drift-note change request (10h2): the operator approves it on its card in the chat
+        # channel and the author drafts the note as a PR. Deterministic, not model-written: the request only NAMES the run.
+        {"parameters": {"conditions": cond_true("={{ $('Get group').item.json.alerts[0].check === 'drift-detected' }}"), "options": {}},
+         "id": nid(), "name": "Is a drift?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [3400, 60]},
+        http("File drift note", [3660, 20], "POST", f"={{{{ {TB} + '/change-requests' }}}}",
+             "={{ JSON.stringify({ source: 'drift', source_ref: 'incident-' + " + ID + ", class: 'drift-note', "
+             "title: ('Drift note: ' + " + A0 + ".host + ' (' + " + A0 + ".labels.template + ' task ' + " + A0 + ".labels.semaphore_task + ')').slice(0, 110), "
+             "body: ('Document ' + " + A0 + ".labels.template + ' task ' + " + A0 + ".labels.semaphore_task + '. Changed hosts: ' + " + A0 + ".labels.changed_hosts + '. Commit ' + "
+             + A0 + ".labels.commit + '. Incident #' + " + ID + " + ' was diagnosed in the diagnoses channel. Read the run with semaphore.tasks task_id and the git history around it; "
+             "document what changed, the likely cause (hypothesis unless a commit explains it), the resolution and follow-ups. Change no code.').slice(0, 3800) }) }}",
+             on_error=True),
         # --- after the thread is posted: close it if there is nothing left to resolve ---
         # A replay run is synthetic (it never sends a recovery), and a real alert may have recovered while the agent was
         # still working, before any thread existed for the recovery to update. Either way the thread would otherwise sit
@@ -279,6 +301,8 @@ def build() -> dict:
     conn = {
         "Zabbix ingest": link(["Toolbelt ingest"]),
         "Toolbelt ingest": link(["Route action"]),
+        "Drift ingest": link(["Toolbelt ingest drift"]),
+        "Toolbelt ingest drift": link(["Route action"]),
         "Route action": link(["Wait for the window"], ["Thread exists?"], ["Render orphan"], ["First drop today?"]),
         "Wait for the window": link(["Get group"]),
         "Get group": link(["Mark running"]),
@@ -296,7 +320,8 @@ def build() -> dict:
         "Render diagnosis": link(["Post thread"]),
         "Render fallback": link(["Post thread"]),
         "Post thread": link(["Mark posted"]),
-        "Mark posted": link(["Get final state"]),
+        "Mark posted": link(["Get final state", "Is a drift?"]),
+        "Is a drift?": link(["File drift note"], []),
         "Get final state": link(["Needs a closing note?"]),
         "Needs a closing note?": link(["Render closing note"], []),
         "Render closing note": link(["Post closing note"]),
