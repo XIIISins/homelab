@@ -337,6 +337,28 @@ class LauncherScript(unittest.TestCase):
         self.assertNotIn("PathExistsGlob", unit.replace("# ", "").split("[Path]")[1])
 
 
+class ClaimBlocked(Rig):
+    def test_a_refused_claim_leaves_a_journal_line_once_per_reason_per_ten_minutes(self):
+        seen = []
+        orig = dispatcher.audit
+        dispatcher.audit = lambda event, **kw: seen.append((event, kw))
+        try:
+            self.tb.claim = lambda: {"change_request": None, "why": "daily-budget", "detail": "the daily budget is used up (6 of 6)"}
+            d = self.disp()
+            for _ in range(3):
+                d.tick(set())
+            self.assertEqual([e for e in seen if e[0] == "claim_blocked"], [("claim_blocked", {"why": "daily-budget", "detail": "the daily budget is used up (6 of 6)"})])
+            self.tb.claim = lambda: {"change_request": None, "why": "none-approved"}  # an empty queue is not news
+            seen.clear()
+            d.tick(set())
+            self.assertEqual([e for e in seen if e[0] == "claim_blocked"], [])
+            self.tb.claim = lambda: {"change_request": None, "why": "maintenance", "detail": "maintenance mode is on"}  # a new reason is
+            d.tick(set())
+            self.assertEqual([e[1]["why"] for e in seen if e[0] == "claim_blocked"], ["maintenance"])
+        finally:
+            dispatcher.audit = orig
+
+
 class Loop(Rig):
     def test_reconcile_reports_merged_and_closed_only(self):
         self.tb.prs = [{"id": 1, "pr_url": "https://github.com/XIIISins/homelab/pull/11"}, {"id": 2, "pr_url": "https://github.com/XIIISins/homelab/pull/12"},

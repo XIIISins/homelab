@@ -291,6 +291,7 @@ class Dispatcher:
         self.cfg, self.tb, self.gh, self.git, self.secrets = cfg, tb, gh, git, secrets
         self.start_session = start_session or self._systemd_session
         self._ident: tuple[float, dict] | None = None
+        self._blocked_seen: dict[str, float] = {}  # why -> last time claim_blocked was logged (once per 10 min)
         self._canary_seen: dict[int, str] = {}  # PR number -> digest of the canary section last written
 
     # -- the safety guard ----------------------------------------------------------------------------------------
@@ -465,6 +466,10 @@ class Dispatcher:
             got = self.tb.claim()
             cr = got.get("change_request")
             if not cr:
+                why = str(got.get("why") or "")
+                if why not in ("none-approved", "") and time.time() - self._blocked_seen.get(why, 0) > 600:
+                    self._blocked_seen[why] = time.time()  # a cap is holding an approved request back: leave a line in the journal
+                    audit("claim_blocked", why=why, detail=str(got.get("detail") or "")[:160])
                 return
             running.add(cr["id"])
 

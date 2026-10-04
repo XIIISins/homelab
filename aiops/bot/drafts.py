@@ -82,6 +82,8 @@ def card(cr: dict) -> dict:
         fields.append(("Pull request", cr["pr_url"], False))
     if cr.get("error"):
         fields.append(("Why it failed", s(cr["error"], 400), False))
+    if cr.get("blocked"):
+        fields.append(("Waiting because", s(cr["blocked"].get("detail") or cr["blocked"].get("why", ""), 300), False))
     if cr.get("summary") and cr["state"] in ("pr-open", "merged", "closed"):
         fields.append(("Author's summary", s(cr["summary"], 500), False))
     foot = f"change request {cr['id']} · filed by {s(cr.get('created_by') or '?', 20)}"
@@ -111,8 +113,9 @@ def announcement(cr: dict) -> str:
 
 @dataclass
 class Action:
-    kind: str  # post_card | edit_card | announce
+    kind: str  # post_card | edit_card | announce | notice
     cr: dict
+    text: str = ""
 
 
 @dataclass
@@ -140,8 +143,11 @@ class State:
 def plan(events: list[dict], state: State) -> list[Action]:
     """One plan per request touched by this batch, from its CURRENT state (events are hints, the request is truth)."""
     seen: dict[int, dict] = {}
+    blocked: dict[int, dict] = {}
     for e in events:
         seen[e["change_request"]["id"]] = e["change_request"]
+        if e.get("kind") == "blocked":
+            blocked[e["change_request"]["id"]] = e.get("data") or {}
     out: list[Action] = []
     for cid, cr in seen.items():
         if not cr.get("message_ref"):
@@ -152,4 +158,7 @@ def plan(events: list[dict], state: State) -> list[Action]:
         key = f"{cid}:{cr['state']}"
         if cr["state"] in ANNOUNCE and key not in state.announced:
             out.append(Action("announce", cr))
+        why = (blocked.get(cid) or {}).get("why")
+        if why and cr["state"] == "approved" and f"{cid}:blocked:{why}" not in state.announced:
+            out.append(Action("notice", cr, f"{cid}:blocked:{why}"))
     return out
