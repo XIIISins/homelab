@@ -324,7 +324,7 @@ def run(args, summary: dict, kube: Kube) -> dict:
         deadline = time.time() + args.timeout
         while time.time() < deadline:
             c = collect(kube)
-            if all(x["ready"] for x in c["helmreleases"]) and all(x["ready"] for x in c["externalsecrets"]):
+            if verdict(c, expected_not_ready(args.only or []))["passed"]:   # HelmReleases, ExternalSecrets AND workloads (images take a while to pull)
                 break
             time.sleep(20)
     with phase("checks"):

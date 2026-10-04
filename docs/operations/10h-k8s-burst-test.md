@@ -2,7 +2,7 @@
 
 # 10h — burst-cluster tests for `k8s/` pull requests
 
-*Drafted 2026-10-04 at the operator's request ("throwaway Vault, and otherwise as close to our env as possible"). Parent plan: [`10h-predictive-change.md`](10h-predictive-change.md) (the "Tested on" table, row `k8s/**`). Substrate: [`procedures/burst-substrate.md`](../procedures/burst-substrate.md). Status: **design + slice 1 (pure planning logic, unit-tested)**; nothing has run on a burst cluster yet.*
+*Drafted 2026-10-04 at the operator's request ("throwaway Vault, and otherwise as close to our env as possible"). Parent plan: [`10h-predictive-change.md`](10h-predictive-change.md) (the "Tested on" table, row `k8s/**`). Substrate: [`procedures/burst-substrate.md`](../procedures/burst-substrate.md). Status: **slices 1-2 built and run live (2026-10-04)**: the baseline on unchanged `main` passes in about 2.5 minutes on a cluster built from Terraform + Ansible; the broken-branch cases fail for the right reasons (results in [`procedures/k8s-burst-test.md`](../procedures/k8s-burst-test.md)). Slices 3-4 are open.*
 
 ## What it proves, and what it cannot
 
@@ -26,7 +26,7 @@ A PR that edits `k8s/` is applied to a throwaway K3s that looks like asgard and 
 | # | Slice | Status |
 |---|---|---|
 | 1 | **Planning logic**: scan `k8s/` for ExternalSecrets/SealedSecrets, the seed plan, the skip list and storage remap, map a PR's changed paths to the components to check. Pure Python, unit-tested, no network. `aiops/runner/k8s_burst_plan.py` | built 2026-10-04 |
-| 2 | **Harness** `scripts/burst/k8s-pr-test <branch>`: runs on Frigg by hand first (operator-approved cost), proving fidelity on `main` with no changes (baseline must be green) and on a deliberately broken branch (must fail for the right reason). | next |
+| 2 | **Harness** `scripts/burst/k8s-pr-test <branch>`: runs on Frigg by hand first (operator-approved cost), proving fidelity on `main` with no changes (baseline must be green) and on a deliberately broken branch (must fail for the right reason). Built: offline gate first (render, Vault path inventory, `kubectl kustomize` of every Flux path), cluster = 1 control plane + 3 workers from `burst-up`, Flux + same Vault chart (one node, Shamir) + random seeds, diagnostics captured before teardown, `trap` teardown. | built 2026-10-04 |
 | 3 | **Author class `k8s`** (narrow: `k8s/asgard/apps/<one app>/**`), `pr-burst-test` registry action, Toolbelt proposal on PR open, runner socket. | after 2 |
 | 4 | Offline gates in CI (`render-diff`, `images-exist`, kubeconform) as a required check for agent PRs. | after 2 |
 
