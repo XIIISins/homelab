@@ -284,6 +284,7 @@ class SemaphoreAPI:
     def __init__(self, base: str, token: str, project: int | None = None, timeout: float = 20.0, project_name: str = "aiops"):
         self.base, self.token, self.project, self.timeout, self.project_name = base.rstrip("/"), token, project, timeout, project_name
         self._tpl: dict[str, int] = {}
+        self.retry_delay = 4.0
 
     def _pid(self) -> int:
         """The project id, found by name on first use (the executor's user is a member of exactly one project, so
@@ -301,14 +302,21 @@ class SemaphoreAPI:
         req = urllib.request.Request(self.base + path, method=method, data=None if body is None else json.dumps(body).encode(),
                                      headers={"Authorization": "Bearer " + self.token, "Accept": "application/json",
                                               "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                raw = r.read()
-                return json.loads(raw) if raw else None
-        except urllib.error.HTTPError as e:
-            raise Refused(502, f"semaphore answered HTTP {e.code} for {method} {path.split('?')[0]}")
-        except (OSError, ValueError) as e:
-            raise Refused(502, f"semaphore unreachable: {type(e).__name__}")
+        # A read is safe to repeat, so a transient connection error (a Traefik or pod blip while a long converge task
+        # ran, found live 2026-10-04) must not fail a whole rebuild at verify; a POST is never retried (it would start a second task).
+        attempts = 3 if method == "GET" else 1
+        for n in range(attempts):
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    raw = r.read()
+                    return json.loads(raw) if raw else None
+            except urllib.error.HTTPError as e:
+                raise Refused(502, f"semaphore answered HTTP {e.code} for {method} {path.split('?')[0]}")
+            except (OSError, ValueError) as e:
+                if n + 1 < attempts:
+                    time.sleep(self.retry_delay)
+                    continue
+                raise Refused(502, f"semaphore unreachable: {type(e).__name__}")
 
     def template_id(self, name: str) -> int:
         if name not in self._tpl:

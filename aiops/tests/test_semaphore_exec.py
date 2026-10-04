@@ -108,8 +108,20 @@ class SemaphoreAPITests(unittest.TestCase):
             bad.template_id("aiops-restart-unit")
         self.assertEqual(cm.exception.status, 502)
         dead = actions.SemaphoreAPI("http://127.0.0.1:1", TOKEN)
-        with self.assertRaises(actions.Refused) as cm:
-            dead.status(1)
+        dead.retry_delay = 0
+        calls = []
+        real = actions.urllib.request.urlopen
+        actions.urllib.request.urlopen = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        try:
+            with self.assertRaises(actions.Refused) as cm:
+                dead.status(1)
+            self.assertEqual(len(calls), 3)  # a GET is retried; a POST is not
+            calls.clear()
+            with self.assertRaises(actions.Refused):
+                dead._call("POST", "/x", {})
+            self.assertEqual(len(calls), 1)
+        finally:
+            actions.urllib.request.urlopen = real
         self.assertIn("unreachable", cm.exception.message)
 
 
