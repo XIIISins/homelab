@@ -53,7 +53,7 @@ The `main` ruleset lets the **Admin** role bypass it. A token for an account wit
 - **Look:** `journalctl -u aiops-author -u aiops-draft@<id> -u aiops-draft-launch`; the Toolbelt audit lines `change_request_*`; `/aiops drafts`; `GET /status` carries a `change_requests` block.
 - **A request stuck `running`:** the Toolbelt fails it after 40 minutes. A job directory under `/var/lib/aiops-author/jobs/<id>/` keeps `spec.json` and `out/` (the repo and the env file are deleted when the run ends).
 - **Dry run:** `-e aiops_author_dry_run=true` runs the whole pipeline up to the push and reports the request failed with "dry run" (the patch is checked; nothing is published).
-- **Rotate:** `terraform taint random_password.author_token` (or `author_tools_token`) + apply, then re-run the `aiops-toolbelt` and `aiops-author` roles. The PAT: replace `author-pat` in Vault, restart `aiops-author`; calendar its expiry.
+- **Rotate:** `terraform taint random_password.author_token` (or `author_tools_token`) + apply, then re-run the `aiops-toolbelt` and `aiops-author` roles. The PAT: replace `author-pat` in Vault, restart `aiops-author`; put its expiry in the calendar.
 - **Failure modes worth knowing:** a session that exceeds its wall clock (30 min) or budget (`--max-budget-usd`) is stopped and reported; a patch that fails any check is reported `failed` with the reason on the card; a branch pushed but a PR refused leaves the branch (delete it by hand).
 
 ## Not built yet
