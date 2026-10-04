@@ -63,7 +63,8 @@ systemctl list-timers aiops-toolbelt-forecast.timer; journalctl -u aiops-toolbel
 
 - A **Draft fix PR** for `pve-storage-used`, Kubernetes volumes and VictoriaLogs: their fix is not a value in the paths the `capacity` class may touch (PBS retention and the NAS share live outside Git; PVC and retention values are under `k8s/`). The button exists for `fleet-fs-used` and `memory-used` ([`aiops-author.md`](aiops-author.md) "The `capacity` class").
 - A repo-held `aiops/forecast.yml` for thresholds (they live in `DEFAULT_TARGETS`, changed by PR).
-- The backtest on the etcd syslog-flood replay, an NVMe latency / SMART signal (needs `smartctl` data in Zabbix), a memory allocation ledger, a GitHub-issue sink.
+- (Built 2026-10-04: `aiops/tests/test_forecast_backtest.py` replays the syslog-flood shape through the real `fleet-fs-used` target: a root filesystem flat at 40 % that starts filling 4 points an hour is noted about 9.7 h before the 80 % alert, a 1.5-point-an-hour leak about 26 h before, and a flat or sawtooth series stays silent. A synthetic shape, not recorded Zabbix history: the first real-history backtest waits on the shadow period.)
+- An NVMe latency / SMART signal (needs `smartctl` data in Zabbix), a memory allocation ledger, a GitHub-issue sink.
 
 ## Adding a metric
 
