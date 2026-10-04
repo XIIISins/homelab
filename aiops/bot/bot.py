@@ -273,7 +273,7 @@ async def cmd_draft(interaction: discord.Interaction, kind: app_commands.Choice[
                                             ephemeral=True)
 
 
-@aiops.command(name="draft-incident", description="Ask for an incident write-up PR from the Toolbelt's own record of an incident (you approve the request on its card)")
+@aiops.command(name="draft-incident", description="Ask for an incident write-up PR from an incident's record (you approve it on its card)")
 @app_commands.describe(incident="The Toolbelt incident number (shown in the diagnosis thread)")
 async def cmd_draft_incident(interaction: discord.Interaction, incident: app_commands.Range[int, 1, 999999999]) -> None:
     if not await _operator_only(interaction):
