@@ -47,6 +47,9 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% endfor %}
   --author-daily-budget {{ aiops_toolbelt_author_daily_budget }} \
   --github-read-url http://127.0.0.1:{{ aiops_toolbelt_ghread_port }} \
+{% if aiops_toolbelt_auto_incident_drafts %}
+  --auto-incident-drafts \
+{% endif %}
 {% endif %}
   --exec-cred {{ aiops_toolbelt_exec_cred }} \
 {% if aiops_toolbelt_rebuild_socket %}
