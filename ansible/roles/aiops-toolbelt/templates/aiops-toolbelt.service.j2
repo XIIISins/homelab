@@ -37,6 +37,16 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
   --approver-allow {{ cidr }} \
 {% endfor %}
   --operators-file {{ aiops_toolbelt_operators_file }} \
+{% if aiops_toolbelt_change_requests_enabled %}
+  --change-requests \
+  --author-token-file {{ aiops_toolbelt_author_token_file }} \
+  --author-tools-token-file {{ aiops_toolbelt_author_tools_token_file }} \
+{% for cidr in aiops_toolbelt_author_allow %}
+  --author-allow {{ cidr }} \
+  --author-tools-allow {{ cidr }} \
+{% endfor %}
+  --author-daily-budget {{ aiops_toolbelt_author_daily_budget }} \
+{% endif %}
   --exec-cred {{ aiops_toolbelt_exec_cred }} \
 {% if aiops_toolbelt_rebuild_socket %}
   --rebuild-socket {{ aiops_toolbelt_rebuild_socket }} \

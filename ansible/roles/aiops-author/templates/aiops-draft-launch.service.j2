@@ -1,0 +1,28 @@
+{# ansible/roles/aiops-author/templates/aiops-draft-launch.service.j2 #}
+# Managed by Ansible (roles/aiops-author). Do not edit.
+#
+# The one privileged step: start or stop aiops-draft@<id>.service for a numeric job directory the dispatcher marked. Triggered
+# by aiops-draft-launch.path; it reads no job content and has no network.
+[Unit]
+Description=AIOps drafting-session launcher (marker -> systemctl start aiops-draft@<id>)
+
+[Service]
+Type=oneshot
+Environment=AIOPS_AUTHOR_JOBS={{ aiops_author_work }}/jobs
+Environment=AIOPS_DRAFT_UNIT={{ aiops_author_draft_unit_name }}
+ExecStart=/usr/bin/python3 {{ aiops_author_launch_path }}
+TimeoutStartSec=120
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ aiops_author_work }}/jobs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0

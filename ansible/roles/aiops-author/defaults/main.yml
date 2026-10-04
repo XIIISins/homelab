@@ -1,0 +1,61 @@
+# ansible/roles/aiops-author/defaults/main.yml
+#
+# The 10h2 PR author (docs/operations/10h-predictive-change.md; procedure docs/procedures/aiops-author.md). Code:
+# aiops/author/{dispatcher,session,toolcli,scope}.py (tests: aiops/tests/test_author_dispatcher.py, test_change_requests.py).
+# The code tree is installed by the aiops-toolbelt role (same /opt/aiops-toolbelt/aiops layout); this role only adds the
+# identities, units and credentials around it, so run aiops-toolbelt first.
+
+aiops_author_user: aiops-author # the dispatcher: holds the GitHub token, never runs an LLM
+aiops_author_draft_user: aiops-draft # the drafting session: an Anthropic key + read-only tools, NO GitHub token
+aiops_author_home: "{{ aiops_toolbelt_home | default('/opt/aiops-toolbelt') }}" # root-owned code
+aiops_author_unit_name: aiops-author
+aiops_author_draft_unit_name: aiops-draft
+aiops_author_creds_unit_name: aiops-author-creds
+aiops_author_launch_unit_name: aiops-draft-launch
+aiops_author_state_dir_name: aiops-author # /var/lib/aiops-author/jobs/<id>/{spec.json,env,repo,out}
+aiops_author_work: "/var/lib/{{ aiops_author_state_dir_name }}"
+
+# The Toolbelt the dispatcher and the session call (Frigg itself).
+aiops_author_toolbelt_url: "http://{{ aiops_toolbelt_listen_host | default(ansible_host) }}:{{ aiops_toolbelt_listen_port | default(8090) }}"
+aiops_author_repo: XIIISins/homelab
+aiops_author_model: "" # empty = the session default (claude-sonnet-5-5)
+aiops_author_max_budget_usd: 5 # per drafting session
+aiops_author_max_parallel: 2
+aiops_author_session_timeout: 1800 # wall clock of one drafting session (seconds)
+
+# ---- the safety guard -------------------------------------------------------------------------------------------------
+# The dispatcher refuses to claim anything when the GitHub token's account has admin or maintain on the repo, because the
+# `main` ruleset lets admins bypass it: such a token could push to main, which Flux deploys. Use a write-only machine user.
+# Flip this only on purpose (and record why in docs/operations/decisions.md).
+aiops_author_allow_admin_token: false
+# Dry run: run everything up to the push and publish nothing (the patch is checked, then reported as a dry-run failure).
+aiops_author_dry_run: false
+
+# ---- credentials: Vault (the author's own AppRole) -> root loader -> tmpfs files owned by the dispatcher -------------------
+aiops_author_vault_addr: "https://vault.niflheim.xiiisins.com"
+aiops_author_approle_env_path: /etc/aiops-author/approle.env # root-only secret-zero: AIOPS_AUTHOR_ROLE_ID / _SECRET_ID
+# Supplied ONCE on the first run (never stored in Git): -e aiops_author_role_id=... -e aiops_author_secret_id=...
+aiops_author_role_id: ""
+aiops_author_secret_id: ""
+aiops_author_vault_paths:
+  pat: secret/data/ansible/aiops/author-pat # operator-seeded, field `token`
+  anthropic: secret/data/ansible/aiops/anthropic-api-key # field `key`
+  author_token: secret/data/ansible/aiops/author-token # terraform/vault/author.tf, field `value`
+  tools_token: secret/data/ansible/aiops/author-tools-token # terraform/vault/author.tf, field `value`
+aiops_author_loader_path: /usr/local/sbin/aiops-author-creds-load
+aiops_author_launch_path: /usr/local/sbin/aiops-draft-launch
+aiops_author_askpass_path: /usr/local/libexec/aiops-author-askpass
+aiops_author_creds_dir_name: aiops-author-creds
+aiops_author_creds_dir: "/run/{{ aiops_author_creds_dir_name }}"
+
+# The drafting session's network: it may reach the internet (the model API, github.com for the clone) and the Toolbelt, and
+# nothing else inside the homelab. Everything private is denied; the Toolbelt's own address is allowed back in.
+aiops_author_deny_ranges:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 100.64.0.0/10
+aiops_author_toolbelt_ip: "{{ aiops_toolbelt_listen_host | default(ansible_host) }}"
+
+aiops_author_preflight: true # fail early when the Vault documents are missing
+aiops_author_enabled: true # false installs everything and leaves the dispatcher stopped

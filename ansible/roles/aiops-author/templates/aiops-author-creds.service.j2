@@ -1,0 +1,42 @@
+{# ansible/roles/aiops-author/templates/aiops-author-creds.service.j2 #}
+# Managed by Ansible (roles/aiops-author). Do not edit.
+#
+# Fetches the author's four credentials from Vault onto tmpfs, as root, into files owned by the dispatcher's user. A dependency
+# of aiops-author.service (Requires=/After=), NOT RemainAfterExit: every start of the dispatcher re-runs it, so the credentials
+# are always fresh and a loader failure fails the dispatcher's start.
+[Unit]
+Description=AIOps author credential loader (Vault -> tmpfs)
+After=network-online.target
+Wants=network-online.target
+Before={{ aiops_author_unit_name }}.service
+
+[Service]
+Type=oneshot
+RuntimeDirectory={{ aiops_author_creds_dir_name }}
+# traverse-only for everyone: each file inside is 0400 and owned by the dispatcher's user
+RuntimeDirectoryMode=0711
+RuntimeDirectoryPreserve=yes
+Environment=VAULT_ADDR={{ aiops_author_vault_addr }}
+Environment=AIOPS_AUTHOR_APPROLE_ENV={{ aiops_author_approle_env_path }}
+Environment=AIOPS_AUTHOR_CREDS_DIR={{ aiops_author_creds_dir }}
+Environment=AIOPS_AUTHOR_OWNER={{ aiops_author_user }}
+Environment=AIOPS_AUTHOR_PAT_PATH={{ aiops_author_vault_paths.pat }}
+Environment=AIOPS_AUTHOR_ANTHROPIC_PATH={{ aiops_author_vault_paths.anthropic }}
+Environment=AIOPS_AUTHOR_TOKEN_PATH={{ aiops_author_vault_paths.author_token }}
+Environment=AIOPS_AUTHOR_TOOLS_TOKEN_PATH={{ aiops_author_vault_paths.tools_token }}
+ExecStart=/usr/bin/python3 {{ aiops_author_loader_path }}
+TimeoutStartSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ aiops_author_creds_dir }}
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0

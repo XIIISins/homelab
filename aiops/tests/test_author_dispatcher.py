@@ -210,6 +210,34 @@ class Refusals(Rig):
         self.assert_refused(patch_of(self.url, {"docs/incidents/x.md": "x\n"}, self.tmp), "dry run", cfg=cfg)
 
 
+class Launch(Rig):
+    def test_the_session_is_started_by_a_marker_and_awaited_by_its_result_file(self):
+        import threading
+        import time
+        d = self.disp()
+        job = self.work / "jobs" / "7"
+        (job / "out").mkdir(parents=True)
+
+        def launcher():  # stands in for the root launcher + the session unit
+            for _ in range(100):
+                if (job / "ready").exists():
+                    (job / "out" / "result.json").write_text("{}")
+                    return
+                time.sleep(0.02)
+        t = threading.Thread(target=launcher)
+        t.start()
+        self.assertEqual(d._systemd_session(7, poll=0.02), 0)
+        t.join()
+
+    def test_a_session_that_never_answers_gets_a_stop_marker(self):
+        cfg = dispatcher.Config(repo_url=self.url, work=str(self.work), classes=CLASSES, session_timeout=-119)
+        d = self.disp(cfg=cfg)
+        job = self.work / "jobs" / "8"
+        (job / "out").mkdir(parents=True)
+        self.assertEqual(d._systemd_session(8, poll=0.01), 124)
+        self.assertTrue((job / "stop").exists())
+
+
 class Loop(Rig):
     def test_reconcile_reports_merged_and_closed_only(self):
         self.tb.prs = [{"id": 1, "pr_url": "https://github.com/XIIISins/homelab/pull/11"}, {"id": 2, "pr_url": "https://github.com/XIIISins/homelab/pull/12"},

@@ -26,7 +26,11 @@ Environment=AIOPS_TOOLBELT_OWNER={{ aiops_toolbelt_user }}
 Environment=AIOPS_TOOLBELT_CREDS_DIR={{ aiops_toolbelt_creds_dir }}
 Environment='AIOPS_TOOLBELT_EXTRA_CREDS={{ aiops_toolbelt_credentials | to_json }}'
 {% if aiops_toolbelt_actions_enabled %}
-Environment='AIOPS_TOOLBELT_EXTRA_FILES={{ {"approver-token": {"path": aiops_toolbelt_approver_token_vault_path, "field": "value", "out": aiops_toolbelt_approver_token_file, "min_len": 32}, "operators": {"path": aiops_toolbelt_operators_vault_path, "field": aiops_toolbelt_operators_field, "out": aiops_toolbelt_operators_file, "min_len": 17}} | to_json }}'
+{% set extra_files = {"approver-token": {"path": aiops_toolbelt_approver_token_vault_path, "field": "value", "out": aiops_toolbelt_approver_token_file, "min_len": 32}, "operators": {"path": aiops_toolbelt_operators_vault_path, "field": aiops_toolbelt_operators_field, "out": aiops_toolbelt_operators_file, "min_len": 17}} %}
+{% if aiops_toolbelt_change_requests_enabled %}
+{% set extra_files = extra_files | combine({"author-token": {"path": aiops_toolbelt_author_token_vault_path, "field": "value", "out": aiops_toolbelt_author_token_file, "min_len": 32}, "author-tools-token": {"path": aiops_toolbelt_author_tools_token_vault_path, "field": "value", "out": aiops_toolbelt_author_tools_token_file, "min_len": 32}}) %}
+{% endif %}
+Environment='AIOPS_TOOLBELT_EXTRA_FILES={{ extra_files | to_json }}'
 {% endif %}
 ExecStart=/usr/bin/python3 {{ aiops_toolbelt_loader_path }}
 TimeoutStartSec=60

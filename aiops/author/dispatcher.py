@@ -260,15 +260,21 @@ class Dispatcher:
         return True
 
     # -- one change request --------------------------------------------------------------------------------------
-    def _systemd_session(self, cid: int) -> int:
-        unit = f"{self.cfg.draft_unit}@{cid}.service"
-        try:
-            p = subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "start", "--wait", unit], timeout=self.cfg.session_timeout + 120,
-                               capture_output=True, text=True)
-            return p.returncode
-        except subprocess.TimeoutExpired:
-            subprocess.run(["sudo", "-n", "/usr/bin/systemctl", "stop", unit], timeout=60, check=False)
-            return 124
+    def _systemd_session(self, cid: int, poll: float = 3.0) -> int:
+        """Ask the root launcher (aiops-draft-launch, triggered by a systemd path unit on these markers) to start
+        aiops-draft@<id>.service, then wait for the session's result file. No sudo, no setuid: this process stays fully
+        sandboxed and the launcher only ever acts on a numeric directory name it validated itself."""
+        job = self.cfg.work / "jobs" / str(cid)
+        result = job / "out" / "result.json"
+        (job / "ready").write_text("")
+        deadline = time.time() + self.cfg.session_timeout + 120
+        while time.time() < deadline:
+            if result.exists():
+                return 0
+            time.sleep(poll)
+        (job / "stop").write_text("")  # the launcher stops the unit
+        time.sleep(poll * 2)
+        return 124
 
     def prepare(self, cr: dict) -> Path:
         job = self.cfg.work / "jobs" / str(cr["id"])

@@ -1,0 +1,194 @@
+# ansible/roles/aiops-author/tasks/main.yml
+---
+# Installs the 10h2 PR author around the code the aiops-toolbelt role already put in aiops_author_home/aiops. No secret passes
+# through Ansible except the AppRole secret-zero, supplied once with -e and written root-only; everything else the root loader
+# fetches from Vault at start.
+
+- name: Read the author's Vault documents (empty when absent)
+  ansible.builtin.set_fact:
+    aiops_author_pre: >-
+      {{ aiops_author_pre | default({}) | combine({item.key: (lookup('community.hashi_vault.vault_kv2_get', item.value.path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}).get(item.value.field, '')}) }}
+  no_log: true
+  loop: "{{ {'pat': {'path': aiops_author_vault_paths.pat, 'field': 'token'}, 'anthropic': {'path': aiops_author_vault_paths.anthropic, 'field': 'key'}, 'author_token': {'path': aiops_author_vault_paths.author_token, 'field': 'value'}, 'tools_token': {'path': aiops_author_vault_paths.tools_token, 'field': 'value'}} | dict2items }}"
+  when: aiops_author_preflight | bool and aiops_author_enabled | bool
+  tags: [aiops-author, aiops-author:preflight]
+
+- name: Assert the credentials the author needs exist (it must never start with a partial set)
+  ansible.builtin.assert:
+    that:
+      - aiops_author_pre.pat | length >= 20
+      - aiops_author_pre.anthropic | length >= 20
+      - aiops_author_pre.author_token | length >= 32
+      - aiops_author_pre.tools_token | length >= 32
+    fail_msg: >-
+      Missing or short author credential. Terraform (terraform/vault, apply from the main checkout) mints
+      {{ aiops_author_vault_paths.author_token }} and {{ aiops_author_vault_paths.tools_token }}; the operator seeds
+      {{ aiops_author_vault_paths.pat }} (field token) and {{ aiops_author_vault_paths.anthropic }} (field key). To install the
+      units without starting the dispatcher, set aiops_author_enabled: false. See docs/procedures/aiops-author.md.
+    quiet: true
+  when: aiops_author_preflight | bool and aiops_author_enabled | bool
+  tags: [aiops-author, aiops-author:preflight]
+
+- name: Install the runtime dependencies (git for the clones, PyYAML for the class file)
+  ansible.builtin.apt:
+    name: [python3, python3-yaml, git, ca-certificates]
+    state: present
+  tags: [aiops-author, aiops-author:install]
+
+- name: Create the drafting group
+  ansible.builtin.group:
+    name: "{{ aiops_author_draft_user }}"
+    system: true
+  tags: [aiops-author, aiops-author:install]
+
+- name: Create the drafting user (no shell, no home; the session works in its job directory)
+  ansible.builtin.user:
+    name: "{{ aiops_author_draft_user }}"
+    group: "{{ aiops_author_draft_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [aiops-author, aiops-author:install]
+
+- name: Create the dispatcher user (primary group = the drafting group, so job directories are shared with the session)
+  ansible.builtin.user:
+    name: "{{ aiops_author_user }}"
+    group: "{{ aiops_author_draft_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [aiops-author, aiops-author:install]
+
+- name: Create the work and jobs directories (the units' ReadWritePaths must exist before they start)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ aiops_author_user }}"
+    group: "{{ aiops_author_draft_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ aiops_author_work }}", mode: "0750"}
+    - {path: "{{ aiops_author_work }}/jobs", mode: "2770"}
+  tags: [aiops-author, aiops-author:install]
+
+- name: Install the drafting agent's definition from the repo (root-owned, so the session cannot change its own instructions)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../.claude/agents/aiops-author.md"
+    dest: "{{ aiops_author_home }}/aiops/author/agent.md"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart aiops-author
+  tags: [aiops-author, aiops-author:install]
+
+- name: Create the helper and secret-zero directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ aiops_author_askpass_path | dirname }}", mode: "0755"}
+    - {path: "{{ aiops_author_approle_env_path | dirname }}", mode: "0700"}
+  tags: [aiops-author, aiops-author:install]
+
+- name: Install the git askpass helper, the credential loader and the launcher
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {src: aiops-author-askpass.sh, dest: "{{ aiops_author_askpass_path }}", mode: "0755"}
+    - {src: aiops-author-creds-load.py, dest: "{{ aiops_author_loader_path }}", mode: "0750"}
+    - {src: aiops-draft-launch.py, dest: "{{ aiops_author_launch_path }}", mode: "0750"}
+  notify: Restart aiops-author
+  tags: [aiops-author, aiops-author:install]
+
+- name: Write the AppRole secret-zero (only when supplied with -e; root-only, never in Git)
+  ansible.builtin.copy:
+    dest: "{{ aiops_author_approle_env_path }}"
+    content: |
+      AIOPS_AUTHOR_ROLE_ID={{ aiops_author_role_id }}
+      AIOPS_AUTHOR_SECRET_ID={{ aiops_author_secret_id }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: aiops_author_role_id | length > 0 and aiops_author_secret_id | length > 0
+  notify: Restart aiops-author
+  tags: [aiops-author, aiops-author:secret-zero]
+
+- name: Look for the AppRole secret-zero
+  ansible.builtin.stat:
+    path: "{{ aiops_author_approle_env_path }}"
+  register: aiops_author_zero
+  tags: [aiops-author, aiops-author:secret-zero]
+
+- name: Assert the secret-zero is in place when the dispatcher is to run
+  ansible.builtin.assert:
+    that: aiops_author_zero.stat.exists
+    fail_msg: >-
+      {{ aiops_author_approle_env_path }} is missing. Mint a SecretID for the aiops-author AppRole and pass
+      -e aiops_author_role_id=... -e aiops_author_secret_id=... once (docs/procedures/aiops-author.md).
+    quiet: true
+  when: aiops_author_enabled | bool
+  tags: [aiops-author, aiops-author:secret-zero]
+
+- name: Install the units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: aiops-author-creds.service.j2, dest: "{{ aiops_author_creds_unit_name }}.service"}
+    - {src: aiops-author.service.j2, dest: "{{ aiops_author_unit_name }}.service"}
+    - {src: "aiops-draft@.service.j2", dest: "{{ aiops_author_draft_unit_name }}@.service"}
+    - {src: aiops-draft-launch.service.j2, dest: "{{ aiops_author_launch_unit_name }}.service"}
+    - {src: aiops-draft-launch.path.j2, dest: "{{ aiops_author_launch_unit_name }}.path"}
+  notify: Restart aiops-author
+  tags: [aiops-author, aiops-author:install]
+
+- name: Flush handlers so changed code and units are live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [aiops-author, aiops-author:install]
+
+- name: Enable the launcher's path unit
+  ansible.builtin.systemd:
+    name: "{{ aiops_author_launch_unit_name }}.path"
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags: [aiops-author, aiops-author:service]
+
+- name: Enable and start the dispatcher (or leave it stopped)
+  ansible.builtin.systemd:
+    name: "{{ aiops_author_unit_name }}.service"
+    enabled: "{{ aiops_author_enabled | bool }}"
+    state: "{{ 'started' if aiops_author_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  tags: [aiops-author, aiops-author:service]
+
+- name: Check that the dispatcher stays up (it fails fast on a bad credential)
+  ansible.builtin.systemd:
+    name: "{{ aiops_author_unit_name }}.service"
+  register: aiops_author_state
+  changed_when: false
+  failed_when: false
+  retries: 5
+  delay: 3
+  until: aiops_author_state.status.ActiveState | default('') == 'active'
+  when: aiops_author_enabled | bool and not ansible_check_mode
+  tags: [aiops-author, aiops-author:verify]
+
+- name: Report the dispatcher state
+  ansible.builtin.assert:
+    that: aiops_author_state.status.ActiveState | default('') == 'active'
+    fail_msg: "{{ aiops_author_unit_name }} is not active: journalctl -u {{ aiops_author_unit_name }} -u {{ aiops_author_creds_unit_name }}"
+    quiet: true
+  when: aiops_author_enabled | bool and not ansible_check_mode
+  tags: [aiops-author, aiops-author:verify]

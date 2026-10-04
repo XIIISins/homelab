@@ -1,0 +1,8 @@
+# ansible/roles/aiops-author/handlers/main.yml
+---
+- name: Restart aiops-author
+  ansible.builtin.systemd:
+    name: "{{ aiops_author_unit_name }}.service"
+    state: restarted
+    daemon_reload: true
+  when: aiops_author_enabled | bool
