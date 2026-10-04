@@ -1,0 +1,15 @@
+# ansible/roles/aiops-author/meta/main.yml
+---
+galaxy_info:
+  role_name: aiops_author
+  author: XIIISins
+  description: >
+    The 10h2 PR author on Frigg: a hardened dispatcher that holds the GitHub token and never runs an LLM, an
+    unprivileged drafting-session unit, a root launcher and a root credential loader (Vault -> tmpfs).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+  galaxy_tags: [aiops, frigg, github, vault]
+dependencies: []

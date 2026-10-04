@@ -1,0 +1,12 @@
+{# ansible/roles/aiops-author/templates/aiops-draft-launch.path.j2 #}
+# Managed by Ansible (roles/aiops-author). Do not edit.
+[Unit]
+Description=AIOps drafting-session launch markers
+
+[Path]
+PathExistsGlob={{ aiops_author_work }}/jobs/*/ready
+PathExistsGlob={{ aiops_author_work }}/jobs/*/stop
+Unit={{ aiops_author_launch_unit_name }}.service
+
+[Install]
+WantedBy=multi-user.target

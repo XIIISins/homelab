@@ -30,6 +30,29 @@
   when: aiops_toolbelt_actions_enabled
   tags: [aiops-toolbelt, aiops-toolbelt:preflight]
 
+- name: Read the author tokens from Vault (empty when absent)
+  ansible.builtin.set_fact:
+    aiops_toolbelt_pre_author: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', aiops_toolbelt_author_token_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}).get('value', '') }}
+    aiops_toolbelt_pre_author_tools: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', aiops_toolbelt_author_tools_token_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}).get('value', '') }}
+  no_log: true
+  when: aiops_toolbelt_actions_enabled and aiops_toolbelt_change_requests_enabled
+  tags: [aiops-toolbelt, aiops-toolbelt:preflight]
+
+- name: Assert the author tokens exist (the loader would otherwise fail the Toolbelt's start)
+  ansible.builtin.assert:
+    that:
+      - aiops_toolbelt_pre_author | length >= 32
+      - aiops_toolbelt_pre_author_tools | length >= 32
+    fail_msg: >-
+      Missing author token. Terraform mints {{ aiops_toolbelt_author_token_vault_path }} and
+      {{ aiops_toolbelt_author_tools_token_vault_path }} (terraform/vault/author.tf, apply from the main checkout first). To run the
+      Toolbelt without change requests for now, set aiops_toolbelt_change_requests_enabled: false.
+    quiet: true
+  when: aiops_toolbelt_actions_enabled and aiops_toolbelt_change_requests_enabled
+  tags: [aiops-toolbelt, aiops-toolbelt:preflight]
+
 - name: Install the runtime dependency (PyYAML for the routing table)
   ansible.builtin.apt:
     name: [python3, python3-yaml, tzdata, git]
@@ -51,7 +74,7 @@
     owner: root
     group: root
     mode: "0755"
-  loop: ["", toolbelt, tools, replays]
+  loop: ["", toolbelt, tools, replays, author]
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
 - name: Install the API code and data from the repo

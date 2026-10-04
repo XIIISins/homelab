@@ -70,6 +70,11 @@
     - role: aiops-toolbelt
       tags: [aiops-toolbelt]
 
+    # Phase 10h2: the PR author (dispatcher + drafting-session unit + launcher). Needs aiops-toolbelt (the code tree),
+    # terraform/vault applied (author tokens + AppRole) and secret/ansible/aiops/author-pat seeded.
+    - role: aiops-author
+      tags: [aiops-author]
+
     # Tailnet membership with Tailscale SSH on — the primary inbound path for
     # the operator's mobile sessions (ACL-gated, bypasses host sshd). server
     # tag + auto-renewing key (terraform/tailscale/).

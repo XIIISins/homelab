@@ -1,0 +1,55 @@
+{# ansible/roles/aiops-author/templates/aiops-draft@.service.j2 #}
+# Managed by Ansible (roles/aiops-author). Do not edit.
+#
+# ONE drafting session, instance = the change request id. Started by aiops-draft-launch (root) when the dispatcher drops a
+# marker; runs as the unprivileged draft user with an Anthropic key and the read-only tools token (from the job's env file,
+# injected by systemd, which the dispatcher deletes afterwards) and NO GitHub token, no Vault, no SSH key. It writes a patch
+# into its job directory and exits; the dispatcher checks and publishes it.
+[Unit]
+Description=AIOps drafting session for change request %i
+Documentation=https://github.com/XIIISins/homelab/blob/main/docs/procedures/aiops-author.md
+After=network-online.target
+
+[Service]
+Type=exec
+User={{ aiops_author_draft_user }}
+Group={{ aiops_author_draft_user }}
+EnvironmentFile={{ aiops_author_work }}/jobs/%i/env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 {{ aiops_author_home }}/aiops/author/session.py {{ aiops_author_work }}/jobs/%i
+# A hard stop a little after the dispatcher's own wall clock; the session also bounds claude itself.
+RuntimeMaxSec={{ aiops_author_session_timeout }}
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ aiops_author_draft_unit_name }}
+
+# The session reads untrusted text and runs a model: private ranges are denied (it reaches the Toolbelt on Frigg, the model
+# API and github.com, nothing else), it can write only its own job directory, and it is resource-capped.
+IPAddressDeny={{ aiops_author_deny_ranges | join(' ') }} 169.254.0.0/16 fc00::/7 fe80::/10
+IPAddressAllow=127.0.0.0/8 {{ aiops_author_toolbelt_ip }}
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths={{ aiops_author_work }}/jobs/%i
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0007
+LimitCORE=0
+MemoryMax=2G
+TasksMax=256
+CPUQuota=100%
