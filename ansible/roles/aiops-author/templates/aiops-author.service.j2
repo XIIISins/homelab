@@ -45,7 +45,7 @@ SyslogIdentifier={{ aiops_author_unit_name }}
 # No LLM runs here; it holds the GitHub token. It may reach the Toolbelt (Frigg itself) and the internet (GitHub); every
 # private range is denied. (IPAddressAllow beats IPAddressDeny for an address in both.)
 IPAddressDeny={{ aiops_author_deny_ranges | join(' ') }} 169.254.0.0/16 fc00::/7 fe80::/10
-IPAddressAllow=127.0.0.0/8 {{ aiops_author_toolbelt_ip }}
+IPAddressAllow=127.0.0.0/8 {{ aiops_author_toolbelt_ip }} {{ aiops_author_dns_allow | join(' ') }}
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=

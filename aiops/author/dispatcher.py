@@ -180,7 +180,7 @@ class GitHubClient:
         st2, r = http("GET", f"https://api.github.com/repos/{self.repo}", self.h)
         perms = (r or {}).get("permissions") or {}
         return {"login": (u or {}).get("login"), "ok": st == 200 and st2 == 200, "admin": bool(perms.get("admin")),
-                "maintain": bool(perms.get("maintain")), "push": bool(perms.get("push"))}
+                "maintain": bool(perms.get("maintain")), "push": bool(perms.get("push")), "http_user": st, "http_repo": st2}
 
     def create_pr(self, head: str, base: str, title: str, body: str) -> tuple[int, dict]:
         return http("POST", f"https://api.github.com/repos/{self.repo}/pulls", self.h,
@@ -248,7 +248,8 @@ class Dispatcher:
             audit("identity", **{k: v for k, v in self._ident[1].items()})
         i = self._ident[1]
         if not i["ok"]:
-            audit("identity_refused", why="cannot read the token's account or the repo")
+            audit("identity_refused", why="cannot read the token's account or the repo (http 0 = unreachable: check DNS and egress; 401 = bad token)",
+                  http_user=i.get("http_user"), http_repo=i.get("http_repo"))
             return False
         if not i["push"]:
             audit("identity_refused", why="the token cannot push to the repo")
