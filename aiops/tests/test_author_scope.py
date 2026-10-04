@@ -60,6 +60,13 @@ class Check(unittest.TestCase):
         for p in ("ansible/roles/aiops-toolbelt/tasks/main.yml", "docs/incidents/x.md", "docs/operations/decisions.md", "docs/operations/drift/../x.md"):
             self.assertTrue(scope.check(CFG, b, [f(p)]), p)
 
+    def test_every_declared_class_check_is_a_script_under_github_scripts(self):
+        import re
+        for name, c in CFG["classes"].items():
+            for chk in c.get("checks", []):
+                self.assertRegex(chk["script"], r"^\.github/scripts/[a-z0-9_-]+\.py$", name)
+                self.assertTrue((REPO / chk["script"]).is_file(), chk["script"])
+
     def test_the_agents_own_guardrails_are_forbidden_in_every_class(self):
         for p in (".github/workflows/ci.yml", "CLAUDE.md", "aiops/actions.yml", "aiops/author-classes.yml", "aiops/author/scope.py",
                   "aiops/toolbelt/actions.py", "terraform/vault/policies.tf", "ansible/inventory/group_vars/all/vault.yml",
