@@ -8,3 +8,23 @@
     name: smartmontools
     state: present
     update_cache: false
+
+# Zabbix agent 2's SMART plugin runs `sudo smartctl ...` as the `zabbix` user (verified on Urd 2026-10-04:
+# `exec: "sudo": executable file not found`). PVE ships without sudo, so install it and allow exactly smartctl,
+# nothing else, with no password. smartctl can start self-tests, so the rule names the binary, not a shell.
+- name: Install sudo (the agent's SMART plugin needs it)
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+    update_cache: false
+
+- name: Let the zabbix agent run smartctl as root, and only that
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/zabbix-smartctl
+    content: |
+      # Managed by Ansible (proxmox-host role). Zabbix agent 2 SMART plugin.
+      zabbix ALL=(root) NOPASSWD: /usr/sbin/smartctl
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
