@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -282,7 +283,8 @@ class Dispatcher:
         shutil.rmtree(job, ignore_errors=True)
         (job / "out").mkdir(parents=True)
         for d in (job, job / "out"):
-            os.chmod(d, 0o2770)
+            if stat.S_IMODE(d.stat().st_mode) != 0o2770:  # the setgid parent + umask 0007 already give this; the unit has no CAP_FOWNER to chmod otherwise
+                os.chmod(d, 0o2770)
         spec = {"id": cr["id"], "class": cr["class"], "title": cr["title"], "body": cr["body"], "allowed_paths": cr["allowed_paths"],
                 "limits": self.cfg.classes["limits"], "repo_url": self.cfg.repo_url, "base": "main", "tools_url": self.cfg.tools_url,
                 "tools_cli": self.cfg.tools_cli, "agent_file": self.cfg.agent_file, "model": self.cfg.model,
