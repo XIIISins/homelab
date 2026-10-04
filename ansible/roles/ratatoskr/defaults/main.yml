@@ -25,6 +25,7 @@ ratatoskr_vault_chat_token_path: ansible/aiops/n8n-ingest-token/chat # terraform
 # Code copied from the repo (the bot imports logic.py next to itself).
 ratatoskr_source_files:
   - bot/logic.py
+  - bot/drafts.py
   - bot/bot.py
 
 # The unit's own egress filter (defence in depth; the UCG policy is the real boundary, see docs/architecture/network.md).
