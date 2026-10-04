@@ -418,3 +418,4 @@ Per-module purpose, per-directory contents + phase-history: [`docs/services/asga
 ## What the owner wants to learn
 
 Kubernetes is the primary goal. Explain the *why* behind K8s design choices, not just manifests. Owner knows Linux, Ansible, networking, enterprise infrastructure patterns — K8s-specific concepts are the knowledge gap. Deep K3s/K8s experimentation is intended for the future jotunheim ("can implode") cluster — asgard is built carefully, not used as a learning sandbox.
+
