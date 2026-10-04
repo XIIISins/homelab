@@ -27,6 +27,18 @@ Two credentials, two roles, two source-IP allow-lists. A caller holds exactly on
     GET  /incident/<id>/draft   (approver: the mechanical incident write-up, Phase 10h3)
     GET  /status, GET /stats, GET /report?days=N   (what autonomous healing did and why it did not: the soak's evidence)
 
+  agent + approver (10h2)
+    POST /change-requests          {"source", "class", "title", "body", "allowed_paths"?, "source_ref"?, "by"?}: file a request for ONE agent-authored PR (lands pending;
+                                   the agent role cannot file as `operator`)
+  approver (10h2)
+    GET  /change-requests[?state=a,b]   GET /change-requests/feed?after=N   GET /change-requests/<id>
+    POST /change-requests/<id>/decision {"decision": "approve|reject|cancel", "by": "<discord user id>"}
+    POST /change-requests/<id>/message  {"message_ref": "...", "thread_id"?: "..."}
+  author (10h2: the Frigg dispatcher, which holds the GitHub token; the Toolbelt never does)
+    POST /change-requests/claim          the oldest approved request, now running (null + why when a cap or flag says no)
+    GET  /change-requests?state=pr-open   GET /change-requests/<id>   POST /change-requests/<id>/report {"state": "pr-open|failed|no-change|merged|closed", "pr_url", "branch", "summary", "tests", "error"}
+  author-tools (10h2: the drafting session)   POST /tool/<tool>  only: the same read-only tools, nothing else
+
   GET /healthz                     liveness (no auth, no data)
 
 Every other route needs `Authorization: Bearer <token>` AND a client address inside that role's allow-list: two
@@ -52,7 +64,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import core  # noqa: E402
 
 MAX_BODY = 64 * 1024
-AGENT, APPROVER = "agent", "approver"
+AGENT, APPROVER, AUTHOR, AUTHOR_TOOLS = "agent", "approver", "author", "author-tools"
 _ID = r"(\d+)"
 _TOOL = re.compile(r"^/tool/([a-z]+\.[a-z_]+)$")
 _REPLAY = re.compile(r"^/replay/([a-z0-9-]+)/latest$")
@@ -64,10 +76,16 @@ class Role:
         self.name, self.token, self.allow = name, token, allow
 
 
-def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str | None = None, approver_allow: list | None = None):
+def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str | None = None, approver_allow: list | None = None,
+                 author_token: str | None = None, author_allow: list | None = None,
+                 author_tools_token: str | None = None, author_tools_allow: list | None = None):
     roles = [Role(AGENT, token, allow)]
     if approver_token:
         roles.append(Role(APPROVER, approver_token, approver_allow or []))
+    if author_token:
+        roles.append(Role(AUTHOR, author_token, author_allow or []))
+    if author_tools_token:
+        roles.append(Role(AUTHOR_TOOLS, author_tools_token, author_tools_allow or []))
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "aiops-toolbelt"
@@ -130,7 +148,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                  lambda m, q: tb.ingest_zabbix(self._body(), self.headers.get("X-AIOPS-Replay") or None)),
                 ("GET", re.compile(rf"^/group/{_ID}$"), only_agent, lambda m, q: tb.group(int(m.group(1)))),
                 ("POST", re.compile(rf"^/group/{_ID}/state$"), only_agent, self._h_state),
-                ("POST", _TOOL, only_agent, self._h_tool),
+                ("POST", _TOOL, (AGENT, AUTHOR_TOOLS), self._h_tool),
                 ("POST", re.compile(rf"^/diagnosis/{_ID}$"), only_agent, lambda m, q: tb.diagnose(int(m.group(1)), self._body())),
                 ("GET", _REPLAY, only_agent, lambda m, q: tb.replay_latest(m.group(1))),
                 ("GET", re.compile(r"^/watchdog$"), only_agent, lambda m, q: tb.watchdog()),
@@ -146,6 +164,15 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("GET", re.compile(rf"^/proposals/{_ID}$"), both, lambda m, q: self._engine().get(int(m.group(1)))),
                 ("POST", re.compile(rf"^/proposals/{_ID}/decision$"), only_appr, self._h_decision),
                 ("POST", re.compile(rf"^/proposals/{_ID}/message$"), only_appr, self._h_message),
+                ("POST", re.compile(r"^/change-requests$"), (AGENT, APPROVER), self._h_cr_create),
+                ("GET", re.compile(r"^/change-requests/feed$"), only_appr,
+                 lambda m, q: self._cr().feed(int((q.get("after") or ["0"])[0] or 0))),
+                ("GET", re.compile(r"^/change-requests$"), (APPROVER, AUTHOR), self._h_cr_list),
+                ("GET", re.compile(rf"^/change-requests/{_ID}$"), (APPROVER, AUTHOR), lambda m, q: self._cr().get(int(m.group(1)))),
+                ("POST", re.compile(rf"^/change-requests/{_ID}/decision$"), only_appr, self._h_cr_decision),
+                ("POST", re.compile(rf"^/change-requests/{_ID}/message$"), only_appr, self._h_cr_message),
+                ("POST", re.compile(r"^/change-requests/claim$"), (AUTHOR,), lambda m, q: self._cr().claim()),
+                ("POST", re.compile(rf"^/change-requests/{_ID}/report$"), (AUTHOR,), self._h_cr_report),
                 ("GET", re.compile(r"^/flags$"), only_appr, lambda m, q: self._engine().flags()),
                 ("POST", _FLAG, only_appr, self._h_flag),
                 ("GET", re.compile(r"^/status$"), only_appr, lambda m, q: tb.status()),
@@ -188,6 +215,40 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 raise core.Rejected(400, "need message_ref")
             return self._engine().set_message(int(m.group(1)), ref)
 
+        def _cr(self):
+            if tb.cr is None:
+                raise core.Rejected(501, "change requests are not enabled on this Toolbelt")
+            return tb.cr
+
+        def _h_cr_create(self, m, q):
+            b = self._obj()
+            who = "n8n" if self._role_name == AGENT else str(b.get("by") or "")
+            if self._role_name == AGENT and b.get("source") == "operator":
+                raise core.Rejected(403, "the agent cannot file a request as the operator")
+            return self._cr().create(source=str(b.get("source", "")), class_=str(b.get("class", "")), title=b.get("title"), body=b.get("body"),
+                                     allowed_paths=b.get("allowed_paths"), source_ref=str(b.get("source_ref") or ""), created_by=who)
+
+        def _h_cr_list(self, m, q):
+            raw = (q.get("state") or [""])[0]
+            states = tuple(s for s in raw.split(",") if s) or ("pending", "approved", "running", "pr-open")
+            return {"change_requests": self._cr().list(states)}
+
+        def _h_cr_decision(self, m, q):
+            b = self._obj()
+            return self._cr().decide(int(m.group(1)), str(b.get("decision", "")), by=b.get("by"), ref=str(b.get("ref", "")))
+
+        def _h_cr_message(self, m, q):
+            b = self._obj()
+            ref = b.get("message_ref")
+            if not isinstance(ref, str) or not ref:
+                raise core.Rejected(400, "need message_ref")
+            return self._cr().set_message(int(m.group(1)), ref, str(b.get("thread_id") or ""))
+
+        def _h_cr_report(self, m, q):
+            b = self._obj()
+            return self._cr().report(int(m.group(1)), state=str(b.get("state", "")), pr_url=str(b.get("pr_url") or ""), branch=str(b.get("branch") or ""),
+                                     summary=str(b.get("summary") or ""), tests=b.get("tests"), error=str(b.get("error") or ""))
+
         def _h_flag(self, m, q):
             b = self._obj()
             if not isinstance(b.get("value"), bool):
@@ -202,6 +263,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
             role = self._role()
             if role is None:
                 return self._send(403, {"error": "forbidden"})
+            self._role_name = role
             try:
                 matched_other_role = False
                 for meth, rx, allowed, fn in self._table():
@@ -274,6 +336,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--exec-cred", default="semaphore-exec", help="creds-dir file name of the executor's Semaphore token (no file = executor disabled)")
     ap.add_argument("--exec-project", type=int, default=0, help="Semaphore project id of the aiops project (0 = look it up by name `aiops`)")
     ap.add_argument("--rebuild-socket", help="unix socket of the rebuild runner (Phase 10g); no flag = rebuild actions refuse with 501")
+    ap.add_argument("--author-token-file", help="enables the author role (the Frigg PR dispatcher: claim + report)")
+    ap.add_argument("--author-allow", action="append", default=[], help="CIDR the AUTHOR may call from (repeatable)")
+    ap.add_argument("--author-tools-token-file", help="enables the author-tools role (the drafting session: read-only /tool/* only)")
+    ap.add_argument("--author-tools-allow", action="append", default=[], help="CIDR the AUTHOR-TOOLS role may call from (repeatable)")
+    ap.add_argument("--change-requests", action="store_true", help="enable 10h2 change requests (needs --actions)")
+    ap.add_argument("--author-repo", default="XIIISins/homelab", help="owner/name a reported PR URL must belong to")
+    ap.add_argument("--author-daily-budget", type=int, default=6, help="drafts the author may start per UTC day")
     ap.add_argument("--placement-file", help="JSON {host: hypervisor-node}, refreshed from NetBox")
     ap.add_argument("--daily-run-cap", type=int, default=40)
     ap.add_argument("--replay-dir", help="aiops/replays: recorded tool responses (X-AIOPS-Replay scenarios)")
@@ -309,21 +378,42 @@ def main(argv: list[str] | None = None) -> int:
             c = json.loads(cred.read_text())
             sem = core.actions.SemaphoreAPI(c["url"], c["value"], args.exec_project or None)
         cfg.actions = core.actions.ActionConfig(operators=operators, semaphore=sem, runner_socket=args.rebuild_socket or None)
+    author_token = read_token(args.author_token_file, "author token") if args.author_token_file else None
+    author_tools_token = read_token(args.author_tools_token_file, "author-tools token") if args.author_tools_token_file else None
+    all_tokens = [t for t in (token, approver_token, author_token, author_tools_token) if t]
+    if len(set(all_tokens)) != len(all_tokens):
+        print("every role needs its own token", file=sys.stderr)
+        return 2
+    if args.change_requests:
+        if registry is None:
+            print("--change-requests needs --actions", file=sys.stderr)
+            return 2
+        sys.path.insert(0, str(core.REPO / "aiops" / "author"))
+        import scope  # noqa: E402
+
+        cfg.change_requests = core.change_requests.CRConfig(
+            classes=scope.load_classes((core.REPO / "aiops" / "author-classes.yml").read_text()), repo=args.author_repo,
+            max_started_per_day=args.author_daily_budget)
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)
     host, _, port = args.listen.rpartition(":")
     handler = make_handler(tb, token, [ipaddress.ip_network(a) for a in args.allow], approver_token,
-                           [ipaddress.ip_network(a) for a in args.approver_allow])
+                           [ipaddress.ip_network(a) for a in args.approver_allow],
+                           author_token, [ipaddress.ip_network(a) for a in args.author_allow],
+                           author_tools_token, [ipaddress.ip_network(a) for a in args.author_tools_allow])
     srv = ThreadingHTTPServer((host, int(port)), handler)
     tb.audit("start", listen=args.listen, daily_run_cap=cfg.daily_run_cap, actions=tb.engine is not None,
-             executor=bool(cfg.actions and cfg.actions.semaphore), approver=bool(approver_token))
+             executor=bool(cfg.actions and cfg.actions.semaphore), approver=bool(approver_token),
+             change_requests=tb.cr is not None, author=bool(author_token))
     if tb.engine is not None:
         def sweeper():
             while True:
                 time.sleep(30)
                 try:
                     tb.engine.sweep()
+                    if tb.cr is not None:
+                        tb.cr.sweep()
                 except Exception as e:  # noqa: BLE001 - a failed sweep must not kill the thread
                     tb.audit("error", where="sweep", error=type(e).__name__)
         threading.Thread(target=sweeper, daemon=True, name="proposal-sweeper").start()
