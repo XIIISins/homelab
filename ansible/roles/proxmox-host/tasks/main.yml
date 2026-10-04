@@ -10,3 +10,7 @@
 - name: Configure HA watchdog module
   ansible.builtin.import_tasks: watchdog.yml
   tags: [proxmox-host, proxmox-host:watchdog]
+
+- name: Install smartmontools (disk-health telemetry)
+  ansible.builtin.import_tasks: smart.yml
+  tags: [proxmox-host, proxmox-host:smart]
