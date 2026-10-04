@@ -45,6 +45,10 @@ k3s_etcd_s3_vault_path: "ansible/backups/etcd-s3" # fields: access_key_id, secre
 k3s_selinux: true
 # Pin Calico node-IP autodetection to this CIDR (asgard: VLAN 21 node subnet). Install-time only.
 k3s_calico_node_cidr: "10.0.21.0/24"
+# Pod-network encapsulation. asgard nodes share one L2 VLAN, so cross-subnet-only VXLAN (= unencapsulated inside the subnet) is fine. A cloud VPC
+# (the DigitalOcean burst cluster) drops traffic whose source/destination is not a droplet address, so there it MUST be `VXLAN` (always): with
+# CrossSubnet every cross-node pod flow, including DNS to CoreDNS, silently times out (found 2026-10-04, ansible/inventory-burst/group_vars/all.yml).
+k3s_calico_encapsulation: VXLANCrossSubnet
 # VLAN 20 policy routing for MetalLB on the multi-homed asgard workers. Off on single-NIC nodes.
 k3s_vlan20_policy_routing: true
 # Extra API-server cert SANs (e.g. a tailnet IP). Per host or per group.

@@ -107,6 +107,15 @@ def vault_exec(kube: Kube, token: str | None, args: list, stdin: str | None = No
     return kube.run(["exec", "-i", "-n", "vault", "vault-0", "--", "env", *env, "vault", *args], stdin=stdin, timeout=timeout)
 
 
+def first_json(out: str) -> dict:
+    """The first JSON object in a command's combined stdout+stderr (a kubectl exec appends notices such as 'Defaulted container' after it)."""
+    i = out.find("{")
+    if i < 0:
+        raise Fail("no JSON in the command output")
+    obj, _ = json.JSONDecoder().raw_decode(out[i:])
+    return obj
+
+
 def bootstrap_vault(kube: Kube, seeds: dict) -> dict:
     """Init (1 share, 1 threshold), unseal, the same engine/auth/policy/role as terraform/vault/main.tf, then one random secret per
     ExternalSecret reference. Returns {"seeded_paths": n, "seeded_properties": n}; no value ever leaves this function."""
@@ -114,17 +123,17 @@ def bootstrap_vault(kube: Kube, seeds: dict) -> dict:
         raise Fail("vault-0 was never scheduled")
     for _ in range(60):   # the container starts once vault-tls exists; `status` answers (sealed) once the listener is up
         rc, out = vault_exec(kube, None, ["status", "-format=json"])
-        if out.strip().startswith("{"):
+        if "{" in out and '"initialized"' in out:
             break
         time.sleep(10)
     else:
         raise Fail("vault-0 never answered `vault status` (is vault-tls issued?)")
-    st = json.loads(out[out.index("{"):])
+    st = first_json(out)
     if not st.get("initialized"):
         rc, out = vault_exec(kube, None, ["operator", "init", "-key-shares=1", "-key-threshold=1", "-format=json"])
         if rc != 0:
             raise Fail("vault operator init failed")
-        init = json.loads(out[out.index("{"):])
+        init = first_json(out)
         key, token = init["unseal_keys_b64"][0], init["root_token"]
     else:
         raise Fail("vault was already initialised: refusing to reuse unknown state")

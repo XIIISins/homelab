@@ -34,6 +34,8 @@ k3s_init_node: burst-1
 k3s_pod_cidr: "172.24.0.0/16"
 k3s_service_cidr: "172.25.0.0/16"
 k3s_flannel_backend: "none"
+# DO's VPC fabric drops pod-IP traffic that is not encapsulated: always-on VXLAN, or every cross-node pod flow (DNS, the API) times out.
+k3s_calico_encapsulation: VXLAN
 # Debian droplets: no SELinux, no VLAN-20 policy routing, no iSCSI.
 k3s_selinux: false
 k3s_vlan20_policy_routing: false
