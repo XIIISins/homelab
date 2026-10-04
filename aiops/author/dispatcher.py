@@ -290,16 +290,18 @@ class Dispatcher:
     def _systemd_session(self, cid: int, poll: float = 3.0) -> int:
         """Ask the root launcher (aiops-draft-launch, triggered by a systemd path unit on these markers) to start
         aiops-draft@<id>.service, then wait for the session's result file. No sudo, no setuid: this process stays fully
-        sandboxed and the launcher only ever acts on a numeric directory name it validated itself."""
+        sandboxed and the launcher only ever acts on a marker name `<digits>.ready|stop` and a real numeric job directory it validated itself."""
         job = self.cfg.work / "jobs" / str(cid)
         result = job / "out" / "result.json"
-        (job / "ready").write_text("")
+        markers = self.cfg.work / "markers"  # ONE fixed directory the path unit watches (a glob over per-job dirs misses a marker
+        markers.mkdir(exist_ok=True)         # written before systemd has added its watch on the new job directory; found 2026-10-04)
+        (markers / f"{cid}.ready").write_text("")
         deadline = time.time() + self.cfg.session_timeout + 120
         while time.time() < deadline:
             if result.exists():
                 return 0
             time.sleep(poll)
-        (job / "stop").write_text("")  # the launcher stops the unit
+        (markers / f"{cid}.stop").write_text("")  # the launcher stops the unit
         time.sleep(poll * 2)
         return 124
 

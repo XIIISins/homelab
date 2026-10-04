@@ -170,7 +170,7 @@ class ProposeTests(unittest.TestCase):
         p = eng.propose(action_id="restart-unit", params=RESTART, reason="vlagent stopped on canary-1", source="diagnosis", incident_id=7, thread_id="t1")
         self.assertEqual((p["state"], p["tier"], p["target"], p["incident_id"]), ("pending", "T1", "canary-1", 7))
         self.assertEqual(p["params_hash"], actions.params_hash("restart-unit", RESTART))
-        self.assertEqual(p["expires_at"], clock.t + 1800)
+        self.assertEqual(p["expires_at"], clock.t + 14400)
         self.assertTrue(any(a["event"] == "proposal_created" for a in audit))
 
     def test_invalid_proposals_are_refused_with_the_problems(self):

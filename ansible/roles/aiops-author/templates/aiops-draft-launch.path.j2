@@ -4,8 +4,9 @@
 Description=AIOps drafting-session launch markers
 
 [Path]
-PathExistsGlob={{ aiops_author_work }}/jobs/*/ready
-PathExistsGlob={{ aiops_author_work }}/jobs/*/stop
+# One fixed directory (always present), not a glob over per-job directories: a glob needs a watch on each new job directory and
+# misses a marker written before that watch exists.
+DirectoryNotEmpty={{ aiops_author_work }}/markers
 Unit={{ aiops_author_launch_unit_name }}.service
 
 [Install]

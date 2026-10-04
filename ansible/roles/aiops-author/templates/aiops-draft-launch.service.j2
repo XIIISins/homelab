@@ -9,6 +9,7 @@ Description=AIOps drafting-session launcher (marker -> systemctl start aiops-dra
 [Service]
 Type=oneshot
 Environment=AIOPS_AUTHOR_JOBS={{ aiops_author_work }}/jobs
+Environment=AIOPS_AUTHOR_MARKERS={{ aiops_author_work }}/markers
 Environment=AIOPS_DRAFT_UNIT={{ aiops_author_draft_unit_name }}
 ExecStart=/usr/bin/python3 {{ aiops_author_launch_path }}
 TimeoutStartSec=120
@@ -17,7 +18,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=strict
-ReadWritePaths={{ aiops_author_work }}/jobs
+ReadWritePaths={{ aiops_author_work }}/jobs {{ aiops_author_work }}/markers
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

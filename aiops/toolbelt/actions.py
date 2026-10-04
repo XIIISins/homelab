@@ -392,7 +392,7 @@ def redact(text: str) -> str:
 @dataclass
 class ActionConfig:
     operators: frozenset = frozenset()   # Discord user ids allowed to decide (the Toolbelt double-checks the bot)
-    proposal_ttl: int = 1800             # seconds a proposal may wait for a decision
+    proposal_ttl: int = 14400            # seconds a proposal may wait for a decision (4 h: the operator is not always at the phone)
     max_pending_per_incident: int = 3
     max_proposals_per_day: int = 30
     max_running: int = 2

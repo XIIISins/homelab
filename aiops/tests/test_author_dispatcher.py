@@ -247,7 +247,7 @@ class Launch(Rig):
 
         def launcher():  # stands in for the root launcher + the session unit
             for _ in range(100):
-                if (job / "ready").exists():
+                if (self.work / "markers" / "7.ready").exists():
                     (job / "out" / "result.json").write_text("{}")
                     return
                 time.sleep(0.02)
@@ -262,7 +262,79 @@ class Launch(Rig):
         job = self.work / "jobs" / "8"
         (job / "out").mkdir(parents=True)
         self.assertEqual(d._systemd_session(8, poll=0.01), 124)
-        self.assertTrue((job / "stop").exists())
+        self.assertTrue((self.work / "markers" / "8.stop").exists())
+
+
+class LauncherScript(unittest.TestCase):
+    """ansible/roles/aiops-author/files/aiops-draft-launch.py: the root launcher acts only on `<digits>.ready|stop` regular files in
+    the markers directory whose job directory is real, and clears everything else so a stray entry cannot re-trigger the path unit."""
+
+    def setUp(self):
+        import importlib.util
+        self.t = tempfile.TemporaryDirectory()
+        self.addCleanup(self.t.cleanup)
+        self.root = Path(self.t.name)
+        (self.root / "jobs").mkdir()
+        (self.root / "markers").mkdir()
+        spec = importlib.util.spec_from_file_location("launch_under_test", REPO / "ansible/roles/aiops-author/files/aiops-draft-launch.py")
+        self.m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.m)
+        self.m.JOBS, self.m.MARKERS = str(self.root / "jobs"), str(self.root / "markers")
+        self.calls = []
+        self.m.subprocess = mock.Mock(run=lambda argv, **kw: self.calls.append(argv))
+        self.m.log = lambda msg: None
+
+    def job(self, n):
+        (self.root / "jobs" / str(n)).mkdir()
+
+    def marker(self, name, text=""):
+        (self.root / "markers" / name).write_text(text)
+
+    def left(self):
+        return sorted(p.name for p in (self.root / "markers").iterdir())
+
+    def test_a_ready_marker_starts_the_unit_and_is_consumed(self):
+        self.job(7)
+        self.marker("7.ready")
+        self.m.main()
+        self.assertEqual(self.calls, [["/usr/bin/systemctl", "reset-failed", "aiops-draft@7.service"],
+                                      ["/usr/bin/systemctl", "start", "--no-block", "aiops-draft@7.service"]])
+        self.assertEqual(self.left(), [])
+
+    def test_stop_comes_before_start_for_the_same_job(self):
+        self.job(9)
+        self.marker("9.ready")
+        self.marker("9.stop")
+        self.m.main()
+        self.assertEqual([c[1] for c in self.calls], ["stop", "reset-failed", "start"])
+
+    def test_no_real_job_directory_no_action_and_the_marker_is_still_cleared(self):
+        self.marker("5.ready")
+        (self.root / "elsewhere").mkdir()
+        (self.root / "jobs" / "6").symlink_to(self.root / "elsewhere")  # a symlinked job directory is not a job
+        self.marker("6.ready")
+        self.m.main()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.left(), [])
+
+    def test_junk_oversize_and_symlinked_markers_never_act_and_never_linger(self):
+        self.job(3)
+        target = self.root / "victim.txt"
+        target.write_text("keep me")
+        (self.root / "markers" / "3.ready").symlink_to(target)
+        self.marker("3.stop", "x" * 2000)
+        for bad in ("3.ready.bak", "abc", "1234567890.ready", "-1.ready", ".hidden"):
+            self.marker(bad)
+        (self.root / "markers" / "somedir").mkdir()
+        self.m.main()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.left(), [])
+        self.assertEqual(target.read_text(), "keep me")  # the symlink was removed, never followed
+
+    def test_the_path_unit_watches_the_fixed_directory_not_a_glob(self):
+        unit = (REPO / "ansible/roles/aiops-author/templates/aiops-draft-launch.path.j2").read_text()
+        self.assertIn("DirectoryNotEmpty={{ aiops_author_work }}/markers", unit)
+        self.assertNotIn("PathExistsGlob", unit.replace("# ", "").split("[Path]")[1])
 
 
 class Loop(Rig):
