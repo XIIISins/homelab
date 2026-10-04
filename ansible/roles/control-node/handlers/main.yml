@@ -19,3 +19,20 @@
     name: "{{ control_node_reauth_service_name }}"
     state: restarted
     daemon_reload: true
+
+# Re-read the networkd drop-in and re-apply the link so resolved drops the
+# old servers at once (no reboot), then flush answers cached from them.
+- name: reload networkd
+  ansible.builtin.command: networkctl reload
+  changed_when: true
+  listen: reconfigure link dns
+
+- name: reconfigure the link
+  ansible.builtin.command: "networkctl reconfigure {{ control_node_dns_interface }}"
+  changed_when: true
+  listen: reconfigure link dns
+
+- name: flush resolved caches
+  ansible.builtin.command: resolvectl flush-caches
+  changed_when: true
+  listen: reconfigure link dns

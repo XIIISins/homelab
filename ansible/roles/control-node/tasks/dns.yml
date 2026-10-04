@@ -1,0 +1,31 @@
+# ansible/roles/control-node/tasks/dns.yml
+---
+# Pin Frigg's DNS to AdGuard servers only, at the layer systemd-resolved
+# actually reads. nsswitch sends every lookup through resolved, which takes
+# its per-link servers from the cloud-init netplan render (Proxmox injected
+# the UCG 10.0.254.1 + 1.1.1.1 at first boot) and sticks to whichever server
+# answered last. The UCG/1.1.1.1 can answer NXDOMAIN for *.niflheim, so after
+# one slow AdGuard answer every internal lookup failed until a resolved
+# restart (docs/known-issues/frigg-control-node.md). A networkd drop-in on
+# the netplan-generated unit resets the link's DNS list (empty `DNS=`) to
+# AdGuard addresses only, so a server switch can never land on a resolver
+# that does not know the internal zone. Netplan/cloud-init files stay as-is
+# (a cloud-init re-render cannot undo a drop-in in /etc).
+- name: Create the networkd drop-in directory for the netplan eth unit
+  ansible.builtin.file:
+    path: "/etc/systemd/network/10-netplan-{{ control_node_dns_interface }}.network.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [control-node, control-node:dns]
+
+- name: Pin the link's DNS servers to AdGuard
+  ansible.builtin.template:
+    src: networkd-dns.conf.j2
+    dest: "/etc/systemd/network/10-netplan-{{ control_node_dns_interface }}.network.d/50-niflheim-dns.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reconfigure link dns
+  tags: [control-node, control-node:dns]
