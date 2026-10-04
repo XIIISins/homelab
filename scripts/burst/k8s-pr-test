@@ -56,6 +56,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The gates that need no cluster run FIRST: a bad PR (an unknown Vault path, a kustomization that no longer builds) fails in seconds, before any droplet exists.
+off=(--repo "$src" --work "$state/k8s-test/work-$sha" --commit "$sha" --out "$out" --offline)
+[ "${#only[@]}" -gt 0 ] && off+=(--only "${only[@]}")
+if ! python3 "$root/aiops/runner/k8s_burst_run.py" "${off[@]}"; then
+  echo "k8s-pr-test: offline gate failed, no cluster was built (exit 1)"
+  keep=1   # nothing to tear down
+  exit 1
+fi
+
 if [ "$reuse" = 0 ]; then
   # 1 control plane + 3 workers: asgard has three workers and its apps spread over them (required anti-affinity, 3 replicas), so two would leave pods Pending.
   "$root/scripts/burst/burst-up" -n 4 -c 1 -t "$ttl" --yes

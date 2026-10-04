@@ -252,9 +252,31 @@ def markdown(summary: dict) -> str:
     if v["problems"]:
         lines += ["", "Problems:"] + [f"- {p}" for p in v["problems"][:20]]
     if v["waived"]:
-        lines += ["", "Expected not ready on a burst cluster (listed, not hidden): " + ", ".join(v["waived"])]
+        why = summary.get("waiver_reasons", {})
+        lines += ["", "Expected not ready on a burst cluster (listed, not hidden):"] + [f"- {n}: {why.get(n, 'depends on something outside the cluster')}" for n in v["waived"]]
     lines += ["", "Phases: " + ", ".join(f"{k} {s:.0f}s" for k, s in summary["phases"].items())]
     return "\n".join(lines) + "\n"
+
+
+def offline_gate(repo: str, work: Path, only: list, summary: dict) -> tuple[dict, list]:
+    """Everything that can be decided without a cluster (so a bad PR fails in seconds, before any droplet exists): render the burst copy, check
+    that every Vault path an ExternalSecret reads is in the committed inventory, and that every directory Flux would reconcile still builds
+    with `kubectl kustomize`. Returns (the seed plan, the problems)."""
+    summary["render"] = plan.render_tree(repo, work, only=only)
+    tree = work / "k8s" / "asgard"
+    seeds = plan.seed_plan(plan.scan(work))
+    problems: list = []
+    unknown = plan.check_paths(seeds, plan_known_paths(Path(repo)))
+    summary["unknown_vault_paths"] = unknown
+    if unknown:
+        problems.append("ExternalSecrets read Vault paths that no Terraform module or mirror-map entry declares: " + ", ".join(unknown))
+    for d in ("infrastructure", "infrastructure-config", "cert-manager-config", "gateway-config", "apps"):
+        if d == "apps" and not plan.has_resources(tree / "apps" / "kustomization.yaml"):
+            continue
+        p = subprocess.run(["kubectl", "kustomize", str(tree / d)], capture_output=True, text=True, timeout=120)
+        if p.returncode != 0:
+            problems.append(f"{d} does not build: " + " ".join(p.stderr.split())[:240])
+    return seeds, problems
 
 
 def run(args, summary: dict, kube: Kube) -> dict:
@@ -276,12 +298,10 @@ def run(args, summary: dict, kube: Kube) -> dict:
         summary["nodes"] = guard(kube)
     work = Path(args.work)
     with phase("render"):
-        summary["render"] = plan.render_tree(args.repo, work, only=args.only if args.only is not None else None)
+        seeds, problems = offline_gate(args.repo, work, args.only or [], summary)
         tree = work / "k8s" / "asgard"
-        scanned = plan.scan(work)
-        seeds = plan.seed_plan(scanned)
-        unknown = plan.check_paths(seeds, plan_known_paths(Path(args.repo)))
-        summary["unknown_vault_paths"] = unknown
+        if problems:
+            raise Fail("offline gate: " + "; ".join(problems))
     with phase("flux"):
         kube.run(["apply", "--server-side", "--force-conflicts", "-f", str(tree / "flux-system" / "flux-system" / "gotk-components.yaml")], check=True, timeout=300)
         if not wait(kube, ["deploy", "--all", "-n", "flux-system", "--for=condition=available"], 300):
@@ -311,6 +331,7 @@ def run(args, summary: dict, kube: Kube) -> dict:
         c = collect(kube)
         summary["checks"] = {k: len(v) for k, v in c.items()}
         summary["verdict"] = verdict(c, expected_not_ready(args.only or []))
+        summary["waiver_reasons"] = waiver_reasons(args.only or [])
         summary["details"] = c
         if not summary["verdict"]["passed"]:
             summary["diagnostics"] = diagnostics(kube)    # before the cluster is destroyed
@@ -320,10 +341,23 @@ def run(args, summary: dict, kube: Kube) -> dict:
 
 def expected_not_ready(only: list) -> set:
     """Names that cannot be ready on a burst cluster because they depend on something outside it (filled from baseline runs)."""
-    return set(EXPECTED_NOT_READY.get("*", [])) | {n for o in only for n in EXPECTED_NOT_READY.get(o, [])}
+    names = set(EXPECTED_NOT_READY.get("*", {}))
+    for o in only:
+        names |= set(EXPECTED_NOT_READY.get(o, {}))
+    return names
 
 
-EXPECTED_NOT_READY: dict = {}
+def waiver_reasons(only: list) -> dict:
+    out = dict(EXPECTED_NOT_READY.get("*", {}))
+    for o in only:
+        out.update(EXPECTED_NOT_READY.get(o, {}))
+    return out
+
+
+# {component: {workload/object name: why it cannot be ready on a burst cluster}}. Added only from a baseline run on unchanged main, with the reason.
+EXPECTED_NOT_READY: dict = {
+    "startpage": {"startpage/startpage": "its init container clones a PRIVATE GitHub repo with a deploy key; the burst Vault holds a random key (2026-10-04 baseline)"},
+}
 
 
 def plan_known_paths(repo: Path) -> set:
@@ -342,7 +376,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--repo", required=True, help="checkout of the commit under test")
     ap.add_argument("--work", required=True, help="scratch dir for the rendered copy")
-    ap.add_argument("--kubeconfig", required=True)
+    ap.add_argument("--kubeconfig", default="", help="the burst cluster's kubeconfig (not needed with --offline)")
+    ap.add_argument("--offline", action="store_true", help="run only the gates that need no cluster (render, Vault path inventory, kustomize builds), then exit")
     ap.add_argument("--only", nargs="*", default=[], help="components to install besides the core (apps/<x> or infrastructure/<x>)")
     ap.add_argument("--commit", default="")
     ap.add_argument("--out", required=True, help="directory for summary.json and summary.md")
@@ -350,6 +385,16 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     Path(a.out).mkdir(parents=True, exist_ok=True)
     summary: dict = {"nodes": [], "render": {"skipped": {}}, "vault": {}, "seconds": 0}
+    if a.offline:
+        t0 = time.time()
+        _, problems = offline_gate(a.repo, Path(a.work), a.only or [], summary)
+        summary.update({"verdict": {"passed": not problems, "problems": problems, "waived": []}, "only": a.only, "commit": a.commit, "phases": {},
+                        "seconds": int(time.time() - t0)})
+        (Path(a.out) / "offline.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+        print("offline gate: " + ("passed" if not problems else "FAILED\n- " + "\n- ".join(problems)))
+        return 0 if not problems else 1
+    if not a.kubeconfig:
+        ap.error("--kubeconfig is required unless --offline")
     kube = Kube(a.kubeconfig)
     try:
         run(a, summary, kube)
