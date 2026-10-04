@@ -27,7 +27,7 @@ The session can read live state through the Toolbelt's read-only tools and nothi
 
 ## Classes
 
-`aiops/author-classes.yml`: `docs` is enabled; `capacity` and `drift` exist but are `enabled: false`. A class's `allow` globs, the global `deny` list (the guardrail files: `.github/`, `.claude/`, `CLAUDE.md`, the registry, `aiops/toolbelt|bot|author|n8n|runner`, Vault/Semaphore Terraform, the Ansible role that deploys the author, `scripts/`, decisions/build-sequence/open-questions) and the size limits (12 files, 600 lines, no deletes) live in that file, which an agent PR cannot edit. Enabling a class is a normal reviewed PR.
+`aiops/author-classes.yml`: `docs`, `drift-note`, `drift` and `capacity` are enabled. A class's `allow` globs, the global `deny` list (the guardrail files: `.github/`, `.claude/`, `CLAUDE.md`, the registry, `aiops/toolbelt|bot|author|n8n|runner`, Vault/Semaphore Terraform, the Ansible role that deploys the author, `scripts/`, decisions/build-sequence/open-questions) and the size limits (12 files, 600 lines, no deletes) live in that file, which an agent PR cannot edit. Enabling a class is a normal reviewed PR.
 
 ## Deploy (operator or Claude, from the main checkout)
 
@@ -55,6 +55,16 @@ redacted) and `git.log`, and writes ONE note, `docs/operations/drift/YYYY-MM-DD-
 likely cause (a **hypothesis** unless a commit or deploy explains it), the resolution, follow-ups. It changes no code. The first
 case: the 2026-10-04 06:24Z run showed `frigg changed=2` because `aiops-toolbelt` code on Frigg lagged a merged PR (#115) until
 the role was re-run. The code-changing `drift` class stays disabled; Gná filing these on a drift-check result is not built.
+
+## The `capacity` class (enabled 2026-10-04)
+
+A forecast card for a filesystem fill (`fleet-fs-used`) or memory creep (`memory-used`) carries a **Draft fix PR** button. It files a `capacity` change request
+(`POST /forecasts/<id>/draft`, operators only, one active request per finding) that names the finding and the remedy shape; you Approve its card like any draft. The
+session reads the repository and changes ONE value in ONE file: a guest's `disk { size }` (grow, about 50 %, at most double) or `memory { dedicated }` (about 25 %, at most
+double) in `terraform/proxmox/asgard-{lxcs,lxcs-root,vms}/*.tf`. If no such value fits (a K3s node, a PVE host, `/boot`, a guest not in those files) it changes nothing and the
+request ends `failed: the patch changes nothing`. The PR is **not canary-tested** (a Terraform size is not exercised by a canary): you read the one-value diff and run
+`terraform apply` for the module yourself from the main checkout; a disk grow also needs the filesystem grown inside the guest. Forecasts for the thin pool, the PBS datastore and the NAS
+share (`pve-storage-used`), Kubernetes volumes and VictoriaLogs get no button: their remedy is outside the class's paths.
 
 ## Infrastructure PRs and the canary test (the `drift` class)
 
@@ -114,4 +124,4 @@ touching `.github/`). Not built: a burst/canary test run per request for the cla
 
 ## Not built yet
 
-Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), the forecast card's "Draft fix PR" button (10h1 is still in shadow mode and posts nothing), an automatic trigger for 10h3 incident drafts (`/aiops draft-incident` is manual), Gná filing drift notes is built ([`aiops-drift.md`](aiops-drift.md)) but unproven live, the `capacity` class (and burst-cluster tests for `k8s/`), and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
+Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), Gná filing drift notes is built ([`aiops-drift.md`](aiops-drift.md)) but unproven live, burst-cluster tests for `k8s/`, and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
