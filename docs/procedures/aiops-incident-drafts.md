@@ -20,7 +20,14 @@ Everything is passed through the Toolbelt's redactor (bearer tokens, `password=`
 
 ## Using it
 
-In Discord: `/aiops draft-incident <incident number>` (the number is in the diagnosis thread). It files a `docs` change request whose body only
+**Automatic (since 2026-10-04):** when an incident resolves and crossed the bar, the Toolbelt files the write-up request itself and its card appears in the
+AIOps chat channel like any draft ("filed by toolbelt"); you press **Approve** (or Reject, and it is never refiled). The bar is the plan's: an action was executed or refused for
+it (a proposal ended `succeeded`, `failed`, `verify_failed` or `rejected`), or three or more alerts were correlated into it, or it lasted 30 minutes or more. Replays and incidents
+made only of the disposable canary pool's own faults are never written up. At most 3 are filed per UTC day (the author's own caps still apply and a deferred one is retried on the
+next sweep, every two minutes), and only incidents resolved in the last 7 days are considered. `aiops_toolbelt_auto_incident_drafts: false` turns it off. Approval stays manual on
+purpose: the drafting session costs tokens and ends in a public PR.
+
+By hand: `/aiops draft-incident <incident number>` (the number is in the diagnosis thread). It files a `docs` change request whose body only
 names the incident; its card appears in the AIOps chat channel and you press **Approve**. The drafting session then fetches the
 mechanical draft with the read-only `incident.draft` tool (available to sessions only, while their request is running), writes it
 verbatim to `docs/incidents/<filename>`, adds the row to `docs/incidents/README.md` and a follow-ups list, and the dispatcher opens

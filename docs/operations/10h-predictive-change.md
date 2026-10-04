@@ -2,7 +2,7 @@
 
 # Phase 10h — Predictive and agent-authored change: plan
 
-*Drafted 2026-10-03. Status: **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 wired** (`/aiops draft-incident` on the author; mechanical draft, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; no finding yet: nothing trends toward a limit). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
+*Drafted 2026-10-03. Status: **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 live** (the Toolbelt files the request when an incident resolves after crossing the bar, you Approve; mechanical draft via the author, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; no finding yet: nothing trends toward a limit). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
 
 ---
 
