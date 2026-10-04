@@ -1,0 +1,207 @@
+# ansible/roles/aiops-burst-runner/tasks/main.yml
+---
+# Installs the burst runner from the repo's aiops/ tree. No secret passes through Ansible except the AppRole secret-zero, supplied once with -e and
+# written root-only; everything else the root loaders fetch from Vault at start. With aiops_burst_runner_enabled false (the default) the user, the
+# group and the units are installed and NOTHING starts and no credential is demanded.
+
+- name: Read the runner's Vault document (empty when absent)
+  ansible.builtin.set_fact:
+    aiops_burst_runner_pre_env: >-
+      {{ (lookup('community.hashi_vault.vault_kv2_get', aiops_burst_runner_env_vault_path | regex_replace('^secret/data/', ''), errors='ignore') | default({}, true)).get('secret', {}) }}
+  no_log: true
+  when: aiops_burst_runner_preflight | bool and aiops_burst_runner_enabled | bool
+  tags: [aiops-burst-runner, aiops-burst-runner:preflight]
+
+- name: Assert the credentials the runner needs exist (it must never start with a partial set)
+  ansible.builtin.assert:
+    that:
+      - aiops_burst_runner_pre_env.get('digitalocean_token', '') | length >= 32
+      - aiops_burst_runner_pre_env.get('aws_access_key_id', '') | length >= 16
+      - aiops_burst_runner_pre_env.get('aws_secret_access_key', '') | length >= 32
+    fail_msg: >-
+      Missing or malformed runner credentials in {{ aiops_burst_runner_env_vault_path }} (digitalocean_token, aws_access_key_id,
+      aws_secret_access_key; operator-seeded). To install the units without starting the service, leave aiops_burst_runner_enabled false.
+      See docs/procedures/k8s-burst-test.md "Deploy".
+    quiet: true
+  when: aiops_burst_runner_preflight | bool and aiops_burst_runner_enabled | bool
+  tags: [aiops-burst-runner, aiops-burst-runner:preflight]
+
+- name: Install the runtime dependencies (git for the clean checkout, terraform and ansible come from the control-node role)
+  ansible.builtin.apt:
+    name: [python3, git, ca-certificates, openssh-client]
+    state: present
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Create the clients group (its members may talk to the runner socket)
+  ansible.builtin.group:
+    name: "{{ aiops_burst_runner_group }}"
+    system: true
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Create the service user (no shell; its home is the state directory)
+  ansible.builtin.user:
+    name: "{{ aiops_burst_runner_user }}"
+    group: "{{ aiops_burst_runner_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "/var/lib/{{ aiops_burst_runner_state_dir_name }}/home"
+    create_home: false
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Read the passwd database (which client users exist yet)
+  ansible.builtin.getent:
+    database: passwd
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Assert every client user exists (the runner refuses to start with an unknown --allow-user)
+  ansible.builtin.assert:
+    that: item in ansible_facts.getent_passwd
+    fail_msg: "client user {{ item }} does not exist: run its role first (aiops-toolbelt)"
+    quiet: true
+  loop: "{{ aiops_burst_runner_clients }}"
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Add the client users to the clients group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ aiops_burst_runner_group }}"
+    append: true
+  loop: "{{ aiops_burst_runner_clients }}"
+  notify: Restart the Toolbelt to pick up the burst clients group
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Create the code directories, root-owned so the service cannot modify its own code
+  ansible.builtin.file:
+    path: "{{ aiops_burst_runner_home }}/aiops/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: ["", runner]
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Install the runner code from the repo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../aiops/{{ item }}"
+    dest: "{{ aiops_burst_runner_home }}/aiops/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ aiops_burst_runner_source_files }}"
+  notify: Restart aiops-burst-runner
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Create the state directories (checkout, home with .ssh, harness state), owned by the service user
+  ansible.builtin.file:
+    path: "/var/lib/{{ aiops_burst_runner_state_dir_name }}/{{ item }}"
+    state: directory
+    owner: "{{ aiops_burst_runner_user }}"
+    group: "{{ aiops_burst_runner_group }}"
+    mode: "0700"
+  loop: ["", home, home/.ssh, state]
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Create the secret-zero directory (root only)
+  ansible.builtin.file:
+    path: "{{ aiops_burst_runner_approle_env_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Write the AppRole secret-zero (only when supplied with -e; root-only, never in Git)
+  ansible.builtin.copy:
+    dest: "{{ aiops_burst_runner_approle_env_path }}"
+    content: |
+      AIOPS_BURST_ROLE_ID={{ aiops_burst_runner_role_id }}
+      AIOPS_BURST_SECRET_ID={{ aiops_burst_runner_secret_id }}
+      FRIGG_ROLE_ID={{ aiops_burst_runner_role_id }}
+      FRIGG_SECRET_ID={{ aiops_burst_runner_secret_id }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: aiops_burst_runner_role_id | length > 0 and aiops_burst_runner_secret_id | length > 0
+  notify: Restart aiops-burst-runner
+  tags: [aiops-burst-runner, aiops-burst-runner:secret-zero]
+
+- name: Look for the AppRole secret-zero
+  ansible.builtin.stat:
+    path: "{{ aiops_burst_runner_approle_env_path }}"
+  register: aiops_burst_runner_zero
+  tags: [aiops-burst-runner, aiops-burst-runner:secret-zero]
+
+- name: Assert the secret-zero is in place when the service is to run
+  ansible.builtin.assert:
+    that: aiops_burst_runner_zero.stat.exists
+    fail_msg: >-
+      {{ aiops_burst_runner_approle_env_path }} is missing. Mint a SecretID for the aiops-burst-runner AppRole and pass
+      -e aiops_burst_runner_role_id=... -e aiops_burst_runner_secret_id=... once (docs/procedures/k8s-burst-test.md "Deploy").
+    quiet: true
+  when: aiops_burst_runner_enabled | bool
+  tags: [aiops-burst-runner, aiops-burst-runner:secret-zero]
+
+- name: Deploy the credential loader and the private agent's key loader
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - {src: aiops-burst-creds-load.py, dest: "{{ aiops_burst_runner_loader_path }}"}
+    - {src: "{{ role_path }}/../frigg-ssh-agent/files/frigg-ssh-agent-load.py", dest: "{{ aiops_burst_runner_agent_loader_path }}"}
+  notify: Restart aiops-burst-runner
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Install the units (credential loader, private ssh-agent, runner)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - "{{ aiops_burst_runner_creds_unit_name }}.service"
+    - "{{ aiops_burst_runner_agent_unit_name }}.service"
+    - "{{ aiops_burst_runner_unit_name }}.service"
+  notify: Restart aiops-burst-runner
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Flush handlers so changed code and units are live before the checks
+  ansible.builtin.meta: flush_handlers
+  tags: [aiops-burst-runner, aiops-burst-runner:install]
+
+- name: Enable and start the runner (or leave it stopped)
+  ansible.builtin.systemd:
+    name: "{{ aiops_burst_runner_unit_name }}.service"
+    enabled: "{{ aiops_burst_runner_enabled | bool }}"
+    state: "{{ 'started' if aiops_burst_runner_enabled | bool else 'stopped' }}"
+    daemon_reload: true
+  tags: [aiops-burst-runner, aiops-burst-runner:service]
+
+- name: Wait for the socket
+  ansible.builtin.wait_for:
+    path: "{{ aiops_burst_runner_socket }}"
+    state: present
+    timeout: 30
+  when: aiops_burst_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-burst-runner, aiops-burst-runner:verify]
+
+- name: Stat the socket
+  ansible.builtin.stat:
+    path: "{{ aiops_burst_runner_socket }}"
+  register: aiops_burst_runner_sock
+  when: aiops_burst_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-burst-runner, aiops-burst-runner:verify]
+
+- name: Assert the socket is 0660, owned by the service user, group = clients
+  ansible.builtin.assert:
+    that:
+      - aiops_burst_runner_sock.stat.mode == '0660'
+      - aiops_burst_runner_sock.stat.pw_name == aiops_burst_runner_user
+      - aiops_burst_runner_sock.stat.gr_name == aiops_burst_runner_group
+    quiet: true
+  when: aiops_burst_runner_enabled | bool and not ansible_check_mode
+  tags: [aiops-burst-runner, aiops-burst-runner:verify]

@@ -16,6 +16,34 @@ scripts/burst/k8s-pr-test --reuse                                # use an alread
 
 Exit 0 = passed. `~/.cache/homelab/burst/k8s-test/<sha>/summary.md` is what goes into a PR description; `summary.json` has the detail. The script always runs `burst-down` on the way out (a `trap`), unless `--keep`/`--reuse`; if teardown fails it says so, and the Frigg reaper (TTL, default 3 h) is the backstop. `scripts/burst/burst-down --yes` by hand is always safe.
 
+## For agent PRs: the automatic path (slice 3, built 2026-10-04; deploy below)
+
+`/aiops draft` kind **k8s** files a change request for ONE app under `k8s/asgard/apps/<app>/` (class `k8s`, `aiops/author-classes.yml`). When its PR opens, the Toolbelt
+reads the PR from GitHub itself (`pr_test.inspect_k8s_pr`: yaml under exactly one app, added or modified only, no `hostPath`/`privileged`/`hostNetwork`/cluster-wide
+objects) and **proposes `pr-burst-test`**; you approve the card; the **burst runner** (`aiops/runner/burst_runner.py`, a separate service on Frigg with its own Vault
+identity) fetches the branch, checks the head is still the approved commit, runs `scripts/burst/k8s-pr-test` **from its own clean checkout of main (never the PR's
+code)** and tears the cluster down. The runner's markdown summary replaces the PR description's `## Burst-cluster test` section. A passed test does not merge anything:
+a human reads the diff and the summary and merges (merging IS the deploy, Flux). CI's offline half of the same gates (`.github/scripts/ci-k8s-burst.sh`: Vault path
+inventory, the burst copy builds, images exist) runs on EVERY k8s PR, agent or not (slice 4).
+
+## Deploy the runner (operator steps; the role is OFF until you do these)
+
+1. **Merge** the PR carrying the runner, then `terraform apply` in `terraform/vault` (main checkout): the `aiops-burst-runner` policy and AppRole.
+2. **Seed** `secret/ansible/aiops/burst/env` (`vault kv put`, values never typed into a transcript): `digitalocean_token` (the burst-scoped token `terraform/digitalocean-burst`
+   already uses), `aws_access_key_id` + `aws_secret_access_key` (a state-only identity for `digitalocean-burst/terraform.tfstate` and its lock), `aws_default_region`.
+   Mirror it to 1Password (`scripts/secrets/vault-1p-mirror`, add the path to `scripts/secrets/mirror-map.toml`).
+3. **Mint a SecretID** (`vault write -f auth/approle/role/aiops-burst-runner/secret-id`) and install the role from the main checkout:
+   `ansible-playbook playbooks/asgard-burst-runner.yml -e aiops_burst_runner_enabled=true -e aiops_burst_runner_role_id=... -e aiops_burst_runner_secret_id=...`
+   (installs the user, the credential loader, a private memory-only ssh-agent for the fleet key and the runner; checks the socket is `0660`, group `aiops-burst-clients`).
+4. **Connect the Toolbelt**: set `aiops_toolbelt_burst_socket: /run/aiops-burst/runner.sock` (and add the three `ansible/roles/aiops-toolbelt` units' group via the role), flip
+   `semaphore.applied` to `true` for `pr-burst-test` in `aiops/actions.yml` by PR, and let the Toolbelt deploy.
+5. **Reboot-test Frigg** (CLAUDE.md "Persistence validation"): the units, the tmpfs credentials and the agent must come back by themselves.
+6. **Acceptance**: file a k8s draft for a harmless change to a baseline-green app (e.g. a label on `apex-static`), approve its card, approve the test card; the PR gains a
+   `## Burst-cluster test` section. Then a deliberately broken one (a typo'd Vault path fails at the offline gate in seconds; a bad image tag fails on the cluster).
+
+Until step 4 the class works but its PRs say "Not tested: ... the executor/runner is not applied yet (operator gate)", which is the safe default. Renew the SecretID before
+90 days (calendar it with the other Frigg-side roles).
+
 ## What happens
 
 1. `guard`: every node must be named `burst-N`, or nothing is applied.

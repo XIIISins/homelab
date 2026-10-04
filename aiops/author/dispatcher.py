@@ -157,7 +157,7 @@ CANARY_OPEN, CANARY_CLOSE = "<!-- canary-test -->", "<!-- /canary-test -->"
 
 def canary_block(summary: dict | None) -> str:
     """The `## Canary test` section of an agent PR's description (counts and ids only: the repo is public)."""
-    return f"{CANARY_OPEN}\n## Canary test\n{pr_test.render(summary)}\n{CANARY_CLOSE}"
+    return f"{CANARY_OPEN}\n## {pr_test.title_of(summary)}\n{pr_test.render(summary)}\n{CANARY_CLOSE}"
 
 
 def with_canary_block(body: str, block: str) -> str:
@@ -421,8 +421,9 @@ class Dispatcher:
             self.git.run(["commit", "-q", "-m", f"{title}\n\nChange request #{cid} ({cr['class']}); agent-authored, operator-reviewed."], cwd=repo)
             self.git.run(["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=repo, push=True)
         body = pr_body(cr, summary, tests, files)
-        if self.cfg.classes["classes"].get(cr["class"], {}).get("canary_test"):
-            body = with_canary_block(body, canary_block(None))  # filled in from the Toolbelt's view right after the report
+        cls_cfg = self.cfg.classes["classes"].get(cr["class"], {})
+        if cls_cfg.get("canary_test") or cls_cfg.get("burst_test"):   # filled in from the Toolbelt's view right after the report
+            body = with_canary_block(body, canary_block({"kind": "burst", "status": "not-tested", "reason": "not evaluated yet"} if cls_cfg.get("burst_test") else None))
         st, pr = self.gh.create_pr(branch, "main", title, body)
         if st != 201 or not isinstance(pr, dict) or not pr.get("html_url"):
             return self._fail(cid, f"the branch was pushed but GitHub refused the pull request (HTTP {st})", res)

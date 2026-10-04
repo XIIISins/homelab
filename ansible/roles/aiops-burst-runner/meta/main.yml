@@ -1,0 +1,15 @@
+# ansible/roles/aiops-burst-runner/meta/main.yml
+---
+galaxy_info:
+  role_name: aiops_burst_runner
+  author: XIIISins
+  description: >
+    The 10h burst runner on Frigg: a hardened systemd service on a unix socket that builds a throwaway burst cluster and tests an agent-authored
+    k8s PR on it, with a root credential loader on tmpfs and a private memory-only ssh-agent.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+  galaxy_tags: [aiops, frigg, burst, vault]
+dependencies: []

@@ -126,13 +126,24 @@ class ChangeRequests:
     def _pr_test(self, r) -> dict | None:
         """The canary-test status of this request's PR (None for a class that is not tested): from its proposal, else the reason it
         was not proposed."""
-        if not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
+        if not self._tested(r["class"]):
             return None
         proposal = self.eng.pr_test_view(r["branch"]) if r["branch"] else None
         ev = self.db.execute("SELECT data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
         data = json.loads(ev["data_json"]) if ev else {}
         reason = data.get("ineligible")
-        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None), _was_transient(data))
+        out = pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None), _was_transient(data))
+        if proposal is None and self._test_kind(r["class"]) == "burst":
+            out["kind"] = "burst"   # a burst-tested class says so even before any test exists (the PR section's heading and wording)
+        return out
+
+    def _test_kind(self, cls: str) -> str | None:
+        """How a class's PRs are proven: `canary` (roles on a canary), `burst` (k8s apps on a burst cluster) or None."""
+        c = self.cfg.classes.get("classes", {}).get(cls, {})
+        return "canary" if c.get("canary_test") else "burst" if c.get("burst_test") else None
+
+    def _tested(self, cls: str) -> bool:
+        return self._test_kind(cls) is not None
 
     # -- create --------------------------------------------------------------------------------------------
     def create(self, *, source: str, class_: str, title: str, body: str, allowed_paths=None, source_ref: str = "",
@@ -275,8 +286,8 @@ class ChangeRequests:
         with self.lock:
             r = self._row(cid)
             ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
-        if r["state"] != "pr-open" or not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
-            raise Refused(409, "only an open PR of a canary-tested class can be retested")
+        if r["state"] != "pr-open" or not self._tested(r["class"]):
+            raise Refused(409, "only an open PR of a tested class (canary or burst) can be retested")
         if ev is None or not _was_transient(json.loads(ev["data_json"])) or self.eng.pr_test_view(r["branch"] or "") is not None:
             raise Refused(409, "there is nothing to retry")
         if self.now() - ev["ts"] < 120:
@@ -290,9 +301,10 @@ class ChangeRequests:
         try:
             with self.lock:
                 r = self._row(cid)
-            if not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
+            kind = self._test_kind(r["class"])
+            if kind is None:
                 return
-            res = self.eng.propose_pr_test(r["branch"] or "", r["thread_id"], cid)
+            res = (self.eng.propose_pr_burst_test if kind == "burst" else self.eng.propose_pr_test)(r["branch"] or "", r["thread_id"], cid)
         except Exception as e:  # noqa: BLE001
             res = {"ineligible": f"the test could not be proposed ({type(e).__name__})"}
         with self.lock:
