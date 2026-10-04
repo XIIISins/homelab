@@ -8,7 +8,9 @@ privileged intents: it hears messages that @mention it, plus button presses and 
               -> forwarded to n8n -> the answer is posted back. Read-only questions are open to everyone in those channels.
     cards     each pending proposal in the Toolbelt's feed becomes an embed with Approve / Reject buttons in its thread,
               edited as it runs and verifies. Only an operator user id can press them (checked here AND at the Toolbelt).
-    commands  /aiops status | pending | kill | resume | maintenance   (operator only)
+    commands  /aiops status | pending | kill | resume | maintenance | draft | drafts   (operator only)
+    drafts    /aiops draft files a request for ONE agent-authored PR (Phase 10h2); its card in AIOps-chat has Approve / Reject,
+              the PR link and result are posted as replies. The operator merges; the author never applies anything.
 
 Everything testable lives in logic.py.
 """
@@ -25,6 +27,7 @@ import discord
 from discord import app_commands
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import drafts  # noqa: E402
 import logic  # noqa: E402
 
 NO_MENTIONS = discord.AllowedMentions.none()
@@ -85,6 +88,64 @@ def card_view(p: dict) -> discord.ui.View:
     v = discord.ui.View(timeout=None)
     v.add_item(DecisionButton("approve", p["id"], p["params_hash"]))
     v.add_item(DecisionButton("reject", p["id"], p["params_hash"]))
+    return v
+
+
+def embed_of_cr(cr: dict) -> discord.Embed:
+    c = drafts.card(cr)
+    e = discord.Embed(title=c["title"], description=c["description"], colour=discord.Colour(c["colour"]))
+    for name, value, inline in c["fields"]:
+        e.add_field(name=name, value=value[:1024] or "-", inline=inline)
+    e.set_footer(text=c["footer"][:2000])
+    return e
+
+
+class DraftButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:cr-(?P<act>approve|reject|cancel):(?P<cid>[0-9]+)"):
+    """Approve / Reject / Cancel on a change-request card (Phase 10h2). A DynamicItem, so cards posted before a restart keep working."""
+
+    LABELS = {"approve": ("Approve draft", discord.ButtonStyle.success), "reject": ("Reject", discord.ButtonStyle.danger),
+              "cancel": ("Cancel", discord.ButtonStyle.secondary)}
+
+    def __init__(self, act: str, cid: int):
+        label, style = self.LABELS[act]
+        super().__init__(discord.ui.Button(label=label, style=style, custom_id=drafts.custom_id(act, cid)))
+        self.act, self.cid = act, cid
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /):
+        return cls(match["act"], int(match["cid"]))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        if bot.cfg.is_operator(interaction.user.id):
+            return True
+        log("press_denied", user=str(interaction.user.id)[-4:], change_request=self.cid)
+        await interaction.response.send_message("Only the operator can decide a draft request.", ephemeral=True)
+        return False
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        await interaction.response.defer(ephemeral=True)
+        st, body = await asyncio.to_thread(bot.drafts.decide, self.cid, self.act, str(interaction.user.id), str(interaction.id))
+        log("draft_decision", change_request=self.cid, decision=self.act, status=st, by=str(interaction.user.id)[-4:])
+        if st != 200:
+            await interaction.followup.send(f"Not done: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+            return
+        try:
+            await interaction.message.edit(embed=embed_of_cr(body), view=draft_view(body))
+        except discord.HTTPException:
+            pass  # the feed poller edits the card anyway
+        await interaction.followup.send({"approve": "Approved. The author will draft it and post the PR link here.",
+                                         "reject": "Rejected. Nothing will be drafted.", "cancel": "Cancelled."}[self.act], ephemeral=True)
+
+
+def draft_view(cr: dict) -> discord.ui.View | None:
+    acts = drafts.buttons(cr)
+    if not acts:
+        return None
+    v = discord.ui.View(timeout=None)
+    for a in acts:
+        v.add_item(DraftButton(a, cr["id"]))
     return v
 
 
@@ -194,19 +255,49 @@ async def cmd_report(interaction: discord.Interaction, days: app_commands.Range[
     await interaction.response.send_message(logic.format_report(body) if st == 200 else f"The Toolbelt answered HTTP {st}.", ephemeral=True)
 
 
+@aiops.command(name="draft", description="Ask for ONE agent-authored pull request (you approve the request on its card)")
+@app_commands.describe(kind="Which kind of change (only docs is enabled for now)", title="A short title", details="What to write and what evidence to use")
+@app_commands.choices(kind=[app_commands.Choice(name="docs (incident write-ups, known-issues, procedures)", value="docs")])
+async def cmd_draft(interaction: discord.Interaction, kind: app_commands.Choice[str], title: app_commands.Range[str, 5, 120],
+                    details: app_commands.Range[str, 10, 1500]) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.drafts.create, kind.value, title, details, str(interaction.user.id))
+    log("draft_filed", status=st, by=str(interaction.user.id)[-4:])
+    if st != 200:
+        await interaction.response.send_message(f"Not filed: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+        return
+    await interaction.response.send_message(f"Filed request {body['id']}. Its card is in <#{bot.cfg.chat_channel_id}> in a few seconds: press Approve there to start the draft.",
+                                            ephemeral=True)
+
+
+@aiops.command(name="drafts", description="Open draft requests and their PRs")
+async def cmd_drafts(interaction: discord.Interaction) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.drafts.list)
+    rows = body.get("change_requests", []) if st == 200 else []
+    await interaction.response.send_message("\n".join(f"- #{c['id']} `{c['state']}` {logic.sanitize(c['title'], 70)}" + (f" {c['pr_url']}" if c.get("pr_url") else "")
+                                                      for c in rows) or "No open draft requests.", ephemeral=True)
+
+
 class Ratatoskr(discord.Client):
     def __init__(self, cfg: logic.Config):
         intents = discord.Intents.default()  # no message_content: mentions are delivered with their content anyway
         super().__init__(intents=intents, allowed_mentions=NO_MENTIONS)
         self.cfg = cfg
         self.tb, self.brain = logic.Toolbelt(cfg), logic.Brain(cfg)
+        self.drafts = drafts.Client(cfg)
         self.state = logic.State.load(cfg.state_dir)
+        self.dstate = drafts.State.load(cfg.state_dir)
         self.tree = app_commands.CommandTree(self)
         self.locks: dict[int, asyncio.Lock] = {}
         self._last_feed_error = 0.0
 
     async def setup_hook(self) -> None:
-        self.add_dynamic_items(DecisionButton)
+        self.add_dynamic_items(DecisionButton, DraftButton)
         guild = discord.Object(id=self.cfg.guild_id)
         self.tree.add_command(aiops, guild=guild)
         await self.tree.sync(guild=guild)
@@ -294,11 +385,48 @@ class Ratatoskr(discord.Client):
             self.state.save()
         (self.cfg.state_dir / "heartbeat").touch()
 
+    # ---- change-request cards (Phase 10h2) ---------------------------------------------------------------------
+    async def _apply_draft(self, act: drafts.Action) -> None:
+        cr = act.cr
+        cid = int(cr.get("thread_id") or self.cfg.chat_channel_id)
+        if act.kind == "post_card":
+            st, fresh = await asyncio.to_thread(self.drafts.get, cr["id"])
+            if st != 200 or fresh.get("message_ref") or fresh["state"] != "pending":
+                return
+            ch = await self._channel(str(cid))
+            msg = await ch.send(embed=embed_of_cr(fresh), view=draft_view(fresh), allowed_mentions=NO_MENTIONS)
+            await asyncio.to_thread(self.drafts.set_message, cr["id"], str(msg.id), str(ch.id))
+            log("draft_card_posted", change_request=cr["id"])
+        elif act.kind == "edit_card":
+            ch = await self._channel(str(cid))
+            await ch.get_partial_message(int(cr["message_ref"])).edit(embed=embed_of_cr(cr), view=draft_view(cr))
+        elif act.kind == "announce":
+            ch = await self._channel(str(cid))
+            await ch.send(drafts.announcement(cr), allowed_mentions=NO_MENTIONS,
+                          reference=ch.get_partial_message(int(cr["message_ref"])).to_reference(fail_if_not_exists=False))
+            self.dstate.announced.add(f"{cr['id']}:{cr['state']}")
+            log("draft_announced", change_request=cr["id"], state=cr["state"])
+
+    async def _poll_drafts_once(self) -> None:
+        st, body = await asyncio.to_thread(self.drafts.feed, self.dstate.cursor)
+        if st != 200:
+            return  # 501 while the Toolbelt has change requests off: quiet, the proposal feed reports real outages
+        events = body.get("events", [])
+        for act in drafts.plan(events, self.dstate):
+            try:
+                await self._apply_draft(act)
+            except (discord.HTTPException, ValueError, KeyError) as e:
+                log("apply_error", kind="draft-" + act.kind, change_request=act.cr.get("id"), error=type(e).__name__)
+        if events:
+            self.dstate.cursor = body["next"]
+            self.dstate.save()
+
     async def _feed_loop(self) -> None:
         await self.wait_until_ready()
         while not self.is_closed():
             try:
                 await self._poll_once()
+                await self._poll_drafts_once()
             except Exception as e:  # noqa: BLE001 - the loop must survive anything
                 log("poll_exception", error=type(e).__name__)
             await asyncio.sleep(self.cfg.poll_seconds)
