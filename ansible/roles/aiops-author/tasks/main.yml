@@ -69,6 +69,7 @@
   loop:
     - {path: "{{ aiops_author_work }}", mode: "0750"}
     - {path: "{{ aiops_author_work }}/jobs", mode: "2770"}
+    - {path: "{{ aiops_author_work }}/markers", mode: "2770"}
   tags: [aiops-author, aiops-author:install]
 
 - name: Install the drafting agent's definition from the repo (root-owned, so the session cannot change its own instructions)
