@@ -193,6 +193,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the burst offline gate diffs against the base commit
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.TOOL_CACHE }}
@@ -204,6 +206,10 @@ jobs:
       - run: .github/scripts/install-tool.sh "$KUBECTL_URL" "$KUBECTL_SHA" kubectl
       - run: .github/scripts/install-tool.sh "$KUBECONFORM_URL" "$KUBECONFORM_SHA" kubeconform
       - run: .github/scripts/ci-k8s.sh
+      # 10h burst test, offline half: the burst copy of the touched components builds, every Vault path an ExternalSecret reads is declared,
+      # every image in the touched app manifests exists. The live half (a real burst cluster) runs on Frigg for agent PRs.
+      - run: pip install --quiet PyYAML==6.0.2
+      - run: .github/scripts/ci-k8s-burst.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   ansible:
     name: ansible-lint

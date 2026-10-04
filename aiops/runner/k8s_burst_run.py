@@ -258,7 +258,7 @@ def markdown(summary: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def offline_gate(repo: str, work: Path, only: list, summary: dict) -> tuple[dict, list]:
+def offline_gate(repo: str, work: Path, only: list | None, summary: dict) -> tuple[dict, list]:
     """Everything that can be decided without a cluster (so a bad PR fails in seconds, before any droplet exists): render the burst copy, check
     that every Vault path an ExternalSecret reads is in the committed inventory, and that every directory Flux would reconcile still builds
     with `kubectl kustomize`. Returns (the seed plan, the problems)."""
@@ -377,6 +377,8 @@ def main(argv=None) -> int:
     ap.add_argument("--repo", required=True, help="checkout of the commit under test")
     ap.add_argument("--work", required=True, help="scratch dir for the rendered copy")
     ap.add_argument("--kubeconfig", default="", help="the burst cluster's kubeconfig (not needed with --offline)")
+    ap.add_argument("--all", action="store_true", help="with --offline: check the whole burst copy of the tree (a push to main, or no usable base)")
+    ap.add_argument("--diff-base", default="", help="with --offline: derive --only from the files changed since this git ref (CI)")
     ap.add_argument("--offline", action="store_true", help="run only the gates that need no cluster (render, Vault path inventory, kustomize builds), then exit")
     ap.add_argument("--only", nargs="*", default=[], help="components to install besides the core (apps/<x> or infrastructure/<x>)")
     ap.add_argument("--commit", default="")
@@ -387,7 +389,13 @@ def main(argv=None) -> int:
     summary: dict = {"nodes": [], "render": {"skipped": {}}, "vault": {}, "seconds": 0}
     if a.offline:
         t0 = time.time()
-        _, problems = offline_gate(a.repo, Path(a.work), a.only or [], summary)
+        only = None if a.all else (a.only or [])
+        if a.diff_base and not a.all:   # CI: the components this change touches (anything under k8s/ outside a component means the whole tree)
+            changed = subprocess.run(["git", "-C", a.repo, "diff", "--name-only", f"{a.diff_base}...HEAD"], capture_output=True, text=True, check=True).stdout.split()
+            comp = plan.components(changed)
+            only = None if comp["other"] else comp["touched"]
+            print(f"offline gate: touched={comp['touched']} skipped={sorted(comp['skipped'])} whole-tree={bool(comp['other'])}")
+        _, problems = offline_gate(a.repo, Path(a.work), only, summary)
         summary.update({"verdict": {"passed": not problems, "problems": problems, "waived": []}, "only": a.only, "commit": a.commit, "phases": {},
                         "seconds": int(time.time() - t0)})
         (Path(a.out) / "offline.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
