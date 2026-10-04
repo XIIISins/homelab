@@ -85,7 +85,7 @@
     group: root
     mode: "0644"
   loop: "{{ aiops_toolbelt_source_files }}"
-  notify: Restart aiops-toolbelt
+  notify: [Restart aiops-toolbelt, Restart aiops-author]  # the dispatcher runs this same code (author/*.py, author-classes.yml): a stale process kept old behaviour after a deploy (2026-10-04)
   tags: [aiops-toolbelt, aiops-toolbelt:install]
 
 - name: Install the acceptance replay scenarios (read per request, no restart needed)
