@@ -75,7 +75,7 @@ def guard(kube: Kube) -> list[str]:
     return nodes
 
 
-def apply_with_retry(kube: Kube, manifest: str, what: str, attempts: int = 15, pause: int = 20) -> None:
+def apply_with_retry(kube: Kube, manifest: str, what: str, attempts: int = 45, pause: int = 20) -> None:
     """Server-side apply, repeated until every kind exists: CRDs arrive from HelmReleases while the rest is already being applied (what Flux's
     retry loop does in prod)."""
     last = ""
@@ -87,7 +87,7 @@ def apply_with_retry(kube: Kube, manifest: str, what: str, attempts: int = 15, p
         if not re.search(r"no matches for kind|ensure CRDs are installed|not found|failed calling webhook|connection refused|context deadline", out):
             break
         time.sleep(pause)
-    raise Fail(f"apply {what}: {last[-400:]}")
+    raise Fail(f"apply {what}: " + " | ".join(l for l in last.splitlines() if re.search(r"error|Error|invalid|denied|forbidden", l))[:600])
 
 
 def kustomize(kube: Kube, path: Path) -> str:
@@ -193,6 +193,25 @@ def collect(kube: Kube) -> dict:
     return out
 
 
+def diagnostics(kube: Kube) -> dict:
+    """What a human needs after a failed run, captured BEFORE the cluster is destroyed: HelmRelease and source conditions, unhealthy pods, the last
+    warning events. Names, reasons and messages only (messages from controllers; no secret values are ever in them)."""
+    d: dict = {"helmreleases": [], "sources": [], "events": [], "pods": []}
+    for kind, key in (("helmreleases.helm.toolkit.fluxcd.io", "helmreleases"), ("helmrepositories.source.toolkit.fluxcd.io", "sources"),
+                      ("helmcharts.source.toolkit.fluxcd.io", "sources")):
+        for o in kube.json(["get", kind, "-A"]).get("items", []):
+            conds = o.get("status", {}).get("conditions", [])
+            ready = next((c for c in conds if c.get("type") == "Ready"), {})
+            d[key].append({"name": f"{o['metadata'].get('namespace', '')}/{o['metadata']['name']}", "ready": ready.get("status"), "reason": ready.get("reason"),
+                           "message": (ready.get("message") or "")[:300]})
+    ev = kube.json(["get", "events", "-A", "--field-selector", "type=Warning"]).get("items", [])
+    for e in sorted(ev, key=lambda x: x.get("lastTimestamp") or x.get("eventTime") or "")[-25:]:
+        d["events"].append({"object": f"{e['involvedObject'].get('namespace', '')}/{e['involvedObject'].get('name', '')}", "reason": e.get("reason"),
+                            "message": (e.get("message") or "")[:200]})
+    d["pods"] = collect(kube)["pods_unhealthy"][:30]
+    return d
+
+
 def verdict(c: dict, expected_not_ready: set) -> dict:
     """pass = every HelmRelease Ready, every ExternalSecret Ready, every workload fully ready, except names listed in `expected_not_ready`
     (components that depend on something the burst cluster cannot have, e.g. NetBox's Postgres VIP). Those are reported, never hidden."""
@@ -212,6 +231,11 @@ def markdown(summary: dict) -> str:
               "Not installed here (burst cannot run them): " + (", ".join(sorted(r["skipped"])) or "none") + ".",
               "Differences from asgard: Vault single-node/Shamir with random seeds (" + f"{summary['vault'].get('seeded_paths', 0)} paths), "
               "Let's Encrypt replaced by the internal CA, asgard-only storage classes -> local-path."]
+    if summary.get("diagnostics") and not summary["diagnostics"].get("error"):
+        dg = summary["diagnostics"]
+        bad = [h for h in dg["helmreleases"] if h["ready"] != "True"][:8]
+        lines += ["", "Cluster state at failure:"] + [f"- HelmRelease {h['name']}: {h['reason']} {h['message']}"[:220] for h in bad]
+        lines += [f"- source {x['name']}: {x['reason']} {x['message']}"[:220] for x in dg["sources"] if x["ready"] != "True"][:6]
     if v["problems"]:
         lines += ["", "Problems:"] + [f"- {p}" for p in v["problems"][:20]]
     if v["waived"]:
@@ -220,11 +244,10 @@ def markdown(summary: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run(args) -> dict:
+def run(args, summary: dict, kube: Kube) -> dict:
     t0 = time.time()
-    kube = Kube(args.kubeconfig)
-    phases: dict = {}
-    summary: dict = {"phases": phases, "only": args.only or [], "commit": args.commit or ""}
+    phases: dict = summary.setdefault("phases", {})
+    summary.update({"only": args.only or [], "commit": args.commit or ""})
 
     def phase(name):
         class _P:
@@ -311,11 +334,17 @@ def main(argv=None) -> int:
     ap.add_argument("--timeout", type=int, default=1500, help="seconds to wait for HelmReleases and ExternalSecrets")
     a = ap.parse_args(argv)
     Path(a.out).mkdir(parents=True, exist_ok=True)
+    summary: dict = {"nodes": [], "render": {"skipped": {}}, "vault": {}, "seconds": 0}
+    kube = Kube(a.kubeconfig)
     try:
-        summary = run(a)
+        run(a, summary, kube)
     except Fail as e:
-        summary = {"verdict": {"passed": False, "problems": [str(e)], "waived": []}, "nodes": [], "render": {"skipped": {}}, "vault": {},
-                   "phases": {}, "only": a.only, "commit": a.commit, "seconds": 0}
+        summary["verdict"] = {"passed": False, "problems": [str(e)], "waived": []}
+        summary.update({"only": a.only, "commit": a.commit, "failed_phase": list(summary.get("phases", {}))[-1:] or ["guard"]})
+        try:
+            summary["diagnostics"] = diagnostics(kube)
+        except Exception as ex:  # noqa: BLE001 - diagnostics are best effort
+            summary["diagnostics"] = {"error": type(ex).__name__}
     (Path(a.out) / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
     (Path(a.out) / "summary.md").write_text(markdown(summary))
     print(markdown(summary))
