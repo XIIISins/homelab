@@ -53,12 +53,20 @@ class Config:
     diagnoses_channel_id: int
     chat_channel_id: int
     forecasts_channel_id: int = 0  # optional quiet channel for forecast cards; 0 = use the chat channel
+    chat_without_mention: bool = False  # an operator's message in the chat channel is for Gná without an @mention (needs the Message Content intent)
     state_dir: Path = Path("/var/lib/ratatoskr")
     poll_seconds: float = 3.0
     chat_timeout: float = 150.0
 
     def is_operator(self, user_id: object) -> bool:
         return str(user_id) in self.operator_ids
+
+
+def directed_without_mention(cfg: Config, author_id: object, channel_id: int, parent_id: int | None = None) -> bool:
+    """Is this message for Gná although it carries no @mention? Only when the feature is on, only from an operator, and only in the chat
+    channel itself or a thread under it: the diagnosis threads and every other channel still need an explicit mention, and so does
+    anyone who is not an operator."""
+    return bool(cfg.chat_without_mention) and cfg.is_operator(author_id) and (channel_id == cfg.chat_channel_id or parent_id == cfg.chat_channel_id)
 
 
 def load_config(static_path: str, secrets_path: str, approver_token_path: str, chat_token_path: str) -> tuple[Config, str]:
@@ -71,7 +79,7 @@ def load_config(static_path: str, secrets_path: str, approver_token_path: str, c
         n8n_chat_url=st["n8n_chat_url"], n8n_chat_token=Path(chat_token_path).read_text().strip(),
         operator_ids=frozenset(str(sec["operator_user_id"]).split(",")), guild_id=int(sec["guild_id"]),
         diagnoses_channel_id=int(sec["diagnoses_channel_id"]), chat_channel_id=int(sec["chat_channel_id"]),
-        forecasts_channel_id=int(st.get("forecasts_channel_id", 0) or 0),
+        forecasts_channel_id=int(st.get("forecasts_channel_id", 0) or 0), chat_without_mention=bool(st.get("chat_without_mention", False)),
         state_dir=Path(st.get("state_dir", "/var/lib/ratatoskr")), poll_seconds=float(st.get("poll_seconds", 3.0)))
     if not cfg.operator_ids or not all(i.isdigit() for i in cfg.operator_ids):
         raise SystemExit("operator_user_id must be one or more Discord user ids")

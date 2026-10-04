@@ -18,6 +18,9 @@ ratatoskr_n8n_chat_url: "http://10.0.11.221:8081/webhook/aiops/chat" # Gna's Cad
 ratatoskr_poll_seconds: 3
 # Forecast cards (10h1) go here when set (a quiet #forecasts channel: create it, put its id here); 0 = the AIOps chat channel.
 ratatoskr_forecasts_channel_id: 0
+# An operator's message in the chat channel (or a thread under it) is for Gna without an @mention. Needs the privileged MESSAGE CONTENT INTENT
+# switched on for the bot in the Discord Developer Portal FIRST; if it is not, the bot logs `privileged_intent_missing` and runs mention-only.
+ratatoskr_chat_without_mention: false
 
 # Vault (KV v2, mount `secret`, read via the ansible AppRole at play time; same model as the n8n-agent role).
 ratatoskr_vault_discord_path: ansible/ratatoskr/discord-bot # operator-seeded: scripts/secrets/seed-discord-bot
