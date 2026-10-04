@@ -81,6 +81,14 @@ proxy being down is classed as **temporary** (the PR says "Not tested ... will a
 retry every five minutes until a test is proposed, while a real verdict ("no canary exercises that role") is never retried. The two actions are `internal`:
 the diagnosis and chat agents are never told they exist and cannot propose them.
 
+**Proven live 2026-10-04** on PR #149 (a one-line wording change to the `hardening` role's login banner, drafted from
+`/aiops draft` kind `drift`): the card for `pr-canary-test` appeared next to the request's card, the operator approved it, and
+Semaphore ran the PR branch on `canary-1` as three tasks (1930 dry run, 1931 converge, 1932 second dry run). The PR's description then
+read **Passed on a canary**: 1 task would change, the real run was ok, the second dry run changed 0 (idempotent). Getting there found
+and fixed four things: the Toolbelt's unit has no internet (the GitHub proxy above), a temporary GitHub failure was not retried, the
+dispatcher kept running the old code after a deploy through the Toolbelt role, and an approved request sat behind the daily budget
+with nothing saying so (a cap that holds back an approved request now says so on its card, in chat and in the dispatcher journal).
+
 What this does NOT protect against: the canary run executes the PR's tasks with the fleet SSH key and the runner's environment, so the
 static scan is a filter, not a sandbox. The operator reading the diff before approving the test, and a canary being disposable
 (alerts capped at `info`, rebuildable in 117 s), are the real controls.
