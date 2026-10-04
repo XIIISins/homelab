@@ -374,7 +374,7 @@ class Dispatcher:
                 audit("pr_" + state, cr=cr["id"])
 
     def tick(self, running: set) -> None:
-        if not self.identity_ok():
+        if not self.cfg.dry_run and not self.identity_ok():  # a dry run publishes nothing, so it needs no safe identity
             return
         while len(running) < self.cfg.max_parallel:
             got = self.tb.claim()
