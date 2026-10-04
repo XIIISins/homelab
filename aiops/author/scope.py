@@ -87,7 +87,10 @@ def check(cfg: dict, branch: str, files: list[dict], declared_allow: list[str] |
         if f.get("status") == "removed" and not lim.get("allow_deletes", False):
             bad.append(f"{f['filename']}: deleting files is not allowed")
         for n in names:
-            if matches(n, cfg["deny"]):
+            segs = n.split("/")
+            if n.startswith("/") or "\\" in n or ".." in segs or "." in segs or ".git" in segs or "" in segs:
+                bad.append(f"{n}: not a plain repo-relative path")
+            elif matches(n, cfg["deny"]):
                 bad.append(f"{n}: forbidden for agents")
             elif not matches(n, cls["allow"]):
                 bad.append(f"{n}: outside class `{cls_name}`")

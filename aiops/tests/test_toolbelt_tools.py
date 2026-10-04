@@ -797,6 +797,13 @@ class FakeSemaphore:
         tasks = [{"id": 30, "tpl_alias": "asgard-apply", "status": "error", "created": "2026-10-03T00:00:00Z", "playbook": "site.yml", "commit_hash": "abcdef1234567"},
                  {"id": 29, "tpl_alias": "asgard-drift-check", "status": "success", "created": "2026-10-02T23:00:00Z", "playbook": "site.yml", "commit_hash": "abcdef1234567"},
                  {"id": 28, "tpl_alias": "infra-health-check", "status": "error", "created": "2026-10-02T22:00:00Z", "playbook": "infra.yml", "commit_hash": "0123456789abc"}]
+        drift_out = [{"output": "\x1b[0;33mTASK [aiops-toolbelt : Install the API code] ***\x1b[0m"},
+                     {"output": "changed: [frigg] => (item=toolbelt/actions.py)"},
+                     {"output": "--- before: /opt/x/actions.py"}, {"output": "+++ after: /opt/x/actions.py"}, {"output": "@@ -1,2 +1,2 @@"},
+                     {"output": "-old line"}, {"output": "+new line token=hunter2hunter2"},
+                     {"output": "ok: [frigg]"},
+                     {"output": "frigg : ok=121 changed=2 unreachable=0 failed=0"}]
+
         out = [{"output": "\x1b[0;31mfatal: [hugin]: FAILED! => password=hunter2hunter2\x1b[0m"}, {"output": "PLAY RECAP hugin : ok=3 failed=1"}]
 
         class H(BaseHTTPRequestHandler):
@@ -811,6 +818,10 @@ class FakeSemaphore:
                     return
                 if self.path.endswith("/tasks/last"):
                     body = tasks
+                elif self.path.endswith("/tasks/29"):
+                    body = tasks[1]
+                elif self.path.endswith("/tasks/29/output"):
+                    body = drift_out
                 elif "/output" in self.path:
                     body = out
                 else:
@@ -863,6 +874,18 @@ class SemaphoreTool(unittest.TestCase):
         self.assertNotIn("hunter2hunter2", text)
         self.assertNotIn("\x1b", text)
         self.assertEqual(out[0]["commit"], "abcdef12")
+
+    def test_task_id_returns_the_changed_tasks_of_one_run_redacted(self):
+        self.cred()
+        r = self.tb.call_tool("semaphore.tasks", {"task_id": 29}, self.inc)["result"]
+        self.assertEqual(r["task"]["template"], "asgard-drift-check")
+        self.assertEqual(r["task"]["commit"], "abcdef12")
+        self.assertTrue(any("changed=2" in l for l in r["recap"]))
+        self.assertEqual(len(r["changed"]), 1)
+        self.assertIn("Install the API code", r["changed"][0]["task"])
+        self.assertIn("+new line", "\n".join(r["changed"][0]["diff"]))
+        self.assertNotIn("hunter2hunter2", json.dumps(r))
+        self.assertNotIn("\x1b", json.dumps(r))
 
     def test_limit_is_honoured_only_get_is_sent_and_a_bad_token_is_a_502(self):
         self.cred()

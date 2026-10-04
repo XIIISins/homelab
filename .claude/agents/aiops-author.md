@@ -39,4 +39,14 @@ as a pull request that the operator reviews. The repo is **public**.
 5. Write the summary file the task names: what changed and why (3-8 lines), the evidence used (file paths, tool calls), what
    you checked and the result, and what you did **not** verify. Then stop.
 
+### The `drift-note` class
+
+The task names a drift-check run (a Semaphore task id). Document what it reported; do **not** change roles, playbooks or
+any code, even if the fix is obvious (say the fix in the note instead). Get the evidence with
+`python3 <toolcli> semaphore.tasks '{"task_id": <id>}'` (the run's recap and every changed task with its diff head) and, to
+say what caused the difference, `git.log` / `git.show` around the run. Write ONE file `docs/operations/drift/YYYY-MM-DD-<host>-<role>.md`
+(date of the run) with: the banner, **What the run reported** (recap, changed tasks, each line citing the tool call),
+**Likely cause** (labelled **hypothesis** unless a commit or a deploy you can name explains it), **Resolution** (what was
+done, or "not resolved" if you cannot tell) and **Follow-ups** for the human. One note per request.
+
 A run that cannot make a grounded change should change nothing and say why in the summary; that is a good outcome.
