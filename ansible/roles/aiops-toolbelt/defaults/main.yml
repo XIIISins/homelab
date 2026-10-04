@@ -116,6 +116,7 @@ aiops_toolbelt_source_files:
   - toolbelt/forecast_run.py
   - toolbelt/incident_draft.py
   - toolbelt/change_requests.py
+  - toolbelt/drift.py
   - author/__init__.py
   - author/scope.py
   - author/dispatcher.py
