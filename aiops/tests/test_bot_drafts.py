@@ -81,6 +81,32 @@ class Plan(unittest.TestCase):
         self.assertEqual((again.cursor, again.announced), (9, {"4:merged"}))
 
 
+class IncidentRequest(unittest.TestCase):
+    def test_the_request_only_names_the_incident_and_fits_the_body_limit(self):
+        title, body = drafts.incident_request(41)
+        self.assertEqual(title, "Incident write-up for incident #41")
+        self.assertIn('{"incident_id": 41}', body)
+        self.assertIn("incident.draft", body)
+        self.assertLess(len(body), 4000)
+        self.assertLess(len(title), 120)
+        for forbidden in ("decisions.md", "CLAUDE.md"):
+            self.assertIn(forbidden, body)  # named only as files the session must NOT edit
+        self.assertEqual(drafts.incident_request("7")[0], "Incident write-up for incident #7")  # always an int in the text
+
+    def test_the_client_files_it_with_its_source_and_reference(self):
+        rig = tcr.Rig()
+        try:
+            cfg = logic.Config(toolbelt_url=rig.base, approver_token=tcr.T_APPR, n8n_chat_url="", n8n_chat_token="", operator_ids=frozenset({tcr.OP}),
+                               guild_id=1, diagnoses_channel_id=2, chat_channel_id=3)
+            title, body = drafts.incident_request(41)
+            st, cr = drafts.Client(cfg).create("docs", title, body, tcr.OP, "incident", "incident-41")
+            self.assertEqual(st, 200, cr)
+            got = rig.call(tcr.T_APPR, "GET", f"/change-requests/{cr['id']}")[1]
+            self.assertEqual((got["source"], got["source_ref"], got["class"]), ("incident", "incident-41", "docs"))
+        finally:
+            rig.close()
+
+
 class AgainstTheRealToolbelt(unittest.TestCase):
     def test_file_decide_and_feed_through_the_client(self):
         rig = tcr.Rig()

@@ -39,6 +39,16 @@ as a pull request that the operator reviews. The repo is **public**.
 5. Write the summary file the task names: what changed and why (3-8 lines), the evidence used (file paths, tool calls), what
    you checked and the result, and what you did **not** verify. Then stop.
 
+### Incident write-ups (docs class, `incident.draft`)
+
+When the task names a Toolbelt incident, fetch its mechanical draft with `python3 <toolcli> incident.draft '{"incident_id": N}'`.
+The answer's `markdown` is generated from the Toolbelt's own records (every line cites its source) and its `filename` is the
+target under `docs/incidents/`. Write it there **verbatim**: keep the DRAFT banner and do not reword, reorder or "improve" any
+cited line, and do not add a timestamp, count, command output or cause that is not in it. Then add one row to
+`docs/incidents/README.md` in the existing format and a short **Follow-ups** list naming what `decisions.md`,
+`open-questions.md`, `build-sequence.md` and `CLAUDE.md` would need (you may not edit them). A known-issues entry only if the
+draft's evidence supports it; otherwise leave the root cause as the draft's labelled hypothesis.
+
 ### The `drift-note` class
 
 The task names a drift-check run (a Semaphore task id). Document what it reported; do **not** change roles, playbooks or
