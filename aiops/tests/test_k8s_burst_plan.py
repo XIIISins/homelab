@@ -119,5 +119,86 @@ class RealRepo(unittest.TestCase):
             self.assertIn(kb.components([f])["skipped"].keys().__iter__().__next__(), kb.SKIPPED)
 
 
+class Render(unittest.TestCase):
+    """render_tree on the real repo: the burst copy must differ from asgard in exactly the documented ways and still be buildable."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.t = tempfile.TemporaryDirectory()
+        cls.out = Path(cls.t.name)
+        cls.summary = kb.render_tree(REPO, cls.out)
+        cls.tree = cls.out / "k8s" / "asgard"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.t.cleanup()
+
+    def all_text(self):
+        """Every manifest line that is not a comment (comments may still mention asgard-only things in prose)."""
+        return "\n".join(line for p in self.tree.rglob("*.y*ml") for line in p.read_text().splitlines() if not line.lstrip().startswith("#"))
+
+    def test_skipped_components_are_gone_from_the_tree_and_named_in_the_summary(self):
+        for name in ("metallb", "synology-csi", "csi-driver-nfs", "cloudflared", "sealed-secrets"):
+            self.assertFalse((self.tree / "infrastructure" / name).exists(), name)
+            self.assertIn(name, self.summary["skipped"])
+        for name in ("metallb-config", "synology-csi-config", "vault-config"):
+            self.assertFalse((self.tree / name).exists(), name)
+            self.assertFalse((self.tree / "flux-system" / f"{name}.yaml").exists(), name)
+        self.assertNotIn("sealed-secrets", (self.tree / "infrastructure" / "kustomization.yaml").read_text())
+
+    def test_nothing_in_the_burst_copy_can_reach_lets_encrypt_cloudflare_the_kms_or_asgard_only_storage(self):
+        text = self.all_text()
+        self.assertNotIn("letsencrypt", text)
+        self.assertNotIn("api.cloudflare", text)
+        self.assertNotIn("cert-manager/cloudflare", text)
+        self.assertNotIn("awskms", text)
+        self.assertNotIn("vault-unseal", text)
+        self.assertNotIn("synology-csi-iscsi-retain-vol2", text)
+        self.assertNotIn("nfs-client", text)
+
+    def test_wildcard_certificates_keep_their_names_and_move_to_the_internal_ca(self):
+        import yaml
+        certs = []
+        for p in (self.tree / "gateway-config").glob("certificate-*.yaml"):
+            certs += [d for d in yaml.safe_load_all(p.read_text()) if d and d.get("kind") == "Certificate"]
+        self.assertGreaterEqual(len(certs), 3)
+        for c in certs:
+            self.assertEqual(c["spec"]["issuerRef"]["name"], "homelab-internal-ca", c["metadata"]["name"])
+            self.assertTrue(c["spec"]["dnsNames"])
+
+    def test_vault_is_one_node_shamir_sealed_with_the_prod_chart_version_and_image(self):
+        import yaml
+        prod = [d for d in yaml.safe_load_all((REPO / "k8s/asgard/infrastructure/vault/helmrelease.yaml").read_text()) if d and d.get("kind") == "HelmRelease"][0]
+        burst = [d for d in yaml.safe_load_all((self.tree / "infrastructure/vault/helmrelease.yaml").read_text()) if d and d.get("kind") == "HelmRelease"][0]
+        self.assertEqual(burst["spec"]["chart"], prod["spec"]["chart"])                                  # same chart, same version
+        self.assertEqual(burst["spec"]["values"]["server"]["image"], prod["spec"]["values"]["server"]["image"])
+        self.assertEqual((burst["spec"]["values"]["server"]["replicas"], burst["spec"]["values"]["server"]["ha"]["replicas"]), (1, 1))
+        self.assertIn("tls_cert_file", burst["spec"]["values"]["server"]["ha"]["raft"]["config"])        # listener TLS unchanged
+        self.assertEqual(burst["spec"]["values"]["ui"]["serviceType"], "ClusterIP")
+
+    def test_the_summary_lists_every_difference(self):
+        self.assertTrue(any("vault" in p for p in self.summary["patched"]))
+        self.assertEqual(sorted(self.summary["le_removed"]), sorted(f for f in kb.LE_FILES))
+
+    def test_a_core_profile_installs_only_the_platform_and_a_named_component_adds_itself(self):
+        with tempfile.TemporaryDirectory() as t:
+            s = kb.render_tree(REPO, t, only=[])
+            infra = (Path(t) / "k8s/asgard/infrastructure/kustomization.yaml").read_text()
+            for c in kb.CORE:
+                self.assertIn(c, infra)
+            self.assertNotIn("authentik", infra)
+            self.assertIn("apps/netbox", s["not_installed"])
+            s2 = kb.render_tree(REPO, t, only=["netbox"])
+            self.assertIn("netbox", (Path(t) / "k8s/asgard/apps/kustomization.yaml").read_text())
+            self.assertNotIn("apps/netbox", s2["not_installed"])
+
+    @unittest.skipUnless(__import__("shutil").which("kubectl"), "kubectl (for `kubectl kustomize`) is not installed")
+    def test_every_directory_the_flux_kustomizations_point_at_still_builds(self):
+        import subprocess
+        for d in ("infrastructure", "infrastructure-config", "cert-manager-config", "gateway-config", "apps"):
+            r = subprocess.run(["kubectl", "kustomize", str(self.tree / d)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(r.returncode, 0, f"{d}: {r.stderr[:300]}")
+
+
 if __name__ == "__main__":
     unittest.main()
