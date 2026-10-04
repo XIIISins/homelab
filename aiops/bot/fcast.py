@@ -23,6 +23,9 @@ SIGNALS = {
     "vm.memory.size[pavailable]": "Memory headroom",
     "kubelet_volume_stats_used_bytes/capacity_bytes": "Kubernetes volume fill",
     "vl_data_size_bytes": "VictoriaLogs data size",
+    "vfs.dev.await": "Disk latency",
+    "smart.disk.media_errors": "NVMe media errors",
+    "smart.disk.percentage_used": "NVMe wear",
 }
 
 
@@ -77,7 +80,7 @@ def _pct(x) -> str:
 def eta_text(fc: dict) -> str:
     d = fc.get("days_to_full")
     if d is None:
-        return "no date (a fast rise, not a fill)"
+        return "no date (a trend change, not a fill)" if fc.get("kind") in ("creep", "step-up") else "no date (a fast rise, not a fill)"
     when = dt.datetime.fromtimestamp(fc["eta_at"], dt.timezone.utc).strftime("%Y-%m-%d") if fc.get("eta_at") else "?"
     return f"about {d:.0f} day(s), around {when}" if d >= 1 else f"about {d * 24:.0f} hour(s)"
 
@@ -88,6 +91,12 @@ def headline(fc: dict) -> str:
         slope = ev.get("slope_per_day")
         rate = f" It is growing about {float(slope) * 100:.1f} points a day." if slope is not None else ""
         return f"At the current trend this reaches its limit ({_pct(ev.get('capacity'))}) in {eta_text(fc)}.{rate}"
+    if fc.get("kind") == "creep":
+        return (f"The 95th-percentile latency is {fc.get('ratio') or '?'}x last week's ({ev.get('p95_this_week', '?')} ms against "
+                f"{ev.get('p95_last_week', '?')} ms). It is getting slower, not just slow.")
+    if fc.get("kind") == "step-up":
+        return f"Rose by {ev.get('delta', '?'):g} in the last {ev.get('window_days', 7):g} days (now {ev.get('latest', '?'):g})." if isinstance(ev.get("delta"), (int, float)) \
+            else "A counter that should stay flat moved."
     ratio = fc.get("ratio")
     return ("Rising much faster than over the previous day" + (f" (about {ratio:g}x)" if ratio else "") +
             f", {float(ev.get('recent_rate_per_hour', 0)):.3g} per hour." if ev else ".")

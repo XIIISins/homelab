@@ -39,6 +39,10 @@ class FakeZabbix:
             "202": hourly(start, NOW, lambda d: 945e9),                                  # urd local-lvm total
             "203": hourly(start, NOW, lambda d: 205e9),                                  # pbs-backup used (flat)
             "204": hourly(start, NOW, lambda d: 257.7e9),
+            "401": hourly(start, NOW, lambda d: 1.0 if d < 8 else 2.5),                  # urd nvme0n1 read await: 1.0 ms, then 2.5 ms for the last week
+            "402": hourly(start, NOW, lambda d: 0.2),                                    # verd nvme0n1 read await: flat
+            "501": hourly(start, NOW, lambda d: 0.0 if d < 12 else 2.0),                 # urd media errors: two new ones three days ago
+            "502": hourly(start, NOW, lambda d: 0.0),                                    # verd media errors: none
             "301": hourly(start, NOW, lambda d: 90.0 - 4.0 * d),                         # hugin memory available % falling 4 pts/day (30% left now: 90% used in ~5 days)
         }
 
@@ -62,6 +66,16 @@ class FakeZabbix:
             if key == "proxmox.node.maxdisk[":
                 return [{"itemid": "202", "hostid": "11", "key_": "proxmox.node.maxdisk[urd,local-lvm]", "value_type": "3"},
                         {"itemid": "204", "hostid": "11", "key_": "proxmox.node.maxdisk[urd,pbs-backup]", "value_type": "3"}]
+            if key == "vfs.dev.":
+                return [{"itemid": "401", "hostid": "11", "key_": "vfs.dev.read.await[nvme0n1]", "value_type": "0"},
+                        {"itemid": "402", "hostid": "12", "key_": "vfs.dev.read.await[nvme0n1]", "value_type": "0"},
+                        {"itemid": "403", "hostid": "11", "key_": "vfs.dev.util[nvme0n1]", "value_type": "0"},
+                        {"itemid": "404", "hostid": "10", "key_": "vfs.dev.read.await[sda]", "value_type": "0"}]   # a guest's virtual disk: not an NVMe, not forecast
+            if key == "smart.disk.media_errors[":
+                return [{"itemid": "501", "hostid": "11", "key_": "smart.disk.media_errors[nvme0]", "value_type": "3"},
+                        {"itemid": "502", "hostid": "12", "key_": "smart.disk.media_errors[nvme0]", "value_type": "3"}]
+            if key == "smart.disk.percentage_used[":
+                return []   # the SMART template's discovery has not produced this item yet
             if key == "vm.memory.size[pavailable]":
                 return [{"itemid": "301", "hostid": "10", "key_": "vm.memory.size[pavailable]", "value_type": "0"},
                         {"itemid": "302", "hostid": "999", "key_": "vm.memory.size[pavailable]", "value_type": "0"}]
@@ -104,8 +118,33 @@ class Source(unittest.TestCase):
         self.assertAlmostEqual(rows["hugin"][0][1], 1 - 0.90, places=2)
         self.assertGreater(rows["hugin"][-1][1], rows["hugin"][0][1])
 
+    def test_latency_is_one_series_per_host_device_and_direction_and_other_vfs_dev_items_are_ignored(self):
+        rows = dict(self.src.await_ms(NOW - 15 * DAY, NOW))
+        self.assertEqual(sorted(rows), ["urd:nvme0n1:read", "verd:nvme0n1:read"])
+
+    def test_smart_counters_are_one_series_per_host_and_disk_and_empty_before_discovery(self):
+        rows = dict(self.src.smart("media_errors", NOW - 15 * DAY, NOW))
+        self.assertEqual(sorted(rows), ["urd:nvme0", "verd:nvme0"])
+        self.assertEqual(self.src.smart("percentage_used", NOW - 15 * DAY, NOW), [])
+
+    def test_a_week_over_week_latency_creep_is_found_on_the_drive_that_got_slower_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            found, stats = Run().run_pass(FakeZabbix(), tmp)
+            creeps = {f.target: f for f in found if f.kind == "creep"}
+            self.assertEqual(list(creeps), ["urd:nvme0n1:read"])
+            self.assertAlmostEqual(creeps["urd:nvme0n1:read"].ratio, 2.5, places=1)
+            self.assertEqual(stats["nvme-latency-creep"]["series"], 2)
+
+    def test_a_new_media_error_is_found_and_a_quiet_drive_is_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            found, stats = Run().run_pass(FakeZabbix(), tmp)
+            steps = {f.target: f for f in found if f.kind == "step-up"}
+            self.assertEqual(list(steps), ["urd:nvme0"])
+            self.assertEqual(steps["urd:nvme0"].evidence["delta"], 2.0)
+            self.assertEqual(stats["nvme-wear"]["series"], 0)         # no wear item yet: an empty series list, not an error
+
     def test_only_get_methods_are_ever_called(self):
-        for t in ("fleet-fs-used", "pve-storage-used", "memory-used"):
+        for t in ("fleet-fs-used", "pve-storage-used", "memory-used", "nvme-latency-creep", "nvme-media-errors"):
             self.src.query(target(t), NOW - 15 * DAY, NOW)
         self.assertTrue(set(self.z.calls) <= {"host.get", "item.get", "trend.get"}, self.z.calls)
 

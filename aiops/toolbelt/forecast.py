@@ -1,9 +1,12 @@
 """Forecasting detectors (Phase 10h1): slow-fill and fast-rise, as pure functions, plus a thin shadow-mode runner.
 
-Two detectors, because homelab series are not smooth (docs/operations/10h-predictive-change.md):
+Four detectors, because homelab series are not smooth (docs/operations/10h-predictive-change.md):
   slow_fill  a least-squares line over a window projects the days until a series crosses its capacity/threshold.
   fast_rise  the recent rate against the prior baseline rate, for step changes a 14-day line cannot see (a log flood).
-Neither predicts a sudden fault; those stay alerts. Forecasts are notifications, never pages.
+  creep      this week's p95 against last week's, for a latency that drifts upward (an NVMe getting slower).
+  step_up    a counter that moved at all inside the window (SMART media errors, a jump in wear).
+None predicts a sudden fault; those stay alerts. The Zabbix and VictoriaMetrics sources hand over HOURLY points, so every window
+here is sized for hourly data (a one-hour window holds one point and could never fire). Forecasts are notifications, never pages.
 
 SHADOW MODE: run_once() only appends findings to a local JSONL file and returns them. There is no Discord, ticket or
 Hermod output in this slice, and nothing starts this module; wiring it into the Toolbelt is a separate, deliberate step.
@@ -123,6 +126,43 @@ def slow_fill(series: Series, capacity: float, now: float, horizon_days: float =
                              "current": round(current, 6), "capacity": capacity, "window_days": window_days})
 
 
+def _p95(vals: list) -> float:
+    s = sorted(vals)
+    return s[min(len(s) - 1, int(math.ceil(0.95 * len(s))) - 1)]
+
+
+def creep(series: Series, now: float, week: float = 7 * DAY, ratio: float = 1.5, floor: float = 0.0, min_points: int = 72,
+          target: str = "", metric: str = "") -> Finding | None:
+    """This week's p95 against the previous week's. A finding when the latest is at least `ratio` times the earlier one AND above the
+    absolute `floor` (so 0.1 ms becoming 0.2 ms is not news). Each week needs `min_points` samples (72 of 168 hourly)."""
+    pts = _clean(series)
+    cur = [v for t, v in pts if now - week < t <= now]
+    prev = [v for t, v in pts if now - 2 * week < t <= now - week]
+    if len(cur) < min_points or len(prev) < min_points:
+        return None
+    p_cur, p_prev = _p95(cur), _p95(prev)
+    if p_cur < floor or p_prev <= 0 or p_cur / p_prev < ratio:
+        return None
+    r = p_cur / p_prev
+    return Finding(target=target, metric=metric, kind="creep", ratio=round(r, 2), confidence="high" if r >= 2 * ratio else "medium", ts=now,
+                   evidence={"p95_this_week": round(p_cur, 4), "p95_last_week": round(p_prev, 4), "points_this_week": len(cur),
+                             "points_last_week": len(prev)})
+
+
+def step_up(series: Series, now: float, window: float = 7 * DAY, min_delta: float = 1.0, min_points: int = 3,
+            target: str = "", metric: str = "") -> Finding | None:
+    """The series rose by at least `min_delta` inside the window (latest value minus the lowest value in it): a counter that moved."""
+    pts = [(t, v) for t, v in _clean(series) if now - window <= t <= now]
+    if len(pts) < min_points:
+        return None
+    low = min(v for _, v in pts)
+    delta = pts[-1][1] - low
+    if delta < min_delta:
+        return None
+    return Finding(target=target, metric=metric, kind="step-up", confidence="high", ts=now,
+                   evidence={"delta": delta, "latest": pts[-1][1], "lowest_in_window": low, "window_days": window / DAY, "points": len(pts)})
+
+
 def fast_rise(series: Series, now: float, window: float = 3600, baseline: float = DAY, factor: float = 3.0,
               floor: float = 0.0, min_points: int = 3, reset_drop: float = math.inf,
               target: str = "", metric: str = "") -> Finding | None:
@@ -180,8 +220,12 @@ class Target:
     floor_per_hour: float = 0.0         # fast-rise absolute floor
     daily: str | None = None            # "max" | "min": collapse to daily extrema before slow-fill
     needs_data_source: bool = False
-    zabbix: tuple | None = None         # ("fs",) | ("memory",) | ("pve", (storage, ...)): read through forecast_zabbix.ZabbixSource
+    zabbix: tuple | None = None         # ("fs",) | ("memory",) | ("pve", (storage, ...)) | ("await",) | ("smart", metric): forecast_zabbix.ZabbixSource
     note: str = ""
+    fast_window: float = 6 * 3600.0     # fast-rise window; the sources are hourly, so 6 h = 6 points (a 1 h window could never fire)
+    creep_ratio: float = 1.5            # creep: this week's p95 / last week's
+    creep_floor: float = 0.0            # creep: ignore a p95 below this absolute value (units of the series)
+    step_min: float = 1.0               # step-up: the rise inside the window that counts
 
 
 # Real series only. The repo's vmagent scrapes kubelet, cAdvisor and kube-state-metrics (no node_exporter), and VictoriaLogs
@@ -202,6 +246,17 @@ DEFAULT_TARGETS = (
            floor_per_hour=0.01, daily="max",
            note="local-lvm is the thin pool; pbs-backup is the PBS datastore as PVE sees it (the plan's PBS-capacity signal); munin-nfs the NAS share. "
                 "The pool fills while every guest still looks fine, which is why it is its own series."),
+    # Disk health on the hypervisors (10h1 leftovers, 2026-10-04). Await items exist on every host (hourly trends for 365 days); the SMART items
+    # come from the "SMART by Zabbix agent 2" template linked on the PVE hosts, so their series start the day it was linked.
+    Target("nvme-latency-creep", "vfs.dev.await", zabbix=("await", "nvme"), detectors=("creep",), creep_ratio=1.5, creep_floor=1.0,
+           note="NVMe devices only (the hypervisors; guest virtual disks swing 2-3x week to week and would be noise: checked live 2026-10-04). "
+                "Per device and direction, p95 of hourly average await (ms): this week against last. Urd's DRAM-less drive already runs several times "
+                "its siblings; this watches for it getting WORSE, not for the absolute level. Floor 1 ms keeps a quiet drive from alerting on noise."),
+    Target("nvme-media-errors", "smart.disk.media_errors", zabbix=("smart", "media_errors"), detectors=("step-up",), step_min=1.0,
+           note="Any new media or data-integrity error on an NVMe drive in the last 7 days. A counter that moved is news by itself."),
+    Target("nvme-wear", "smart.disk.percentage_used", zabbix=("smart", "percentage_used"), detectors=("step-up",), step_min=3.0,
+           note="NVMe 'Percentage Used' (rated endurance consumed, %): a rise of 3 points or more inside a week is abnormal wear (normal is a "
+                "point or two a YEAR; Urd's NM790 read 7 % on 2026-10-04)."),
     Target("memory-used", "vm.memory.size[pavailable]", zabbix=("memory",), detectors=("slow-fill",), capacity=0.90, daily="max",
            note="1 - available memory, daily high. Memory is not linear: this catches a steady creep, not a leak that fills it in hours."),
 )
@@ -214,7 +269,7 @@ def validate_targets(targets) -> list[str]:
         if t.name in names:
             errs.append(f"{t.name}: duplicate name")
         names.add(t.name)
-        if not set(t.detectors) <= {"slow-fill", "fast-rise"} or not t.detectors:
+        if not set(t.detectors) <= {"slow-fill", "fast-rise", "creep", "step-up"} or not t.detectors:
             errs.append(f"{t.name}: bad detectors {t.detectors}")
         if not t.needs_data_source and not t.promql and not t.zabbix:
             errs.append(f"{t.name}: no promql, no zabbix selector and not marked needs_data_source")
@@ -222,7 +277,8 @@ def validate_targets(targets) -> list[str]:
             errs.append(f"{t.name}: marked needs_data_source but has a promql")
         if t.zabbix and (t.promql or t.needs_data_source):
             errs.append(f"{t.name}: a zabbix target has no promql and is not needs_data_source")
-        if t.zabbix and (t.zabbix[0] not in ("fs", "memory", "pve") or (t.zabbix[0] == "pve" and not t.zabbix[1])):
+        if t.zabbix and (t.zabbix[0] not in ("fs", "memory", "pve", "await", "smart") or (t.zabbix[0] in ("pve", "smart") and len(t.zabbix) < 2)
+                         or (t.zabbix[0] == "pve" and not t.zabbix[1])):
             errs.append(f"{t.name}: bad zabbix selector {t.zabbix}")
         if "slow-fill" in t.detectors and not t.needs_data_source and t.capacity is None:
             errs.append(f"{t.name}: slow-fill needs a capacity")
@@ -240,7 +296,15 @@ def evaluate(t: Target, label: str, series: Series, now: float) -> list[Finding]
         if f:
             out.append(f)
     if "fast-rise" in t.detectors:
-        f = fast_rise(series, now, floor=t.floor_per_hour, target=label, metric=t.metric)
+        f = fast_rise(series, now, window=t.fast_window, floor=t.floor_per_hour, target=label, metric=t.metric)
+        if f:
+            out.append(f)
+    if "creep" in t.detectors:
+        f = creep(series, now, ratio=t.creep_ratio, floor=t.creep_floor, target=label, metric=t.metric)
+        if f:
+            out.append(f)
+    if "step-up" in t.detectors:
+        f = step_up(series, now, min_delta=t.step_min, target=label, metric=t.metric)
         if f:
             out.append(f)
     return out

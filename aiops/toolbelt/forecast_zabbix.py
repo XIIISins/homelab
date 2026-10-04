@@ -1,12 +1,14 @@
 """Zabbix as a forecast source (Phase 10h1): hourly trends for filesystem fill, Proxmox storage fill and memory headroom.
 
 The fleet is watched by Zabbix, which keeps 31 days of raw history and 365 days of hourly trends (verified 2026-10-04), so a 14-day
-robust fit has plenty of data. This adapter turns three families of items into the same `[(label, [(ts, value), ...])]` shape the
+robust fit has plenty of data. This adapter turns five families of items into the same `[(label, [(ts, value), ...])]` shape the
 VictoriaMetrics source returns, scaled to a 0..1 fill ratio so one detector and one threshold convention serve every signal:
 
   fs      `vfs.fs.dependent.size[<mount>,pused]` per monitored host           -> pused / 100, daily maximum
   pve     `proxmox.node.disk[<node>,<storage>]` / `proxmox.node.maxdisk[...]` -> used / total (thin pools, the PBS datastore as PVE sees it)
   memory  `vm.memory.size[pavailable]` per monitored host                     -> 1 - pavailable / 100 (the daily low-water mark of available memory)
+  await   `vfs.dev.read.await[<dev>]` / `vfs.dev.write.await[<dev>]`         -> milliseconds, hourly average (label host:dev:read|write)
+  smart   `smart.disk.<metric>[<disk>]` (SMART by Zabbix agent 2)             -> the raw counter, hourly maximum (label host:disk)
 
 Read-only: only `*.get` methods are ever called. `call(method, params)` is injected (production: tools._zbx with the Toolbelt's
 read-only Zabbix credential; tests: a fake), so nothing here touches the network on its own.
@@ -95,8 +97,36 @@ class ZabbixSource:
                 out.append((f"{m.group(1)}/{m.group(2)}", pts))
         return out
 
+    def await_ms(self, start: float, end: float, dev_prefix: str = "") -> list:
+        """Per host, device and direction; `dev_prefix` keeps only devices whose name starts with it ("nvme": the hypervisors' drives, not
+        every guest's virtual disk, whose week-to-week swings are noise)."""
+        hosts = self.monitored_hosts()
+        pat = re.compile(r"vfs\.dev\.(read|write)\.await\[([^\],]+)\]$")
+        items = [i for i in self._items("vfs.dev.") if i["hostid"] in hosts and pat.match(i["key_"]) and pat.match(i["key_"]).group(2).startswith(dev_prefix)]
+        tr = self._trends([i["itemid"] for i in items], start, "value_avg")
+        out = []
+        for i in items:
+            m = pat.match(i["key_"])
+            pts = [(t, v) for t, v in tr[i["itemid"]] if t <= end]
+            if pts:
+                out.append((f"{hosts[i['hostid']]}:{m.group(2)}:{m.group(1)}", pts))
+        return out
+
+    def smart(self, metric: str, start: float, end: float) -> list:
+        """One series per (host, disk) for `smart.disk.<metric>[<disk>]`, hourly maximum. Empty until the SMART template's discovery has run."""
+        hosts = self.monitored_hosts()
+        pat = re.compile(r"smart\.disk\." + re.escape(metric) + r"\[([^\]]+)\]$")
+        items = [i for i in self._items(f"smart.disk.{metric}[") if i["hostid"] in hosts and pat.match(i["key_"])]
+        tr = self._trends([i["itemid"] for i in items], start, "value_max")
+        out = []
+        for i in items:
+            pts = [(t, v) for t, v in tr[i["itemid"]] if t <= end]
+            if pts:
+                out.append((f"{hosts[i['hostid']]}:{pat.match(i['key_']).group(1)}", pts))
+        return out
+
     def query(self, target, start: float, end: float) -> list:
-        """The series for one forecast Target (target.zabbix = ("fs",) | ("memory",) | ("pve", (storage, ...)))."""
+        """The series for one forecast Target (target.zabbix = ("fs",) | ("memory",) | ("pve", (storage, ...)) | ("await",) | ("smart", metric))."""
         kind = target.zabbix[0]
         if kind == "fs":
             return self.fs_used(start, end)
@@ -104,6 +134,10 @@ class ZabbixSource:
             return self.memory_used(start, end)
         if kind == "pve":
             return self.pve_storage(tuple(target.zabbix[1]), start, end)
+        if kind == "await":
+            return self.await_ms(start, end, str(target.zabbix[1]) if len(target.zabbix) > 1 else "")
+        if kind == "smart":
+            return self.smart(str(target.zabbix[1]), start, end)
         raise ValueError(f"unknown zabbix source kind {kind!r}")
 
 

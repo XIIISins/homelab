@@ -174,7 +174,7 @@ class ConfigTests(unittest.TestCase):
             else:
                 self.assertTrue(t.promql or t.zabbix, t.name)  # every live target reads a real source
             if t.zabbix:
-                self.assertIn(t.zabbix[0], ("fs", "memory", "pve"), t.name)
+                self.assertIn(t.zabbix[0], ("fs", "memory", "pve", "await", "smart"), t.name)
                 self.assertTrue(t.note, t.name)
         self.assertTrue({"fleet-fs-used", "pve-storage-used", "memory-used"} <= {t.name for t in fc.DEFAULT_TARGETS})
         self.assertFalse([t.name for t in fc.DEFAULT_TARGETS if t.needs_data_source])  # the 2026-10-04 gap is closed
