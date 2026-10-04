@@ -19,6 +19,19 @@ When a read-only (T0) proposal succeeds, the result note also carries one plain 
 
 Cards are numbered `#1, #2, #3` within their conversation (or incident), which is also how the agent refers to them; the footer shows the global `id`, which is what the audit log, `/aiops status` (`#1 (id 4)`) and the API use. A card expires after 30 minutes undecided and nothing runs. If a card says the post-condition **did not hold**, read its "If it goes wrong" line: a restart has no inverse, so escalate to the unit's runbook.
 
+## Chat without an @mention (opt-in)
+
+Default: Gná answers only when mentioned. With `ratatoskr_chat_without_mention: true`, **an operator's** message in the AIOps chat channel (or a thread under it) is for Gná without
+a mention; anyone else, the diagnosis threads and every other channel still need `@Gná`. Discord only sends message text to a bot without a mention if it has the privileged
+**Message Content intent**, so the order matters:
+
+1. Discord Developer Portal -> the bot application -> Bot -> Privileged Gateway Intents -> enable **Message Content Intent**.
+2. Set `ratatoskr_chat_without_mention: true` (role default, or `-e`), run `ansible-playbook playbooks/asgard-ratatoskr.yml`.
+3. Check: `journalctl -u ratatoskr -o cat | grep -E '"event": "(start|ready|privileged_intent_missing)"'` shows `chat_without_mention: true` and `ready`.
+
+If step 1 was skipped, Discord refuses the connection; the bot (the only approver) logs `privileged_intent_missing` with the fix and comes up in mention-only mode instead of staying down.
+Each top-level message starts a conversation thread as a mention does; replies inside the thread need nothing.
+
 ## Deploy (operator, from the main checkout; every step is CLI)
 
 Order matters; each step gates the next.

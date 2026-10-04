@@ -373,7 +373,9 @@ async def cmd_drafts(interaction: discord.Interaction) -> None:
 
 class Ratatoskr(discord.Client):
     def __init__(self, cfg: logic.Config):
-        intents = discord.Intents.default()  # no message_content: mentions are delivered with their content anyway
+        intents = discord.Intents.default()  # no message_content by default: mentions are delivered with their content anyway
+        if cfg.chat_without_mention:
+            intents.message_content = True  # PRIVILEGED: also needs the toggle in the Discord Developer Portal (main() falls back if it is off)
         super().__init__(intents=intents, allowed_mentions=NO_MENTIONS)
         self.cfg = cfg
         self.tb, self.brain = logic.Toolbelt(cfg), logic.Brain(cfg)
@@ -407,14 +409,18 @@ class Ratatoskr(discord.Client):
         return None
 
     async def on_message(self, message: discord.Message) -> None:
-        if message.author.bot or self.user is None or self.user not in message.mentions:
+        if message.author.bot or self.user is None:
+            return
+        mentioned = self.user in message.mentions
+        if not mentioned and not logic.directed_without_mention(self.cfg, message.author.id, message.channel.id, getattr(message.channel, "parent_id", None)):
             return
         target = await self._chat_target(message)
         if target is None:
             return
         content = logic.strip_mention(message.content, self.user.id)
         if not content:
-            await target.send("Mention me with a question, for example `@Gná why is canary-2 unreachable?`", allowed_mentions=NO_MENTIONS)
+            if mentioned:  # an empty mention gets a hint; an empty message without one (an attachment, an embed) is simply ignored
+                await target.send("Mention me with a question, for example `@Gná why is canary-2 unreachable?`", allowed_mentions=NO_MENTIONS)
             return
         lock = self.locks.setdefault(target.id, asyncio.Lock())
         async with lock:
@@ -579,9 +585,23 @@ def main() -> int:
     a = ap.parse_args()
     cfg, token = logic.load_config(a.config, a.secrets, a.approver_token, a.chat_token)
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
-    log("start", operators=len(cfg.operator_ids), toolbelt=cfg.toolbelt_url)
-    Ratatoskr(cfg).run(token, log_handler=None)
+    log("start", operators=len(cfg.operator_ids), toolbelt=cfg.toolbelt_url, chat_without_mention=cfg.chat_without_mention)
+    run_bot(cfg, token)
     return 0
+
+
+def run_bot(cfg: logic.Config, token: str) -> None:
+    """Run the bot. If the Message Content intent was requested but is not enabled in the Discord Developer Portal, Discord refuses the
+    connection (PrivilegedIntentsRequired). Ratatoskr is the only approver, so that must never leave it down: say why, drop the feature,
+    and run again in mention-only mode."""
+    try:
+        Ratatoskr(cfg).run(token, log_handler=None)
+    except discord.PrivilegedIntentsRequired:
+        if not cfg.chat_without_mention:
+            raise
+        log("privileged_intent_missing", fix="enable MESSAGE CONTENT INTENT for the bot in the Discord Developer Portal", running="mention-only")
+        cfg.chat_without_mention = False
+        Ratatoskr(cfg).run(token, log_handler=None)
 
 
 if __name__ == "__main__":
