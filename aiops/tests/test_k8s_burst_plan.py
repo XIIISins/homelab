@@ -176,6 +176,24 @@ class Render(unittest.TestCase):
         self.assertIn("tls_cert_file", burst["spec"]["values"]["server"]["ha"]["raft"]["config"])        # listener TLS unchanged
         self.assertEqual(burst["spec"]["values"]["ui"]["serviceType"], "ClusterIP")
 
+    def test_traefik_keeps_its_chart_ports_and_middlewares_but_loses_the_metallb_loadbalancer(self):
+        import yaml
+        prod = [d for d in yaml.safe_load_all((REPO / "k8s/asgard/infrastructure/traefik/helmrelease.yaml").read_text()) if d and d.get("kind") == "HelmRelease"][0]
+        burst = [d for d in yaml.safe_load_all((self.tree / "infrastructure/traefik/helmrelease.yaml").read_text()) if d and d.get("kind") == "HelmRelease"][0]
+        self.assertEqual(burst["spec"]["chart"], prod["spec"]["chart"])
+        self.assertEqual(burst["spec"]["values"]["ports"], prod["spec"]["values"]["ports"])
+        self.assertEqual(burst["spec"]["values"]["providers"], prod["spec"]["values"]["providers"])
+        self.assertEqual(burst["spec"]["values"]["service"]["type"], "NodePort")
+        self.assertNotIn("loadBalancerIP", burst["spec"]["values"]["service"]["spec"])
+        self.assertEqual(burst["spec"]["values"]["deployment"]["replicas"], 1)
+
+    def test_an_empty_apps_list_is_detected_so_a_core_only_run_does_not_apply_it(self):
+        with tempfile.TemporaryDirectory() as t:
+            kb.render_tree(REPO, t, only=[])
+            self.assertFalse(kb.has_resources(Path(t) / "k8s/asgard/apps/kustomization.yaml"))
+            kb.render_tree(REPO, t, only=["netbox"])
+            self.assertTrue(kb.has_resources(Path(t) / "k8s/asgard/apps/kustomization.yaml"))
+
     def test_the_summary_lists_every_difference(self):
         self.assertTrue(any("vault" in p for p in self.summary["patched"]))
         self.assertEqual(sorted(self.summary["le_removed"]), sorted(f for f in kb.LE_FILES))

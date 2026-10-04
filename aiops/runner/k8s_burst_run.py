@@ -294,7 +294,7 @@ def run(args, summary: dict, kube: Kube) -> dict:
         apply_with_retry(kube, kustomize(kube, tree / "infrastructure-config"), "infrastructure-config")
         apply_with_retry(kube, kustomize(kube, tree / "gateway-config"), "gateway-config")
     with phase("apps"):
-        if (tree / "apps" / "kustomization.yaml").exists():
+        if plan.has_resources(tree / "apps" / "kustomization.yaml"):    # a core-only run installs no apps: an empty kustomization is an error
             apply_with_retry(kube, kustomize(kube, tree / "apps"), "apps")
     with phase("wait"):
         deadline = time.time() + args.timeout

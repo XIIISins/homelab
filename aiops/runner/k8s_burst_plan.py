@@ -174,6 +174,19 @@ def patch_vault_helmrelease(doc: dict) -> dict:
     return d
 
 
+def patch_traefik_helmrelease(doc: dict) -> dict:
+    """Traefik without MetalLB: the Service becomes a NodePort (a LoadBalancer with no controller stays Pending and the chart's install waits on it
+    until the 10-minute timeout), one replica (three 4 GB nodes), same chart, version, ports, providers and middlewares."""
+    import copy
+    d = copy.deepcopy(doc)
+    v = d["spec"]["values"]
+    v.setdefault("deployment", {})["replicas"] = 1
+    svc = v.setdefault("service", {})
+    svc["type"] = "NodePort"
+    svc["spec"] = {"externalTrafficPolicy": "Cluster"}
+    return d
+
+
 def patch_certificate(doc: dict) -> dict:
     """A Certificate issued by Let's Encrypt is re-pointed at the internal CA (same names, same DNS names, so the Gateway and routes behave)."""
     import copy
@@ -182,6 +195,13 @@ def patch_certificate(doc: dict) -> dict:
     if str(ref.get("name", "")).startswith("letsencrypt"):
         d["spec"]["issuerRef"] = {"name": INTERNAL_ISSUER, "kind": "ClusterIssuer", "group": "cert-manager.io"}
     return d
+
+
+def has_resources(kfile: Path) -> bool:
+    """Does this kustomization.yaml still list at least one resource?"""
+    if not kfile.exists():
+        return False
+    return bool((yaml.safe_load(kfile.read_text()) or {}).get("resources"))
 
 
 def _drop_resources(kfile: Path, drop: set) -> list:
@@ -274,6 +294,9 @@ def render_tree(src: str | Path, dst: str | Path, only: list | None = None) -> d
             if d.get("kind") == "HelmRelease" and md.get("name") == "vault" and md.get("namespace") == "vault":
                 docs[i], changed = patch_vault_helmrelease(d), True
                 summary["patched"].append(f"{p.relative_to(out)}: vault -> one node, Shamir seal")
+            elif d.get("kind") == "HelmRelease" and md.get("name") == "traefik" and md.get("namespace") == "traefik":
+                docs[i], changed = patch_traefik_helmrelease(d), True
+                summary["patched"].append(f"{p.relative_to(out)}: traefik -> NodePort Service, one replica (no MetalLB)")
             elif d.get("kind") == "Certificate":
                 nd = patch_certificate(d)
                 if nd != d:
