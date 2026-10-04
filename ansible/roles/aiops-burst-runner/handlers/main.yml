@@ -1,0 +1,15 @@
+# ansible/roles/aiops-burst-runner/handlers/main.yml
+---
+- name: Restart aiops-burst-runner
+  ansible.builtin.systemd:
+    name: "{{ aiops_burst_runner_unit_name }}.service"
+    state: restarted
+    daemon_reload: true
+  when: aiops_burst_runner_enabled | bool
+
+# A new supplementary group only reaches a running process at its next start.
+- name: Restart the Toolbelt to pick up the burst clients group
+  ansible.builtin.systemd:
+    name: "{{ aiops_burst_runner_toolbelt_unit }}.service"
+    state: restarted
+  failed_when: false

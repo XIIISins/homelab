@@ -1,0 +1,26 @@
+# ansible/playbooks/asgard-burst-runner.yml
+---
+# Phase 10h: the burst runner on Frigg (builds a throwaway burst cluster to test agent-authored k8s PRs).
+# Procedure (prerequisites, switches, acceptance): docs/procedures/k8s-burst-test.md "Deploy".
+#
+# Prerequisites (operator, from the main checkout, in this order):
+#   1. terraform apply in terraform/vault                     (the aiops-burst-runner policy + AppRole)
+#   2. seed secret/ansible/aiops/burst/env in Vault            (burst-scoped DO token + state-only AWS identity)
+#   3. the aiops-toolbelt role has run (the runner's only client user must exist)
+#
+# Not part of asgard-control.yml or site.yml on purpose: the runner is installed deliberately, and the role is OFF by default
+# (aiops_burst_runner_enabled false installs the user, group and units but starts nothing and needs no credential).
+#
+# First run (supplies the AppRole secret-zero once; it is written root-only to /etc/aiops-burst/approle.env):
+#     ansible-playbook playbooks/asgard-burst-runner.yml -e aiops_burst_runner_enabled=true \
+#       -e aiops_burst_runner_role_id=<role id> -e aiops_burst_runner_secret_id=<minted secret id>
+# Later runs: ansible-playbook playbooks/asgard-burst-runner.yml -e aiops_burst_runner_enabled=true  (or set it in group_vars/control.yml)
+- name: Configure the burst runner (Frigg)
+  hosts: control
+  gather_facts: true
+  become: true
+  serial: 1
+
+  roles:
+    - role: aiops-burst-runner
+      tags: [aiops-burst-runner]

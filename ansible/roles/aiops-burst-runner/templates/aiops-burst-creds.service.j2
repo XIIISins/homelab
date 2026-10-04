@@ -1,0 +1,46 @@
+{# ansible/roles/aiops-burst-runner/templates/aiops-burst-creds.service.j2 #}
+# Managed by Ansible (roles/aiops-burst-runner). Do not edit.
+#
+# Fetches the burst runner's credentials from Vault onto tmpfs, as root, in systemd EnvironmentFile format. A dependency of
+# aiops-burst-runner.service (Requires=/After=): NOT RemainAfterExit, so every start of the runner re-runs it and the credentials are always
+# fresh; a loader failure fails the runner's start. The file is root-owned 0400: systemd (root) injects it into the runner, the runner's own
+# user can never open it.
+[Unit]
+Description=AIOps burst runner credential loader (Vault -> tmpfs)
+After=network-online.target
+Wants=network-online.target
+Before={{ aiops_burst_runner_unit_name }}.service
+
+[Service]
+Type=oneshot
+RuntimeDirectory={{ aiops_burst_runner_env_dir_name }}
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Environment=VAULT_ADDR={{ aiops_burst_runner_vault_addr }}
+Environment=AIOPS_BURST_APPROLE_ENV={{ aiops_burst_runner_approle_env_path }}
+Environment=AIOPS_BURST_ENV_VAULT_PATH={{ aiops_burst_runner_env_vault_path }}
+Environment=AIOPS_BURST_ENV_FILE={{ aiops_burst_runner_env_file }}
+Environment=AIOPS_BURST_AGENT_SOCK={{ aiops_burst_runner_agent_socket }}
+Environment=AIOPS_BURST_PUB_PATH={{ aiops_burst_runner_pub_path }}
+ExecStart=/usr/bin/python3 {{ aiops_burst_runner_loader_path }}
+TimeoutStartSec=60
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/{{ aiops_burst_runner_env_dir_name }}
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aiops-burst-runner
