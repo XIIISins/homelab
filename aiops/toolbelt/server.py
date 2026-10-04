@@ -372,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--author-tools-token-file", help="enables the author-tools role (the drafting session: read-only /tool/* only)")
     ap.add_argument("--author-tools-allow", action="append", default=[], help="CIDR the AUTHOR-TOOLS role may call from (repeatable)")
     ap.add_argument("--change-requests", action="store_true", help="enable 10h2 change requests (needs --actions)")
+    ap.add_argument("--auto-incident-drafts", action="store_true", help="10h3: file the docs change request for a resolved incident that crossed the bar (needs --change-requests)")
     ap.add_argument("--forecast-current", default="", help="10h1: the forecast job's current-findings JSON (enables the forecasts table and routes)")
     ap.add_argument("--author-repo", default="XIIISins/homelab", help="owner/name a reported PR URL must belong to")
     ap.add_argument("--github-read-url", default="", help="the loopback GitHub read proxy (github_read_proxy.py) the PR canary-test check reads through; "
@@ -433,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
             cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.make_fetch(args.github_read_url or None), args.author_repo
     if args.forecast_current:
         cfg.forecast_file = Path(args.forecast_current)
+    cfg.auto_incident_drafts = bool(args.auto_incident_drafts and args.change_requests)
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)

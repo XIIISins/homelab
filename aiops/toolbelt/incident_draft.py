@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import sqlite3
 import re
 
 BANNER = ("> **DRAFT: generated from the Toolbelt's records, operator to edit.** The timeline, evidence and actions are "
@@ -151,3 +152,50 @@ def build_draft(db, incident_id: int, redact=lambda s: s) -> str:
             "- [ ] `docs/incidents/README.md`: add this incident's row; `open-questions.md` / `decisions.md` / `build-sequence.md` if anything changed.",
             "- [ ] Check whether a runbook or the alert routing should change.", ""]
     return redact("\n".join(out))
+
+
+# ---- 10h3 automatic trigger: which resolved incidents deserve a write-up ------------------------------------------------------
+def incident_request(incident_id: int) -> tuple[str, str]:
+    """(title, body) of the docs change request that turns incident #N's mechanical draft into a PR. The body only NAMES the incident;
+    the drafting session reads the draft with the `incident.draft` tool. (aiops/bot/drafts.py keeps a copy for /aiops draft-incident; a
+    test holds the two equal.)"""
+    n = int(incident_id)
+    title = f"Incident write-up for incident #{n}"
+    body = (f"Write the incident write-up for Toolbelt incident #{n}. Call `incident.draft` with {{\"incident_id\": {n}}}: the answer "
+            "holds `markdown` (a mechanical draft: timeline, tool calls and actions, each line citing its source) and `filename`. "
+            "Write that markdown to docs/incidents/<filename> keeping its DRAFT banner and every cited line unchanged, add a row to "
+            "docs/incidents/README.md in the existing format, and add a short follow-ups list. You may add a known-issues entry ONLY "
+            "if the draft's evidence supports it, labelled as a hypothesis otherwise. Invent no timestamps, counts or causes. "
+            "Do not edit decisions.md, open-questions.md, build-sequence.md or CLAUDE.md: list what they would need instead.")
+    return title, body
+
+
+def _is_canary(alert_row) -> bool:
+    try:
+        labels = json.loads(alert_row["alert_json"]).get("labels", {})
+    except (ValueError, TypeError, AttributeError):
+        labels = {}
+    return str(alert_row["host"]).startswith("canary-") or str(labels.get("aiops_canary", "")).lower() == "true"
+
+
+def draft_reason(db, incident_id: int, min_minutes: int = 30, min_alerts: int = 3) -> str | None:
+    """Why a RESOLVED incident deserves a write-up (the plan's bar), or None. A real incident only: replays and the disposable
+    canary pool's fault injections are never written up. The bar: an action ran or was refused for it, or three or more alerts
+    were correlated into it, or it lasted at least `min_minutes`."""
+    inc = db.execute("SELECT * FROM incidents WHERE id=?", (incident_id,)).fetchone()
+    if inc is None or inc["state"] != "resolved" or inc["replay"] or not inc["resolved_at"]:
+        return None
+    alerts = db.execute("SELECT host, alert_json FROM alerts WHERE incident_id=?", (incident_id,)).fetchall()
+    if not alerts or all(_is_canary(a) for a in alerts):
+        return None
+    try:
+        acted = db.execute("SELECT COUNT(*) FROM proposals WHERE incident_id=? AND state IN ('succeeded','failed','verify_failed','rejected')", (incident_id,)).fetchone()[0]
+    except sqlite3.OperationalError:  # the executor tables do not exist when actions are off
+        acted = 0
+    if acted:
+        return "an action was executed or refused"
+    if len(alerts) >= min_alerts:
+        return f"{len(alerts)} alerts were correlated"
+    if inc["resolved_at"] - inc["opened_at"] >= min_minutes * 60:
+        return f"it lasted {(inc['resolved_at'] - inc['opened_at']) // 60} minutes"
+    return None

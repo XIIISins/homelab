@@ -138,6 +138,12 @@ class Config:
     change_requests: change_requests.CRConfig | None = None  # 10h2: None = no agent-authored PR requests
     forecast_file: Path | None = None  # 10h1: the forecast job's `current findings` JSON; None = forecasts are not ingested
     forecast_poll_seconds: int = 60
+    auto_incident_drafts: bool = False  # 10h3: file the write-up request for a resolved incident that crossed the bar (needs change requests)
+    auto_draft_min_minutes: int = 30
+    auto_draft_min_alerts: int = 3
+    auto_draft_max_per_day: int = 3
+    auto_draft_lookback_days: int = 7
+    auto_draft_poll_seconds: int = 120
     forecast: forecast_store.ForecastConfig = field(default_factory=forecast_store.ForecastConfig)
     chat_daily_turn_cap: int = 100          # human messages the agent will answer per UTC day
     chat_author_hourly_cap: int = 10        # per Discord user, so anyone in the channel can ask but not run up the bill
@@ -183,6 +189,8 @@ class Toolbelt:
         self._fc_mtime = 0.0
         if self.engine is not None and cfg.change_requests is not None:
             self.cr = change_requests.ChangeRequests(self.engine, cfg.change_requests)
+        if self.cr is not None and cfg.auto_incident_drafts:
+            threading.Thread(target=self._auto_draft_loop, daemon=True, name="auto-incident-drafts").start()
         if cfg.forecast_file is not None:
             self.fc = forecast_store.Forecasts(self.db, self._lock, self.clock, self.audit, cfg.forecast)
             self.ingest_forecasts()
@@ -548,6 +556,46 @@ class Toolbelt:
         out = self.incident_draft(args["incident_id"])  # 404 for an unknown incident; audits incident_draft
         self.audit("tool_call", tool="incident.draft", args=str(args["incident_id"]), replayed=False, change_request=change_request_id)
         return {"tool": "incident.draft", "replayed": False, "result": out}
+
+    # ---- 10h3: automatic incident write-ups ---------------------------------------------------------------------------
+    def auto_incident_drafts(self) -> list[int]:
+        """File the docs change request for every RESOLVED, real incident that crossed the bar and has none yet, newest budget first
+        capped per UTC day. The request still waits for the operator's Approve on its card: only the FILING is automatic. A rejected or
+        failed request is never refiled. Returns the incident ids filed."""
+        if self.cr is None or not self.cfg.auto_incident_drafts:
+            return []
+        filed: list[int] = []
+        with self._lock:
+            now = self.now()
+            day = now - now % 86400
+            used = self.db.execute("SELECT COUNT(*) FROM change_requests WHERE source='incident' AND created_by='toolbelt' AND created_at>=?", (day,)).fetchone()[0]
+            ids = [r["id"] for r in self.db.execute("SELECT id FROM incidents WHERE state='resolved' AND replay IS NULL AND resolved_at>=? ORDER BY id",
+                                                    (now - self.cfg.auto_draft_lookback_days * 86400,)).fetchall()]
+            for inc_id in ids:
+                if used + len(filed) >= self.cfg.auto_draft_max_per_day:
+                    break
+                if self.db.execute("SELECT 1 FROM change_requests WHERE source='incident' AND source_ref=?", (f"incident-{inc_id}",)).fetchone():
+                    continue
+                why = incident_draft.draft_reason(self.db, inc_id, self.cfg.auto_draft_min_minutes, self.cfg.auto_draft_min_alerts)
+                if why is None:
+                    continue
+                title, body = incident_draft.incident_request(inc_id)
+                try:
+                    self.cr.create(source="incident", class_="docs", title=title, body=body, source_ref=f"incident-{inc_id}", created_by="toolbelt")
+                except change_requests.Refused as e:  # a cap (pending / daily) or the class is off: try again later
+                    self.audit("incident_draft_deferred", incident=inc_id, why=e.message[:100])
+                    break
+                filed.append(inc_id)
+                self.audit("incident_draft_filed", incident=inc_id, why=why)
+        return filed
+
+    def _auto_draft_loop(self) -> None:
+        while True:
+            time.sleep(self.cfg.auto_draft_poll_seconds)
+            try:
+                self.auto_incident_drafts()
+            except Exception as e:  # noqa: BLE001 - the loop must survive anything
+                self.audit("error", where="auto_incident_drafts", error=type(e).__name__)
 
     # ---- 10h1: forecast findings -------------------------------------------------------------------------------------
     def ingest_forecasts(self) -> dict | None:
