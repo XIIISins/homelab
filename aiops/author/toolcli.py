@@ -27,7 +27,12 @@ def main(argv: list[str]) -> int:
     except (ValueError, KeyError) as e:
         print(f"toolcli: bad input or environment: {type(e).__name__}", file=sys.stderr)
         return 2
-    req = urllib.request.Request(f"{url}/tool/{argv[1]}", method="POST", data=json.dumps({"args": args}).encode(),
+    try:
+        cr = int(os.environ["AIOPS_CR_ID"])
+    except (KeyError, ValueError):
+        print("toolcli: AIOPS_CR_ID is missing (the session's change request id)", file=sys.stderr)
+        return 2
+    req = urllib.request.Request(f"{url}/tool/{argv[1]}", method="POST", data=json.dumps({"args": args, "change_request_id": cr}).encode(),
                                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:

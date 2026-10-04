@@ -188,6 +188,8 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
 
         def _h_tool(self, m, q):
             body = self._obj()
+            if self._role_name == AUTHOR_TOOLS:  # a drafting session: attributed to its change request, never to an incident
+                return tb.author_tool(m.group(1), body.get("args", {}), body.get("change_request_id"))
             return tb.call_tool(m.group(1), body.get("args", {}), body.get("incident_id"), self.headers.get("X-AIOPS-Replay"),
                                 body.get("conversation_id"), body.get("turn_id"))
 

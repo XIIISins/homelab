@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
 for sub in ("author", "toolbelt", "tools"):
@@ -339,7 +340,7 @@ class Session(unittest.TestCase):
             env = {"ANTHROPIC_API_KEY": "k" * 20, "AIOPS_TOOLS_TOKEN": "t" * 20, "GITHUB_TOKEN": "must-not-pass", "AIOPS_AUTHOR_PAT": "must-not-pass"}
             res = session.run(job, env=env, runner=runner)
             self.assertTrue(res["ok"], res)
-            self.assertEqual(set(seen["env"]), {"PATH", "HOME", "ANTHROPIC_API_KEY", "AIOPS_TOOLS_URL", "AIOPS_TOOLS_TOKEN", "GIT_TERMINAL_PROMPT"})
+            self.assertEqual(set(seen["env"]), {"PATH", "HOME", "ANTHROPIC_API_KEY", "AIOPS_TOOLS_URL", "AIOPS_TOOLS_TOKEN", "AIOPS_CR_ID", "GIT_TERMINAL_PROMPT"})
             argv = seen["argv"]
             self.assertIn("--bare", argv)
             self.assertIn("WebFetch", argv[argv.index("--disallowedTools"):])
@@ -373,6 +374,31 @@ class ToolCli(unittest.TestCase):
         self.assertEqual(toolcli.main(["toolcli.py", "bad name"]), 2)
         os.environ.pop("AIOPS_TOOLS_URL", None)
         self.assertEqual(toolcli.main(["toolcli.py", "git.log", "{}"]), 2)
+
+    def test_the_request_id_is_sent_and_required(self):
+        sent = {}
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_open(req, timeout=0):
+            sent["body"] = json.loads(req.data)
+            return Resp()
+
+        env = {"AIOPS_TOOLS_URL": "http://tb:8090", "AIOPS_TOOLS_TOKEN": "t" * 20}
+        with mock.patch.dict(os.environ, {**env, "AIOPS_CR_ID": "7"}), mock.patch.object(toolcli.urllib.request, "urlopen", fake_open):
+            self.assertEqual(toolcli.main(["toolcli.py", "registry.actions", "{}"]), 0)
+        self.assertEqual(sent["body"], {"args": {}, "change_request_id": 7})
+        with mock.patch.dict(os.environ, env), mock.patch.object(toolcli.urllib.request, "urlopen", fake_open):
+            os.environ.pop("AIOPS_CR_ID", None)
+            self.assertEqual(toolcli.main(["toolcli.py", "registry.actions", "{}"]), 2)
 
 
 if __name__ == "__main__":
