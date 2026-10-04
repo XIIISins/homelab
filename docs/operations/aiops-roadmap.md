@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c, 10d and 10e done 2026-10-01/03; 10f code complete 2026-10-03 (deploy, then the 14-day canary soak)**; the restore drill passed 2026-10-03, 10g stage A proven 2026-10-04 (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c, 10d and 10e done 2026-10-01/03; 10f code complete 2026-10-03 (deploy, then the 14-day canary soak)**; the restore drill passed 2026-10-03, 10g stage A proven 2026-10-04 (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10i); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -74,6 +74,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 | **10f** | Autonomous T1 healing | 10e + kill switch + canaries | Stage 3 |
 | **10g** | Fleet rebuild loop | 10f + restore-tested backups + PBS off Skuld | Stage 4 |
 | **10h** | Predictive & agent-authored change | 10f | Stage 5 |
+| **10i** | Workload rightsizing (VPA recommend-only + rightsizing PRs) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
 
 10a/10b/10c can run in parallel (disjoint scopes). Everything from 10d onward is sequential.
 
@@ -165,6 +166,18 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 - **10h1 — Forecasting.** *(Detectors built, tested and running in shadow mode on Frigg since 2026-10-03: [`procedures/aiops-forecasting.md`](../procedures/aiops-forecasting.md).)* Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
 - **10h2 — Agent-authored PRs.** Drift/incident → fix PR → CI plan-diff → human merge, on the `chart-bump` pattern.
 - **10h3 — Incident drafts.** *(Mechanical draft built 2026-10-03, served at `GET /incident/<id>/draft`: [`procedures/aiops-incident-drafts.md`](../procedures/aiops-incident-drafts.md); the grounded narrative and PR delivery are not built.)* The agent drafts `docs/incidents/` and known-issues updates for human edit.
+
+---
+
+## 10i — Workload rightsizing (VPA recommend-only)
+
+*Detailed plan (drafted 2026-10-04): [`10i-rightsizing.md`](10i-rightsizing.md). Driven by the worker CPU-requests gotcha ([`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)): 84–90 % requested, ~5–10 % used.*
+
+- **10i0 — Hand-trim** the obvious over-requests (NetBox, `authentik-server`) so the recommender fits.
+- **10i1 — VPA recommender only**, `updateMode: "Off"` objects in a new `vpa-config/` Kustomization, VPA metrics through kube-state-metrics. Changes nothing in the cluster.
+- **10i2 — Findings (T0).** The Toolbelt joins VPA recommendations with 14 days of VictoriaMetrics usage, posts quiet cards beside the forecasts, and gives Gná the data for `Insufficient cpu` diagnoses.
+- **10i3 — Rightsizing PRs.** A `rightsizing` author class changes only the `resources` of one allow-listed HelmRelease (CI-checked); the operator merges.
+- **10i4 — Post-merge watch** (72 h, built before 10i3 is enabled); a regression offers a revert PR, never an automatic one.
 
 ---
 
