@@ -49,6 +49,36 @@ def gh_fetch(url: str, timeout: float = 8.0) -> tuple[int, object]:
         return 0, {"error": type(e).__name__}
 
 
+def make_fetch(base: str | None = None):
+    """The fetch the Toolbelt uses. The Toolbelt's unit cannot reach the internet, so in production `base` is the loopback GitHub
+    read proxy (github_read_proxy.py) which serves exactly the two paths `inspect_pr` needs; without `base` it talks to GitHub."""
+    if not base:
+        return gh_fetch
+    root = base.rstrip("/")
+
+    def fetch(url: str, timeout: float = 8.0) -> tuple[int, object]:
+        prefix = "https://api.github.com"
+        if not url.startswith(prefix + "/"):
+            return 0, {"error": "not the GitHub API"}
+        try:
+            req = urllib.request.Request(root + url[len(prefix):], headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            try:
+                return e.code, json.loads(e.read() or b"{}")
+            except ValueError:
+                return e.code, {}
+        except (OSError, ValueError) as e:
+            return 0, {"error": type(e).__name__}
+    return fetch
+
+
+def _transient(status: int) -> bool:
+    """A GitHub answer worth asking again later (outage, rate limit, the proxy not up yet), unlike a verdict about the PR."""
+    return status == 0 or status == 429 or status >= 500 or status == 403
+
+
 def added_lines(patch: str) -> list[str]:
     return [ln[1:] for ln in patch.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
 
@@ -62,10 +92,10 @@ def inspect_pr(fetch, branch: str, classes: list[str], roles: list[str], repo: s
     st, ref = fetch(f"https://api.github.com/repos/{repo}/git/ref/heads/{branch}")
     sha = (ref or {}).get("object", {}).get("sha") if st == 200 and isinstance(ref, dict) else None
     if not sha or not SHA.match(sha):
-        return {"ok": False, "reason": f"could not read the branch head from GitHub (HTTP {st})"}
+        return {"ok": False, "reason": f"could not read the branch head from GitHub (HTTP {st})", "transient": _transient(st)}
     st, cmp = fetch(f"https://api.github.com/repos/{repo}/compare/main...{sha}")
     if st != 200 or not isinstance(cmp, dict):
-        return {"ok": False, "reason": f"could not read the PR's changes from GitHub (HTTP {st})"}
+        return {"ok": False, "reason": f"could not read the PR's changes from GitHub (HTTP {st})", "transient": _transient(st)}
     files = cmp.get("files") or []
     if cmp.get("status") not in ("ahead", "diverged") or not 1 <= int(cmp.get("ahead_by") or 0) <= _MAX_COMMITS:
         return {"ok": False, "reason": f"the branch is not 1-{_MAX_COMMITS} commits ahead of main"}
@@ -120,11 +150,11 @@ def _changed(step: dict | None):
     return res.get("changed")
 
 
-def summarize(proposal: dict | None, ineligible: str | None = None) -> dict:
+def summarize(proposal: dict | None, ineligible: str | None = None, transient: bool = False) -> dict:
     """The canary-test status of one PR, from its (optional) proposal view: {status, ...}. Statuses: not-tested (with a reason),
     proposed (waiting for the operator), running, passed, failed, expired, rejected, cancelled."""
     if proposal is None:
-        return {"status": "not-tested", "reason": ineligible or "no test was proposed"}
+        return {"status": "not-tested", "reason": ineligible or "no test was proposed", "retry": bool(transient)}
     st = proposal["state"]
     p = proposal.get("params") or {}
     out = {"status": {"pending": "proposed", "approved": "running", "running": "running", "succeeded": "passed"}.get(
@@ -153,6 +183,8 @@ def render(summary: dict | None) -> str:
             "rejected": "Not run: the operator rejected the test", "cancelled": "Not run: cancelled",
             "not-tested": "**Not tested**"}.get(st, st)
     lines = [head + (f": {s['reason']}" if s.get("reason") and st in ("not-tested", "failed") else "")]
+    if s.get("retry") and st == "not-tested":
+        lines.append("- This looks temporary; the author will ask again shortly.")
     if s.get("canary"):
         lines.append(f"- Where: `{s['canary']}` (a disposable canary, alerts capped at the info tier), role `{s.get('role')}`, commit `{s.get('sha')}`")
     if "dry_run_changes" in s:

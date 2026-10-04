@@ -47,6 +47,12 @@ aiops_toolbelt_author_token_vault_path: secret/data/ansible/aiops/author-token #
 aiops_toolbelt_author_token_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/author-token"
 aiops_toolbelt_author_tools_token_vault_path: secret/data/ansible/aiops/author-tools-token # terraform/vault/author.tf
 aiops_toolbelt_author_tools_token_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/author-tools-token"
+# 10h2: the loopback GitHub read proxy the PR canary-test check reads through (the Toolbelt's own unit may not reach the internet).
+aiops_toolbelt_ghread_unit_name: aiops-toolbelt-ghread
+aiops_toolbelt_ghread_port: 8092
+aiops_toolbelt_ghread_repo: XIIISins/homelab
+aiops_toolbelt_ghread_deny_ranges: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, "fc00::/7", "fe80::/10"]
+aiops_toolbelt_ghread_dns_allow: [10.0.10.200, 10.0.254.1] # the resolvers sit inside the denied private ranges: the AdGuard VIP and the UCG fallback
 aiops_toolbelt_author_daily_budget: 10 # drafts the author may start per UTC day (operator-tunable; 6 until 2026-10-04, when a day of live proofs and fixes used it up)
 # The executor's Semaphore identity (Task Runner on the dedicated `aiops` project only): aiops/tools/mint_semaphore_exec.py.
 # Optional at start: without it the engine still proposes and records decisions, and an approved action fails with a clear message.
@@ -118,6 +124,7 @@ aiops_toolbelt_source_files:
   - toolbelt/change_requests.py
   - toolbelt/drift.py
   - toolbelt/pr_test.py
+  - toolbelt/github_read_proxy.py
   - author/__init__.py
   - author/scope.py
   - author/dispatcher.py
