@@ -32,6 +32,8 @@ caddy_sites:
       - "10.0.11.21/32"
       # Ratatoskr (the Discord bot, LXC 1122): the chat webhook only (see the per-path rules below)
       - "10.0.11.222/32"
+      # Semaphore (K3s node range, pods are SNATed to it): the drift hand-off only (Phase 10h2, see the per-path rules below)
+      - "10.0.21.0/24"
     # Runs inside the allowed handle, ahead of reverse_proxy (Caddy orders
     # `respond` before `reverse_proxy`): anything that is not a production
     # webhook path is a 404, and each source may reach ONLY its own path, so a
@@ -44,6 +46,10 @@ caddy_sites:
       - "respond @chat_wrong_source 404"
       - "@zabbix_wrong_source expression path('/webhook/aiops/zabbix*') && !remote_ip('10.0.11.21')"
       - "respond @zabbix_wrong_source 404"
+      - "@drift_wrong_source expression path('/webhook/aiops/drift*') && !remote_ip('10.0.21.0/24')"
+      - "respond @drift_wrong_source 404"
+      - "@k3s_wrong_path expression remote_ip('10.0.21.0/24') && !path('/webhook/aiops/drift*')"
+      - "respond @k3s_wrong_path 404"
 
 # -----------------------------------------------------------------------------
 # vlagent: journald (n8n) + the Caddy JSON access log

@@ -26,7 +26,7 @@ class N8nWorkflowLint(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        for rel in ("ansible/roles/n8n-agent/defaults/main.yml", "terraform/vault/main.tf"):
+        for rel in ("ansible/roles/n8n-agent/defaults/main.yml", "terraform/vault/main.tf", "ansible/inventory/group_vars/n8n_agent.yml"):
             dst = self.tmp / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(REPO / rel, dst)
@@ -49,6 +49,28 @@ class N8nWorkflowLint(unittest.TestCase):
 
     def test_clean_copy_passes(self):
         self.assertEqual(self.check(), [])
+
+    def drift_webhook(self, wf):
+        return next(n for n in wf["nodes"] if n["type"].endswith(".webhook") and n["parameters"]["path"] == "aiops/drift")
+
+    def test_the_drift_webhook_is_network_authenticated_and_that_is_checked(self):
+        self.assertEqual(self.drift_webhook(self.wf)["parameters"]["authentication"], "none")
+        caddy = self.tmp / "ansible/inventory/group_vars/n8n_agent.yml"
+        caddy.write_text(caddy.read_text().replace("path('/webhook/aiops/drift*') && !remote_ip('10.0.21.0/24')", "path('/nothing')"))  # the control removed
+        self.assertFinding(self.check(), "must restrict /webhook/aiops/drift to 10.0.21.0/24")
+
+    def test_the_drift_webhook_may_not_have_a_half_way_credential_or_wait(self):
+        wf = copy.deepcopy(self.wf)
+        self.drift_webhook(wf)["parameters"]["authentication"] = "headerAuth"
+        self.assertFinding(self.check(wf), "authentication must be `none`")
+        wf = copy.deepcopy(self.wf)
+        self.drift_webhook(wf)["parameters"]["responseMode"] = "lastNode"
+        self.assertFinding(self.check(wf), "must respond immediately")
+
+    def test_no_other_path_may_skip_its_credential(self):
+        wf = copy.deepcopy(self.wf)
+        self.drift_webhook(wf)["parameters"]["path"] = "aiops/other"
+        self.assertFinding(self.check(wf), "must use headerAuth")
 
     def test_code_node_denied(self):
         wf = copy.deepcopy(self.wf)
@@ -303,7 +325,7 @@ class N8nChatWorkflow(unittest.TestCase):
     def test_lint_requires_a_responder_for_a_synchronous_source_and_forbids_one_elsewhere(self):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        for rel in ("ansible/roles/n8n-agent/defaults/main.yml", "terraform/vault/main.tf"):
+        for rel in ("ansible/roles/n8n-agent/defaults/main.yml", "terraform/vault/main.tf", "ansible/inventory/group_vars/n8n_agent.yml"):
             dst = tmp / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(REPO / rel, dst)

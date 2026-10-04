@@ -587,6 +587,10 @@ N8N_NODE_ALLOW = {
 }
 N8N_NODE_ALLOW_PREFIX: tuple = ()
 N8N_AGENT_MAX_ITERATIONS = 10
+# Webhooks with NO header credential, allowed only where the network is the control: each path must also appear in Gná's Caddy
+# group_vars with a per-path source rule (checked below), and must respond immediately. The drift hand-off (Phase 10h2) carries
+# no secret; the Toolbelt re-reads the run from Semaphore before believing it, so a forged call only costs one lookup.
+N8N_NETWORK_AUTH_WEBHOOKS = {"aiops/drift": "10.0.21.0/24"}
 N8N_SYNC_SOURCES = {"chat"}  # the bot waits for the answer: these webhooks respond from a Respond-to-Webhook node
 N8N_NODE_DENY = {  # defence in depth: also excluded at runtime via NODES_EXCLUDE
     "n8n-nodes-base.executeCommand", "n8n-nodes-base.ssh", "n8n-nodes-base.ftp",
@@ -663,6 +667,17 @@ def check_n8n_workflows(root: Path) -> list[str]:
                 cname = str(hc.get("name", ""))
                 if not path.startswith("aiops/"):
                     errs.append(f"n8n: {rel}: webhook {nname!r} path must start with `aiops/`")
+                if path in N8N_NETWORK_AUTH_WEBHOOKS:
+                    cidr = N8N_NETWORK_AUTH_WEBHOOKS[path]
+                    caddy = root / "ansible" / "inventory" / "group_vars" / "n8n_agent.yml"
+                    ctext = caddy.read_text() if caddy.is_file() else ""
+                    if params.get("authentication") != "none":
+                        errs.append(f"n8n: {rel}: webhook {nname!r} is the network-authenticated path; its authentication must be `none` (no half-way credential)")
+                    if f"/webhook/{path}*') && !remote_ip('{cidr}')" not in ctext:
+                        errs.append(f"n8n: {rel}: webhook {nname!r} has no credential, so n8n_agent.yml must restrict /webhook/{path} to {cidr} with a Caddy remote_ip rule")
+                    if params.get("responseMode") != "onReceived":
+                        errs.append(f"n8n: {rel}: webhook {nname!r} must respond immediately (responseMode onReceived)")
+                    continue
                 if params.get("authentication") != "headerAuth" or not cname.startswith("aiops-ingest-"):
                     errs.append(f"n8n: {rel}: webhook {nname!r} must use headerAuth with an `aiops-ingest-<source>` credential")
                 else:
