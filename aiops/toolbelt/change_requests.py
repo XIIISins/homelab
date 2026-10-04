@@ -66,6 +66,12 @@ class CRConfig:
     pr_stale_days: int = 14
 
 
+def _was_transient(data: dict) -> bool:
+    """A recorded test attempt that hit a temporary GitHub problem. Events written before the `transient` flag existed (the first
+    live run, 2026-10-04) carry only the reason text, so a failure to READ from GitHub counts too."""
+    return bool(data.get("transient")) or str(data.get("ineligible", "")).startswith("could not read")
+
+
 class ChangeRequests:
     def __init__(self, engine: "actions.Engine", cfg: CRConfig):
         self.eng, self.cfg = engine, cfg
@@ -126,7 +132,7 @@ class ChangeRequests:
         ev = self.db.execute("SELECT data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
         data = json.loads(ev["data_json"]) if ev else {}
         reason = data.get("ineligible")
-        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None), bool(data.get("transient")))
+        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None), _was_transient(data))
 
     # -- create --------------------------------------------------------------------------------------------
     def create(self, *, source: str, class_: str, title: str, body: str, allowed_paths=None, source_ref: str = "",
@@ -271,7 +277,7 @@ class ChangeRequests:
             ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
         if r["state"] != "pr-open" or not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
             raise Refused(409, "only an open PR of a canary-tested class can be retested")
-        if ev is None or not json.loads(ev["data_json"]).get("transient") or self.eng.pr_test_view(r["branch"] or "") is not None:
+        if ev is None or not _was_transient(json.loads(ev["data_json"])) or self.eng.pr_test_view(r["branch"] or "") is not None:
             raise Refused(409, "there is nothing to retry")
         if self.now() - ev["ts"] < 120:
             raise Refused(429, "retried too recently")

@@ -182,6 +182,17 @@ class Retry(unittest.TestCase):
         self.assertEqual(self.retest(cid)[0], 409)                       # nothing left to retry
         self.assertEqual(self.eng.pr_test_view(BRANCH)["state"], "pending")
 
+    def test_an_attempt_recorded_before_the_transient_flag_existed_is_still_retried(self):
+        """The first live run wrote `{"ineligible": "could not read ... (HTTP 0)"}` with no flag; that PR must not be stuck."""
+        cid, out = self.open_pr(tpt.gh([tpt.f("ansible/roles/pbs/tasks/main.yml")]))  # first attempt: a real verdict
+        self.assertFalse(out["pr_test"]["retry"])
+        self.r.tb.cr._event(cid, "pr_test", {"ineligible": "could not read the branch head from GitHub (HTTP 0)"})  # the legacy shape
+        self.assertTrue(self.r.call(tcr.T_AUTH, "GET", f"/change-requests/{cid}")[1]["pr_test"]["retry"])
+        self.r.clock.t += 130
+        self.eng.cfg.pr_fetch = tpt.gh()
+        st, ok = self.retest(cid)
+        self.assertEqual((st, ok["pr_test"]["status"]), (200, "proposed"))
+
     def test_a_real_verdict_is_never_retried(self):
         cid, out = self.open_pr(tpt.gh([tpt.f("ansible/roles/pbs/tasks/main.yml")]))
         self.assertFalse(out["pr_test"]["retry"])
