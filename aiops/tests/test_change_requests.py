@@ -316,6 +316,64 @@ class Caps(unittest.TestCase):
         finally:
             r.close()
 
+    def test_a_cap_that_holds_back_an_approved_request_says_so_on_that_request_once_per_reason(self):
+        r = Rig(max_running=1, max_open_prs=1, max_started_per_day=2)
+        try:
+            first, second, third = (r.approved(title=f"t{i}") for i in range(3))
+            claim = lambda: r.call(T_AUTH, "POST", "/change-requests/claim")[1]  # noqa: E731
+            blocked = lambda cid: [e for e in r.call(T_APPR, "GET", "/change-requests/feed")[1]["events"]  # noqa: E731
+                                   if e["kind"] == "blocked" and e["change_request"]["id"] == cid]
+            c1 = claim()["change_request"]
+            self.assertEqual(blocked(second["id"]), [])                      # nothing is blocked while something may start
+            out = claim()                                                    # max-running 1
+            self.assertEqual(out["why"], "max-running")
+            self.assertIn("1 drafting sessions", out["detail"])
+            ev = blocked(second["id"])
+            self.assertEqual([(e["data"]["why"]) for e in ev], ["max-running"])
+            claim(), claim()                                                 # asked again: the same reason is not repeated
+            self.assertEqual(len(blocked(second["id"])), 1)
+            v = r.call(T_APPR, "GET", f"/change-requests/{second['id']}")[1]
+            self.assertEqual(v["blocked"]["why"], "max-running")
+            self.assertEqual(blocked(first["id"]), [])                       # only the request that is actually waiting
+            r.call(T_AUTH, "POST", f"/change-requests/{c1['id']}/report", {"state": "pr-open", "pr_url": PR})
+            self.assertEqual(claim()["why"], "open-pr-limit")                # a different reason is a new event
+            self.assertIn("merge or close one", blocked(second["id"])[-1]["data"]["detail"])
+            r.call(T_AUTH, "POST", f"/change-requests/{c1['id']}/report", {"state": "merged"})
+            c2 = claim()["change_request"]
+            self.assertEqual(c2["id"], second["id"])
+            self.assertIsNone(r.call(T_APPR, "GET", f"/change-requests/{second['id']}")[1]["blocked"])  # running now: no longer waiting
+            r.call(T_AUTH, "POST", f"/change-requests/{c2['id']}/report", {"state": "no-change"})
+            out = claim()                                                    # 2 started today
+            self.assertEqual(out["why"], "daily-budget")
+            self.assertIn("2 of 2 drafts started today", out["detail"])
+            self.assertEqual(blocked(third["id"])[-1]["data"]["why"], "daily-budget")
+        finally:
+            r.close()
+
+    def test_kill_switch_and_maintenance_are_also_explained(self):
+        r = Rig()
+        try:
+            cr = r.approved()
+            r.tb.engine.set_flag("maintenance", True, by=OP)
+            r.call(T_AUTH, "POST", "/change-requests/claim")
+            r.tb.engine.set_flag("maintenance", False, by=OP)
+            r.tb.engine.set_flag("kill_switch", True, by=OP)
+            out = r.call(T_AUTH, "POST", "/change-requests/claim")[1]
+            self.assertIn("/aiops resume", out["detail"])
+            whys = [e["data"]["why"] for e in r.call(T_APPR, "GET", "/change-requests/feed")[1]["events"] if e["kind"] == "blocked"]
+            self.assertEqual(whys, ["maintenance", "kill-switch"])
+            self.assertEqual(r.call(T_APPR, "GET", f"/change-requests/{cr['id']}")[1]["blocked"]["why"], "kill-switch")
+        finally:
+            r.close()
+
+    def test_nothing_waiting_means_nothing_to_explain(self):
+        r = Rig(max_started_per_day=0)
+        try:
+            self.assertEqual(r.call(T_AUTH, "POST", "/change-requests/claim")[1]["why"], "daily-budget")
+            self.assertEqual([e for e in r.call(T_APPR, "GET", "/change-requests/feed")[1]["events"] if e["kind"] == "blocked"], [])
+        finally:
+            r.close()
+
     def test_pending_cap(self):
         r = Rig(max_pending=2)
         try:

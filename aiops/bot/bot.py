@@ -418,6 +418,14 @@ class Ratatoskr(discord.Client):
         elif act.kind == "edit_card":
             ch = await self._channel(str(cid))
             await ch.get_partial_message(int(cr["message_ref"])).edit(embed=embed_of_cr(cr), view=draft_view(cr))
+        elif act.kind == "notice":  # approved but queued behind a cap: say why next to the card, once per reason
+            b = cr.get("blocked") or {}
+            ch = await self._channel(str(cid))
+            await ch.send(f"Request {cr['id']} is approved but **waiting**: {logic.sanitize(str(b.get('detail') or b.get('why') or 'a limit'), 300)}. "
+                          "It starts by itself when that clears.", allowed_mentions=NO_MENTIONS,
+                          reference=ch.get_partial_message(int(cr["message_ref"])).to_reference(fail_if_not_exists=False))
+            self.dstate.announced.add(act.text)
+            log("draft_blocked_notice", change_request=cr["id"], why=str(b.get("why")))
         elif act.kind == "announce":
             ch = await self._channel(str(cid))
             await ch.send(drafts.announcement(cr), allowed_mentions=NO_MENTIONS,

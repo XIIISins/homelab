@@ -81,6 +81,41 @@ class Plan(unittest.TestCase):
         self.assertEqual((again.cursor, again.announced), (9, {"4:merged"}))
 
 
+class Blocked(unittest.TestCase):
+    CR_WAIT = {**CR, "id": 7, "state": "approved", "message_ref": "555",
+               "blocked": {"why": "daily-budget", "detail": "the daily budget is used up (6 of 6 drafts started today; it resets at 00:00 UTC)", "since": 1}}
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.addCleanup(self.t.cleanup)
+        self.state = drafts.State.load(Path(self.t.name))
+
+    def ev(self, kind="blocked", cr=None):
+        return {"id": 3, "kind": kind, "ts": 1, "data": {"why": "daily-budget"}, "change_request": cr or self.CR_WAIT}
+
+    def test_a_blocked_event_posts_one_notice_beside_the_card_and_not_again(self):
+        acts = drafts.plan([self.ev()], self.state)
+        self.assertEqual([a.kind for a in acts], ["edit_card", "notice"])
+        self.assertEqual(acts[1].text, "7:blocked:daily-budget")
+        self.state.announced.add(acts[1].text)  # what the bot does once it has posted it
+        self.assertEqual([a.kind for a in drafts.plan([self.ev()], self.state)], ["edit_card"])
+
+    def test_only_an_approved_request_with_a_card_gets_a_notice(self):
+        self.assertEqual([a.kind for a in drafts.plan([self.ev(cr={**self.CR_WAIT, "state": "running"})], self.state)], ["edit_card"])
+        self.assertEqual(drafts.plan([self.ev(cr={**self.CR_WAIT, "message_ref": None})], self.state), [])
+
+    def test_the_card_shows_what_it_is_waiting_for(self):
+        fields = dict((n, v) for n, v, _ in drafts.card(self.CR_WAIT)["fields"])
+        self.assertIn("6 of 6 drafts", fields["Waiting because"])
+        self.assertNotIn("Waiting because", dict((n, v) for n, v, _ in drafts.card({**self.CR_WAIT, "blocked": None})["fields"]))
+
+    def test_the_text_cannot_ping(self):
+        crm = {**self.CR_WAIT, "blocked": {"why": "x", "detail": "@everyone <@123456789012345678>"}}
+        text = str(drafts.card(crm)["fields"])
+        self.assertNotIn("@everyone", text)
+        self.assertNotIn("<@1234", text)
+
+
 class IncidentRequest(unittest.TestCase):
     def test_the_request_only_names_the_incident_and_fits_the_body_limit(self):
         title, body = drafts.incident_request(41)

@@ -110,6 +110,11 @@ class ChangeRequests:
         d["tests"] = json.loads(r["tests_json"]) if r["tests_json"] else None
         d["stale_pr"] = bool(r["state"] == "pr-open" and self.now() - r["updated_at"] > self.cfg.pr_stale_days * 86400)
         d["pr_test"] = self._pr_test(r) if r["state"] in ("pr-open", "merged", "closed") else None
+        d["blocked"] = None
+        if r["state"] == "approved":  # waiting behind a cap: why, as of the last time the dispatcher asked
+            ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='blocked' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
+            if ev:
+                d["blocked"] = {**json.loads(ev["data_json"]), "since": ev["ts"]}
         return d
 
     def _pr_test(self, r) -> dict | None:
@@ -204,16 +209,16 @@ class ChangeRequests:
         with self.lock:
             self.sweep()
             if self.eng.flag("kill_switch"):
-                return {"change_request": None, "why": "kill-switch"}
+                return self._blocked("kill-switch", "the kill switch is engaged (`/aiops resume` lifts it)")
             if self.eng.flag("maintenance"):
-                return {"change_request": None, "why": "maintenance"}
+                return self._blocked("maintenance", "maintenance mode is on")
             if self._count("running") >= self.cfg.max_running:
-                return {"change_request": None, "why": "max-running"}
+                return self._blocked("max-running", f"{self.cfg.max_running} drafting sessions are already running")
             if self._count("pr-open") >= self.cfg.max_open_prs:
-                return {"change_request": None, "why": "open-pr-limit"}
+                return self._blocked("open-pr-limit", f"{self.cfg.max_open_prs} agent PRs are already open: merge or close one")
             started = self.db.execute("SELECT COUNT(*) n FROM change_requests WHERE claimed_at>=?", (self._day_start(),)).fetchone()["n"]
             if started >= self.cfg.max_started_per_day:
-                return {"change_request": None, "why": "daily-budget"}
+                return self._blocked("daily-budget", f"the daily budget is used up ({started} of {self.cfg.max_started_per_day} drafts started today; it resets at 00:00 UTC)")
             row = self.db.execute("SELECT id FROM change_requests WHERE state='approved' ORDER BY id LIMIT 1").fetchone()
             if row is None:
                 return {"change_request": None, "why": "none-approved"}
@@ -221,6 +226,17 @@ class ChangeRequests:
             self._move(cid, "running", "claimed", {"by": by}, claimed_at=self.now())
         self.audit("change_request_claimed", cr=cid, by=by)
         return {"change_request": self.view(cid), "why": "ok"}
+
+    def _blocked(self, why: str, detail: str) -> dict:
+        """A cap refused the claim. If an approved request is waiting, SAY SO on that request (once per reason): an operator who
+        approved a card should never have to read journals to learn it is queued behind a limit. Caller holds the lock."""
+        row = self.db.execute("SELECT id FROM change_requests WHERE state='approved' ORDER BY id LIMIT 1").fetchone()
+        if row is not None:
+            last = self.db.execute("SELECT data_json FROM change_request_events WHERE cr_id=? AND kind='blocked' ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+            if last is None or json.loads(last["data_json"]).get("why") != why:
+                self._event(row["id"], "blocked", {"why": why, "detail": detail})
+                self.audit("change_request_blocked", cr=row["id"], why=why)
+        return {"change_request": None, "why": why, "detail": detail}
 
     def report(self, cid: int, *, state: str, pr_url: str = "", branch: str = "", summary: str = "", tests=None, error: str = "") -> dict:
         if state not in REPORT_STATES + ("merged", "closed"):
