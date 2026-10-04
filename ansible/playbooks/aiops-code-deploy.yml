@@ -1,0 +1,91 @@
+# ansible/playbooks/aiops-code-deploy.yml
+---
+# Deploys the AIOps code to the two hosts that run it: Frigg (Toolbelt + PR author, group `control`) and Ratatoskr (the Discord
+# bot, group `discord_bot`). Run by the `aiops-code-deploy` Semaphore template every 15 minutes: it does nothing unless the code
+# or the roles that ship it changed since the last deploy of that host, so a merge to main reaches both hosts within a quarter
+# of an hour and an idle quarter of an hour costs a few seconds.
+#
+# How "changed" is decided: the git tree ids of the paths below, at the commit Semaphore checked out, are hashed into one revision
+# and compared with /var/lib/aiops-deployed-rev on each host. The marker is written only after the roles succeeded, so a failed
+# deploy retries on the next run. Docs, CI and unrelated roles do not move the revision.
+#
+# Manual use (same effect, any checkout):  ansible-playbook playbooks/aiops-code-deploy.yml [-e aiops_deploy_force=true]
+# Not for first provisioning (that is asgard-control.yml / asgard-ratatoskr.yml, whole) and never for config that needs the
+# operator (Terraform, Discord portal, UCG): those remain the full playbooks.
+- name: Work out the code revision to deploy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    aiops_deploy_paths:
+      - aiops
+      - ansible/roles/aiops-toolbelt
+      - ansible/roles/aiops-author
+      - ansible/roles/ratatoskr
+  tasks:
+    - name: Tree ids of the shipped paths at HEAD
+      ansible.builtin.command:
+        argv: "{{ ['git', '-C', playbook_dir, 'rev-parse'] + (aiops_deploy_paths | map('regex_replace', '^(.*)$', 'HEAD:\\1') | list) }}"
+      register: aiops_trees
+      changed_when: false
+      check_mode: false
+
+    - name: One revision for all of them
+      ansible.builtin.set_fact:
+        aiops_rev: "{{ aiops_trees.stdout_lines | join(',') | hash('sha1') }}"
+        cacheable: false
+
+- name: Find the hosts running other code
+  hosts: control:discord_bot
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Read the deployed-revision marker
+      ansible.builtin.slurp:
+        src: /var/lib/aiops-deployed-rev
+      register: aiops_marker
+      failed_when: false
+      check_mode: false
+
+    - name: Group by stale or current
+      changed_when: false
+      ansible.builtin.group_by:
+        key: "aiops_{{ 'stale' if (aiops_deploy_force | default(false) | bool) or aiops_marker.content is not defined or (aiops_marker.content | b64decode | trim) != hostvars['localhost']['aiops_rev'] else 'current' }}"
+
+- name: Deploy to Frigg
+  hosts: aiops_stale:&control
+  gather_facts: true
+  become: true
+  serial: 1
+  roles:
+    # Same roles and tags as asgard-control.yml: the Toolbelt role ships the code tree, the author role restarts the dispatcher.
+    - role: aiops-toolbelt
+      tags: [aiops-toolbelt]
+    - role: aiops-author
+      tags: [aiops-author]
+  post_tasks:
+    - name: Record the deployed revision
+      ansible.builtin.copy:
+        dest: /var/lib/aiops-deployed-rev
+        content: "{{ hostvars['localhost']['aiops_rev'] }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+- name: Deploy to Ratatoskr
+  hosts: aiops_stale:&discord_bot
+  gather_facts: true
+  become: true
+  serial: 1
+  roles:
+    - role: ratatoskr
+      tags: [ratatoskr]
+  post_tasks:
+    - name: Record the deployed revision
+      ansible.builtin.copy:
+        dest: /var/lib/aiops-deployed-rev
+        content: "{{ hostvars['localhost']['aiops_rev'] }}\n"
+        owner: root
+        group: root
+        mode: "0644"

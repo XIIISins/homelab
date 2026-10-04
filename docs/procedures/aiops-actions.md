@@ -32,6 +32,17 @@ a mention; anyone else, the diagnosis threads and every other channel still need
 If step 1 was skipped, Discord refuses the connection; the bot (the only approver) logs `privileged_intent_missing` with the fix and comes up in mention-only mode instead of staying down.
 Each top-level message starts a conversation thread as a mention does; replies inside the thread need nothing.
 
+## Code deploys itself after a merge (since 2026-10-04)
+
+The Semaphore template `aiops-code-deploy` (asgard project, every 15 minutes at :02/:17/:32/:47) runs `playbooks/aiops-code-deploy.yml`. It hashes the git tree ids of
+`aiops/`, `ansible/roles/{aiops-toolbelt,aiops-author,ratatoskr}`, compares the result with `/var/lib/aiops-deployed-rev` on Frigg and Ratatoskr, and runs the roles
+(Toolbelt + author on Frigg, the bot on Ratatoskr) only on a host whose marker differs; the marker is written after the roles pass, so a failed deploy retries on the next run.
+A run with nothing new is a few seconds. A failure posts `critical` (the callback treats the wrapper as apply mode); success is silent. Docs, CI and other roles never trigger it.
+A merge that changes the Toolbelt restarts it; in-flight runs resume (`_resumable`), but avoid merging while a proposal you care about is `running`.
+
+Manual: `ansible-playbook playbooks/aiops-code-deploy.yml` (or `-e aiops_deploy_force=true` to redeploy regardless). First provisioning, Terraform, the Discord portal, UCG and
+anything needing the operator stay in the full playbooks below. One-time: `terraform apply` in `terraform/semaphore` (from the main checkout) creates the template and schedule.
+
 ## Deploy (operator, from the main checkout; every step is CLI)
 
 Order matters; each step gates the next.

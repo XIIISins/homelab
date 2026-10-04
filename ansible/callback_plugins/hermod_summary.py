@@ -88,6 +88,7 @@ class CallbackModule(CallbackBase):
         "apply.yml": "apply",
         "fleet-agents.yml": "apply",
         "os-updates.yml": "apply",
+        "aiops-code-deploy.yml": "apply",
     }
 
     # Same modes, but notifications are capped at tag `info`. Keyed by the

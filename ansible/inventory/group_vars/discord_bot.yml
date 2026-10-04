@@ -14,3 +14,7 @@ baseline_manage_resolv_conf: false
 vlagent_log_inputs:
   - path: /var/log/syslog
     service: syslog
+
+# An operator's message in the chat channel is for Gna without an @mention. Message Content Intent enabled in the Discord
+# Developer Portal 2026-10-04; if it is ever switched off the bot logs `privileged_intent_missing` and runs mention-only.
+ratatoskr_chat_without_mention: true
