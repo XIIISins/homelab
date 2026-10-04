@@ -658,13 +658,15 @@ class Engine:
         lines = sem.output(task_id) if status != "timeout" else []
         result_from = self.reg.get(action_id)["semaphore"].get("result_from", "aiops_result")
         result = parse_output(lines, clean.get("target_host"), result_from)
-        for _ in range(3 if status == "success" and not result else 0):
+        # (also when the result is not empty but the recap an action depends on has not arrived: the guard's AIOPS_RESULT line is
+        # written long before the PLAY RECAP, found live 2026-10-04 on a replay-role-check that ran fine and read `recap_missing`)
+        for _ in range(3 if status == "success" and (not result or result.get("recap_missing")) else 0):
             # Semaphore marks a task finished slightly before its last log rows are readable (found live in 10f: a verify
             # task that ran fine was read as an empty result, so a restart that worked ended verify_failed). Re-read.
             self.cfg.sleep(2)
             lines = sem.output(task_id)
             result = parse_output(lines, clean.get("target_host"), result_from)
-            if result:
+            if result and not result.get("recap_missing"):
                 break
         tail = [redact(ln)[:300] for ln in lines[-12:]]
         with self.lock:
