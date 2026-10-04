@@ -356,11 +356,11 @@ class FakeZabbix:
                 elif body["method"] == "host.get":
                     res = {"result": [{"hostid": "10708"}]}
                 elif body["method"] == "problem.get":
-                    res = {"result": [{"eventid": "9", "name": "Linux: Zabbix agent is not available", "severity": "3", "clock": "1790000000",
-                                       "acknowledged": "0", "r_eventid": "0", "tags": [{"tag": "class", "value": "os"}]}]}
+                    res = {"result": [{"eventid": "9", "objectid": "55", "name": "Linux: Zabbix agent is not available", "severity": "3",
+                                       "clock": "1790000000", "acknowledged": "0", "r_eventid": "0", "tags": [{"tag": "class", "value": "os"}]}]}
                 elif body["method"] == "trigger.get":
-                    res = {"result": [{"description": "Disk full on /", "priority": "4", "lastchange": "1790000100", "value": "1",
-                                       "state": "0", "error": ""}]}
+                    res = {"result": [{"triggerid": "55", "hosts": [{"host": "canary-1"}], "description": "Disk full on /", "priority": "4",
+                                       "lastchange": "1790000100", "value": "1", "state": "0", "error": ""}]}
                 else:
                     res = {"error": {"message": "Method not found", "data": body["method"]}}
                 raw = json.dumps({"jsonrpc": "2.0", "id": 1, **res}).encode()
@@ -401,14 +401,15 @@ class ZabbixTool(unittest.TestCase):
         self.assertEqual(host["interfaces"][0]["available"], "2")
         probs = self.tb.call_tool("zabbix.problems", {"host": "canary-1"}, self.inc)["result"]["problems"]
         self.assertEqual((probs[0]["severity"], probs[0]["resolved"], probs[0]["acknowledged"]), ("average", False, False))
+        self.assertEqual(probs[0]["hosts"], ["canary-1"])        # the host a problem is on, resolved through its trigger
         trig = self.tb.call_tool("zabbix.triggers", {"host": "canary-1"}, self.inc)["result"]["active_triggers"]
-        self.assertEqual((trig[0]["description"], trig[0]["severity"]), ("Disk full on /", "high"))
+        self.assertEqual((trig[0]["description"], trig[0]["severity"], trig[0]["hosts"]), ("Disk full on /", "high", ["canary-1"]))
         self.assertTrue(self.fz.methods and all(m.endswith(".get") for m in self.fz.methods), self.fz.methods)
 
     def test_problems_without_a_host_is_fleet_wide(self):
         self.cred()
         self.tb.call_tool("zabbix.problems", {}, self.inc)
-        self.assertEqual(self.fz.methods, ["problem.get"])  # no host lookup needed
+        self.assertEqual(self.fz.methods, ["problem.get", "trigger.get"])  # no host-id lookup; one trigger read names each problem's host
 
     def test_unknown_host_is_404(self):
         self.cred()

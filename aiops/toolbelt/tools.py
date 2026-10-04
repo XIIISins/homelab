@@ -325,21 +325,38 @@ def _zabbix(cfg: LiveConfig, name: str, args: dict) -> dict:
             "interfaces": [{"ip": i["ip"], "port": i["port"], "type": i["type"], "available": i["available"],
                             "error": (i.get("error") or "")[:200]} for i in h.get("interfaces", [])]}}
     if name == "zabbix.problems":
-        params = {"output": ["eventid", "name", "severity", "clock", "acknowledged", "r_eventid"], "recent": True,
+        params = {"output": ["eventid", "objectid", "name", "severity", "clock", "acknowledged", "r_eventid"], "recent": True,
                   "sortfield": ["eventid"], "sortorder": "DESC", "limit": 50, "selectTags": ["tag", "value"]}
         if hostids:
             params["hostids"] = hostids
         rows = _zbx(cfg, "problem.get", params)
-        return {"problems": [{"eventid": r["eventid"], "name": r["name"], "severity": sev.get(r["severity"], r["severity"]),
+        # problem.get cannot say which host a problem is on (a Zabbix 7 limit); the problem's object is a trigger, and a trigger can.
+        hosts_of = _trigger_hosts(cfg, [r["objectid"] for r in rows if r.get("objectid")])
+        return {"problems": [{"eventid": r["eventid"], "name": r["name"], "hosts": hosts_of.get(r.get("objectid"), []),
+                              "severity": sev.get(r["severity"], r["severity"]),
                               "since": int(r["clock"]), "acknowledged": r["acknowledged"] == "1",
                               "resolved": r["r_eventid"] != "0", "tags": r.get("tags", [])} for r in rows]}
     rows = _zbx(cfg, "trigger.get", {
         "output": ["description", "priority", "lastchange", "value", "state", "error"], "hostids": hostids,
         "monitored": True, "filter": {"value": 1}, "expandDescription": True, "sortfield": "priority", "sortorder": "DESC",
-        "limit": 100})
-    return {"active_triggers": [{"description": r["description"], "severity": sev.get(r["priority"], r["priority"]),
+        "limit": 100, "selectHosts": ["host"]})
+    return {"active_triggers": [{"description": r["description"], "hosts": [h["host"] for h in r.get("hosts", [])],
+                                 "severity": sev.get(r["priority"], r["priority"]),
                                  "since": int(r["lastchange"]), "state": "unknown" if r["state"] == "1" else "normal",
                                  "error": (r.get("error") or "")[:200]} for r in rows]}
+
+
+def _trigger_hosts(cfg: LiveConfig, triggerids: list) -> dict:
+    """{triggerid: [host name, ...]} for the triggers behind a list of problems. Best effort: a Zabbix hiccup here leaves the hosts
+    empty rather than failing the whole problems answer."""
+    ids = sorted({str(t) for t in triggerids})
+    if not ids:
+        return {}
+    try:
+        rows = _zbx(cfg, "trigger.get", {"output": ["triggerid"], "triggerids": ids, "selectHosts": ["host"]})
+    except ToolError:
+        return {}
+    return {r["triggerid"]: [h["host"] for h in r.get("hosts", [])] for r in rows}
 
 
 def _nb_get(cfg: LiveConfig, path: str):
