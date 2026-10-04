@@ -56,6 +56,31 @@ likely cause (a **hypothesis** unless a commit or deploy explains it), the resol
 case: the 2026-10-04 06:24Z run showed `frigg changed=2` because `aiops-toolbelt` code on Frigg lagged a merged PR (#115) until
 the role was re-run. The code-changing `drift` class stays disabled; Gná filing these on a drift-check result is not built.
 
+## Infrastructure PRs and the canary test (the `drift` class)
+
+`/aiops draft` kind **drift** asks for a change to ONE of the four roles the canary pool runs (`baseline`, `hardening`, `vlagent`,
+`zabbix-agent`); nothing else is allowed (`aiops/author-classes.yml`, and `ansible/playbooks/aiops-*.yml` is denied to every class so a
+PR can never edit the guard it is tested under). When its PR opens, the **Toolbelt itself** reads the PR from GitHub (read-only) and
+either proposes `pr-canary-test` or records why it cannot: only role content for one allow-listed role, one to three commits ahead of
+`main`, no deletes or renames, a scannable diff, and none of the constructs a canary test should not run (`delegate_to`,
+`local_action`, lookups, `uri`/`get_url`, `include_vars`, ...). The proposal's card appears next to the request's card; approve it and
+the executor runs, through Semaphore with the PR branch as a per-task `git_branch`:
+
+1. a dry run of the PR's code on one canary (what would change),
+2. the real run on that canary,
+3. a second dry run, which must show `changed=0` (the change is idempotent).
+
+The dispatcher writes the outcome into the PR description under **Canary test** (counts, the canary, the commit, the proposal id; the
+full run output stays in the private Discord thread because a PR comment on a public repo is public) and keeps it current until the PR
+closes. The test is bound to the commit the Toolbelt read: if the branch head moves after you approve, or the PR is no longer testable,
+the run is refused (`guard refused at execution time`) and nothing runs. The test is three Semaphore tasks that each check the branch out afresh, so the PR is re-read before every step and a head that moves mid-test stops the next step (`the PR changed under the test`). A small window remains between that read and Semaphore's own clone (seconds); closing it needs a sha checkout Semaphore does not offer. A PR that cannot be tested says `Not tested: <reason>` instead
+(burst-cluster tests for `k8s/` and Terraform changes are not built, so those classes stay disabled). The two actions are `internal`:
+the diagnosis and chat agents are never told they exist and cannot propose them.
+
+What this does NOT protect against: the canary run executes the PR's tasks with the fleet SSH key and the runner's environment, so the
+static scan is a filter, not a sandbox. The operator reading the diff before approving the test, and a canary being disposable
+(alerts capped at `info`, rebuildable in 117 s), are the real controls.
+
 ## What the PR says it was tested with
 
 Before it pushes, the dispatcher applies the session's patch to its own clean clone and runs the class's `checks` (declared in
@@ -77,4 +102,4 @@ touching `.github/`). Not built: a burst/canary test run per request for the cla
 
 ## Not built yet
 
-Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), the forecast card's "Draft fix PR" button (10h1 is still in shadow mode and posts nothing), an automatic trigger for 10h3 incident drafts (`/aiops draft-incident` is manual), Gná filing drift notes is built ([`aiops-drift.md`](aiops-drift.md)) but unproven live, the code-changing `capacity` and `drift` classes, and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
+Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), the forecast card's "Draft fix PR" button (10h1 is still in shadow mode and posts nothing), an automatic trigger for 10h3 incident drafts (`/aiops draft-incident` is manual), Gná filing drift notes is built ([`aiops-drift.md`](aiops-drift.md)) but unproven live, the `capacity` class (and burst-cluster tests for `k8s/`), and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
