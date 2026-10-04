@@ -136,3 +136,174 @@ def storage_remap(text: str) -> tuple[str, list[str]]:
             text = text.replace(old, new)
             hit.append(old)
     return text, sorted(hit)
+
+
+# ---- rendering the burst copy of the tree ----------------------------------------------------------------------------------------------
+# The burst cluster applies a COPY of k8s/asgard, never the repo itself, with exactly these differences (all listed in the PR summary):
+#   * skipped components removed (SKIPPED), asgard-only storage classes remapped to local-path;
+#   * the Vault HelmRelease made single-node and Shamir-sealed (same chart, same version, same listener TLS, same Raft storage);
+#   * Let's Encrypt is cut out: the LE ClusterIssuers, the Cloudflare token ExternalSecret and the issuerRef of every wildcard
+#     Certificate (they point at the internal CA instead), because a throwaway cluster must NEVER ask Let's Encrypt for xiiisins.com.
+LE_FILES = ("externalsecret-cloudflare.yaml", "clusterissuer-letsencrypt-staging.yaml", "clusterissuer-letsencrypt-prod.yaml")
+INTERNAL_ISSUER = "homelab-internal-ca"
+
+
+def _vault_config(cfg: str) -> str:
+    return "\n".join(line for line in cfg.splitlines() if 'seal "awskms"' not in line) + "\n"
+
+
+def patch_vault_helmrelease(doc: dict) -> dict:
+    """The prod Vault HelmRelease as a one-node, Shamir-sealed Vault: replicas 1, no awskms seal and no unseal secret env, no LoadBalancer
+    UI, no anti-affinity. Chart, image, listener TLS and Raft storage are untouched."""
+    import copy
+    d = copy.deepcopy(doc)
+    server = d["spec"]["values"]["server"]
+    server["replicas"] = 1
+    ha = server.get("ha") or {}
+    ha["replicas"] = 1
+    if "raft" in ha and "config" in ha["raft"]:
+        ha["raft"]["config"] = _vault_config(ha["raft"]["config"])
+    server["ha"] = ha
+    server.pop("extraSecretEnvironmentVars", None)
+    server.pop("affinity", None)
+    ui = d["spec"]["values"].get("ui") or {}
+    for k in ("loadBalancerIP", "loadBalancerSourceRanges"):
+        ui.pop(k, None)
+    ui["serviceType"] = "ClusterIP"
+    d["spec"]["values"]["ui"] = ui
+    return d
+
+
+def patch_traefik_helmrelease(doc: dict) -> dict:
+    """Traefik without MetalLB: the Service becomes a NodePort (a LoadBalancer with no controller stays Pending and the chart's install waits on it
+    until the 10-minute timeout), one replica (three 4 GB nodes), same chart, version, ports, providers and middlewares."""
+    import copy
+    d = copy.deepcopy(doc)
+    v = d["spec"]["values"]
+    v.setdefault("deployment", {})["replicas"] = 1
+    svc = v.setdefault("service", {})
+    svc["type"] = "NodePort"
+    svc["spec"] = {"externalTrafficPolicy": "Cluster"}
+    return d
+
+
+def patch_certificate(doc: dict) -> dict:
+    """A Certificate issued by Let's Encrypt is re-pointed at the internal CA (same names, same DNS names, so the Gateway and routes behave)."""
+    import copy
+    d = copy.deepcopy(doc)
+    ref = (d.get("spec") or {}).get("issuerRef") or {}
+    if str(ref.get("name", "")).startswith("letsencrypt"):
+        d["spec"]["issuerRef"] = {"name": INTERNAL_ISSUER, "kind": "ClusterIssuer", "group": "cert-manager.io"}
+    return d
+
+
+def has_resources(kfile: Path) -> bool:
+    """Does this kustomization.yaml still list at least one resource?"""
+    if not kfile.exists():
+        return False
+    return bool((yaml.safe_load(kfile.read_text()) or {}).get("resources"))
+
+
+def _drop_resources(kfile: Path, drop: set) -> list:
+    """Remove `  - <name>` entries from a kustomization.yaml `resources:` list; returns what was removed."""
+    gone, out = [], []
+    for line in kfile.read_text().splitlines():
+        m = re.match(r"^\s*-\s*(\S+)\s*$", line)
+        if m and m.group(1) in drop:
+            gone.append(m.group(1))
+            continue
+        out.append(line)
+    kfile.write_text("\n".join(out) + "\n")
+    return gone
+
+
+# What every burst test needs, whatever the PR touches: the platform the rest stands on. Anything else is installed only when the PR touches it
+# (three 4 GB droplets cannot hold the whole of asgard, and an unrelated app failing would say nothing about the PR).
+CORE = ("local-path-provisioner", "vault", "external-secrets", "gateway-api", "cert-manager", "trust-manager", "traefik")
+
+
+def _trim_to(out: Path, keep: set, summary: dict) -> None:
+    """Drop every infrastructure/ and apps/ component not in `keep` (and not CORE), from the kustomization lists and from disk."""
+    for sub in ("infrastructure", "apps"):
+        kfile = out / sub / "kustomization.yaml"
+        if not kfile.exists():
+            continue
+        import yaml as _y
+        listed = [r for r in (_y.safe_load(kfile.read_text()) or {}).get("resources", []) if isinstance(r, str)]
+        drop = {r for r in listed if r not in keep and r not in CORE}
+        _drop_resources(kfile, drop)
+        import shutil
+        for r in drop:
+            if (out / sub / r).is_dir():
+                shutil.rmtree(out / sub / r)
+        summary.setdefault("not_installed", []).extend(f"{sub}/{r}" for r in sorted(drop))
+
+
+def render_tree(src: str | Path, dst: str | Path, only: list | None = None) -> dict:
+    """Copy <src>/k8s/asgard to <dst>/k8s/asgard and apply the burst differences. `only` (a list of component names) trims the copy to CORE
+    plus those components; None keeps everything not skipped. Returns the summary the PR description carries:
+    {"skipped": {...}, "le_removed": [...], "patched": [...], "storage_remapped": [...], "not_installed": [...]}. Pure file work."""
+    import shutil
+    src, dst = Path(src), Path(dst)
+    base, out = src / "k8s" / "asgard", dst / "k8s" / "asgard"
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(base, out)
+    summary: dict = {"skipped": {}, "le_removed": [], "patched": [], "storage_remapped": []}
+    # 1. skipped components: out of the infrastructure list, their directories and their Flux Kustomizations deleted
+    _drop_resources(out / "infrastructure" / "kustomization.yaml", set(SKIPPED))
+    for name, why in SKIPPED.items():
+        removed = False
+        for p in (out / "infrastructure" / name, out / "apps" / name, out / name):
+            if p.is_dir():
+                shutil.rmtree(p)
+                removed = True
+        fk = out / "flux-system" / f"{name}.yaml"
+        if fk.exists():
+            fk.unlink()
+            removed = True
+        if removed:
+            summary["skipped"][name] = why
+    if only is not None:
+        _trim_to(out, set(only), summary)
+    # 2. Let's Encrypt out of cert-manager-config
+    cm = out / "cert-manager-config"
+    if cm.is_dir():
+        for f in LE_FILES:
+            if (cm / f).exists():
+                (cm / f).unlink()
+        summary["le_removed"] = _drop_resources(cm / "kustomization.yaml", set(LE_FILES))
+    # 3. document-level patches and the storage remap, file by file
+    for p in sorted(out.rglob("*.y*ml")):
+        if p.suffix not in (".yaml", ".yml") or p.name in ("kustomization.yaml", "gotk-components.yaml"):
+            continue
+        text = p.read_text()
+        new_text, hit = storage_remap(text)
+        if hit:
+            summary["storage_remapped"].append({"file": str(p.relative_to(out)), "classes": hit})
+        try:
+            docs = list(yaml.safe_load_all(new_text))
+        except yaml.YAMLError:
+            p.write_text(new_text)
+            continue
+        changed = False
+        for i, d in enumerate(docs):
+            if not isinstance(d, dict):
+                continue
+            md = d.get("metadata") or {}
+            if d.get("kind") == "HelmRelease" and md.get("name") == "vault" and md.get("namespace") == "vault":
+                docs[i], changed = patch_vault_helmrelease(d), True
+                summary["patched"].append(f"{p.relative_to(out)}: vault -> one node, Shamir seal")
+            elif d.get("kind") == "HelmRelease" and md.get("name") == "traefik" and md.get("namespace") == "traefik":
+                docs[i], changed = patch_traefik_helmrelease(d), True
+                summary["patched"].append(f"{p.relative_to(out)}: traefik -> NodePort Service, one replica (no MetalLB)")
+            elif d.get("kind") == "Certificate":
+                nd = patch_certificate(d)
+                if nd != d:
+                    docs[i], changed = nd, True
+                    summary["patched"].append(f"{p.relative_to(out)}: {md.get('name')} issuer -> {INTERNAL_ISSUER}")
+        if changed:
+            p.write_text(yaml.safe_dump_all([d for d in docs if d is not None], sort_keys=False))
+        elif new_text != text:
+            p.write_text(new_text)
+    return summary
