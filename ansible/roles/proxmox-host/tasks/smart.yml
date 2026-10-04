@@ -1,0 +1,10 @@
+# ansible/roles/proxmox-host/tasks/smart.yml
+---
+# smartctl on the hypervisors: the 10h1 fleet-disk forecaster reads NVMe/SATA health
+# (wear, spare, media errors) from each PVE host. Package only: smartd's default
+# monitoring is left as Debian ships it.
+- name: Install smartmontools
+  ansible.builtin.apt:
+    name: smartmontools
+    state: present
+    update_cache: false
