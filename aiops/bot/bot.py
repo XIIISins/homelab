@@ -256,8 +256,9 @@ async def cmd_report(interaction: discord.Interaction, days: app_commands.Range[
 
 
 @aiops.command(name="draft", description="Ask for ONE agent-authored pull request (you approve the request on its card)")
-@app_commands.describe(kind="Which kind of change (only docs is enabled for now)", title="A short title", details="What to write and what evidence to use")
-@app_commands.choices(kind=[app_commands.Choice(name="docs (incident write-ups, known-issues, procedures)", value="docs")])
+@app_commands.describe(kind="Which kind of change (docs and drift notes are enabled)", title="A short title", details="What to write and what evidence to use")
+@app_commands.choices(kind=[app_commands.Choice(name="docs (incident write-ups, known-issues, procedures)", value="docs"),
+                            app_commands.Choice(name="drift-note (document what a drift check reported)", value="drift-note")])
 async def cmd_draft(interaction: discord.Interaction, kind: app_commands.Choice[str], title: app_commands.Range[str, 5, 120],
                     details: app_commands.Range[str, 10, 1500]) -> None:
     if not await _operator_only(interaction):

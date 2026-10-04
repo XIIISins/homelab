@@ -47,6 +47,15 @@ Acceptance (done once): a probe PR from `agent/docs/<n>-x` touching `CLAUDE.md` 
 
 The `main` ruleset lets the **Admin** role bypass it. A token for an account with admin on this repo could therefore push to `main` (which Flux deploys) despite the CI gate. The dispatcher **refuses to claim anything** if the token's account has `admin` or `maintain` on the repo (`identity_refused` in its audit log), unless `aiops_author_allow_admin_token: true` is set on purpose. The intended identity is a dedicated GitHub user with *write* (not admin) on the repo and a fine-grained PAT scoped to this repo only (Contents + Pull requests read/write; no Workflows, Administration or Issues), so its branch pushes cannot skip the ruleset. It cannot be created through `gh` or the API: GitHub has no endpoint for minting PATs.
 
+## The `drift-note` class
+
+`/aiops draft` kind **drift-note**: name a drift-check run (the Semaphore task id, e.g. the latest `asgard-drift-check`) in the
+details. The session reads the run with `semaphore.tasks {"task_id": N}` (the recap and each changed task with its diff head,
+redacted) and `git.log`, and writes ONE note, `docs/operations/drift/YYYY-MM-DD-<host>-<role>.md`: what the run reported, the
+likely cause (a **hypothesis** unless a commit or deploy explains it), the resolution, follow-ups. It changes no code. The first
+case: the 2026-10-04 06:24Z run showed `frigg changed=2` because `aiops-toolbelt` code on Frigg lagged a merged PR (#115) until
+the role was re-run. The code-changing `drift` class stays disabled; Gná filing these on a drift-check result is not built.
+
 ## What the PR says it was tested with
 
 Before it pushes, the dispatcher applies the session's patch to its own clean clone and runs the class's `checks` (declared in

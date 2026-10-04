@@ -90,7 +90,7 @@ SPEC: dict[str, dict[str, Arg]] = {
     "netbox.hypervisor_peers": {"host": S(True, 100, HOST)},
     "pve.node_status": {"node": S(True, 40, r"^[a-z0-9-]+$")},
     "pve.guests": {"node": S(False, 40, r"^[a-z0-9-]+$")},
-    "semaphore.tasks": {"limit": I(1, 20)},
+    "semaphore.tasks": {"limit": I(1, 20), "task_id": I(1, 10_000_000)},
 }
 
 
@@ -532,6 +532,8 @@ def _sem_get(cfg: LiveConfig, path: str):
 def _semaphore(cfg: LiveConfig, args: dict) -> dict:
     """Recent task runs (newest first). For the most recent failures, the redacted tail of the task output: the answer to
     'why did the last apply / drift-check fail' without the agent needing broader access."""
+    if "task_id" in args:
+        return _semaphore_changes(cfg, args["task_id"])
     limit = args.get("limit", 10)
     tasks = _sem_get(cfg, f"/project/{cfg.semaphore_project}/tasks/last")[:limit]
     out, failed_fetched = [], 0
@@ -547,6 +549,23 @@ def _semaphore(cfg: LiveConfig, args: dict) -> dict:
                 row["output_tail_error"] = e.message
         out.append(row)
     return {"tasks": out}
+
+
+def _semaphore_changes(cfg: LiveConfig, task_id: int) -> dict:
+    """What one run (a drift-check, say) would change or changed: its PLAY RECAP lines and every `changed:` task with the
+    first lines of its diff, redacted and capped. Lets the drafting session document a drift finding from evidence."""
+    task = _sem_get(cfg, f"/project/{cfg.semaphore_project}/tasks/{task_id}")
+    lines = [_ANSI.sub("", o.get("output", "")) for o in _sem_get(cfg, f"/project/{cfg.semaphore_project}/tasks/{task_id}/output")]
+    recap = [redact(l.strip())[:200] for l in lines if "changed=" in l and "ok=" in l][:20]
+    changed, current = [], "?"
+    for i, l in enumerate(lines):
+        if l.startswith("TASK ["):
+            current = l.strip()[:160]
+        elif l.startswith("changed:") and len(changed) < 40:
+            diff = [x.rstrip()[:200] for x in lines[i + 1:i + 12] if x.startswith(("--- ", "+++ ", "@@", "+", "-")) and not x.startswith(("+++ /dev", "--- /dev"))]
+            changed.append({"task": current, "line": redact(l.strip())[:200], "diff": [redact(x) for x in diff[:8]]})
+    return {"task": {"id": task.get("id"), "template": task.get("tpl_alias"), "status": task.get("status"), "start": task.get("start"),
+                     "end": task.get("end"), "commit": (task.get("commit_hash") or "")[:8]}, "recap": recap, "changed": changed}
 
 
 _REL = re.compile(r"^([0-9]{1,5})([smhd])$")
