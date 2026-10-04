@@ -71,6 +71,21 @@ class Deployment(unittest.TestCase):
         self.assertEqual(present - shipped, set())
 
 
+class DispatcherRestart(unittest.TestCase):
+    def test_a_code_deploy_also_restarts_the_dispatcher_which_runs_the_same_files(self):
+        """The dispatcher runs author/*.py and reads author-classes.yml from the Toolbelt's code tree, but only the author role's
+        handler restarted it: a deploy through the Toolbelt tag left the OLD dispatcher running (found 2026-10-04: the new retry logic
+        sat unused for twenty minutes)."""
+        import yaml
+        tasks = yaml.safe_load((REPO / "ansible/roles/aiops-toolbelt/tasks/main.yml").read_text())
+        copy = next(t for t in tasks if t.get("name") == "Install the API code and data from the repo")
+        self.assertEqual(sorted(copy["notify"]), ["Restart aiops-author", "Restart aiops-toolbelt"])
+        handlers = yaml.safe_load((REPO / "ansible/roles/aiops-author/handlers/main.yml").read_text())
+        self.assertIn("Restart aiops-author", [h["name"] for h in handlers])
+        play = (REPO / "ansible/playbooks/asgard-control.yml").read_text()
+        self.assertIn("role: aiops-author", play)  # the handler is only visible where both roles are in one play
+
+
 class Loader(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
