@@ -577,7 +577,44 @@ resource "semaphoreui_project_template" "aiops_rebuild_verify" {
   suppress_success_alerts = true
 }
 
+# === aiops-code-deploy ===
+#
+# Deploys the AIOps code (Toolbelt + PR author on Frigg, the Discord bot on Ratatoskr) after a merge. The playbook compares the
+# git tree ids of the shipped paths with a marker on each host and does nothing when they match, so the 15-minute schedule is
+# the "run when there are new commits" trigger (the provider's schedule has no commit-poll option). Failure posts `critical`
+# through the callback (hermod_summary treats the wrapper as apply mode); success is silent.
+resource "semaphoreui_project_template" "aiops_code_deploy" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "aiops-code-deploy"
+  description    = "Deploy aiops/ code to Frigg and Ratatoskr when the shipped paths changed since the last deploy (marker per host). Scheduled every 15 min."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-code-deploy.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
 # === Schedules ===
+
+resource "semaphoreui_project_schedule" "aiops_code_deploy" {
+  project_id  = semaphoreui_project.asgard.id
+  template_id = semaphoreui_project_template.aiops_code_deploy.id
+  name        = "every-15m"
+  # Two minutes off the 0/15/30/45 cluster of the other crons. A run with nothing new is a few seconds of ansible.
+  cron_format = "2,17,32,47 * * * *"
+  enabled     = true
+}
 
 resource "semaphoreui_project_schedule" "refresh_netbox_inventory" {
   project_id  = semaphoreui_project.asgard.id
