@@ -123,6 +123,11 @@ locals {
     # project_environment to actually propagate. Mounted via the
     # semaphore-ansible-ssh-key Secret + StatefulSet volume.
     ANSIBLE_PRIVATE_KEY_FILE = "/etc/ssh-keys/ansible_niflheim"
+
+    # Phase 10h2: where the hermod_summary callback hands a drift-check that WOULD change something to Gná (the AIOps
+    # agent). Not a secret: Gná's Caddy admits this one path from the K3s node range only and the Toolbelt re-reads the
+    # run from Semaphore before believing it. Unset = the hand-off is skipped (the Hermod alert is unaffected).
+    AIOPS_DRIFT_URL = "http://10.0.11.221:8081/webhook/aiops/drift"
   }
 
   semaphore_environment_secrets = [

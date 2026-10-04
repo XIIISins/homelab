@@ -42,6 +42,14 @@ its imports) are ignored.
 
 POST failure is logged but never raised — the callback must never
 break the playbook run.
+
+Phase 10h2 adds a second, independent hand-off: when the PRODUCTION drift
+wrapper finishes with at least one host that would change, and AIOPS_DRIFT_URL is
+set (a non-secret URL in the Semaphore project environment, Gná's
+/webhook/aiops/drift), the run's template, task id and per-host changed counts are
+POSTed there. A clean run posts nothing. No secret rides along: Gná's Caddy
+admits that path from the K3s node range only, and the Toolbelt re-reads the run
+from Semaphore before it believes it.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -49,6 +57,7 @@ from __future__ import absolute_import, division, print_function
 import atexit
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -179,10 +188,46 @@ class CallbackModule(CallbackBase):
             "format": "markdown",
         }
 
+    def _gna_payload(self):
+        """The drift hand-off to Gná (the AIOps agent), or None for silence. Production drift wrapper only, and only when some
+        host WOULD change: a clean run says nothing, a failed host is Hermod's alert, non-prod drift is expected. Counts and host
+        names only; the Toolbelt re-reads the run from Semaphore, so nothing here is trusted."""
+        if self.mode != "drift" or self.nonprod:
+            return None
+        changed = {h: s["changed"] for h, s in sorted(self.totals.items()) if s["changed"] > 0}
+        if not changed:
+            return None
+        task_id = os.environ.get("SEMAPHORE_TASK_ID", "")
+        return {
+            "source": "semaphore",
+            "wrapper": self.wrapper_name,
+            "template": os.environ.get("AIOPS_DRIFT_TEMPLATE", "asgard-drift-check"),
+            "task_id": int(task_id) if task_id.isdigit() else None,
+            "changed": changed,
+            "failed": sorted(h for h, s in self.totals.items() if s["failed"] or s["unreachable"]),
+            "ts": int(time.time()),
+            "semaphore_env_keys": sorted(k for k in os.environ if k.startswith("SEMAPHORE")),
+        }
+
+    def _post_gna(self):
+        url = os.environ.get("AIOPS_DRIFT_URL", "").strip()
+        payload = self._gna_payload() if url else None
+        if payload is None:
+            return
+        try:
+            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status >= 300:
+                    self._display.warning("hermod_summary: Gna POST returned HTTP {}".format(resp.status))
+        except Exception as e:  # noqa: BLE001 - the callback must never break the run
+            self._display.warning("hermod_summary: Gna POST failed: {}".format(e))
+
     def _post_once(self):
         if self.posted or self.mode is None:
             return
         self.posted = True
+        self._post_gna()
 
         url = os.environ.get("HERMOD_URL", "").rstrip("/")
         if not url:
