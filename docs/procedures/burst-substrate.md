@@ -6,7 +6,7 @@
 
 A throwaway 3-node K3s cluster on plain DigitalOcean droplets, built with the **existing `k3s` role** (not DOKS: DOKS is not K3s and its node auto-repair would confound heal/rebuild tests). It exists for tests that must not touch prod: the offsite-backup restore drill, K3s heal/rebuild, fault injection, firewall probes from an independent vantage. Default shape: 3 × `s-2vcpu-4gb`, ams3, Debian 13, 1 control plane + 2 workers, TTL 4 h.
 
-> **Status:** code merged-ready, **nothing applied**. Every live step below is an operator/parent action from a **main checkout** (Terraform applies and playbooks never run from a worktree). The restore drill section is a documented plan, **not yet run**.
+> **Status:** applied and smoke-tested 2026-10-02; the offsite-backup restore drill ran on it 2026-10-03 and passed (below). Every live step is an operator/parent action from a **main checkout** (Terraform applies and playbooks never run from a worktree).
 
 ## Design in one screen
 

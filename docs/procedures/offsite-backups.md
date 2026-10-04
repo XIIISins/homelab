@@ -71,9 +71,9 @@ kubectl -n backups delete job calico-now vault-now
 ```
 Expect `uploaded s3://xiiisins-homelab-backups/...` lines and, for Calico, `ippools=<n>` ≥ 1.
 
-## Restore (outline — the burst substrate for the drill exists (10b2, code written, not yet applied); drill not yet run)
+## Restore (proven by the 2026-10-03 drill; results in "Status")
 
-The drill procedure (scratch burst K3s with prod CIDRs + token, per-leg pass criteria, the credentials gap and the Vault KMS-seal caveat) is in [`burst-substrate.md`](burst-substrate.md) ("Restore drill"). What remains: apply the substrate, run the three legs, record the RTOs here.
+The drill procedure (scratch burst K3s with prod CIDRs + token, per-leg pass criteria, the credentials gap and the Vault KMS-seal caveat) is in [`burst-substrate.md`](burst-substrate.md) ("Restore drill"). The drill ran on 2026-10-03 and all three legs passed; the RTOs are in "Status" above.
 
 - **etcd** — on one CP (others stopped): `k3s server --cluster-reset --cluster-reset-restore-path=<snapshot-name> --etcd-s3 --etcd-s3-bucket=… --etcd-s3-folder=etcd --etcd-s3-region=eu-west-1 --etcd-s3-access-key=… --etcd-s3-secret-key=…`
   (S3 restore is the same flag set as the config drop-in), then re-join the other CPs per [k3s-lifecycle.md](../known-issues/k3s-lifecycle.md) (`kubectl delete node` first).
@@ -103,6 +103,6 @@ scripts/secrets/mint-restore-key rotate                              # new key -
 ## Known gaps
 
 - **No alerting on a missed/failed backup.** A failed CronJob shows in `kubectl get jobs -n backups` only; the infra-health prober doesn't check bucket freshness yet (follow-up: newest-object age per prefix → Hermod).
-- **No restore drill yet** — the scratch-cluster substrate now exists as code (`terraform/digitalocean-burst/`, [`burst-substrate.md`](burst-substrate.md); 10b2, not applied), but the restore steps above are still the documented intent, not a proven runbook.
+- **Restore drill: done 2026-10-03** (all three S3 legs pass, see "Status"). Re-run it after any change to the producers, the bucket or the restore credentials; there is no schedule yet.
 - **Restore credentials: decided 2026-10-03 (path B).** No existing credential could read `vault-raft/` or `calico/` (the etcd user is `etcd/*` only, the writer is PutObject-only), so a dedicated read-only `homelab-backup-restore` user is declared in `terraform/aws` and its key is minted by `scripts/secrets/mint-restore-key` into 1Password only (see above). The Vault Raft restore also needs the KMS identity: the existing `vault-unseal` user already has Encrypt/Decrypt/DescribeKey on that one key, so no new KMS grant exists. **Applied and minted 2026-10-03:** the user exists, the key is in 1Password, and `mint-restore-key verify` passes (reads all three prefixes; write, delete and IAM denied). The restore drill is unblocked.
 - The pre-upgrade Calico export written by `playbooks/calico-upgrade.yml` is still local to gondul (the daily CronJob export is the off-site copy).
