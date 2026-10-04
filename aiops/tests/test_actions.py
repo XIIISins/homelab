@@ -336,6 +336,37 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual(out["state"], "failed")
         self.assertIn("timeout", json.dumps(out["result"]))
 
+    def test_a_recap_that_lands_after_the_status_is_read_again_not_reported_missing(self):
+        """Semaphore flips a task to success before its last log rows are readable: the guard's AIOPS_RESULT line is there but the
+        PLAY RECAP is not yet (found live 2026-10-04). The executor re-reads instead of failing the post-condition."""
+        guard = result_line(action="replay-role-check", phase="guard-passed", check_mode=True, target_host="kvasir", role_tag="hardening")
+        done = [guard, result_line(action="replay-role-check", phase="complete", ok=True, check_mode=True, target_host="kvasir"),
+                "kvasir : ok=11 changed=1 unreachable=0 failed=0"]
+        sem = FakeSemaphore({"aiops-replay-role-check": [("success", [guard])]})
+        calls = []
+        real = sem.output
+
+        def late(task_id):
+            calls.append(task_id)
+            return real(task_id) if len(calls) < 3 else done  # the recap appears on the third read
+
+        sem.output = late
+        eng, *_ = make(sem)
+        p = eng.propose(action_id="replay-role-check", params={"target_host": "kvasir", "role_tag": "hardening"}, reason="drift", source="diagnosis")
+        approve(eng, p["id"])
+        out = eng.execute(p["id"])
+        self.assertEqual(out["state"], "succeeded", out)
+        self.assertEqual(len(calls), 3)
+
+    def test_a_recap_that_never_arrives_still_fails_closed(self):
+        guard = result_line(action="replay-role-check", phase="guard-passed", check_mode=True, target_host="kvasir", role_tag="hardening")
+        sem = FakeSemaphore({"aiops-replay-role-check": [("success", [guard])]})
+        eng, *_ = make(sem)
+        p = eng.propose(action_id="replay-role-check", params={"target_host": "kvasir", "role_tag": "hardening"}, reason="drift", source="diagnosis")
+        approve(eng, p["id"])
+        out = eng.execute(p["id"])
+        self.assertEqual(out["state"], "verify_failed", out)
+
     def test_replay_role_runs_the_check_first_and_stops_if_it_fails(self):
         sem = FakeSemaphore({
             "aiops-replay-role-check": [("success", ["canary-1 : ok=5 changed=2 unreachable=0 failed=1"])],
