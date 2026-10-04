@@ -32,6 +32,11 @@ while [ $# -gt 0 ]; do
 done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Self-healing env: the Vault-backed shim exports DIGITALOCEAN_TOKEN, AWS_*, ANSIBLE_* and the ssh-agent socket (CLAUDE.md "Never echo secrets").
+if [ -z "${DIGITALOCEAN_TOKEN:-}" ] && [ "$reuse" = 0 ]; then
+  # shellcheck disable=SC1091
+  . "$root/.config/scripts/homelab.sh" && PATH="/opt/homebrew/bin:$PATH" vault-homelab-env >/dev/null
+fi
 state="${BURST_STATE_DIR:-$HOME/.cache/homelab/burst}"
 kubeconfig="$HOME/.kube/burst-k3s.yaml"
 
