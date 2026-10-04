@@ -57,7 +57,8 @@ cleanup() {
 trap cleanup EXIT
 
 if [ "$reuse" = 0 ]; then
-  "$root/scripts/burst/burst-up" -n 3 -c 1 -t "$ttl" --yes
+  # 1 control plane + 3 workers: asgard has three workers and its apps spread over them (required anti-affinity, 3 replicas), so two would leave pods Pending.
+  "$root/scripts/burst/burst-up" -n 4 -c 1 -t "$ttl" --yes
 fi
 
 args=(--repo "$src" --work "$state/k8s-test/work-$sha" --kubeconfig "$kubeconfig" --commit "$sha" --out "$out" --timeout "$timeout")
