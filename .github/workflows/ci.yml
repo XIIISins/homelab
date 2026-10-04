@@ -279,6 +279,37 @@ jobs:
       # Node is preinstalled on the runner; the test shims HttpRequest/Zabbix.log.
       - run: TZ=Europe/Amsterdam node aiops/tests/zabbix-n8n-webhook.test.js
 
+  # Phase 10h2. For a PR from an agent branch (`agent/<class>/<id>-<slug>`, made only by the Frigg dispatcher)
+  # the file list must stay inside its class and outside the deny list in aiops/author-classes.yml. The script
+  # and the class file are read from the PR's BASE commit so the PR cannot loosen its own rules. Layer two:
+  # the dispatcher runs the same script before it pushes. Limit: a PR that edits THIS job is judged by its own
+  # edited copy, which is why .github/ is itself on the deny list and the operator does the merge.
+  agent-scope:
+    name: agent-scope (10h2 agent PR paths)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - run: pip install --quiet PyYAML==6.0.2
+      - name: list the PR files and check them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if [ ! -f aiops/author/scope.py ]; then echo "scope.py is not on the base commit yet (the PR that adds it); skipping"; exit 0; fi
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[]' | jq -s '.' > "$RUNNER_TEMP/files.json"
+          python3 aiops/author/scope.py --classes aiops/author-classes.yml --branch "$BRANCH" \
+            --author "$AUTHOR" --files-json "$RUNNER_TEMP/files.json"
+
   # The single required status check. Always runs; fails if any needed job
   # failed or was cancelled. "skipped" (path-filtered out) counts as passing.
   ci-gate:
@@ -295,6 +326,7 @@ jobs:
       - ansible
       - docs
       - aiops
+      - agent-scope
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
