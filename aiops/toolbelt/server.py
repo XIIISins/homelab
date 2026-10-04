@@ -178,6 +178,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("GET", re.compile(rf"^/forecasts/{_ID}$"), only_appr, lambda m, q: self._fc().get(int(m.group(1)))),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/label$"), only_appr, self._h_fc_label),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/message$"), only_appr, self._h_fc_message),
+                ("POST", re.compile(rf"^/forecasts/{_ID}/draft$"), only_appr, self._h_fc_draft),
                 ("POST", re.compile(r"^/change-requests/claim$"), (AUTHOR,), lambda m, q: self._cr().claim()),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/report$"), (AUTHOR,), self._h_cr_report),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/pr-test$"), (AUTHOR,), lambda m, q: self._cr().retest(int(m.group(1)))),
@@ -243,6 +244,11 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
             b = self._obj()
             self._fc()
             return tb.label_forecast(int(m.group(1)), str(b.get("label", "")), b.get("by"))
+
+        def _h_fc_draft(self, m, q):
+            b = self._obj()
+            self._fc()
+            return tb.draft_capacity(int(m.group(1)), b.get("by"))
 
         def _h_fc_message(self, m, q):
             b = self._obj()

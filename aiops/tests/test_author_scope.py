@@ -89,7 +89,8 @@ class Check(unittest.TestCase):
         self.assertTrue(any("changed lines" in b for b in scope.check(CFG, self.B, [f("docs/incidents/a.md", add=700)])))
 
     def test_disabled_and_unknown_classes_and_bad_branches(self):
-        self.assertTrue(any("not enabled" in b for b in scope.check(CFG, "agent/capacity/1-x", [f("ansible/roles/pg-backup/defaults/main.yml")])))
+        off = {**CFG, "classes": {**CFG["classes"], "off": {"enabled": False, "allow": ["docs/**"], "summary": "x"}}}
+        self.assertTrue(any("not enabled" in b for b in scope.check(off, "agent/off/1-x", [f("docs/incidents/a.md")])))
         self.assertTrue(any("unknown class" in b for b in scope.check(CFG, "agent/bogus/1-x", [f("docs/incidents/a.md")])))
         self.assertTrue(scope.check(CFG, "agent/docs/oops", [f("docs/incidents/a.md")]))
 

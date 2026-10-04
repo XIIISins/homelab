@@ -293,7 +293,8 @@ class ChangeRequestWiring(unittest.TestCase):
         cls = tcr.CLASSES["classes"]
         self.assertTrue(cls["drift"]["enabled"] and cls["drift"]["canary_test"])
         self.assertTrue(all(p.split("/")[2] in pr_test_roles() for p in cls["drift"]["allow"]), cls["drift"]["allow"])
-        self.assertFalse(cls["capacity"]["enabled"])
+        self.assertTrue(cls["capacity"]["enabled"])
+        self.assertFalse(cls["capacity"].get("canary_test"))   # a Terraform size has nothing to run on: the reviewer reads the one-value diff
         self.assertFalse(cls["docs"].get("canary_test"))
 
     def test_reporting_a_tested_class_pr_proposes_the_test_next_to_the_requests_card(self):

@@ -149,10 +149,11 @@ def embed_of_fc(fc: dict) -> discord.Embed:
     return e
 
 
-class ForecastButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:fc-(?P<act>useful|noise):(?P<fid>[0-9]+)"):
+class ForecastButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:fc-(?P<act>useful|noise|draft):(?P<fid>[0-9]+)"):
     """Useful / Noise on a forecast card (Phase 10h1). The only decision a forecast asks for: a label that tunes thresholds later."""
 
-    LABELS = {"useful": ("Useful", discord.ButtonStyle.success), "noise": ("Noise", discord.ButtonStyle.secondary)}
+    LABELS = {"useful": ("Useful", discord.ButtonStyle.success), "noise": ("Noise", discord.ButtonStyle.secondary),
+              "draft": ("Draft fix PR", discord.ButtonStyle.primary)}
 
     def __init__(self, act: str, fid: int):
         label, style = self.LABELS[act]
@@ -173,6 +174,12 @@ class ForecastButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops
     async def callback(self, interaction: discord.Interaction) -> None:
         bot: Ratatoskr = interaction.client  # type: ignore[assignment]
         await interaction.response.defer(ephemeral=True)
+        if self.act == "draft":
+            st, body = await asyncio.to_thread(bot.forecasts.draft, self.fid, str(interaction.user.id))
+            log("forecast_draft", forecast=self.fid, status=st, by=str(interaction.user.id)[-4:])
+            await interaction.followup.send(f"Filed change request #{body.get('id')}: approve its card to have the author draft the PR." if st == 200
+                                            else f"Not done: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+            return
         st, body = await asyncio.to_thread(bot.forecasts.label, self.fid, self.act, str(interaction.user.id))
         log("forecast_labeled", forecast=self.fid, label=self.act, status=st, by=str(interaction.user.id)[-4:])
         if st != 200:

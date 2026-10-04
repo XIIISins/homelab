@@ -133,7 +133,11 @@ class Validation(unittest.TestCase):
 
     def test_class_and_paths(self):
         self.assertEqual(self.r.file(**{"class": "bogus"})[0], 400)
-        self.assertEqual(self.r.file(**{"class": "capacity"})[0], 409)       # known but disabled
+        CLASSES["classes"]["off"] = {"enabled": False, "allow": ["docs/**"], "summary": "x"}
+        try:
+            self.assertEqual(self.r.file(**{"class": "off"})[0], 409)        # known but disabled
+        finally:
+            del CLASSES["classes"]["off"]
         self.assertEqual(self.r.file(allowed_paths=["CLAUDE.md"])[0], 400)   # denied
         self.assertEqual(self.r.file(allowed_paths=["k8s/**"])[0], 400)      # outside the class
         st, cr = self.r.file(allowed_paths=["docs/incidents/**"])            # a narrowing is fine
