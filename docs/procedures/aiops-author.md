@@ -10,7 +10,7 @@ An operator-approved **change request** becomes **one pull request** that the op
 
 1. `/aiops draft <kind> <title> <details>` in Discord files a change request (the Toolbelt keeps it `pending`; Gná can also file one, never as the operator, never approve it). A card appears in AIOps-chat.
 2. The operator presses **Approve draft**. (Reject / Cancel exist too; a request left alone expires after 24 h.)
-3. The **dispatcher** on Frigg claims it. The Toolbelt only hands one out when the kill switch and maintenance are off, fewer than 2 are running, fewer than 3 PRs are open, and the daily budget (6) is not spent.
+3. The **dispatcher** on Frigg claims it. The Toolbelt only hands one out when the kill switch and maintenance are off, fewer than 2 are running, fewer than 3 PRs are open, and the daily budget (10, was 6 until 2026-10-04) is not spent.
 4. The dispatcher starts `aiops-draft@<id>` (via a marker file and a tiny root launcher): an unprivileged user with a model key and the read-only tools token. It clones the repo, runs headless Claude Code with a fixed tool allow-list, and writes **a patch and a summary, nothing else**.
 5. The dispatcher parses the patch strictly (no binary, symlinks, mode changes or deletes), runs the scope rules (`aiops/author-classes.yml`, the same code CI runs), scans the added lines for secrets, applies it to **its own clean clone**, commits as `aiops-author`, pushes `agent/<class>/<id>-<slug>`, opens the PR and reports to the Toolbelt.
 6. CI runs on the PR; the `agent-scope` job re-checks the paths from the **base** commit's rules. The card gets the PR link; the dispatcher reports merged/closed when GitHub does.
