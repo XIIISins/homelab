@@ -2,7 +2,7 @@
 
 # Phase 10h — Predictive and agent-authored change: plan
 
-*Drafted 2026-10-03. Status: **planned, not started** (design only). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
+*Drafted 2026-10-03. Status: **10h2 built and live 2026-10-04** (docs and drift-note classes; the drift push is built, deployed and awaiting its first real drift), **10h3 wired** (`/aiops draft-incident` on the author; mechanical draft, no grounded narrative), **10h1 in shadow mode** (0 findings so far, baseline building). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
 
 ---
 

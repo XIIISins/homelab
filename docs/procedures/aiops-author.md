@@ -77,4 +77,4 @@ touching `.github/`). Not built: a burst/canary test run per request for the cla
 
 ## Not built yet
 
-Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), the forecast card's "Draft fix PR" button (10h1 is still in shadow mode and posts nothing), the 10h3 incident-draft trigger on top of this machinery, the `capacity` and `drift` classes, and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
+Gná filing requests from chat (the Toolbelt route exists: `POST /change-requests` with the agent token), the forecast card's "Draft fix PR" button (10h1 is still in shadow mode and posts nothing), an automatic trigger for 10h3 incident drafts (`/aiops draft-incident` is manual), Gná filing drift notes is built ([`aiops-drift.md`](aiops-drift.md)) but unproven live, the code-changing `capacity` and `drift` classes, and burst/canary test runs requested by the author (the doc's per-class substrates). Every one of these is an additive PR.
