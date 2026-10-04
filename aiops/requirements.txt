@@ -2,3 +2,4 @@
 # Concrete pins per the IaC pin policy. Everything else is stdlib.
 PyYAML==6.0.2
 jsonschema==4.23.0
+discord.py==2.7.1  # the bot module is imported by test_bot_chat_without_mention (production uses the distro python3-discord)
