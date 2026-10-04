@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "author"))
 import scope  # noqa: E402  (aiops/author/scope.py: the same rules CI and the dispatcher use)
 
 import actions  # noqa: E402
+import pr_test
 import tools  # noqa: E402
 from actions import Refused  # noqa: E402
 
@@ -108,7 +109,18 @@ class ChangeRequests:
         d["allowed_paths"] = json.loads(r["allowed_json"])
         d["tests"] = json.loads(r["tests_json"]) if r["tests_json"] else None
         d["stale_pr"] = bool(r["state"] == "pr-open" and self.now() - r["updated_at"] > self.cfg.pr_stale_days * 86400)
+        d["pr_test"] = self._pr_test(r) if r["state"] in ("pr-open", "merged", "closed") else None
         return d
+
+    def _pr_test(self, r) -> dict | None:
+        """The canary-test status of this request's PR (None for a class that is not tested): from its proposal, else the reason it
+        was not proposed."""
+        if not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
+            return None
+        proposal = self.eng.pr_test_view(r["branch"]) if r["branch"] else None
+        ev = self.db.execute("SELECT data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
+        reason = json.loads(ev["data_json"]).get("ineligible") if ev else None
+        return pr_test.summarize(proposal, reason or ("the test has not been evaluated yet" if ev is None else None))
 
     # -- create --------------------------------------------------------------------------------------------
     def create(self, *, source: str, class_: str, title: str, body: str, allowed_paths=None, source_ref: str = "",
@@ -229,7 +241,23 @@ class ChangeRequests:
                            pr_url=pr_url or None, branch=str(branch)[:120] or None, summary=tools.redact(str(summary))[:_SUMMARY_MAX] or None,
                            tests_json=json.dumps(tests) if tests is not None else None, error=tools.redact(str(error))[:500] or None)
         self.audit("change_request_reported", cr=cid, state=state)
+        if state == "pr-open":
+            self._after_pr_open(cid)
         return self.view(cid)
+
+    def _after_pr_open(self, cid: int) -> None:
+        """10h2: a PR of a class that is proven on a canary gets a test proposal from the Toolbelt itself (the operator approves it on a
+        card), or a recorded reason why it cannot be tested. Never raises: the PR is open either way."""
+        try:
+            with self.lock:
+                r = self._row(cid)
+            if not self.cfg.classes.get("classes", {}).get(r["class"], {}).get("canary_test"):
+                return
+            res = self.eng.propose_pr_test(r["branch"] or "", r["thread_id"], cid)
+        except Exception as e:  # noqa: BLE001
+            res = {"ineligible": f"the test could not be proposed ({type(e).__name__})"}
+        with self.lock:
+            self._event(cid, "pr_test", res)
 
     # -- housekeeping + reads ------------------------------------------------------------------------------
     def sweep(self) -> None:

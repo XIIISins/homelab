@@ -389,6 +389,109 @@ actions:
         changed: 0
     rollback: Replaying a converge has no inverse; the previous state is whatever Git declared before the drift. If verify still shows changes after the replay, stop and escalate (the drift is not role-convergeable, e.g. a provision-layer setting, see RB-LXC-BOOT-DRIFT).
 
+  # === 10h2: prove an agent-authored PR on a canary (internal: only the Toolbelt proposes these) ===========================
+  # The same shape as replay-role-check / replay-role (check, converge, second check = idempotence) but the Semaphore task is
+  # started with `git_branch` = the PR branch (Semaphore 2.18 honours a per-task branch), so the PR's role code runs on ONE canary.
+  # The branch's own guard playbooks are NEVER trusted: the Toolbelt reads the PR from GitHub (read-only) before it proposes and
+  # again before it runs, and refuses anything but role content for the listed roles (guard.pr_scope).
+  pr-test-check:
+    description: Dry-run (--check --diff) of a PR branch's version of one canary-exercised role on ONE canary; the first and last step of pr-canary-test.
+    tier: T1
+    max_autonomy: approval
+    internal: true
+    idempotent: true
+    idempotency: Runs with --check; the PR's tasks that must execute under --check carry check_mode false by repo convention (known-issues/semaphore.md).
+    semaphore:
+      template: aiops-replay-role-check
+      playbook: ansible/playbooks/aiops-replay-role-check.yml
+      applied: true
+      result_from: recap
+      task_fields:
+        git_branch: '{pr_branch}'
+        arguments: ['--limit', '{target_host}', '--check', '--diff', '--tags', '{role_tag}']
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: 'canary-[0-9]+'
+      role_tag:
+        type: enum
+        required: true
+        values: [baseline, hardening, vlagent, zabbix-agent]
+      pr_branch:
+        type: string
+        required: true
+        pattern: 'agent/(drift|capacity)/[0-9]+-[a-z0-9][a-z0-9-]*'
+      pr_sha:
+        type: string
+        required: true
+        pattern: '[0-9a-f]{40}'
+    guard:
+      summary: One canary only (the wrapper asserts a single-host --limit in host_tiers.T1 and check mode); the PR is checked by the Toolbelt itself against GitHub (agent PR, role content for one allow-listed role, no deletions, no risky constructs) before this is proposed and before it runs.
+      target_policy: canaries
+      allowed_tags: [baseline, hardening, vlagent, zabbix-agent]
+      pr_scope:
+        classes: [drift, capacity]
+        roles: [baseline, hardening, vlagent, zabbix-agent]
+    verify:
+      self: true
+      expect:
+        ok: true
+        check_mode: true
+    rollback: Nothing to roll back (check mode).
+
+  pr-canary-test:
+    description: Run a PR branch's version of one canary-exercised role on ONE canary - dry run, converge, second dry run (changed=0 = idempotent) - so the PR carries evidence of a real run.
+    tier: T1
+    max_autonomy: approval
+    internal: true
+    idempotent: true
+    idempotency: site-nonprod.yml is the canary pool's idempotent converge; the second dry run in verify proves the PR's change is idempotent on the canary.
+    semaphore:
+      template: aiops-replay-role
+      playbook: ansible/playbooks/aiops-replay-role.yml
+      applied: true
+      result_from: recap
+      task_fields:
+        git_branch: '{pr_branch}'
+        arguments: ['--limit', '{target_host}', '--tags', '{role_tag}']
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: 'canary-[0-9]+'
+      role_tag:
+        type: enum
+        required: true
+        values: [baseline, hardening, vlagent, zabbix-agent]
+      pr_branch:
+        type: string
+        required: true
+        pattern: 'agent/(drift|capacity)/[0-9]+-[a-z0-9][a-z0-9-]*'
+      pr_sha:
+        type: string
+        required: true
+        pattern: '[0-9a-f]{40}'
+    guard:
+      summary: Same as pr-test-check, plus a clean dry run of the PR's code must pass first. A canary is disposable (10b1; alerts capped at info); nothing here touches a production host.
+      target_policy: canaries
+      allowed_tags: [baseline, hardening, vlagent, zabbix-agent]
+      requires_prior: pr-test-check
+      pr_scope:
+        classes: [drift, capacity]
+        roles: [baseline, hardening, vlagent, zabbix-agent]
+    verify:
+      action: pr-test-check
+      vars:
+        target_host: '{target_host}'
+        role_tag: '{role_tag}'
+        pr_branch: '{pr_branch}'
+        pr_sha: '{pr_sha}'
+      expect:
+        ok: true
+        changed: 0
+    rollback: A canary is disposable; if the test leaves it wrong, rebuild it (10g stage A). Nothing else was touched.
+
   flux-reconcile:
     description: Nudge Flux to reconcile one HelmRelease now (`flux reconcile hr <hr_name> -n <hr_namespace>`); applies only what Git already declares.
     tier: T1

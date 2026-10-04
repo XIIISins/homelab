@@ -398,6 +398,9 @@ def main(argv: list[str] | None = None) -> int:
         cfg.change_requests = core.change_requests.CRConfig(
             classes=scope.load_classes((core.REPO / "aiops" / "author-classes.yml").read_text()), repo=args.author_repo,
             max_started_per_day=args.author_daily_budget)
+        if cfg.actions is not None:  # 10h2: canary tests of agent PRs read the PR from GitHub (public, read-only, unauthenticated)
+            import pr_test  # noqa: E402
+            cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.gh_fetch, args.author_repo
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)

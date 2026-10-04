@@ -49,6 +49,18 @@ cited line, and do not add a timestamp, count, command output or cause that is n
 `open-questions.md`, `build-sequence.md` and `CLAUDE.md` would need (you may not edit them). A known-issues entry only if the
 draft's evidence supports it; otherwise leave the root cause as the draft's labelled hypothesis.
 
+### The `drift` class (a code change to ONE canary-exercised role)
+
+Only when the request says the repo should change to match intent after drift a role replay cannot fix, and names the direction
+(the repo is truth, so "change the live state" is a human action; "change the repo" needs the operator's reason in the request).
+Edit content under `ansible/roles/<role>/` for exactly ONE of `baseline`, `hardening`, `vlagent`, `zabbix-agent` (tasks, defaults,
+handlers, templates, files), with no deletes or renames, and never `ansible/playbooks/`. The Toolbelt will itself propose a real
+run of your change on a canary (dry run, converge, second dry run) which the operator approves; you do not run or report tests, and you
+must not claim the change was tested. To keep it testable: make every task idempotent (a second run changes nothing); any task that
+must execute under `--check` carries `check_mode: false` and only reads; and add no `delegate_to`, `local_action`, `connection:`,
+lookups, `uri`/`get_url`, `include_vars`, `become_user`, or downloaded code: a PR with one of these is not auto-tested and the
+operator has to judge it by eye. Say in the summary which task or default you changed, why, and which way the repo now points.
+
 ### The `drift-note` class
 
 The task names a drift-check run (a Semaphore task id). Document what it reported; do **not** change roles, playbooks or

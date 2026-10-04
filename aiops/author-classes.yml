@@ -38,6 +38,8 @@ deny:
   - "aiops/runner/**"
   - "aiops/author/**"
   - "aiops/author-classes.yml"
+  - "ansible/playbooks/aiops-*.yml"   # the replay/guard wrappers a canary test runs under: the PR under test must not be able to edit its own guard
+  - "ansible/playbooks/drift-check.yml"
   - "aiops/tools/**"
   - "aiops/tests/**"
   - "ansible/roles/aiops-*/**"
@@ -86,13 +88,14 @@ classes:
       - "ansible/roles/*/defaults/main.yml"
       - "ansible/roles/zabbix-server/templates/**"
     tested_on: a canary or burst run where one exercises the change; else no plan-diff
+    canary_test: true
   drift:
-    enabled: false
-    summary: Make the repo match intent after non-convergeable drift (the PR states the direction).
+    enabled: true   # 2026-10-04: narrowed to the four roles the canary pool runs, so every PR can be proven on a canary
+    summary: Make the repo match intent after non-convergeable drift (the PR states the direction). One role per PR.
     allow:
-      - "ansible/roles/*/tasks/**"
-      - "ansible/roles/*/templates/**"
-      - "ansible/roles/*/defaults/**"
-      - "ansible/roles/*/handlers/**"
-      - "ansible/playbooks/**"
-    tested_on: canary check-mode then a real run + idempotence where a canary exercises the role
+      - "ansible/roles/baseline/**"
+      - "ansible/roles/hardening/**"
+      - "ansible/roles/vlagent/**"
+      - "ansible/roles/zabbix-agent/**"
+    tested_on: a canary (the Toolbelt proposes it, the operator approves) - dry run of the PR's code, converge, second dry run for idempotence; the result is written into the PR description
+    canary_test: true
