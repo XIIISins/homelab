@@ -198,7 +198,9 @@ def collect(kube: Kube) -> dict:
                 continue
         else:
             waiting = [phase]
-        out["pods_unhealthy"].append({"name": f"{p['metadata']['namespace']}/{p['metadata']['name']}", "why": sorted({w for w in waiting if w})[:3]})
+        unsched = next((c.get("message") for c in p.get("status", {}).get("conditions", []) if c.get("type") == "PodScheduled" and c.get("status") == "False"), "")
+        out["pods_unhealthy"].append({"name": f"{p['metadata']['namespace']}/{p['metadata']['name']}", "why": sorted({w for w in waiting if w})[:3],
+                                      "detail": (unsched or "")[:240]})
     return out
 
 
@@ -245,6 +247,8 @@ def markdown(summary: dict) -> str:
         bad = [h for h in dg["helmreleases"] if h["ready"] != "True"][:8]
         lines += ["", "Cluster state at failure:"] + [f"- HelmRelease {h['name']}: {h['reason']} {h['message']}"[:220] for h in bad]
         lines += [f"- source {x['name']}: {x['reason']} {x['message']}"[:220] for x in dg["sources"] if x["ready"] != "True"][:6]
+        lines += [f"- pod {p['name']}: {','.join(p['why'])} {p.get('detail', '')}"[:260] for p in dg["pods"][:6]]
+        lines += [f"- event {e['object']}: {e['reason']} {e['message']}"[:220] for e in dg["events"][-6:]]
     if v["problems"]:
         lines += ["", "Problems:"] + [f"- {p}" for p in v["problems"][:20]]
     if v["waived"]:
@@ -308,6 +312,8 @@ def run(args, summary: dict, kube: Kube) -> dict:
         summary["checks"] = {k: len(v) for k, v in c.items()}
         summary["verdict"] = verdict(c, expected_not_ready(args.only or []))
         summary["details"] = c
+        if not summary["verdict"]["passed"]:
+            summary["diagnostics"] = diagnostics(kube)    # before the cluster is destroyed
     summary["seconds"] = int(time.time() - t0)
     return summary
 
