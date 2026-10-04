@@ -38,6 +38,8 @@ def make_origin(tmp: Path) -> str:
     for p, t in (("docs/incidents/README.md", "# incidents\n"), ("docs/known-issues/a.md", "# a\n"), ("CLAUDE.md", "rules\n"), ("aiops/actions.yml", "x: 1\n")):
         (seed / p).parent.mkdir(parents=True, exist_ok=True)
         (seed / p).write_text(t)
+    (seed / ".github/scripts").mkdir(parents=True)
+    (seed / ".github/scripts/ci-doc-links.py").write_text((REPO / ".github/scripts/ci-doc-links.py").read_text())
     git("add", "-A", cwd=seed)
     git("commit", "-q", "-m", "seed", cwd=seed)
     bare = tmp / "origin.git"
@@ -154,6 +156,30 @@ class Publish(Rig):
         self.assertTrue(c.startswith("aiops-author|docs: Draft the NVMe"))
         self.assertFalse((self.work / "jobs" / "7" / "env").exists())
         self.assertFalse((self.work / "jobs" / "7" / "repo").exists())
+
+    def test_the_class_checks_run_on_the_patched_clone_and_their_results_reach_the_pr_and_the_report(self):
+        patch = patch_of(self.url, {"docs/incidents/2026-10-04-ok.md": "# ok\n\nsee [the index](README.md)\n"}, self.tmp)
+        self.assertEqual(self.disp(patch).process(dict(CR))["state"], "pr-open")
+        body = self.gh.created[0][3]
+        self.assertIn("- doc links: pass", body)
+        self.assertIn("- scope rules: pass", body)
+        tests = self.last_report()["tests"]
+        self.assertTrue(tests["doc links"].startswith("pass"))
+        self.assertEqual(tests["secret scan"], "pass")
+
+    def test_a_failing_check_blocks_the_push(self):
+        patch = patch_of(self.url, {"docs/incidents/2026-10-04-bad.md": "# bad\n\nsee [gone](no-such-file.md)\n"}, self.tmp)
+        out = self.disp(patch).process(dict(CR))
+        self.assertEqual(out["state"], "failed")
+        self.assertIn("a check failed", self.last_report()["error"])
+        self.assertIn("doc links", self.last_report()["error"])
+        self.assertEqual(self.branches(), git("ls-remote", "--heads", self.url).strip())
+        self.assertNotIn("agent/docs", self.branches())
+        self.assertEqual(self.gh.created, [])
+
+    def test_a_check_script_outside_github_scripts_never_runs(self):
+        r = dispatcher.run_checks(str(self.tmp), [{"name": "x", "script": "../evil.py"}, {"name": "y", "script": "docs/a.py"}])
+        self.assertTrue(all(v.startswith("fail") for v in r.values()), r)
 
     def test_a_pr_refusal_is_reported_after_the_push(self):
         patch = patch_of(self.url, {"docs/incidents/x.md": "x\n"}, self.tmp)

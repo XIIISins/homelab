@@ -125,6 +125,31 @@ def branch_for(cr: dict) -> str:
     return f"agent/{cr['class']}/{cr['id']}-{slugify(cr['title'])}"
 
 
+_CHECK_SCRIPT = re.compile(r"^\.github/scripts/[a-z0-9_-]+\.py$")
+
+
+def run_checks(repo: str, checks: list, timeout: int = 120) -> dict:
+    """Run a class's declared checks (author-classes.yml `checks`) on the patched clone and return {name: "pass" | "fail: ..."}.
+    Only a `.github/scripts/*.py` file already on main may run (the scope rules forbid a patch from touching .github/), with a
+    bare environment: no token, no home, no network credentials."""
+    out: dict = {}
+    py = shutil.which("python3", path="/usr/bin:/bin") or sys.executable
+    for c in checks or []:
+        name, script = str(c.get("name", "check")), str(c.get("script", ""))
+        if not _CHECK_SCRIPT.match(script) or not (Path(repo) / script).is_file():
+            out[name] = "fail: the check script is missing or not allowed"
+            continue
+        try:
+            p = subprocess.run([py, script], cwd=repo, env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "PYTHONDONTWRITEBYTECODE": "1"},
+                               capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            out[name] = "fail: timed out"
+            continue
+        tail = tools.redact(" ".join((p.stdout + " " + p.stderr).split()))
+        out[name] = "pass" + (f" ({tail[-120:]})" if p.returncode == 0 and tail else "") if p.returncode == 0 else f"fail: {tail[-300:]}"
+    return out
+
+
 def pr_body(cr: dict, summary: str, tests: dict | None, files: list[dict]) -> str:
     rows = "\n".join(f"- `{f['filename']}` (+{f['additions']} -{f['deletions']})" for f in files)
     t = "\n".join(f"- {k}: {v}" for k, v in (tests or {}).items()) or "- repo CI (links, yamllint, gitleaks) runs on this PR"
@@ -351,16 +376,22 @@ class Dispatcher:
             staged = [ln.split("\t")[-1] for ln in self.git.run(["diff", "--cached", "--numstat"], cwd=repo).splitlines()]
             if sorted(staged) != sorted(f["filename"] for f in files):
                 return self._fail(cid, "the applied change does not match the parsed patch", res)
+            checks = run_checks(repo, self.cfg.classes["classes"].get(cr["class"], {}).get("checks"))
+            tests = {"scope rules": "pass", "secret scan": "pass", **checks}
+            failed = {k: v for k, v in checks.items() if not v.startswith("pass")}
+            if failed:
+                audit("check_failed", cr=cid, checks=failed)
+                return self._fail(cid, "refused before pushing, a check failed: " + "; ".join(f"{k}: {v}" for k, v in failed.items())[:300], res)
             kind = "docs" if cr["class"] == "docs" else cr["class"]
             title = f"{kind}: {cr['title']}"[:100]
             self.git.run(["commit", "-q", "-m", f"{title}\n\nChange request #{cid} ({cr['class']}); agent-authored, operator-reviewed."], cwd=repo)
             self.git.run(["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=repo, push=True)
-        st, pr = self.gh.create_pr(branch, "main", title, pr_body(cr, summary, {"scope rules": "pass", "secret scan": "pass"}, files))
+        st, pr = self.gh.create_pr(branch, "main", title, pr_body(cr, summary, tests, files))
         if st != 201 or not isinstance(pr, dict) or not pr.get("html_url"):
             return self._fail(cid, f"the branch was pushed but GitHub refused the pull request (HTTP {st})", res)
         self.gh.label(pr["number"], "agent-authored")
         self.tb.report(cid, state="pr-open", pr_url=pr["html_url"], branch=branch, summary=summary,
-                       tests={"scope rules": "pass", "secret scan": "pass", "turns": res.get("turns"), "cost_usd": res.get("cost_usd")})
+                       tests={**tests, "turns": res.get("turns"), "cost_usd": res.get("cost_usd")})
         audit("pr_opened", cr=cid, pr=pr["number"], branch=branch)
         return {"state": "pr-open", "pr": pr["html_url"]}
 
