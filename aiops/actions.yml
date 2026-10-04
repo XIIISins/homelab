@@ -492,6 +492,48 @@ actions:
         changed: 0
     rollback: A canary is disposable; if the test leaves it wrong, rebuild it (10g stage A). Nothing else was touched.
 
+  # 10h: prove an agent PR that changes ONE app under k8s/asgard/apps/ on a throwaway burst cluster (docs/operations/10h-k8s-burst-test.md). The Toolbelt
+  # proposes it itself for a PR it has inspected on GitHub (guard.pr_scope kind k8s), the operator approves the card, and the BURST RUNNER on Frigg
+  # (aiops/runner/burst_runner.py: a root-loaded service with its own Vault identity and a socket) builds the cluster, tests the PR's manifests and tears
+  # the cluster down. No Semaphore template exists or is needed (runner_only); `applied` flips to true by PR once the runner is deployed.
+  pr-burst-test:
+    description: Apply an agent PR's one-app k8s change to a throwaway burst cluster (Flux, a one-node Vault with random seeds, same charts) and check HelmReleases, ExternalSecrets and workloads, then destroy the cluster.
+    tier: T1
+    max_autonomy: approval
+    internal: true
+    scope: burst
+    steps:
+      - {name: test, backend: burst}
+    idempotent: true
+    idempotency: Every run builds a fresh cluster from Terraform and destroys it afterwards; nothing persists and nothing in asgard is touched, so a rerun is a clean new test.
+    semaphore:
+      applied: false # operator gate: flip to true once roadmap 10h's burst runner is deployed (docs/procedures/k8s-burst-test.md "Deploy")
+      runner_only: true
+    extra_vars:
+      pr_branch:
+        type: string
+        required: true
+        pattern: 'agent/k8s/[0-9]+-[a-z0-9][a-z0-9-]*'
+      pr_sha:
+        type: string
+        required: true
+        pattern: '[0-9a-f]{40}'
+      component:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+    guard:
+      summary: One app per PR (the Toolbelt reads the PR from GitHub itself and requires an agent k8s PR with yaml under exactly one k8s/asgard/apps/<app>/, no deletes or renames and no host-level constructs). The runner re-checks the branch head, builds the burst cluster (DigitalOcean, no route to prod), and always destroys it; the Frigg reaper is the cost backstop.
+      target_policy: burst-cluster
+      pr_scope:
+        kind: k8s
+        classes: [k8s]
+    verify:
+      self: true
+      expect:
+        ok: true # the runner's `passed` verdict, mirrored as `ok` in the stored result
+    rollback: Nothing to roll back; the burst cluster is destroyed at the end of every run (if teardown ever fails, `scripts/burst/burst-down --yes` on Frigg, and the TTL reaper).
+
   flux-reconcile:
     description: Nudge Flux to reconcile one HelmRelease now (`flux reconcile hr <hr_name> -n <hr_namespace>`); applies only what Git already declares.
     tier: T1

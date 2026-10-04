@@ -225,8 +225,8 @@ def check_actions(reg: dict, root: Path) -> list[str]:
         # semaphore template + playbook
         sem = a["semaphore"]
         if sem.get("runner_only"):
-            if not a.get("steps") or any(s.get("backend", "semaphore") != "runner" for s in a["steps"]):
-                errs.append(f"actions: {name}: semaphore.runner_only needs steps that all use backend: runner")
+            if not a.get("steps") or any(s.get("backend", "semaphore") not in ("runner", "burst") for s in a["steps"]):
+                errs.append(f"actions: {name}: semaphore.runner_only needs steps that all use backend: runner (or burst)")
             if sem.get("planned"):
                 errs.append(f"actions: {name}: semaphore.runner_only cannot also be planned")
             continue

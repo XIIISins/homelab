@@ -501,8 +501,11 @@
           "minLength": 10
         },
         "scope": {
-          "const": "rebuild",
-          "description": "10g: the target must be a host in a rebuild class (and never on rebuild.deny); the engine refuses anything else before it runs."
+          "enum": [
+            "rebuild",
+            "burst"
+          ],
+          "description": "`rebuild` (10g): the target must be a host in a rebuild class (and never on rebuild.deny); the engine refuses anything else before it runs. `burst` (10h): a single `burst` step run by the burst runner on Frigg (a throwaway cluster that tests an agent k8s PR); the PR itself is checked by the Toolbelt (guard.pr_scope kind k8s)."
         },
         "steps": {
           "type": "array",
@@ -522,7 +525,8 @@
               "backend": {
                 "enum": [
                   "runner",
-                  "semaphore"
+                  "semaphore",
+                  "burst"
                 ]
               },
               "action": {
@@ -662,7 +666,8 @@
                 "any-inventory-host",
                 "host_tiers.T1",
                 "n/a",
-                "canaries"
+                "canaries",
+                "burst-cluster"
               ]
             },
             "allowed_units": {
@@ -706,11 +711,13 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "classes",
-                "roles"
+                "classes"
               ],
-              "description": "10h2: the action runs a PR branch's code on a canary. The Toolbelt checks the PR itself (GitHub, read-only) before proposing and again before running: an agent PR of one of these classes, files only under ansible/roles/<role>/ for one of these roles, no deletions, no risky constructs in the added lines. The branch's own guard playbooks are never trusted.",
+              "description": "10h2: the action runs a PR branch's code on a canary (roles required) or, with `kind: k8s` (10h), applies it to a burst cluster. The Toolbelt checks the PR itself (GitHub, read-only) before proposing and again before running: an agent PR of one of these classes, files only under ansible/roles/<role>/ for one of these roles (or, for k8s, one app under k8s/asgard/apps/), no deletions, no risky constructs in the added lines. The branch's own guard playbooks are never trusted.",
               "properties": {
+                "kind": {
+                  "const": "k8s"
+                },
                 "classes": {
                   "type": "array",
                   "minItems": 1,

@@ -72,3 +72,14 @@ say what caused the difference, `git.log` / `git.show` around the run. Write ONE
 done, or "not resolved" if you cannot tell) and **Follow-ups** for the human. One note per request.
 
 A run that cannot make a grounded change should change nothing and say why in the summary; that is a good outcome.
+
+### The `k8s` class (a change to ONE app's manifests)
+
+Only YAML files directly under `k8s/asgard/apps/<app>/` for exactly ONE app. Merging the PR IS the deploy (Flux pulls `main`), so keep the
+change small and reversible. Read the app's own files first and match its conventions (comments, labels, namespace, the existing
+`ExternalSecret` shape and Vault paths). Never invent a Vault path: use only `remoteRef` keys the app already uses or that
+`docs/architecture/identity-secrets.md` and `scripts/secrets/mirror-map.toml` declare, because the burst-cluster test seeds random values from the
+manifests and CI fails a path no Terraform module or mirror-map entry declares. Do not add host-level constructs (`hostPath`, `privileged`,
+`hostNetwork`, cluster-wide objects): they are refused and the PR gets no automatic test. After the edit, run
+`python3 .github/scripts/ci-doc-links.py` only if you touched a markdown file (you should not), and say in the summary what you could NOT check
+(the burst-cluster test runs after the PR opens; the operator approves it on a card).

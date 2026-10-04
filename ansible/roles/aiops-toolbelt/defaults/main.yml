@@ -29,6 +29,10 @@ aiops_toolbelt_actions_enabled: true
 # socket (and let the unit join the runner's client group) only after roles/aiops-rebuild-runner is deployed.
 aiops_toolbelt_rebuild_socket: /run/aiops-rebuild/runner.sock # the runner is deployed (2026-10-03); "" = rebuild actions refuse
 aiops_toolbelt_rebuild_group: aiops-rebuild-clients
+# Burst runner (10h, burst-cluster tests of k8s PRs). Empty = no socket, `pr-burst-test` refuses. Set it (and flip `semaphore.applied` for pr-burst-test in
+# aiops/actions.yml) only after roles/aiops-burst-runner is deployed; docs/procedures/k8s-burst-test.md "Deploy".
+aiops_toolbelt_burst_socket: ""
+aiops_toolbelt_burst_group: aiops-burst-clients
 aiops_toolbelt_approver_allow:
   - 10.0.11.222/32 # Ratatoskr (the Discord bot)
 aiops_toolbelt_approver_token_vault_path: secret/data/ansible/aiops/approver-token # terraform/vault
@@ -131,6 +135,7 @@ aiops_toolbelt_source_files:
   - toolbelt/change_requests.py
   - toolbelt/drift.py
   - toolbelt/pr_test.py
+  - toolbelt/burst_exec.py
   - toolbelt/github_read_proxy.py
   - author/__init__.py
   - author/scope.py
