@@ -81,6 +81,12 @@ class Proxy(unittest.TestCase):
                 self.assertEqual(s.req(bad)[0], 404, bad)
             self.assertEqual(len(s.up.paths), before)  # a refused path never reached GitHub
 
+    def test_every_class_that_gets_a_pr_test_is_forwarded(self):
+        # The proxy is the Toolbelt's only way to GitHub: a class missing here fails its PR test with an HTTP 404 (found live with the k8s class).
+        with Serving() as s:
+            for cls in ("drift", "capacity", "k8s"):
+                self.assertEqual(s.req(f"/repos/XIIISins/homelab/git/ref/heads/agent/{cls}/11-label-it")[0], 200, cls)
+
     def test_it_is_read_only(self):
         with Serving() as s:
             for m in ("POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
