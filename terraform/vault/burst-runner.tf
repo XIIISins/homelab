@@ -15,9 +15,10 @@
 # stops the runner from starting).
 #
 # `secret/ansible/aiops/burst/env` fields (operator, `vault kv put`, values never typed into a transcript):
-#   digitalocean_token                  the burst-scoped DO token (the custom-scope token terraform/digitalocean-burst already uses)
+#   digitalocean_token                  the shared custom-scope DO token (copied from secret/ansible/frigg/iac-env)
 #   aws_access_key_id, aws_secret_access_key   a NARROW state identity: s3 get/put/delete on the burst module's state key
-#                                       (digitalocean-burst/terraform.tfstate and its .tflock), nothing else
+#                                       (digitalocean-burst/terraform.tfstate and its .tflock), nothing else; minted by terraform/aws/burst-runner.tf
+#   (all four fields are written by scripts/secrets/seed-burst-state-key)
 #   aws_default_region                  eu-west-1
 
 resource "vault_policy" "aiops_burst_runner" {
