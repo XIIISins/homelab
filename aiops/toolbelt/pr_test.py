@@ -258,6 +258,8 @@ def render_burst(s: dict) -> str:
     head = {"passed": "**Passed** on a burst cluster", "failed": "**Failed** on a burst cluster", "running": "Running on a burst cluster",
             "proposed": "Proposed, **waiting for the operator's approval**", "expired": "Not run: the approval window expired",
             "rejected": "Not run: the operator rejected the test", "cancelled": "Not run: cancelled", "not-tested": "**Not tested**"}.get(st, st)
+    if st == "failed" and "no cluster was built" in (s.get("markdown") or ""):   # the offline gate failed first: say so in the headline too
+        head = "**Failed** at the offline gate, before a cluster was built"
     lines = [head + (f": {s['reason']}" if s.get("reason") and st in ("not-tested", "failed") else "")]
     if s.get("component"):
         lines.append(f"- App `{s['component']}`, commit `{s.get('sha')}`" + (f", {s['seconds']} s" if s.get("seconds") else ""))
