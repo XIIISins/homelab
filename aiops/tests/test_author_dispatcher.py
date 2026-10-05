@@ -460,6 +460,17 @@ class Session(unittest.TestCase):
             res = session.run(job, env={"ANTHROPIC_API_KEY": "k", "AIOPS_TOOLS_TOKEN": "t"}, runner=run)
             self.assertFalse(res["ok"])
             self.assertIn("no change", res["error"])
+            self.assertEqual(session.exit_code(res), 0)  # declining is an answer in result.json, not a failed unit
+
+    def test_the_unit_fails_only_for_a_real_failure(self):
+        ok = {"ok": True}
+        declined = {"ok": False, "error": session.NO_CHANGE, "claude_exit": 0, "claude_error": False}
+        self.assertEqual(session.exit_code(ok), 0)
+        self.assertEqual(session.exit_code(declined), 0)
+        self.assertEqual(session.exit_code({**declined, "claude_error": True}), 1)  # Claude itself errored and left no patch
+        self.assertEqual(session.exit_code({**declined, "claude_exit": 1}), 1)
+        self.assertEqual(session.exit_code({"ok": False, "error": "the session ran past its wall clock"}), 1)
+        self.assertEqual(session.exit_code({"ok": False, "error": "session setup failed: OSError"}), 1)
 
 
 class ToolCli(unittest.TestCase):

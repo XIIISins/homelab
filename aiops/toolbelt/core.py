@@ -51,6 +51,15 @@ import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
 STATES = ("received", "grouped", "running", "posted", "resolved")
+ONE_SHOT_SOURCES = ("semaphore",)  # producers whose alerts are reports with no recovery half (alert.v1: status `event`)
+
+
+def _alert_source(row) -> str:
+    try:
+        return str(json.loads(row["alert_json"]).get("source", ""))
+    except (ValueError, TypeError, AttributeError):
+        return ""
+
 _FORWARD = {
     "received": {"grouped", "running"},
     "grouped": {"running"},
@@ -70,7 +79,8 @@ CREATE TABLE IF NOT EXISTS incidents (
   posted_at INTEGER,
   resolved_at INTEGER,
   thread_id TEXT,
-  replay TEXT
+  replay TEXT,
+  resolution TEXT
 );
 CREATE TABLE IF NOT EXISTS alerts (
   fingerprint TEXT PRIMARY KEY,
@@ -145,6 +155,11 @@ class Config:
     auto_draft_max_per_day: int = 3
     auto_draft_lookback_days: int = 7
     auto_draft_poll_seconds: int = 120
+    # Bookkeeping sweep of incidents that can never resolve by themselves (0 = no background loop; the server sets it).
+    incident_sweep_seconds: int = 0
+    replay_incident_ttl_seconds: int = 3600       # an acceptance replay has no recovery half: closed this long after its thread was posted
+    event_incident_ttl_seconds: int = 6 * 3600    # a one-shot report (a drift note) has none either
+    silent_incident_ttl_seconds: int = 48 * 3600  # a problem nobody has mentioned for this long is no longer being tracked
     forecast: forecast_store.ForecastConfig = field(default_factory=forecast_store.ForecastConfig)
     chat_daily_turn_cap: int = 100          # human messages the agent will answer per UTC day
     chat_author_hourly_cap: int = 10        # per Discord user, so anyone in the channel can ask but not run up the bill
@@ -192,6 +207,8 @@ class Toolbelt:
             self.cr = change_requests.ChangeRequests(self.engine, cfg.change_requests)
         if self.cr is not None and cfg.auto_incident_drafts:
             threading.Thread(target=self._auto_draft_loop, daemon=True, name="auto-incident-drafts").start()
+        if cfg.incident_sweep_seconds > 0:
+            threading.Thread(target=self._incident_sweep_loop, daemon=True, name="incident-sweep").start()
         if cfg.forecast_file is not None:
             self.fc = forecast_store.Forecasts(self.db, self._lock, self.clock, self.audit, cfg.forecast)
             self.ingest_forecasts()
@@ -202,6 +219,8 @@ class Toolbelt:
         cols = {r["name"] for r in self.db.execute("PRAGMA table_info(incidents)")}
         if "replay" not in cols:
             self.db.execute("ALTER TABLE incidents ADD COLUMN replay TEXT")
+        if "resolution" not in cols:
+            self.db.execute("ALTER TABLE incidents ADD COLUMN resolution TEXT")
         tcols = {r["name"] for r in self.db.execute("PRAGMA table_info(tool_calls)")}
         if "args_json" not in tcols:
             self.db.execute("ALTER TABLE tool_calls ADD COLUMN args_json TEXT")
@@ -402,6 +421,51 @@ class Toolbelt:
         if left == 0:
             self.db.execute("UPDATE incidents SET resolved_at=?, state=CASE WHEN state IN ('received','grouped') "
                             "THEN state ELSE 'resolved' END WHERE id=?", (now, inc_id))
+
+    def sweep_incidents(self) -> list[dict]:
+        """Close `posted` incidents that nothing will ever close: bookkeeping, not a verdict.
+
+        An acceptance replay never receives a recovery, a one-shot report (a drift note, source `semaphore`) has no recovery half,
+        and a problem whose alerts have been silent for days is no longer being tracked (nor is an incident with no alerts left).
+        Each gets `resolution` = replay | event | silent and its open alerts are closed, so the 10h3 write-up never treats it as a
+        real resolution; a genuine alert that fires again later simply opens a new incident. An incident whose alerts all
+        recovered before its thread was posted is resolved normally (it did recover).
+        Returns [{incident_id, resolution}] for what it closed."""
+        out: list[dict] = []
+        with self._lock:
+            now = self.now()
+            for inc in self.db.execute("SELECT * FROM incidents WHERE state='posted'").fetchall():
+                alerts = self.db.execute("SELECT status, last_seen, alert_json FROM alerts WHERE incident_id=?", (inc["id"],)).fetchall()
+                quiet = now - max([a["last_seen"] for a in alerts] + [inc["posted_at"] or inc["opened_at"]])
+                if alerts and all(a["status"] == "resolved" for a in alerts):
+                    self._maybe_resolve_incident(inc["id"], now)  # it did recover: a normal resolution
+                    self.audit("incident_swept", incident=inc["id"], resolution="recovered", alerts=len(alerts))
+                    out.append({"incident_id": inc["id"], "resolution": "recovered"})
+                    continue
+                why = None
+                if inc["replay"]:
+                    if now - (inc["posted_at"] or inc["opened_at"]) >= self.cfg.replay_incident_ttl_seconds:
+                        why = "replay"
+                elif alerts and all(_alert_source(a) in ONE_SHOT_SOURCES for a in alerts):
+                    if quiet >= self.cfg.event_incident_ttl_seconds:
+                        why = "event"
+                elif quiet >= self.cfg.silent_incident_ttl_seconds:
+                    why = "silent"
+                if why is None:
+                    continue
+                self.db.execute("UPDATE alerts SET status='resolved', resolved_at=? WHERE incident_id=? AND status!='resolved'", (now, inc["id"]))
+                self.db.execute("UPDATE incidents SET state='resolved', resolved_at=?, resolution=? WHERE id=?", (now, why, inc["id"]))
+                self.audit("incident_swept", incident=inc["id"], resolution=why, alerts=len(alerts))
+                out.append({"incident_id": inc["id"], "resolution": why})
+        return out
+
+    def _incident_sweep_loop(self) -> None:
+        while True:
+            time.sleep(self.cfg.incident_sweep_seconds)
+            try:
+                self.sweep_incidents()
+            except Exception as e:  # noqa: BLE001 - the loop must survive anything
+                self.audit("error", where="sweep_incidents", error=type(e).__name__)
 
     # ---- /group/<id> -------------------------------------------------------------------------
     def group(self, inc_id: int) -> dict:

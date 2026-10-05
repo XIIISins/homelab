@@ -443,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.forecast_current:
         cfg.forecast_file = Path(args.forecast_current)
     cfg.auto_incident_drafts = bool(args.auto_incident_drafts and args.change_requests)
+    cfg.incident_sweep_seconds = 600  # close incidents nothing can resolve (replays, drift reports, long-silent problems)
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)

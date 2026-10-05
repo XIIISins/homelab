@@ -20,6 +20,7 @@ from pathlib import Path
 
 CLAUDE = os.environ.get("AIOPS_CLAUDE_BIN", "/usr/bin/claude")
 DEFAULT_MODEL = "claude-sonnet-5-5"
+NO_CHANGE = "the session produced no change"
 
 
 def agent_prompt(path: Path) -> str:
@@ -93,7 +94,7 @@ def run(job: Path, env: dict | None = None, runner=subprocess.run) -> dict:
         result["patch_bytes"] = len(patch)
         result["ok"] = p.returncode == 0 and not result.get("claude_error") and bool(patch.strip())
         if not patch.strip():
-            result["error"] = "the session produced no change"
+            result["error"] = NO_CHANGE
     except subprocess.TimeoutExpired:
         result["error"] = "the session ran past its wall clock"
     except (subprocess.CalledProcessError, OSError, KeyError) as e:
@@ -102,11 +103,21 @@ def run(job: Path, env: dict | None = None, runner=subprocess.run) -> dict:
     return result
 
 
+def exit_code(result: dict) -> int:
+    """0 when the session did its job: it produced a patch, or it ran cleanly and honestly changed nothing (declining is an answer,
+    recorded in result.json for the dispatcher). 1 only for a real failure (Claude errored, the wall clock, a setup error), so
+    `systemctl --failed` lists sessions that broke and not sessions that declined."""
+    if result.get("ok"):
+        return 0
+    clean = result.get("claude_exit") == 0 and not result.get("claude_error")
+    return 0 if result.get("error") == NO_CHANGE and clean else 1
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: session.py <job-dir>", file=sys.stderr)
         return 2
-    return 0 if run(Path(argv[1]))["ok"] else 1
+    return exit_code(run(Path(argv[1])))
 
 
 if __name__ == "__main__":
