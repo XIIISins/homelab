@@ -59,6 +59,7 @@ Until step 4 the class works but its PRs say "Not tested: ... the executor/runne
 - **A DigitalOcean VPC drops unencapsulated pod traffic.** With the role's default `VXLANCrossSubnet`, nodes on one subnet route pod IPs directly and the VPC fabric discards them: nodes were `Ready`, Calico pods `Running`, and every cross-node pod flow (CoreDNS, the API, Flux fetching Helm indexes) timed out. The burst inventory sets `k3s_calico_encapsulation: VXLAN`; prod keeps the default.
 - **Traefik's LoadBalancer Service never gets an address without MetalLB**, and the chart's install waits on it until its 10-minute timeout: the burst copy uses a NodePort.
 - **`kubectl exec` appends notices after a command's JSON**, so Vault output is parsed with `raw_decode`, not `json.loads`.
+- **A new author class that gets a PR test must be added to the Toolbelt's GitHub read proxy allowlist** (`aiops/toolbelt/github_read_proxy.py`; the Toolbelt unit cannot reach the internet). The first live run said "Not tested: could not read the branch head from GitHub (HTTP 404)" for every retry until `k8s` was added; a unit test now lists every class that is tested. The role restarts the proxy when its code changes (it did not before 2026-10-05, so the deploy alone left the old allowlist running).
 - **Three 4 GB droplets cannot hold all of asgard**: the default run installs only the platform core plus the components you name with `--only`.
 
 ## What a green run does NOT prove
@@ -73,4 +74,5 @@ It does not exercise the Synology iSCSI/NFS back ends, MetalLB, Cloudflare tunne
 | `main`, `--only apex-static` | PASSED (the workload was waited for, not just the HelmReleases) |
 | `main`, `--only startpage` | fails on the baseline: its init container clones a private repo with a deploy key, so it is waived by name with that reason (the ExternalSecret DID sync from the throwaway Vault) |
 | branch with a typo'd Vault path (`k8s/netbox/appp`), `--only netbox` | offline gate FAILED in seconds, no cluster built, names the unknown path |
+| agent PR #174 end to end (2026-10-05): `/aiops draft` k8s (a label on `apex-static`) -> PR -> `pr-burst-test` card (proposal 33) -> approved -> runner | PASSED in 458 s, the PR description gained the `## Burst-cluster test` section (what was installed, what was not, phases), the cluster was gone afterwards (no `burst` droplets) |
 | branch with a nonexistent cert-manager chart version | FAILED after the wait with `InvalidChartReference ... no cert-manager chart with version matching v99.99.99` plus the cascade (trust-manager, vault PVC, vault-tls) |
