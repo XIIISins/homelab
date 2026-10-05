@@ -74,11 +74,7 @@ The soak needs faults, and by hand there were few (the autonomy log's last real 
 - **Cost:** each injection is one agent diagnosis (about one run of the daily cap of 40).
 - **A failed restore leaves a canary agent down** (audit `soak_restore_failed`, state `failed`/`restore-failed` in the report): `scripts/canary/fault restore <canary> zabbix-agent2.service`. The canaries are disposable and hold nothing.
 
-**Turn it on (operator steps; Claude can run the playbook):**
-1. Merge the PR; the code deploys itself (the registry change is inert while `applied: false`).
-2. `terraform apply` in `terraform/semaphore` (main checkout): adds only the `aiops-canary-fault` template.
-3. A PR flips `semaphore.applied: true` for `canary-fault` in `aiops/actions.yml` (until then the scheduler reports `not-applied` and injects nothing).
-4. `ansible-playbook playbooks/asgard-control.yml --tags aiops-toolbelt` (adds `--soak` to the unit; `aiops_toolbelt_soak: false` turns it off). The first injection follows within the interval.
+**How it was switched on (2026-10-05):** the code deployed itself (and the code deploy also put `--soak` in the unit); `terraform apply` in `terraform/semaphore` from the main checkout added only the `aiops-canary-fault` template; a PR flipped `semaphore.applied: true` for `canary-fault` in `aiops/actions.yml` (until then the scheduler reported `not-applied` and injected nothing). `aiops_toolbelt_soak: false` plus a role run removes it.
 
 **Turn it off:** `/aiops autonomy off` or `/aiops maintenance on` (pauses), `-e aiops_toolbelt_soak=false` and re-run the role (removes it), or let `soak.ends` pass.
 
