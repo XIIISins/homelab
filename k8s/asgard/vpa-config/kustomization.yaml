@@ -1,0 +1,38 @@
+# k8s/asgard/vpa-config/kustomization.yaml
+#
+# Phase 10i1: one VerticalPodAutoscaler per controller, all in recommend-only mode (updateMode "Off"):
+# the recommender (infrastructure/vpa) writes recommendations into each object's status and nothing
+# changes a pod. Separate from infrastructure/ because these objects need the CRDs the vpa chart installs
+# (Flux structure rule, decisions "Flux structure").
+#
+# Coverage: every Deployment / StatefulSet / DaemonSet in Flux-managed namespaces (inventory 2026-10-05).
+# Deliberately absent: calico-system and tigera-operator (Calico is K3s addon files, not Flux), kube-system
+# (K3s-managed coredns + metrics-server), Jobs/CronJobs (VPA fits short-lived pods poorly).
+# A new app needs a line here; the 10i digest lists controllers without a VPA.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - apex-static.yaml
+  - authentik.yaml
+  - cert-manager.yaml
+  - cloudflared.yaml
+  - csi-driver-nfs.yaml
+  - external-secrets.yaml
+  - flux-system.yaml
+  - garage.yaml
+  - immich.yaml
+  - local-path-storage.yaml
+  - metallb-system.yaml
+  - microbin.yaml
+  - monitoring.yaml
+  - netbox.yaml
+  - outline.yaml
+  - sealed-secrets.yaml
+  - semaphore.yaml
+  - startpage.yaml
+  - synology-csi.yaml
+  - teamspeak.yaml
+  - traefik.yaml
+  - vault.yaml
+  - vpa.yaml

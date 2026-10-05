@@ -1,0 +1,27 @@
+# k8s/asgard/vpa-config/outline.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: outline
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: outline-redis
+  updatePolicy:
+    updateMode: "Off"

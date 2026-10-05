@@ -1,0 +1,14 @@
+# k8s/asgard/vpa-config/cloudflared.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cloudflared
+  updatePolicy:
+    updateMode: "Off"

@@ -187,28 +187,43 @@ spec:
       enabled: false
 
     # ── Resource sizing ───────────────────────────────────────────────
-    # Memory tracks bitnami `medium` preset (1Gi/1536Mi) — bumped from
-    # `small` (768Mi) on first deploy after Django bootstrap + migrations
-    # + gunicorn workers OOMKilled. CPU limit bumped from medium-preset
-    # 750m → 1500m: a `terraform apply` state-refresh against /api/* can
-    # peg granian to the limit for tens of seconds, which trips the
+    # Memory: the web pod ran at 1521Mi of a 1536Mi limit on 2026-10-05
+    # (and was OOMKilled during a `terraform apply` on 2026-10-01), so the
+    # request follows real use (~1.5Gi x 1.2) and the limit gets headroom.
+    # CPU limit 1500m: a `terraform apply` state-refresh against /api/*
+    # can peg granian to the limit for tens of seconds, which trips the
     # chart's 1s readiness probe and drops the pod from Service endpoints
-    # while staying "Running" (liveness is TCP-only). Skuld worker is
-    # 2 vCPU so 1500m leaves headroom for other pods; request stays at
-    # 500m so scheduling pressure is unchanged.
+    # while staying "Running" (liveness is TCP-only). CPU request 500m ->
+    # 100m (Phase 10i0): steady use is ~7m and the workers are 73-83 %
+    # CPU-requested, which is what deadlocks surge rollouts
+    # (known-issues/k8s-scheduling.md). The limit, not the request, is
+    # what the refresh bursts need.
     resourcesPreset: "none"
     resources:
       requests:
-        cpu: 500m
-        memory: 1Gi
+        cpu: 100m
+        memory: 1792Mi
       limits:
         cpu: 1500m
-        memory: 1536Mi
+        memory: 2560Mi
     replicaCount: 1 # bump to 2 once steady-state, for rolling-update headroom
 
     worker:
       replicaCount: 1
-      resourcesPreset: medium
+      # Was the bitnami `medium` preset (500m/1Gi requests, 750m/1536Mi
+      # limits, ephemeral 50Mi/2Gi). Live 2026-10-05: 1m CPU, 251Mi.
+      # Phase 10i0 trims the requests only; limits stay as they were
+      # until VPA has a week of data (docs/operations/10i-rightsizing.md).
+      resourcesPreset: "none"
+      resources:
+        requests:
+          cpu: 50m
+          memory: 384Mi
+          ephemeral-storage: 50Mi
+        limits:
+          cpu: 750m
+          memory: 1536Mi
+          ephemeral-storage: 2Gi
 
     # Off: since NetBox 4.6 housekeeping runs inside NetBox (the chart marks
     # this CronJob "only useful before v4.6.0"), and 4.7 removes the command.

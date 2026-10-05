@@ -1,0 +1,14 @@
+# k8s/asgard/vpa-config/startpage.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: startpage
+  namespace: startpage
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: startpage
+  updatePolicy:
+    updateMode: "Off"

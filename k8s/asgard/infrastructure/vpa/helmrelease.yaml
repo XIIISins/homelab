@@ -1,0 +1,61 @@
+# k8s/asgard/infrastructure/vpa/helmrelease.yaml
+#
+# Vertical Pod Autoscaler, RECOMMENDER ONLY (Phase 10i1, docs/operations/10i-rightsizing.md).
+# It watches pod usage (metrics-server, which K3s ships) and writes a recommendation into each
+# VerticalPodAutoscaler object's status. It never changes a pod:
+#   - updater disabled            -> nothing evicts pods to apply a recommendation
+#   - admission controller off    -> no mutating webhook, nothing rewrites pod specs at admission
+#   - every VPA object in vpa-config/ has updateMode "Off"
+# Requests and limits change only through a reviewed PR (10i4). The VPA objects themselves live in
+# k8s/asgard/vpa-config/ because they need the CRDs this chart installs (Flux structure rule).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vpa
+  namespace: vpa
+spec:
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: vpa
+      version: "5.1.0" # app VPA 1.7.1 (supports Kubernetes >= 1.28)
+      sourceRef:
+        kind: HelmRepository
+        name: fairwinds-stable
+        namespace: vpa
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    recommender:
+      enabled: true
+      extraArgs:
+        # The chart default is v=4, which is chatty and every line ships to VictoriaLogs.
+        v: "2"
+        # Lower floors than VPA's defaults (25m / 250Mi; the chart sets 15m / 100Mi): most pods here
+        # are tiny, and a 100-250Mi floor would keep exactly the over-provisioning 10i is meant to find.
+        pod-recommendation-min-cpu-millicores: 10
+        pod-recommendation-min-memory-mb: 32
+      image:
+        pullPolicy: IfNotPresent # chart default is Always; the tag is pinned by the chart's appVersion
+      # The workers are tight on CPU requests (known-issues/k8s-scheduling.md); the chart default
+      # (50m / 500Mi) is far above what one recommender for ~40 controllers needs.
+      resources:
+        requests:
+          cpu: 20m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+    updater:
+      enabled: false
+    admissionController:
+      enabled: false
+    metrics-server:
+      enabled: false # K3s ships metrics-server
