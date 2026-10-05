@@ -5,3 +5,11 @@
     name: "{{ aiops_toolbelt_unit_name }}.service"
     state: restarted
     daemon_reload: true
+
+# The loopback GitHub read proxy runs the repo's github_read_proxy.py: a code change (a new path in its allowlist) must restart it, or the old
+# process keeps answering 404 (found 2026-10-05 with the k8s class: the deploy changed the file, the proxy kept yesterday's allowlist).
+- name: Restart aiops-toolbelt-ghread
+  ansible.builtin.systemd:
+    name: "{{ aiops_toolbelt_ghread_unit_name }}.service"
+    state: restarted
+  when: aiops_toolbelt_change_requests_enabled | bool

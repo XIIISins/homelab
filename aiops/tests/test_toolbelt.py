@@ -297,6 +297,81 @@ class States(unittest.TestCase):
         self.assertEqual(tb.group(a)["state"], "resolved")
 
 
+class SweepIncidents(unittest.TestCase):
+    """Incidents nothing can resolve by themselves are closed as bookkeeping (resolution != recovery)."""
+
+    def setUp(self):
+        self.tb, self.clock, self.audit = make()
+        self.n = 0
+
+    def plant(self, *, replay=None, alerts=(), posted_ago=0, state="posted"):
+        """A posted incident with alerts [(status, source, silent_for_seconds)], direct rows."""
+        self.n += 1
+        now = self.clock.t
+        cur = self.tb.db.execute("INSERT INTO incidents(group_key, state, opened_at, window_ends_at, posted_at, replay) VALUES (?,?,?,?,?,?)",
+                                 (f"g{self.n}", state, now - posted_ago - 100, now - posted_ago - 10, now - posted_ago, replay))
+        iid = cur.lastrowid
+        for i, (status, source, silent) in enumerate(alerts):
+            a = json.dumps({"source": source, "status": "event" if source == "semaphore" else status})
+            self.tb.db.execute("INSERT INTO alerts(fingerprint, incident_id, status, severity, first_seen, last_seen, count, host, alert_json) "
+                               "VALUES (?,?,?,?,?,?,1,'h',?)", (f"fp{self.n}-{i}", iid, status, "alert", now - silent - 5, now - silent, a))
+        return iid
+
+    def row(self, iid):
+        return self.tb.db.execute("SELECT state, resolution FROM incidents WHERE id=?", (iid,)).fetchone()
+
+    def test_a_replay_is_closed_after_its_ttl_and_not_before(self):
+        young = self.plant(replay="skuld-freeze", alerts=[("firing", "zabbix", 100)], posted_ago=600)
+        old = self.plant(replay="skuld-freeze", alerts=[("firing", "zabbix", 4000)], posted_ago=4000)
+        self.assertEqual([x["incident_id"] for x in self.tb.sweep_incidents()], [old])
+        self.assertEqual(tuple(self.row(old)), ("resolved", "replay"))
+        self.assertEqual(tuple(self.row(young)), ("posted", None))
+        self.assertEqual(self.tb.db.execute("SELECT status FROM alerts WHERE incident_id=?", (old,)).fetchone()[0], "resolved")
+
+    def test_a_drift_report_has_no_recovery_and_closes_after_its_ttl(self):
+        fresh = self.plant(alerts=[("firing", "semaphore", 3600)], posted_ago=3600)
+        stale = self.plant(alerts=[("firing", "semaphore", 7 * 3600)], posted_ago=7 * 3600)
+        self.assertEqual([x["incident_id"] for x in self.tb.sweep_incidents()], [stale])
+        self.assertEqual(tuple(self.row(stale)), ("resolved", "event"))
+        self.assertEqual(self.row(fresh)["state"], "posted")
+
+    def test_a_zabbix_problem_is_kept_until_it_has_been_silent_for_days(self):
+        self.plant(alerts=[("firing", "zabbix", 47 * 3600)], posted_ago=47 * 3600)
+        self.assertEqual(self.tb.sweep_incidents(), [])  # a real problem that is still firing is never dropped early
+        gone = self.plant(alerts=[("firing", "zabbix", 49 * 3600)], posted_ago=49 * 3600)
+        self.assertEqual(self.tb.sweep_incidents(), [{"incident_id": gone, "resolution": "silent"}])
+
+    def test_an_incident_with_no_alerts_left_is_closed_when_it_is_old(self):
+        iid = self.plant(alerts=[], posted_ago=49 * 3600)
+        self.assertEqual(self.tb.sweep_incidents(), [{"incident_id": iid, "resolution": "silent"}])
+
+    def test_alerts_that_all_recovered_before_the_thread_was_posted_resolve_normally(self):
+        iid = self.plant(alerts=[("resolved", "zabbix", 100)], posted_ago=60)
+        self.assertEqual(self.tb.sweep_incidents(), [{"incident_id": iid, "resolution": "recovered"}])
+        self.assertEqual(tuple(self.row(iid)), ("resolved", None))  # a real recovery: no resolution marker
+
+    def test_only_posted_incidents_are_touched(self):
+        for st in ("received", "grouped", "running", "resolved"):
+            self.plant(replay="x", alerts=[("firing", "zabbix", 99999)], posted_ago=99999, state=st)
+        self.assertEqual(self.tb.sweep_incidents(), [])
+
+    def test_a_swept_incident_is_never_written_up_as_a_real_resolution(self):
+        iid = self.plant(alerts=[("firing", "zabbix", 49 * 3600)] * 1, posted_ago=49 * 3600)
+        self.tb.db.execute("UPDATE alerts SET host='hugin' WHERE incident_id=?", (iid,))
+        self.tb.sweep_incidents()
+        inc = self.tb.db.execute("SELECT opened_at, resolved_at FROM incidents WHERE id=?", (iid,)).fetchone()
+        self.assertGreater(inc["resolved_at"] - inc["opened_at"], 30 * 60)  # it WOULD clear the 30-minute bar...
+        self.assertIsNone(core.incident_draft.draft_reason(self.tb.db, iid))  # ...but a sweep is not a recovery
+
+    def test_it_is_audited_and_an_old_database_gains_the_column(self):
+        iid = self.plant(replay="x", alerts=[("firing", "zabbix", 5000)], posted_ago=5000)
+        self.tb.sweep_incidents()
+        self.assertIn(("incident_swept", iid, "replay"), [(a["event"], a.get("incident"), a.get("resolution")) for a in self.audit])
+        self.tb.db.execute("ALTER TABLE incidents DROP COLUMN resolution")
+        self.tb._migrate()
+        self.assertIn("resolution", {r["name"] for r in self.tb.db.execute("PRAGMA table_info(incidents)")})
+
+
 class Validation(unittest.TestCase):
     def test_bad_events_are_rejected_with_400(self):
         tb, _, _ = make()

@@ -373,11 +373,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--exec-cred", default="semaphore-exec", help="creds-dir file name of the executor's Semaphore token (no file = executor disabled)")
     ap.add_argument("--exec-project", type=int, default=0, help="Semaphore project id of the aiops project (0 = look it up by name `aiops`)")
     ap.add_argument("--rebuild-socket", help="unix socket of the rebuild runner (Phase 10g); no flag = rebuild actions refuse with 501")
+    ap.add_argument("--burst-socket", help="unix socket of the burst runner (10h: burst-cluster tests of k8s PRs); no flag = pr-burst-test refuses")
     ap.add_argument("--author-token-file", help="enables the author role (the Frigg PR dispatcher: claim + report)")
     ap.add_argument("--author-allow", action="append", default=[], help="CIDR the AUTHOR may call from (repeatable)")
     ap.add_argument("--author-tools-token-file", help="enables the author-tools role (the drafting session: read-only /tool/* only)")
     ap.add_argument("--author-tools-allow", action="append", default=[], help="CIDR the AUTHOR-TOOLS role may call from (repeatable)")
     ap.add_argument("--change-requests", action="store_true", help="enable 10h2 change requests (needs --actions)")
+    ap.add_argument("--soak", action="store_true", help="10f soak: stop one allow-listed unit on a canary on a schedule (registry `soak:`) and record whether autonomy "
+                    "healed it; needs --actions, runs only while autonomy is ON and the canary-fault template is applied")
     ap.add_argument("--auto-incident-drafts", action="store_true", help="10h3: file the docs change request for a resolved incident that crossed the bar (needs --change-requests)")
     ap.add_argument("--forecast-current", default="", help="10h1: the forecast job's current-findings JSON (enables the forecasts table and routes)")
     ap.add_argument("--author-repo", default="XIIISins/homelab", help="owner/name a reported PR URL must belong to")
@@ -418,7 +421,8 @@ def main(argv: list[str] | None = None) -> int:
         if cred.is_file():
             c = json.loads(cred.read_text())
             sem = core.actions.SemaphoreAPI(c["url"], c["value"], args.exec_project or None)
-        cfg.actions = core.actions.ActionConfig(operators=operators, semaphore=sem, runner_socket=args.rebuild_socket or None)
+        cfg.actions = core.actions.ActionConfig(operators=operators, semaphore=sem, runner_socket=args.rebuild_socket or None,
+                                                burst_socket=args.burst_socket or None)
     author_token = read_token(args.author_token_file, "author token") if args.author_token_file else None
     author_tools_token = read_token(args.author_tools_token_file, "author-tools token") if args.author_tools_token_file else None
     all_tokens = [t for t in (token, approver_token, author_token, author_tools_token) if t]
@@ -438,12 +442,23 @@ def main(argv: list[str] | None = None) -> int:
         if cfg.actions is not None:  # 10h2: canary tests of agent PRs read the PR from GitHub (public, read-only, unauthenticated)
             import pr_test  # noqa: E402
             cfg.actions.pr_fetch, cfg.actions.pr_repo = pr_test.make_fetch(args.github_read_url or None), args.author_repo
+    if args.soak and not args.actions:
+        print("--soak needs --actions", file=sys.stderr)
+        return 2
     if args.forecast_current:
         cfg.forecast_file = Path(args.forecast_current)
     cfg.auto_incident_drafts = bool(args.auto_incident_drafts and args.change_requests)
+    cfg.incident_sweep_seconds = 600  # close incidents nothing can resolve (replays, drift reports, long-silent problems)
     import normalize  # noqa: E402 (path set up by core)
 
     tb = core.Toolbelt(cfg, normalize.load_routes(), load_runbooks(core.REPO), action_ids=load_action_ids(core.REPO), registry=registry)
+    if args.soak and tb.engine is not None:
+        import soak  # noqa: E402 (path set up by core)
+
+        scfg = soak.SoakConfig.from_registry({"soak": registry.soak_raw})
+        if scfg is not None:
+            soak.Soak(tb.engine, scfg).start()
+            tb.audit("soak_enabled", hosts=list(scfg.hosts), units=list(scfg.units), interval=scfg.interval_seconds, ends=scfg.ends.isoformat())
     host, _, port = args.listen.rpartition(":")
     handler = make_handler(tb, token, [ipaddress.ip_network(a) for a in args.allow], approver_token,
                            [ipaddress.ip_network(a) for a in args.approver_allow],

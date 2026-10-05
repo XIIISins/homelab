@@ -1,0 +1,50 @@
+{# ansible/roles/aiops-burst-runner/templates/aiops-burst-agent.service.j2 #}
+# Managed by Ansible (roles/aiops-burst-runner). Do not edit.
+#
+# The burst runner's PRIVATE ssh-agent: it holds the fleet `ansible_niflheim` key IN MEMORY ONLY (Frigg's rule: that key never exists as a file),
+# loaded from Vault by the same root loader the operator's agent uses (roles/frigg-ssh-agent), logging in as the burst AppRole. The socket is
+# private to the burst user; the runner reaches the burst droplets with it.
+[Unit]
+Description=AIOps burst runner ssh-agent (fleet key, memory only)
+After=network-online.target
+Wants=network-online.target
+Before={{ aiops_burst_runner_unit_name }}.service
+PartOf={{ aiops_burst_runner_unit_name }}.service
+
+[Service]
+Type=simple
+User={{ aiops_burst_runner_user }}
+RuntimeDirectory=aiops-burst-agent
+RuntimeDirectoryMode=0700
+Environment=SSH_AUTH_SOCK={{ aiops_burst_runner_agent_socket }}
+Environment=VAULT_ADDR={{ aiops_burst_runner_vault_addr }}
+Environment=FRIGG_SSH_AGENT_APPROLE_ENV={{ aiops_burst_runner_approle_env_path }}
+Environment=FRIGG_SSH_AGENT_KEY_PATH={{ aiops_burst_runner_ssh_key_vault_path }}
+Environment=FRIGG_SSH_AGENT_KEY_FIELD=value
+Environment=FRIGG_SSH_AGENT_PUB_PATH={{ aiops_burst_runner_pub_path }}
+Environment=FRIGG_SSH_AGENT_PUB_OWNER={{ aiops_burst_runner_user }}
+ExecStart=/usr/bin/ssh-agent -D -a {{ aiops_burst_runner_agent_socket }}
+# `+`: the loader runs as root OUTSIDE this unit's sandbox (it needs the root-only AppRole file and Vault); a loader failure fails the start.
+ExecStartPost=+/usr/bin/env python3 {{ aiops_burst_runner_agent_loader_path }}
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=120
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+UMask=0077
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

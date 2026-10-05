@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a, 10b, 10c, 10d and 10e done 2026-10-01/03; 10f code complete 2026-10-03 (deploy, then the 14-day canary soak)**; the restore drill passed 2026-10-03, 10g stage A proven 2026-10-04 (10a soak ends 2026-10-08). Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10i); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a-10e done and live; 10f deployed 2026-10-03, canary soak running (read-out about 2026-10-17); 10g stage A proven 2026-10-04; 10h live in all three parts, exit criteria not yet met** (live state checked 2026-10-05, see [Live state](#live-state-checked-2026-10-05)); the restore drill passed 2026-10-03; the 10a soak ends 2026-10-08. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10i); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -74,7 +74,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 | **10f** | Autonomous T1 healing | 10e + kill switch + canaries | Stage 3 |
 | **10g** | Fleet rebuild loop | 10f + restore-tested backups + PBS off Skuld | Stage 4 |
 | **10h** | Predictive & agent-authored change | 10f | Stage 5 |
-| **10i** | Workload + host memory rightsizing (VPA recommend-only, rightsizing PRs, guest shrink) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
+| **10i** | Pod rightsizing (VPA recommend-only, Gná digest, rightsizing PRs) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
 
 10a/10b/10c can run in parallel (disjoint scopes). Everything from 10d onward is sequential.
 
@@ -154,7 +154,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 *Detailed plan (drafted 2026-10-03): [`10g-rebuild-loop.md`](10g-rebuild-loop.md): ladder of targets, exact sequence, registry shape, the Frigg rebuild-runner proposal for unattended `terraform apply`, hard limits, canary test plan.*
 
-- **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); still open: **PBS off Skuld** and its datastore capacity fixed (215/252 GB used); **restore drills passing (done 2026-10-03: etcd, Calico, Vault Raft, PBS canary + replica)** (the offsite-backup restore onto a scratch cluster in 10b2 ✅; PBS restore of a canary and an LXC ✅); Skuld watchdog proven or Skuld de-risked.
+- **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); **PBS off Skuld done 2026-10-01**; still open: its datastore capacity (81 % on 2026-10-05); **restore drills passing (done 2026-10-03: etcd, Calico, Vault Raft, PBS canary + replica)** (the offsite-backup restore onto a scratch cluster in 10b2 ✅; PBS restore of a canary and an LXC ✅); Skuld watchdog proven or Skuld de-risked.
 - **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
 - **10g3 — Gate for worker auto-rebuild.** Only after N consecutive successful approval-gated worker rebuilds and a passing restore drill.
 - **Exit:** a deliberately killed canary and a replica LXC are rebuilt from the repo without operator input; a worker rebuild is approval-gated and verified.
@@ -163,22 +163,42 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 *Detailed plan (drafted 2026-10-03): [`10h-predictive-change.md`](10h-predictive-change.md): forecasting signals and their data sources, the agent-PR gate, incident drafts. 10h1 is T0 and can start its shadow baseline before 10g.*
 
-- **10h1 — Forecasting.** *(Detectors built, tested and running in shadow mode on Frigg since 2026-10-03: [`procedures/aiops-forecasting.md`](../procedures/aiops-forecasting.md).)* Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
-- **10h2 — Agent-authored PRs.** Drift/incident → fix PR → CI plan-diff → human merge, on the `chart-bump` pattern.
-- **10h3 — Incident drafts.** *(Mechanical draft built 2026-10-03, served at `GET /incident/<id>/draft`: [`procedures/aiops-incident-drafts.md`](../procedures/aiops-incident-drafts.md); the grounded narrative and PR delivery are not built.)* The agent drafts `docs/incidents/` and known-issues updates for human edit.
+- **10h1 — Forecasting.** *(Live: detectors on Frigg since 2026-10-03, notes since 2026-10-04: [`procedures/aiops-forecasting.md`](../procedures/aiops-forecasting.md).)* Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
+- **10h2 — Agent-authored PRs.** *(Live 2026-10-04: classes `docs`, `drift-note`, `drift`, `k8s`; tested on canaries and burst clusters, not by plan-diff.)* Drift/incident → fix PR → human merge, on the `chart-bump` pattern.
+- **10h3 — Incident drafts.** *(Live: the Toolbelt files the write-up request when an incident resolves after crossing the bar and the author opens the PR ([`procedures/aiops-incident-drafts.md`](../procedures/aiops-incident-drafts.md)); the grounded narrative is not built, the draft is mechanical.)* The agent drafts `docs/incidents/` and known-issues updates for human edit.
 
 ---
 
-## 10i — Workload rightsizing (VPA recommend-only)
+## 10i — Pod rightsizing (VPA recommend-only)
 
-*Detailed plan (drafted 2026-10-04): [`10i-rightsizing.md`](10i-rightsizing.md). Driven by the worker CPU-requests gotcha ([`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)): 84–90 % requested, ~5–10 % used; and by Proxmox hosts close to fully claimed on memory.*
+*Detailed plan (drafted 2026-10-04, restarted 2026-10-05): [`10i-rightsizing.md`](10i-rightsizing.md). Goal: the pods on the asgard workers use and reserve less memory over time; the worker VMs keep their Proxmox size. CPU requests (84–90 % requested, [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)) are trimmed by the same loop.*
 
-- **10i0 — Hand-trim** the obvious over-requests (NetBox, `authentik-server`) so the recommender fits.
-- **10i1 — VPA recommender only**, `updateMode: "Off"` objects in a new `vpa-config/` Kustomization, VPA metrics through kube-state-metrics. Changes nothing in the cluster.
-- **10i2 — Findings (T0).** The Toolbelt joins VPA recommendations with 14 days of VictoriaMetrics usage, posts quiet cards beside the forecasts, and gives Gná the data for `Insufficient cpu` diagnoses.
-- **10i3 — Rightsizing PRs.** A `rightsizing` author class changes only the `resources` of one allow-listed HelmRelease (CI-checked); the operator merges.
-- **10i4 — Post-merge watch** (72 h, built before 10i3 is enabled); a regression offers a revert PR, never an automatic one.
-- **10i5 — Host memory reclaim.** A memory allocation ledger per Proxmox host; worker VMs shrink by hand one at a time once pod memory is trimmed; over-sized LXCs/VMs shrink through a new `capacity` shrink direction. Target: ≤ 75 % of host RAM claimed.
+- **10i0 — Hand-trim** NetBox and `authentik-server` so the recommender fits.
+- **10i1 — VPA recommender only**, `updateMode: "Off"` objects in `vpa-config/`, VPA metrics through kube-state-metrics.
+- **10i2 — Data and findings (T0):** `kube.rightsizing` joins VPA with 30 days of VictoriaMetrics usage; Gná gets it too.
+- **10i3 — Gná's digest:** weekly by default, bi-weekly or monthly by choice; a scoreboard, the top suggestions, tuning advice, and earlier PRs' results.
+- **10i4 — Rightsizing PRs:** a resources-only author class from the digest's Draft PR button, burst-tested; the operator merges.
+- **10i5 — Post-merge watch** (72 h); a regression offers a revert PR.
+
+---
+
+## Live state (checked 2026-10-05)
+
+Read from the running systems (Toolbelt database on Frigg, Semaphore API, kubectl, the hosts), not from the plans.
+
+| Area | Live state |
+|---|---|
+| Frigg | up since 2026-10-03 00:18 (no reboot since the burst runner was deployed); every `aiops-*` unit active; the burst socket is `0660` group `aiops-burst-clients`; `aiops-draft@2/@4/@12` failed (drafting sessions that made no change) |
+| Code deploy | Semaphore `aiops-code-deploy`: the last 52 runs all succeeded; Flux is on `main` `55b5910`, equal to `origin/main`; 6 nodes Ready, no Kustomization/HelmRelease not Ready, no unhealthy pod |
+| Other hosts | Gna, Ratatoskr, `do1` and the three canaries are up with no failed units; the PBS LXC is up; no burst droplets exist |
+| PBS datastore | 81 % (195 / 240 GB), up from 75 % on 2026-10-03 |
+| Toolbelt flags | `autonomy` ON since 2026-10-03 15:57; `kill_switch`, `maintenance`, both breakers off |
+| Toolbelt history | 43 incidents (24 resolved, 19 still `posted`), 39 diagnoses, 242 tool calls, 62 chat turns |
+| 10f autonomy log | `restart-failed-unit`: 7 approved, 2 succeeded, 2 failed, 2 verify-failed, 4 skipped; the last action 2026-10-03 18:02 |
+| 10g rebuilds | 6 runs (canary-1, -2, -3), the first five failed in bring-up, the sixth succeeded in 117 s |
+| 10h1 forecasts | 7 notes since 2026-10-04 15:29: 3 open (Verd memory slow-fill, ETA 7.1 days, low confidence, labelled useful; Urd `nvme0n1` read and write latency creep, medium), 4 resolved fast-rise (`vor:/`, and the PBS storage once per node); 1 labelled in total |
+| 10h2 change requests | 13: 6 merged (PRs #131, #137, #143, #149, #152, #166), 1 open (#167), 2 closed unmerged (the burst-tested k8s PRs #174 and #177), 4 failed (one test error, three no-change sessions) |
+| Open PRs | #167 (incident write-up), #165 (10i rightsizing plan, from another session) |
 
 ---
 

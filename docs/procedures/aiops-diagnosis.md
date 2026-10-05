@@ -155,6 +155,7 @@ Each prints only outcomes and exits non-zero if a check is wrong. The Proxmox wr
 | Rotate an ingest token | `terraform apply -replace='random_password.n8n_ingest_token["zabbix"]'` (main checkout), re-run the play (credential re-imported), update the producer's copy |
 | Rotate the Discord webhook | Operator re-mints in Discord, writes Vault, re-run the play with `-e n8n_import_workflows=false --tags n8n:config` (env file changes -> restart) |
 | Upgrade n8n / Node | Bump `n8n_version` / `n8n_node_version`+`n8n_node_sha256` in the role defaults, check the n8n `engines.node` range, run the play; back up first (PBS) — n8n migrates its DB on start |
+| Stuck `posted` incidents | The Toolbelt closes them itself every 10 minutes as bookkeeping (`incidents.resolution` records why): an acceptance replay 1 h after its thread, a one-shot drift report (source `semaphore`) after 6 h, a problem whose alerts have been silent for 48 h (or that has none left). Alerts that all recovered before the thread was posted resolve normally. A swept incident is never written up by 10h3, and a genuine alert that fires again later opens a new incident. Audit event `incident_swept` |
 | Disable the agent | `systemctl stop n8n` (or disable the producer's n8n media type). Notifications are unaffected |
 
 ## Egress (enforced at the UCG since 2026-10-03)

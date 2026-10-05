@@ -508,6 +508,15 @@ def format_report(r: dict) -> str:
         lines.append("Not run, and why: " + ", ".join(f"{sanitize(k, 40)} {v}" for k, v in sorted(r["skipped_reasons"].items())))
     if r.get("flapping_targets"):
         lines.append("**Flapping** (3+ autonomous runs within 6h): " + ", ".join(f"`{sanitize(t, 30)}`" for t in r["flapping_targets"]))
+    sk = r.get("soak")
+    if sk:
+        oc = ", ".join(f"{sanitize(k, 20)} {v}" for k, v in sorted((sk.get("by_outcome") or {}).items())) or "none yet"
+        who = ", ".join(f"{sanitize(k, 20)} {v}" for k, v in sorted((sk.get("healed_by") or {}).items()))
+        med = f" | median heal {int(sk['median_heal_seconds'])} s" if isinstance(sk.get("median_heal_seconds"), (int, float)) else ""
+        lines.append(f"**Scheduled fault injection** (ends {sanitize(sk.get('ends'), 12)}): {sk.get('injections', 0)} injected | {oc}"
+                     + (f" | healed by {who}" if who else "") + med)
+        if sk.get("open"):
+            lines.append(f"- LIVE FAULT `{sanitize(sk['open'].get('unit'), 40)}` on `{sanitize(sk['open'].get('host'), 30)}` ({sanitize(sk['open'].get('state'), 12)})")
     rb = r.get("rebuild")
     if rb:
         flags = r.get("flags", {})

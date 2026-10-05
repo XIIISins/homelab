@@ -11,8 +11,8 @@ StartLimitIntervalSec=0
 Type=simple
 User={{ aiops_toolbelt_user }}
 Group={{ aiops_toolbelt_user }}
-{% if aiops_toolbelt_rebuild_socket %}
-SupplementaryGroups={{ aiops_toolbelt_rebuild_group }}
+{% if aiops_toolbelt_rebuild_socket or aiops_toolbelt_burst_socket %}
+SupplementaryGroups={{ ([aiops_toolbelt_rebuild_group] if aiops_toolbelt_rebuild_socket else []) | union([aiops_toolbelt_burst_group] if aiops_toolbelt_burst_socket else []) | join(' ') }}
 {% endif %}
 StateDirectory=aiops-toolbelt
 StateDirectoryMode=0750
@@ -55,6 +55,12 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% if aiops_toolbelt_rebuild_socket %}
   --rebuild-socket {{ aiops_toolbelt_rebuild_socket }} \
 {% endif %}
+{% if aiops_toolbelt_burst_socket %}
+  --burst-socket {{ aiops_toolbelt_burst_socket }} \
+{% endif %}
+{% if aiops_toolbelt_soak %}
+  --soak \
+{% endif %}
 {% endif %}
   --replay-dir {{ aiops_toolbelt_replay_dir }} \
 {% if aiops_toolbelt_forecast_enabled %}
@@ -92,7 +98,7 @@ ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
 ProcSubset=pid
-RestrictAddressFamilies=AF_INET{{ ' AF_UNIX' if aiops_toolbelt_rebuild_socket else '' }}
+RestrictAddressFamilies=AF_INET{{ ' AF_UNIX' if (aiops_toolbelt_rebuild_socket or aiops_toolbelt_burst_socket) else '' }}
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

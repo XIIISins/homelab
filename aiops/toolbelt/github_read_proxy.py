@@ -25,7 +25,7 @@ MAX_BYTES = 4 * 1024 * 1024
 
 def allowed(repo: str):
     r = re.escape(repo)
-    return [re.compile(rf"^/repos/{r}/git/ref/heads/agent/(?:drift|capacity)/[0-9]+-[a-z0-9][a-z0-9-]*$"),
+    return [re.compile(rf"^/repos/{r}/git/ref/heads/agent/(?:drift|capacity|k8s)/[0-9]+-[a-z0-9][a-z0-9-]*$"),
             re.compile(rf"^/repos/{r}/compare/main\.\.\.[0-9a-f]{{40}}$")]
 
 

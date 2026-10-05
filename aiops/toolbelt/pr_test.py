@@ -143,6 +143,73 @@ def check_params(fetch, params: dict, guard: dict, repo: str = REPO) -> list[str
     return problems
 
 
+# ---- 10h: a `k8s/` PR, proven on a burst cluster ---------------------------------------------------------------------------
+
+_APP_PATH = re.compile(r"^k8s/asgard/apps/(?P<app>[a-z0-9][a-z0-9-]*)/[A-Za-z0-9_./-]+\.ya?ml$")
+# Things a manifest for an ordinary app has no business adding: they reach the node, not the app. The burst cluster is disposable, but the point
+# of the test is the app, and the operator should look at any of these by hand.
+K8S_RISKY = re.compile(r"hostPath\b|\bprivileged\s*:\s*true|hostNetwork\s*:\s*true|hostPID\s*:\s*true|hostIPC\s*:\s*true|\ballowPrivilegeEscalation\s*:\s*true|"
+                       r"\bkind\s*:\s*(ClusterRole|ClusterRoleBinding|MutatingWebhookConfiguration|ValidatingWebhookConfiguration|CustomResourceDefinition)\b")
+
+
+def inspect_k8s_pr(fetch, branch: str, classes: list[str], repo: str = REPO) -> dict:
+    """What a burst test needs to know about a k8s PR at its current head, or why it is not eligible.
+    {ok: True, sha, component, files, additions, deletions} or {ok: False, reason}: yaml files under exactly ONE k8s/asgard/apps/<app>/, added or
+    modified only, at most `_MAX_FILES`, 1-3 commits ahead of main, nothing from K8S_RISKY in an added line."""
+    m = BRANCH.match(branch or "")
+    if not m or m.group("cls") not in classes:
+        return {"ok": False, "reason": f"branch is not an agent PR of class {'/'.join(classes)}"}
+    st, ref = fetch(f"https://api.github.com/repos/{repo}/git/ref/heads/{branch}")
+    sha = (ref or {}).get("object", {}).get("sha") if st == 200 and isinstance(ref, dict) else None
+    if not sha or not SHA.match(sha):
+        return {"ok": False, "reason": f"could not read the branch head from GitHub (HTTP {st})", "transient": _transient(st)}
+    st, cmp = fetch(f"https://api.github.com/repos/{repo}/compare/main...{sha}")
+    if st != 200 or not isinstance(cmp, dict):
+        return {"ok": False, "reason": f"could not read the PR's changes from GitHub (HTTP {st})", "transient": _transient(st)}
+    files = cmp.get("files") or []
+    if cmp.get("status") not in ("ahead", "diverged") or not 1 <= int(cmp.get("ahead_by") or 0) <= _MAX_COMMITS:
+        return {"ok": False, "reason": f"the branch is not 1-{_MAX_COMMITS} commits ahead of main"}
+    if not 1 <= len(files) <= _MAX_FILES or int(cmp.get("total_commits") or 0) > _MAX_COMMITS:
+        return {"ok": False, "reason": f"the PR changes {len(files)} files (1-{_MAX_FILES} can be tested)"}
+    apps: set[str] = set()
+    add = dele = 0
+    for f in files:
+        name = str(f.get("filename", ""))
+        pm = _APP_PATH.match(name)
+        if f.get("status") not in ("added", "modified") or f.get("previous_filename"):
+            return {"ok": False, "reason": f"{name}: only added or modified files are tested (no deletes or renames)"}
+        if not pm or ".." in name.split("/"):
+            return {"ok": False, "reason": f"{name}: not an app manifest (a burst test covers k8s/asgard/apps/<app>/*.yaml only)"}
+        patch = f.get("patch")
+        if not isinstance(patch, str) or len(patch) > _MAX_PATCH:
+            return {"ok": False, "reason": f"{name}: the diff is missing or too large to scan"}
+        bad = next((ln for ln in added_lines(patch) if K8S_RISKY.search(ln) or len(ln) > 600), None)
+        if bad is not None:
+            hit = K8S_RISKY.search(bad)
+            return {"ok": False, "reason": f"{name}: an added line has a construct that is not auto-tested ({hit.group(0).strip()[:30] if hit else 'long line'})"}
+        apps.add(pm.group("app"))
+        add += int(f.get("additions") or 0)
+        dele += int(f.get("deletions") or 0)
+    if len(apps) != 1:
+        return {"ok": False, "reason": f"the PR touches {len(apps)} apps ({', '.join(sorted(apps))}); one app per test"}
+    return {"ok": True, "sha": sha, "component": next(iter(apps)), "files": len(files), "additions": add, "deletions": dele}
+
+
+def check_k8s_params(fetch, params: dict, guard: dict, repo: str = REPO) -> list[str]:
+    """Problems with a pr-burst-test action's parameters against the PR as it is NOW (empty = fine): the approved sha must still be the head and the
+    app must be the one the PR touches."""
+    scope = guard.get("pr_scope") or {}
+    got = inspect_k8s_pr(fetch, str(params.get("pr_branch", "")), list(scope.get("classes", [])), repo)
+    if not got["ok"]:
+        return [got["reason"]]
+    problems = []
+    if got["sha"] != params.get("pr_sha"):
+        problems.append(f"the PR head moved (approved {str(params.get('pr_sha'))[:8]}, now {got['sha'][:8]}): propose the test again")
+    if got["component"] != params.get("component"):
+        problems.append(f"the PR touches the {got['component']} app, not {params.get('component')!r}")
+    return problems
+
+
 # ---- what the PR description says -------------------------------------------------------------------------------------
 
 def _changed(step: dict | None):
@@ -157,6 +224,18 @@ def summarize(proposal: dict | None, ineligible: str | None = None, transient: b
         return {"status": "not-tested", "reason": ineligible or "no test was proposed", "retry": bool(transient)}
     st = proposal["state"]
     p = proposal.get("params") or {}
+    if proposal.get("action_id") == "pr-burst-test":   # 10h: a k8s PR proven on a burst cluster; the runner's own markdown is the evidence
+        res = next((s.get("result") for s in ((proposal.get("result") or {}).get("steps") or []) if isinstance(s, dict) and s.get("step") == "test"), None) or {}
+        status = {"pending": "proposed", "approved": "running", "running": "running", "succeeded": "passed"}.get(
+            st, st if st in ("expired", "rejected", "cancelled") else "failed")
+        burst = {"kind": "burst", "status": status, "proposal": proposal["id"], "component": p.get("component"), "sha": str(p.get("pr_sha", ""))[:8]}
+        if res.get("summary_md"):
+            burst["markdown"] = str(res["summary_md"])[:2800]
+        if res.get("seconds"):
+            burst["seconds"] = int(res["seconds"])
+        if status == "failed" and not res.get("summary_md"):
+            burst["reason"] = str((proposal.get("result") or {}).get("why", st))[:200]
+        return burst
     out = {"status": {"pending": "proposed", "approved": "running", "running": "running", "succeeded": "passed"}.get(
         st, st if st in ("expired", "rejected", "cancelled") else "failed"),
         "proposal": proposal["id"], "canary": p.get("target_host"), "role": p.get("role_tag"), "sha": str(p.get("pr_sha", ""))[:8]}
@@ -174,9 +253,33 @@ def summarize(proposal: dict | None, ineligible: str | None = None, transient: b
     return out
 
 
+def render_burst(s: dict) -> str:
+    st = s["status"]
+    head = {"passed": "**Passed** on a burst cluster", "failed": "**Failed** on a burst cluster", "running": "Running on a burst cluster",
+            "proposed": "Proposed, **waiting for the operator's approval**", "expired": "Not run: the approval window expired",
+            "rejected": "Not run: the operator rejected the test", "cancelled": "Not run: cancelled", "not-tested": "**Not tested**"}.get(st, st)
+    if st == "failed" and "no cluster was built" in (s.get("markdown") or ""):   # the offline gate failed first: say so in the headline too
+        head = "**Failed** at the offline gate, before a cluster was built"
+    lines = [head + (f": {s['reason']}" if s.get("reason") and st in ("not-tested", "failed") else "")]
+    if s.get("component"):
+        lines.append(f"- App `{s['component']}`, commit `{s.get('sha')}`" + (f", {s['seconds']} s" if s.get("seconds") else ""))
+    if s.get("markdown"):
+        lines += ["", s["markdown"].rstrip()]
+    if s.get("proposal"):
+        lines += ["", f"- Evidence: approval proposal #{s['proposal']}; the full run output is in the private Discord thread, not here"]
+    return "\n".join(lines)
+
+
+def title_of(summary: dict | None) -> str:
+    """The PR description section heading for this summary."""
+    return "Burst-cluster test" if (summary or {}).get("kind") == "burst" else "Canary test"
+
+
 def render(summary: dict | None) -> str:
-    """Markdown for the PR description's `## Canary test` section (public repo: counts and ids only, never run output)."""
+    """Markdown for the PR description's test section (public repo: counts and ids only, never run output)."""
     s = summary or {"status": "not-tested", "reason": "not evaluated yet"}
+    if s.get("kind") == "burst":
+        return render_burst(s)
     st = s["status"]
     head = {"passed": "**Passed** on a canary", "failed": "**Failed** on a canary", "running": "Running on a canary",
             "proposed": "Proposed, **waiting for the operator's approval**", "expired": "Not run: the approval window expired",

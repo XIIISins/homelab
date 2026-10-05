@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 import autonomy
+import burst_exec
 import pr_test
 import rebuild
 import rebuild_exec
@@ -128,6 +129,7 @@ class Registry:
         self.autonomy = autonomy.Autonomy.from_registry(data)
         self.rebuild = rebuild.RebuildPolicy.from_registry(data)  # 10g: scope, limits, deny list (None = nothing is ever eligible)
         self.rebuild_raw: dict = data.get("rebuild") or {}
+        self.soak_raw: dict | None = data.get("soak")  # 10f soak scope (soak.SoakConfig.from_registry reads it)
 
     @classmethod
     def from_file(cls, path: Path) -> "Registry":
@@ -416,6 +418,9 @@ class ActionConfig:
     # 10h2 PR canary tests: read-only GitHub GET (pr_test.gh_fetch); None = actions with a `pr_scope` guard refuse (fail closed)
     pr_fetch: Callable[[str], tuple] | None = None
     pr_repo: str = pr_test.REPO
+    # 10h burst-cluster tests of k8s PRs: the burst runner on Frigg (None = `pr-burst-test` is refused with 501, nothing is guessed)
+    burst: "burst_exec.BurstClient | None" = None
+    burst_socket: str | None = None                     # built into a BurstClient when `burst` is not given
 
 
 class Engine:
@@ -430,9 +435,12 @@ class Engine:
         self.db.executescript(rebuild_exec.SCHEMA)
         if cfg.runner is None and cfg.runner_socket:
             cfg.runner = rebuild_exec.RunnerClient(cfg.runner_socket)
+        if cfg.burst is None and cfg.burst_socket:
+            cfg.burst = burst_exec.BurstClient(cfg.burst_socket)
         if cfg.facts is None and cfg.reader is not None:
             cfg.facts = rebuild_exec.ReaderFacts(cfg.reader)
         self.verifier = cfg.verifier or rebuild_exec.SemaphoreVerify(self)
+        self.soak = None  # soak.Soak when the scheduled fault injector is on (server --soak); feeds report()
         self._resumable: list[int] = []
         self._recover()
         if cfg.auto_resume and self._resumable:
@@ -565,15 +573,34 @@ class Engine:
             return []
         if self.cfg.pr_fetch is None:
             return ["the PR checker is not configured, so a PR test cannot be proposed or run"]
+        if g["pr_scope"].get("kind") == "k8s":   # 10h: a k8s PR, tested on a burst cluster
+            return pr_test.check_k8s_params(self.cfg.pr_fetch, clean, g, self.cfg.pr_repo)
         return pr_test.check_params(self.cfg.pr_fetch, clean, g, self.cfg.pr_repo)
 
     def pr_test_view(self, branch: str) -> dict | None:
-        """The newest pr-canary-test proposal for this PR branch (its view), or None."""
+        """The newest pr-canary-test or pr-burst-test proposal for this PR branch (its view), or None."""
         with self.lock:
             row = self.db.execute(
-                "SELECT id FROM proposals WHERE action_id='pr-canary-test' AND json_extract(params_json, '$.pr_branch')=? "
+                "SELECT id FROM proposals WHERE action_id IN ('pr-canary-test','pr-burst-test') AND json_extract(params_json, '$.pr_branch')=? "
                 "ORDER BY id DESC LIMIT 1", (branch,)).fetchone()
         return self._view(row["id"]) if row else None
+
+    def propose_pr_burst_test(self, branch: str, thread_id: str | None, change_request_id: int) -> dict:
+        """10h: the Toolbelt proposes the burst-cluster test for an agent k8s PR it can test, or says why it cannot."""
+        if "pr-burst-test" not in self.reg.actions or self.cfg.pr_fetch is None:
+            return {"ineligible": "the burst-cluster test is not enabled on this Toolbelt"}
+        guard = self.reg.get("pr-burst-test")["guard"]["pr_scope"]
+        got = pr_test.inspect_k8s_pr(self.cfg.pr_fetch, branch, guard["classes"], self.cfg.pr_repo)
+        if not got["ok"]:
+            self.audit("pr_test_ineligible", cr=change_request_id, why=got["reason"][:160], transient=bool(got.get("transient")))
+            return {"ineligible": got["reason"], "transient": bool(got.get("transient"))}
+        try:
+            p = self.propose(action_id="pr-burst-test", source="author", thread_id=thread_id,
+                             params={"pr_branch": branch, "pr_sha": got["sha"], "component": got["component"]},
+                             reason=f"Agent PR for change request #{change_request_id}: apply its {got['component']} change to a throwaway burst cluster and check it")
+        except Refused as e:
+            return {"ineligible": str((e.detail.get("problems") or [e.message])[0])[:200]}
+        return {"proposal": p["id"], "component": got["component"]}
 
     def propose_pr_test(self, branch: str, thread_id: str | None, change_request_id: int) -> dict:
         """The Toolbelt proposes the canary test for an agent PR it can test, or says why it cannot. {proposal: id} or {ineligible: why}."""
@@ -608,8 +635,10 @@ class Engine:
         clean, problems = self.reg.validate_params(action_id, params)
         if not problems:
             problems = self.reg.guard(action_id, clean)
-        if not problems and self.reg.get(action_id).get("internal") and source != "author":
+        if not problems and self.reg.get(action_id).get("internal") and source != self.reg.get(action_id).get("internal_source", "author"):
             problems = [f"{action_id} is proposed by the Toolbelt itself, not by {source}"]
+        if not problems and source == "soak" and not self.reg.get(action_id).get("internal_source") == "soak":
+            problems = [f"the soak scheduler may only propose its own action, not {action_id}"]
         if not problems:
             problems = self._pr_problems(action_id, clean)
         if problems:
@@ -650,12 +679,18 @@ class Engine:
         return self._view(pid)
 
     # -- decide --------------------------------------------------------------------------------------------
-    def decide(self, pid: int, decision: str, *, by: str, ref: str = "", params_hash_seen: str = "", run: bool = True) -> dict:
+    def decide(self, pid: int, decision: str, *, by: str, ref: str = "", params_hash_seen: str = "", run: bool = True,
+               system: bool = False) -> dict:
         """Approve or reject. `params_hash_seen` is the hash printed on the card the human clicked: a mismatch (the proposal
-        changed under them, which it cannot, or a forged request) refuses the decision."""
+        changed under them, which it cannot, or a forged request) refuses the decision. `system=True` is for the Toolbelt's own
+        soak scheduler only (no HTTP route passes it) and is honoured only for a proposal whose source is `soak`."""
         if decision not in ("approve", "reject"):
             raise Refused(400, "decision must be approve or reject")
-        self._check_operator(by)
+        if system:
+            if self._row(pid)["source"] != "soak":
+                raise Refused(403, "only a soak proposal may be decided by the system")
+        else:
+            self._check_operator(by)
         self.sweep()
         with self.lock:
             row = self._row(pid)
@@ -777,7 +812,7 @@ class Engine:
             if busy is not None:
                 self._move(pid, "cancelled", "cancelled", {"reason": f"proposal {busy['id']} is already running on {row['target']}"})
                 return self._view(pid)
-            if self.reg.get(row["action_id"]).get("steps"):
+            if self.reg.get(row["action_id"]).get("steps") and self.reg.get(row["action_id"]).get("scope") != "burst":
                 why = rebuild_exec.busy_reason(self, pid)  # 10g queue length 1, fleet-wide
                 if why:
                     self._move(pid, "cancelled", "cancelled", {"reason": why})
@@ -790,6 +825,8 @@ class Engine:
             self._fail(pid, "failed", "guard refused at execution time", {"problems": problems})
             return self._view(pid)
         a = self.reg.get(action_id)
+        if a.get("scope") == "burst":  # 10h: one step, the burst runner builds a throwaway cluster and tests the PR on it
+            return self._execute_burst(pid, clean)
         if a.get("steps"):  # 10g: plan -> apply -> converge -> verify, with a backend per step
             rebuild_exec.execute(self, pid, row, clean, a)
             return self._view(pid)
@@ -833,6 +870,33 @@ class Engine:
             self._move(pid, "succeeded", "succeeded", {"steps": [s["step"] for s in steps]}, finished_at=self.now(),
                        result_json=json.dumps({"steps": steps}, sort_keys=True))
         self.audit("proposal_succeeded", proposal=pid, action=action_id)
+        return self._view(pid)
+
+    def _execute_burst(self, pid: int, clean: dict) -> dict:
+        """10h: ask the burst runner to test the approved PR head. The runner re-checks the branch itself; the Toolbelt already re-read the PR
+        (`_pr_problems`) before getting here. A failed TEST is not an engine failure: the proposal ends `succeeded` only when the cluster test
+        passed, otherwise `verify_failed`, and either way the runner's public-safe summary is kept for the PR description."""
+        if self.cfg.burst is None:
+            self._fail(pid, "failed", "the burst runner is not configured on this Toolbelt")
+            return self._view(pid)
+        with self.lock:
+            self._event(pid, "step_started", {"step": "test", "action": "pr-burst-test"})
+        try:
+            res = burst_exec.clean_result(self.cfg.burst.test(clean["pr_branch"], clean["pr_sha"], clean["component"]))
+        except burst_exec.BurstError as e:
+            self._fail(pid, "failed", f"the burst runner refused or failed: {e.code} {e.message}"[:200],
+                       {"steps": [{"step": "test", "status": "error", "result": {"ok": False, "code": e.code}}]})
+            return self._view(pid)
+        with self.lock:
+            self._event(pid, "step_finished", {"step": "test", "action": "pr-burst-test", "status": "success", "result": res})
+        steps = [{"step": "test", "status": "success", "result": res}]
+        self.audit("step", proposal=pid, step="test", action="pr-burst-test", status="success", ok=res["passed"])
+        if not res["passed"]:
+            self._fail(pid, "verify_failed", "the burst-cluster test did not pass", {"steps": steps, "rollback": self.reg.get("pr-burst-test").get("rollback", "")})
+            return self._view(pid)
+        with self.lock:
+            self._move(pid, "succeeded", "succeeded", {"steps": ["test"]}, finished_at=self.now(), result_json=json.dumps({"steps": steps}, sort_keys=True))
+        self.audit("proposal_succeeded", proposal=pid, action="pr-burst-test")
         return self._view(pid)
 
     # -- autonomy (10f) -------------------------------------------------------------------------------------
@@ -980,7 +1044,8 @@ class Engine:
         return {"days": days, "autonomous_runs": len(rows), "by_policy": by_policy, "rebuild": rebuild_exec.rebuild_report(self, since),
                 "by_target": {t: len(ts) for t, ts in sorted(times.items())},
                 "skipped_reasons": {r["reason"]: r["n"] for r in skipped}, "breaker_trips": trips,
-                "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()}}
+                "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()},
+                "soak": self.soak.report(since) if self.soak is not None else None}
 
     # -- views ---------------------------------------------------------------------------------------------
     def _view(self, pid: int, duplicate: bool = False) -> dict:

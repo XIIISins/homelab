@@ -25,7 +25,7 @@ spec:
     ipPools:
       - blockSize: 26
         cidr: "{{ k3s_pod_cidr }}"
-        encapsulation: VXLANCrossSubnet
+        encapsulation: {{ k3s_calico_encapsulation }}
         natOutgoing: Enabled
         nodeSelector: all()
 ---

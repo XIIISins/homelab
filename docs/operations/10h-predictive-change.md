@@ -2,7 +2,7 @@
 
 # Phase 10h — Predictive and agent-authored change: plan
 
-*Drafted 2026-10-03. Status: **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 live** (the Toolbelt files the request when an incident resolves after crossing the bar, you Approve; mechanical draft via the author, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; no finding yet: nothing trends toward a limit). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
+*Drafted 2026-10-03. Status (live state checked 2026-10-05, table under "Live state and exit criteria"): **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 live** (the Toolbelt files the request when an incident resolves after crossing the bar, you Approve; mechanical draft via the author, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; 7 notes since 2026-10-04, 3 open). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
 
 ---
 
@@ -134,6 +134,21 @@ At least 3 agent-authored PRs merged with evidence and a burst/canary test summa
 **Honest data gap:** the Toolbelt only sees what Zabbix sends it (High/Disaster) plus what it was asked. Incidents worked interactively in an operator session leave only git history and logs; for those the draft is a timeline skeleton, and the operator's own notes are the substance. Audit retention in the Toolbelt's SQLite versus VictoriaLogs needs checking before drafts can reach back further than weeks (open question).
 
 **Acceptance:** the next three incidents each start from a draft; the operator rates each (kept / heavily rewritten); success is most kept. A draft that invents a fact (a claim with no evidence id) is a bug and blocks the class.
+
+---
+
+## Live state and exit criteria (checked 2026-10-05)
+
+| Exit criterion | Where it stands |
+|---|---|
+| **10h1:** shadow ran 14 days, then >= 3 real notes >= 24 h ahead, <= 2 false per week | Detectors have run since 2026-10-03 and notes since 2026-10-04, so the 14 days end about 2026-10-17. 7 notes so far, 3 of them the same PBS datastore reported once per node; 1 labelled (useful), none labelled noise, so the false-note budget cannot be judged yet |
+| **10h1:** backtest on the CP syslog flood passes | A backtest PR (#162) is merged; its result was not re-run for this check |
+| **10h1:** NVMe latency baseline for Urd/Verd/Skuld | Latency creep notes exist for Urd's `nvme0n1` (read and write, medium confidence); SMART collection is merged (#164) |
+| **10h2:** >= 3 human-merged agent PRs with a burst/canary summary | 6 agent PRs merged (#131, #137, #143, #149, #152, #166); only #149 carries a test summary (canary). The burst-tested k8s PRs (#174 passed in 458 s, #177 failed at the offline gate in 5 s) were closed unmerged, so a merged `k8s` PR with a burst summary would be the second |
+| **10h2:** forbidden-path probe fails CI; the agent never merges | Probe-verified 2026-10-04 |
+| **10h3:** the next three incidents start from a draft, no invented facts | 2 so far (#166 merged, #167 open); no kept/rewritten rating recorded |
+
+Not yet done: the burst runner's Frigg reboot test and the SecretID calendar entry (operator). The author class set is `docs`, `drift-note`, `drift`, `k8s`; the capacity class exists but has produced no PR.
 
 ---
 

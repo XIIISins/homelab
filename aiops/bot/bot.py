@@ -322,7 +322,8 @@ async def cmd_report(interaction: discord.Interaction, days: app_commands.Range[
 @app_commands.describe(kind="Which kind of change (docs, drift notes, and role changes proven on a canary)", title="A short title", details="What to write and what evidence to use")
 @app_commands.choices(kind=[app_commands.Choice(name="docs (incident write-ups, known-issues, procedures)", value="docs"),
                             app_commands.Choice(name="drift-note (document what a drift check reported)", value="drift-note"),
-                            app_commands.Choice(name="drift (change ONE canary-tested role; a canary test follows)", value="drift")])
+                            app_commands.Choice(name="drift (change ONE canary-tested role; a canary test follows)", value="drift"),
+                            app_commands.Choice(name="k8s (change ONE app's manifests; a burst-cluster test follows)", value="k8s")])
 async def cmd_draft(interaction: discord.Interaction, kind: app_commands.Choice[str], title: app_commands.Range[str, 5, 120],
                     details: app_commands.Range[str, 10, 1500]) -> None:
     if not await _operator_only(interaction):

@@ -1,0 +1,49 @@
+# ansible/roles/aiops-burst-runner/defaults/main.yml
+#
+# The burst runner (Phase 10h) on Frigg: builds a throwaway burst cluster to test an agent-authored `k8s/` PR. Code: aiops/runner/burst_runner.py
+# (tests: aiops/tests/test_burst_runner.py). Design: docs/operations/10h-k8s-burst-test.md. Procedure + deploy order: docs/procedures/k8s-burst-test.md.
+# Modelled on roles/aiops-rebuild-runner (same socket, same root credential loader on tmpfs); it additionally runs a PRIVATE ssh-agent for the
+# fleet key (roles/frigg-ssh-agent's loader, memory only) because the burst droplets are reached with the ansible_niflheim key.
+
+# OFF by default: with the role in asgard-control.yml, a full Frigg run installs the user, group and units but starts nothing and demands no
+# credential until the operator has done the Vault steps and sets this true (group_vars/control.yml).
+aiops_burst_runner_enabled: false
+
+aiops_burst_runner_user: aiops-burst
+aiops_burst_runner_group: aiops-burst-clients # also the socket's group; its members may TALK to the runner
+aiops_burst_runner_home: /opt/aiops-burst-runner # root-owned code, so the service cannot rewrite itself
+aiops_burst_runner_unit_name: aiops-burst-runner
+aiops_burst_runner_creds_unit_name: aiops-burst-creds
+aiops_burst_runner_agent_unit_name: aiops-burst-agent
+aiops_burst_runner_runtime_dir_name: aiops-burst # /run/aiops-burst/runner.sock
+aiops_burst_runner_state_dir_name: aiops-burst # /var/lib/aiops-burst/{checkout,home,state}
+aiops_burst_runner_socket: "/run/{{ aiops_burst_runner_runtime_dir_name }}/runner.sock"
+aiops_burst_runner_agent_socket: /run/aiops-burst-agent/agent.sock
+aiops_burst_runner_pub_path: "/var/lib/{{ aiops_burst_runner_state_dir_name }}/home/.ssh/ansible_niflheim.pub"
+
+# Who may connect (unix users, checked twice: group membership on the socket file AND SO_PEERCRED in the runner). Only the Toolbelt.
+aiops_burst_runner_clients:
+  - aiops-toolbelt
+aiops_burst_runner_toolbelt_unit: aiops-toolbelt
+aiops_burst_runner_repo_url: https://github.com/XIIISins/homelab.git # public: the clean main checkout needs no credential
+
+# ---- credentials: Vault (the runner's own AppRole) -> root loader -> tmpfs EnvironmentFile -------------------------------------------------
+aiops_burst_runner_vault_addr: "https://vault.niflheim.xiiisins.com"
+aiops_burst_runner_approle_env_path: /etc/aiops-burst/approle.env # root-only secret-zero: AIOPS_BURST_ROLE_ID / _SECRET_ID (+ the FRIGG_* names the agent loader reads)
+# Supplied ONCE on the first run: -e aiops_burst_runner_role_id=<role id> -e aiops_burst_runner_secret_id=<minted secret id>. Empty = keep the file.
+aiops_burst_runner_role_id: ""
+aiops_burst_runner_secret_id: ""
+aiops_burst_runner_env_vault_path: secret/data/ansible/aiops/burst/env # operator-seeded (terraform/vault/burst-runner.tf)
+aiops_burst_runner_ssh_key_vault_path: secret/data/ansible/frigg/ssh-private-key # read by the private agent's loader
+aiops_burst_runner_loader_path: /usr/local/sbin/aiops-burst-creds-load
+aiops_burst_runner_agent_loader_path: /usr/local/sbin/aiops-burst-agent-load
+aiops_burst_runner_env_dir_name: aiops-burst-creds
+aiops_burst_runner_env_file: "/run/{{ aiops_burst_runner_env_dir_name }}/env"
+aiops_burst_runner_preflight: true
+
+# Hard limit for one test, seconds (the harness has its own, shorter, waits; this is the backstop before the runner kills it and tears down).
+aiops_burst_runner_timeout: 2700
+
+# Files copied from the repo's aiops/ tree (the runner needs nothing else: it runs the harness from its own clean checkout of main).
+aiops_burst_runner_source_files:
+  - runner/burst_runner.py

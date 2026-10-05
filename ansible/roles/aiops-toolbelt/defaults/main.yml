@@ -29,6 +29,9 @@ aiops_toolbelt_actions_enabled: true
 # socket (and let the unit join the runner's client group) only after roles/aiops-rebuild-runner is deployed.
 aiops_toolbelt_rebuild_socket: /run/aiops-rebuild/runner.sock # the runner is deployed (2026-10-03); "" = rebuild actions refuse
 aiops_toolbelt_rebuild_group: aiops-rebuild-clients
+# Burst runner (10h, burst-cluster tests of k8s PRs). Empty = no socket, `pr-burst-test` refuses.
+aiops_toolbelt_burst_socket: /run/aiops-burst/runner.sock # the runner is deployed (2026-10-05); "" = burst tests refuse
+aiops_toolbelt_burst_group: aiops-burst-clients
 aiops_toolbelt_approver_allow:
   - 10.0.11.222/32 # Ratatoskr (the Discord bot)
 aiops_toolbelt_approver_token_vault_path: secret/data/ansible/aiops/approver-token # terraform/vault
@@ -55,6 +58,10 @@ aiops_toolbelt_ghread_deny_ranges: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 1
 aiops_toolbelt_ghread_dns_allow: [10.0.10.200, 10.0.254.1] # the resolvers sit inside the denied private ranges: the AdGuard VIP and the UCG fallback
 # 10h3: file the write-up request for a resolved incident that crossed the bar (the operator still approves each on its card).
 aiops_toolbelt_auto_incident_drafts: true
+# 10f soak: stop one allow-listed unit on a canary on a schedule (aiops/actions.yml `soak:`) to give the autonomy soak real faults. Safe to leave on:
+# it runs only while `/aiops autonomy on`, never under the kill switch, maintenance or an open breaker, and waits until the aiops-canary-fault
+# Semaphore template is applied (terraform/semaphore) and the registry says so (`applied: true`).
+aiops_toolbelt_soak: true
 aiops_toolbelt_author_daily_budget: 10 # drafts the author may start per UTC day (operator-tunable; 6 until 2026-10-04, when a day of live proofs and fixes used it up)
 # The executor's Semaphore identity (Task Runner on the dedicated `aiops` project only): aiops/tools/mint_semaphore_exec.py.
 # Optional at start: without it the engine still proposes and records decisions, and an approved action fails with a clear message.
@@ -120,6 +127,7 @@ aiops_toolbelt_source_files:
   - toolbelt/diagnosis.py
   - toolbelt/actions.py
   - toolbelt/autonomy.py
+  - toolbelt/soak.py
   - toolbelt/rebuild.py
   - toolbelt/rebuild_exec.py
   - toolbelt/forecast.py
@@ -131,6 +139,7 @@ aiops_toolbelt_source_files:
   - toolbelt/change_requests.py
   - toolbelt/drift.py
   - toolbelt/pr_test.py
+  - toolbelt/burst_exec.py
   - toolbelt/github_read_proxy.py
   - author/__init__.py
   - author/scope.py

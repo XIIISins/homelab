@@ -96,3 +96,11 @@ classes:
       - "ansible/roles/zabbix-agent/**"
     tested_on: a canary (the Toolbelt proposes it, the operator approves) - dry run of the PR's code, converge, second dry run for idempotence; the result is written into the PR description
     canary_test: true
+  k8s:
+    enabled: true   # 2026-10-04: one app under k8s/asgard/apps/ per PR; proven on a burst cluster once the burst runner is deployed (until then the PR says why it is not tested)
+    summary: A change to ONE app's manifests under k8s/asgard/apps/<app>/ (no infrastructure/, no flux-system/, no cluster-wide objects). Merging it IS the deploy (Flux), so a human reviews it.
+    allow:
+      - "k8s/asgard/apps/*/*.yaml"
+      - "k8s/asgard/apps/*/*.yml"
+    tested_on: a throwaway burst cluster (Flux, a one-node Vault with random seeds, the same charts; docs/operations/10h-k8s-burst-test.md) - the Toolbelt proposes it, the operator approves, the runner destroys the cluster afterwards; the summary goes into the PR description
+    burst_test: true   # the Toolbelt proposes pr-burst-test when the PR opens; CI's offline gates (ci-k8s-burst.sh) also run on it

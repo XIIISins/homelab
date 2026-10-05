@@ -1,14 +1,19 @@
 # ansible/roles/control-node/tasks/main.yml
 ---
 # Frigg control-node persona. Split into focused includes so --tags can
-# drive a single concern (packages / toolchain / user / vault-env / repo /
-# claude) during iteration. Order matters:
+# drive a single concern (dns / packages / toolchain / user / vault-env /
+# repo / claude) during iteration. Order matters:
+#   dns       → pin resolved's link DNS to AdGuard (no UCG/public fallback)
 #   packages  → base OS deps (qemu-guest-agent, git, jq, repo prereqs)
 #   toolchain → terraform / vault / kubectl / helm / flux / node / claude
 #   user      → operator `ghost` (must exist before its home dirs are seeded)
 #   vault-env → AppRole secret-zero + homelab-env shim
 #   repo      → GitHub deploy key + clone (needs ghost + ssh dir)
 #   claude    → OAuth token EnvironmentFile + remote-control systemd service
+- name: Pin DNS to AdGuard
+  ansible.builtin.include_tasks: dns.yml
+  tags: [control-node, control-node:dns]
+
 - name: Install base packages
   ansible.builtin.include_tasks: packages.yml
   tags: [control-node, control-node:packages]

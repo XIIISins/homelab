@@ -443,6 +443,30 @@ resource "semaphoreui_project_template" "aiops_restart_unit" {
   suppress_success_alerts = false
 }
 
+resource "semaphoreui_project_template" "aiops_canary_fault" {
+  project_id     = semaphoreui_project.aiops.id
+  name           = "aiops-canary-fault"
+  description    = "AIOps T1 (soak, internal to the Toolbelt's scheduler): stop or restore ONE allow-listed unit on ONE canary. Never proposed by an agent."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/aiops-canary-fault.yml"
+  repository_id  = semaphoreui_project_repository.aiops_homelab.id
+  inventory_id   = semaphoreui_project_inventory.aiops_netbox.id
+  environment_id = semaphoreui_project_environment.aiops_default.id
+
+  allow_override_args_in_task = false
+
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.aiops_ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = false
+}
+
 resource "semaphoreui_project_template" "aiops_replay_role" {
   project_id     = semaphoreui_project.aiops.id
   name           = "aiops-replay-role"

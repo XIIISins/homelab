@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# scripts/burst/k8s-pr-test — test a k8s/ change on an ephemeral burst K3s, then tear the cluster down (10h).
+#
+#   k8s-pr-test [--ref REF] [--only COMPONENT ...] [--reuse] [--keep] [--ttl HOURS] [--timeout SECONDS]
+#
+#   --ref REF        git ref to test: a branch, tag or commit on origin (default: origin/main, the BASELINE run)
+#   --only X ...     components to install besides the platform core (e.g. `netbox`, `outline`); default: core only
+#   --reuse          do not build a cluster, use the one at ~/.kube/burst-k3s.yaml (must be a burst cluster; the runner checks)
+#   --keep           leave the cluster up afterwards (the Frigg TTL reaper is still the cost guard)
+#   --ttl HOURS      TTL stamped on the droplets (default 3; the reaper enforces it)
+#   --timeout SECS   how long to wait for HelmReleases / ExternalSecrets (default 1500)
+#
+# Run on Frigg with the Vault-backed env loaded (`. homelab-env`: DIGITALOCEAN_TOKEN, AWS_*, ANSIBLE_*). It spins the burst
+# cluster up with the EXISTING scripts/burst/burst-up (Terraform + the burst-k3s.yml playbook), runs aiops/runner/k8s_burst_run.py
+# against it, and ALWAYS runs burst-down on the way out unless --keep. Result: $OUT/summary.md and summary.json (names and booleans
+# only, no secret values); exit 0 = passed.
+# Design: docs/operations/10h-k8s-burst-test.md. Procedure: docs/procedures/k8s-burst-test.md.
+set -euo pipefail
+
+ref="origin/main" only=() reuse=0 keep=0 ttl=3 timeout=1500
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ref) ref="$2"; shift 2 ;;
+    --only) shift; while [ $# -gt 0 ] && [[ "$1" != --* ]]; do only+=("$1"); shift; done ;;
+    --reuse) reuse=1; shift ;;
+    --keep) keep=1; shift ;;
+    --ttl) ttl="$2"; shift 2 ;;
+    --timeout) timeout="$2"; shift 2 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    *) echo "k8s-pr-test: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Self-healing env: the Vault-backed shim exports DIGITALOCEAN_TOKEN, AWS_*, ANSIBLE_* and the ssh-agent socket (CLAUDE.md "Never echo secrets").
+if [ -z "${DIGITALOCEAN_TOKEN:-}" ] && [ "$reuse" = 0 ]; then
+  # shellcheck disable=SC1091
+  . "$root/.config/scripts/homelab.sh" && PATH="/opt/homebrew/bin:$PATH" vault-homelab-env >/dev/null
+fi
+state="${BURST_STATE_DIR:-$HOME/.cache/homelab/burst}"
+kubeconfig="$HOME/.kube/burst-k3s.yaml"
+
+git -C "$root" fetch --quiet origin
+sha="$(git -C "$root" rev-parse --verify "$ref^{commit}" 2>/dev/null || git -C "$root" rev-parse --verify "origin/$ref^{commit}")"
+out="$state/k8s-test/$sha"
+src="$state/k8s-test/src-$sha"
+mkdir -p "$out"
+rm -rf "$src"; git -C "$root" worktree add --quiet --detach "$src" "$sha"
+
+cleanup() {
+  git -C "$root" worktree remove --force "$src" >/dev/null 2>&1 || true
+  if [ "$keep" = 0 ] && [ "$reuse" = 0 ]; then
+    echo "k8s-pr-test: tearing the burst cluster down"
+    "$root/scripts/burst/burst-down" --yes || echo "k8s-pr-test: burst-down FAILED, run it by hand (the TTL reaper is the backstop)" >&2
+  fi
+}
+trap cleanup EXIT
+
+# The gates that need no cluster run FIRST: a bad PR (an unknown Vault path, a kustomization that no longer builds) fails in seconds, before any droplet exists.
+off=(--repo "$src" --work "$state/k8s-test/work-$sha" --commit "$sha" --out "$out" --offline)
+[ "${#only[@]}" -gt 0 ] && off+=(--only "${only[@]}")
+if ! python3 "$root/aiops/runner/k8s_burst_run.py" "${off[@]}"; then
+  echo "k8s-pr-test: offline gate failed, no cluster was built (exit 1)"
+  keep=1   # nothing to tear down
+  exit 1
+fi
+
+if [ "$reuse" = 0 ]; then
+  # 1 control plane + 3 workers: asgard has three workers and its apps spread over them (required anti-affinity, 3 replicas), so two would leave pods Pending.
+  "$root/scripts/burst/burst-up" -n 4 -c 1 -t "$ttl" --yes
+fi
+
+args=(--repo "$src" --work "$state/k8s-test/work-$sha" --kubeconfig "$kubeconfig" --commit "$sha" --out "$out" --timeout "$timeout")
+[ "${#only[@]}" -gt 0 ] && args+=(--only "${only[@]}")
+set +e
+python3 "$root/aiops/runner/k8s_burst_run.py" "${args[@]}"
+rc=$?
+set -e
+echo "k8s-pr-test: summary in $out/summary.md (exit $rc)"
+exit "$rc"
