@@ -1,8 +1,8 @@
 <!-- docs/operations/5h-jellyfin.md -->
 
-# Phase 5h — Jellyfin (QuickSync LXC on Urd): plan
+# Phase 5h — Jellyfin (QuickSync LXC on Urd) + media automation (Sonarr, SABnzbd): plan
 
-*Drafted 2026-10-05. Status: 🔲 **plan only, nothing built**. Build-sequence row: [`build-sequence.md`](build-sequence.md) "5h — Remaining LXCs". Decision row: [`decisions.md`](decisions.md) "Jellyfin" (privileged LXC on Urd, QuickSync `/dev/dri` passthrough). Service page (planned shape): [`../outline/services-and-purpose/jellyfin.md`](../outline/services-and-purpose/jellyfin.md). Steps are labelled **J0–J6** so they don't collide with the existing `5h.2` (Hermod) and `5h.3` (Semaphore) rows.*
+*Drafted 2026-10-05. Status: 🔲 **plan only, nothing built**. Build-sequence row: [`build-sequence.md`](build-sequence.md) "5h — Remaining LXCs". Decision row: [`decisions.md`](decisions.md) "Jellyfin" (privileged LXC on Urd, QuickSync `/dev/dri` passthrough). Service page (planned shape): [`../outline/services-and-purpose/jellyfin.md`](../outline/services-and-purpose/jellyfin.md). Steps are labelled **J0–J6** (Jellyfin) and **M0–M4** (media automation) so they don't collide with the existing `5h.2` (Hermod) and `5h.3` (Semaphore) rows.*
 
 ---
 
@@ -14,7 +14,7 @@ A household media server that transcodes on the Intel iGPU, never on the CPU, an
 2. **Verified by the hardware's own report.** Jellyfin's codec checkboxes are ticked from what `vainfo` says the iGPU decodes, not from a guide, and GuC/HuC firmware state is checked on the host before low-power encoding is turned on.
 3. **Continuously proven.** A timer inside the LXC runs a short QuickSync transcode and Zabbix alerts when it fails. A broken passthrough (host kernel update, a renumbered render node, a GPU hang) shows up as an alert within the hour, not as a family member saying "it buffers".
 
-Out of scope: the *arr stack, Jellyfin in K3s, Authentik SSO for Jellyfin (the design keeps local accounts), SR-IOV / VM passthrough of the iGPU.
+Media automation is in scope since 2026-10-05 (operator): **Sonarr + SABnzbd only** (the library is ~99 % anime, so no Radarr; no Prowlarr while there are only one or two indexers), see "Media automation" below. Out of scope: Radarr/Prowlarr/Bazarr, Jellyfin in K3s, Authentik SSO for Jellyfin (the design keeps local accounts), SR-IOV / VM passthrough of the iGPU.
 
 ## The hardware (what the settings are tuned for)
 
@@ -127,7 +127,7 @@ Dashboard → Playback → Transcoding:
 
 Elsewhere:
 
-- **Libraries**: real-time monitoring **off** (inotify does not see changes made over NFS by other clients); scheduled scan every 6 h instead. Saving artwork/NFO into media folders **off** (the mount is read-only; metadata stays local). Chapter-image extraction during scan **off**; the scheduled task runs at night.
+- **Libraries**: real-time monitoring **off** (inotify does not see changes made over NFS by other clients). New episodes arrive through Sonarr's Jellyfin connection, which tells Jellyfin to refresh the series on import (M3); a scheduled scan every 6 h is the backstop. Saving artwork/NFO into media folders **off** (the mount is read-only; metadata stays local). Chapter-image extraction during scan **off**; the scheduled task runs at night.
 - **Trickplay**: hardware decoding + hardware MJPEG encoding on, key frames only, low priority, scheduled at night (03:00, after PBS's window).
 - **Networking**: LAN networks `10.0.0.0/16` (client VLAN 60 included) and the tailnet `100.64.0.0/10`; known proxies `10.0.21.21-23` (the workers' addresses Traefik's traffic leaves from); HTTPS off in Jellyfin (Traefik terminates); auto-discovery off (clients are on another VLAN; UDP broadcast doesn't cross it). Remote bitrate limit: set from the KPN upload rate (operator input).
 - **Metrics**: `EnableMetrics` in `system.xml`; `/metrics` is scraped on the direct address by vmagent, not exposed on the midgard route.
@@ -156,6 +156,10 @@ Elsewhere:
 - [ ] **D-2. Privileged vs unprivileged.** Default **privileged** (the decision row stands, reasons above).
 - [ ] **D-3. Urd too tight.** If J0 finds < 4 GB free: Jellyfin starts at 2 GB and the operator decides whether Factorio (8 GB, the largest LXC on Urd) is right-sized, or Jellyfin is placed on Verd instead (same iGPU; the decision row would change from "Urd" to "any node, Urd preferred").
 
+- [x] **D-4. Where Sonarr + SABnzbd run.** ✅ **Decided 2026-10-05 (operator): in K8s.** Asgard K3s (the only cluster since jotunheim was dropped the same day). Rejected: an LXC next to Jellyfin (simplest, no K8s involved, but a second pattern to undo later and it competes with Jellyfin for Urd's memory);.
+- [ ] **D-5. Downloader.** Default **SABnzbd** (named in the design; Python, well supported by Sonarr). NZBGet (the maintained `nzbgetcom` fork) is lighter on CPU during unpack and is a fair swap if worker load becomes a problem.
+- [ ] **D-6. Sonarr profiles as code (Recyclarr).** Default on.
+
 ## Risks
 
 | Risk | Mitigation |
@@ -166,6 +170,8 @@ Elsewhere:
 | NFS outage while Jellyfin runs | `hard` mount stalls reads instead of returning errors; `RequiresMountsFor` blocks a start without the mount; scheduled scans, no real-time removal |
 | Privileged container escape | Read-only media, no external exposure, unprivileged service user, minimal device set |
 | Urd memory pressure | 3 GB cap, cache not in tmpfs, J0 measurement, D-3 |
+| SABnzbd unpack starves a worker | CPU/memory limits, nice, speed cap; NZBGet (D-5) if it still shows up in worker load |
+| Sonarr deletes or renames library files wrongly | Sonarr's recycle bin set to `/data/.recycle` (7-day cleanup); Jellyfin's mount stays read-only; the share is in Munin's own snapshot/backup scope (check in M0) |
 
 ## Operator steps (the ones Claude cannot do)
 
@@ -173,8 +179,51 @@ Elsewhere:
 2. Answer D-3 if J0 triggers it; give the KPN upload rate for the remote bitrate limit.
 3. `terraform apply` in `asgard-lxcs-root` (needs `PROXMOX_VE_PASSWORD`), `netbox`, `adguard`, from the main checkout.
 4. Jellyfin first-run wizard (admin account, libraries), then create household accounts.
-5. Tailscale (D-1): invite family users and add the ACL grant in `terraform/tailscale/policy.hujson` (a PR Claude can draft).
+5. Media automation: Usenet provider + indexer accounts, their credentials into Vault, and the DSM permissions in M0.
+6. Tailscale (D-1): invite family users and add the ACL grant in `terraform/tailscale/policy.hujson` (a PR Claude can draft).
+
+## Media automation: Sonarr + SABnzbd (M0–M4)
+
+Sonarr watches for new anime episodes, sends the NZB to SABnzbd, and imports the finished file into the library that Jellyfin reads. SABnzbd is the downloader the design already names (the old `downloads` share was its "landing zone").
+
+### Pre-flight findings
+
+| Check | Finding | Consequence |
+|---|---|---|
+| Placement ([`../services/jotunheim-k3s.md`](../services/jotunheim-k3s.md)) | The design had the arr stack in **jotunheim**, but jotunheim was dropped on 2026-10-05 for lack of RAM ([`decisions.md`](decisions.md) "Jotunheim K3s dropped": its services come back as individual asgard workloads) | D-4 (decided 2026-10-05: in K8s): **asgard K3s**, as an ordinary app under `k8s/asgard/apps/`. Nothing here is cascade- or recovery-blocking, so it gets low-priority resource limits and nothing depends on it |
+| Storage tiers ([storage invariant](../../CLAUDE.md)) | Sonarr and SABnzbd keep config in SQLite / ini files; downloads and media are bulk files; the iSCSI LUN cap is tight | Config on **local-path** (single-instance, mmap-safe, never NFS: SQLite over NFS corrupts); media and downloads on a **static NFS PV** of the media share. No iSCSI |
+| Import path | A move between two NFS exports is a copy over the network (NAS → worker → NAS for every episode); a move *inside* one export is an instant rename | **One share, one mount**: `downloads/` and the library folders both live in `volume5/media-backup`, mounted once at `/data` in both pods (the usual single-`/data` layout). Sonarr's import becomes a rename |
+| Permissions | Pods write files Jellyfin must read; Jellyfin runs as `jellyfin` in a privileged LXC (uids 1:1 with the NAS) | Both pods run as uid/gid **2000** (`media`) with umask `002`; the Jellyfin LXC gets a `media` group with gid 2000 and `jellyfin` joins it. The share's DSM permissions give gid 2000 read-write |
+| NFS clients | Pod traffic to Munin leaves the workers via eth0 (VLAN 21) | The NFS rule needs `10.0.21.21-23` **read-write** next to Jellyfin's read-only `10.0.11.223` |
+| Worker load | Workers are 2 vCPU / 16 GB and carry Vault, Victoria*, Authentik; par2 repair and unrar are CPU-heavy bursts | SABnzbd gets a CPU limit (1 core) and memory limit, runs at `nice`, and its download speed is capped so it can't fill the 1 GbE link the workers share with iSCSI |
+| Notifications ([`../services/notifications.md`](../services/notifications.md)) | Hermod already has a `media` tag (Ölrún) reserved "for future Sonarr" | Sonarr's Apprise connection → Hermod `media` |
+| Paid accounts | A Usenet provider and at least one NZB indexer are needed; neither exists in the repo | Operator step; credentials go to Vault (`secret/k8s/media/...`) and 1P, never in Git |
+
+### Design
+
+- Namespace `media` in `k8s/asgard/apps/media/`: two Deployments (`sonarr`, `sabnzbd`), `replicas: 1`, `strategy: Recreate`, images pinned to exact tags (linuxserver.io or hotio, picked in M1; bumps go through the `chart-bump` agent).
+- Volumes: `sonarr-config` and `sabnzbd-config` (local-path, 2 Gi each), `media-data` (static NFS PV + PVC of `10.0.254.20:/volume5/media-backup`, RWX, `Retain`) at `/data` in both.
+- Share layout: `/data/downloads/{incomplete,complete/anime}` and `/data/anime/<Series>/Season NN/`. Jellyfin's library points at `/media/anime`.
+- Front door: `sonarr.niflheim.xiiisins.com` and `sabnzbd.niflheim.xiiisins.com`, internal-only HTTPRoutes on the niflheim Gateway behind the existing Authentik ForwardAuth middleware (the vmui pattern). Sonarr's own auth is set to "External" so there's one login. SABnzbd's host whitelist includes its FQDN.
+- Secrets via ESO from Vault: Usenet provider login, indexer API key(s), and the Sonarr and SABnzbd API keys (seeded so they survive a config-volume loss: Sonarr through `SONARR__AUTH__APIKEY`, SABnzbd through an init container that writes `api_key` into `sabnzbd.ini`).
+- Sonarr talks to SABnzbd over the cluster Service (`sabnzbd.media.svc`); SABnzbd egress is TLS to the provider on 563 (no VPN needed for Usenet over TLS).
+
+### Anime-specific Sonarr settings
+
+- Series type **Anime** on every series (absolute episode numbering, which is how most fansub/BD releases are named).
+- Quality profile and custom formats from the TRaSH Guides anime profile (release-group tiers, BD over WEB, dual-audio preference as you like). Managed as code by **Recyclarr** (a CronJob syncing a YAML config in the repo into Sonarr), so the profile is reviewable and survives a config loss. Default on; D-6 if you'd rather click it in the UI.
+- Naming: the TRaSH anime naming scheme (includes absolute number, release group and quality) so Jellyfin's anime matching works and re-imports are recognisable.
+- Connections: **Jellyfin** (refresh series on import, using a Jellyfin API key from Vault) and **Apprise → Hermod** with tag `media`.
+- Root folder `/data/anime`; completed-download handling on, "remove completed" on.
+
+### Steps
+
+- [ ] **M0 — Prerequisites.** Usenet provider + indexer accounts (operator). Create the share layout above. DSM: gid 2000 read-write on `media-backup`; NFS rule `10.0.21.21-23` rw (plus Jellyfin's `10.0.11.223` ro from J0). Vault paths seeded by Terraform where minted, by hand for the paid credentials (mirrored to 1P with `vault-1p-mirror`).
+- [ ] **M1 — Manifests.** Namespace, PV/PVC, the two Deployments, Services, ExternalSecrets, HTTPRoutes, AGH rewrites in `terraform/adguard/`. The k8s PR gets the burst-cluster test ([`../procedures/k8s-burst-test.md`](../procedures/k8s-burst-test.md)) before merge; merging is the deploy.
+- [ ] **M2 — SABnzbd.** Provider servers (TLS, connection count per provider's limit), categories (`anime` → `complete/anime`), speed cap, direct unpack on, cleanup of par2/sfv after success.
+- [ ] **M3 — Sonarr.** Download client = SABnzbd (category `anime`), indexers, Recyclarr sync, naming, root folder, Jellyfin + Hermod connections.
+- [ ] **M4 — Acceptance.** Add one airing and one finished series: a release is grabbed, downloaded, unpacked, imported **by rename** (no copy in SABnzbd/Sonarr logs), appears in Jellyfin within a minute without a scan, and plays with hardware transcoding. Hermod posts to Ölrún. Delete the Sonarr pod and its config PVC on a scratch run: the app comes back with the seeded API keys and Recyclarr restores the profiles. Zabbix/VictoriaLogs: pod logs ship; an HTTP check on both UIs.
 
 ## Next
 
-After J6: the *arr stack is the natural follow-on (it writes to the same media share, which is when the share becomes read-write for *something*, never for Jellyfin).
+J0 (NFS rule, Urd memory check) and M0 (accounts, share layout) can run in parallel; then J1–J5 for Jellyfin, then M1–M4, because Sonarr's import test needs a working Jellyfin.
