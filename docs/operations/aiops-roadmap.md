@@ -2,7 +2,7 @@
 
 # Phase 10 — AIOps & self-healing roadmap
 
-*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a-10e done and live; 10f deployed 2026-10-03, canary soak running (read-out about 2026-10-17); 10g stage A proven 2026-10-04; 10h live in all three parts, exit criteria not yet met** (live state checked 2026-10-05, see [Live state](#live-state-checked-2026-10-05)); the restore drill passed 2026-10-03; the 10a soak ends 2026-10-08. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10h); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
+*Planning document, drafted 2026-10-01. Status: 🟡 in progress — **10a-10e done and live; 10f deployed 2026-10-03, canary soak running (read-out about 2026-10-17); 10g stage A proven 2026-10-04; 10h live in all three parts, exit criteria not yet met** (live state checked 2026-10-05, see [Live state](#live-state-checked-2026-10-05)); the restore drill passed 2026-10-03; the 10a soak ends 2026-10-08. Phase rows live in [`build-sequence.md`](build-sequence.md) (Phase 10, 10a–10i); decisions in [`decisions.md`](decisions.md); prerequisite debt in [`open-questions.md`](open-questions.md).*
 
 ---
 
@@ -74,6 +74,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 | **10f** | Autonomous T1 healing | 10e + kill switch + canaries | Stage 3 |
 | **10g** | Fleet rebuild loop | 10f + restore-tested backups + PBS off Skuld | Stage 4 |
 | **10h** | Predictive & agent-authored change | 10f | Stage 5 |
+| **10i** | Pod rightsizing (VPA recommend-only, Gná digest, rightsizing PRs) | 10h1, 10h2 | Stage 5 (applied to K8s requests) |
 
 10a/10b/10c can run in parallel (disjoint scopes). Everything from 10d onward is sequential.
 
@@ -165,6 +166,19 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 - **10h1 — Forecasting.** *(Live: detectors on Frigg since 2026-10-03, notes since 2026-10-04: [`procedures/aiops-forecasting.md`](../procedures/aiops-forecasting.md).)* Disk-fill, memory-headroom, PBS capacity, NVMe latency creep (Urd's DRAM-less Gen 4 drive) → tickets before alerts.
 - **10h2 — Agent-authored PRs.** *(Live 2026-10-04: classes `docs`, `drift-note`, `drift`, `k8s`; tested on canaries and burst clusters, not by plan-diff.)* Drift/incident → fix PR → human merge, on the `chart-bump` pattern.
 - **10h3 — Incident drafts.** *(Live: the Toolbelt files the write-up request when an incident resolves after crossing the bar and the author opens the PR ([`procedures/aiops-incident-drafts.md`](../procedures/aiops-incident-drafts.md)); the grounded narrative is not built, the draft is mechanical.)* The agent drafts `docs/incidents/` and known-issues updates for human edit.
+
+---
+
+## 10i — Pod rightsizing (VPA recommend-only)
+
+*Detailed plan (drafted 2026-10-04, restarted 2026-10-05): [`10i-rightsizing.md`](10i-rightsizing.md). Goal: the pods on the asgard workers use and reserve less memory over time; the worker VMs keep their Proxmox size. CPU requests (84–90 % requested, [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)) are trimmed by the same loop.*
+
+- **10i0 — Hand-trim** NetBox and `authentik-server` so the recommender fits.
+- **10i1 — VPA recommender only**, `updateMode: "Off"` objects in `vpa-config/`, VPA metrics through kube-state-metrics.
+- **10i2 — Data and findings (T0):** `kube.rightsizing` joins VPA with 30 days of VictoriaMetrics usage; Gná gets it too.
+- **10i3 — Gná's digest:** weekly by default, bi-weekly or monthly by choice; a scoreboard, the top suggestions, tuning advice, and earlier PRs' results.
+- **10i4 — Rightsizing PRs:** a resources-only author class from the digest's Draft PR button, burst-tested; the operator merges.
+- **10i5 — Post-merge watch** (72 h); a regression offers a revert PR.
 
 ---
 
