@@ -8,3 +8,13 @@ zabbix_agent_host_groups:
   - "Asgard/K3s/Workers"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+
+# Memory held back from pods on each 16 GiB worker (Phase 10i). Without these,
+# allocatable equals capacity and the scheduler can book the OS, K3s and Calico
+# (about 1.5-2 GiB in use per worker) away to pods. Allocatable drops by 2 GiB.
+# eviction-hard REPLACES the kubelet defaults rather than adding to them, so the
+# disk thresholds are restated at their default values.
+k3s_worker_kubelet_args:
+  - "system-reserved=memory=1Gi"
+  - "kube-reserved=memory=512Mi"
+  - "eviction-hard=memory.available<500Mi,nodefs.available<10%,imagefs.available<15%,nodefs.inodesFree<5%"

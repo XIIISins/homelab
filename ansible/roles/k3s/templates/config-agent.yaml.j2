@@ -11,3 +11,9 @@ node-ip: "{{ k3s_node_ip }}"
 # SELinux support
 selinux: {{ k3s_selinux | bool | lower }}
 
+{% if k3s_worker_kubelet_args | length > 0 %}
+kubelet-arg:
+{% for arg in k3s_worker_kubelet_args %}
+  - "{{ arg }}"
+{% endfor %}
+{% endif %}

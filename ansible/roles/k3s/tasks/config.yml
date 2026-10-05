@@ -57,7 +57,9 @@
   when:
     - inventory_hostname in groups['k3s_worker']
     - not ansible_check_mode
-  notify: restart k3s
+  # The `restart k3s` handler only fires on CPs, so a worker config change
+  # needs the agent handler or it never takes effect.
+  notify: restart k3s-agent
 
 - name: Template K3s systemd service file
   ansible.builtin.template:
@@ -66,4 +68,6 @@
     mode: "0644"
     owner: root
     group: root
-  notify: restart k3s
+  notify:
+    - restart k3s
+    - restart k3s-agent
