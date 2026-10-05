@@ -44,7 +44,7 @@ What stays true:
 
 | Step | What | Depends on |
 |---|---|---|
-| **10i0** | Hand-trim the obvious over-requests (NetBox, `authentik-server`) in a normal PR | nothing |
+| **10i0** | Hand-trim the obvious over-requests (NetBox, `authentik-server`) in a normal PR. Done with live numbers from 2026-10-05: NetBox web CPU request 500m → 100m and memory raised (it ran at 1521Mi of a 1536Mi limit: request 1792Mi, limit 2560Mi); NetBox worker 500m/1Gi → 50m/384Mi requests, limits unchanged; `authentik-server` 200m → 50m CPU per replica. Frees about 1.3 CPU of requests across the workers | nothing |
 | **10i1** | VPA recommender + `vpa-config/` + KSM VPA metrics | 10i0 |
 | **10i2** | Toolbelt `kube.rightsizing` tool + the findings pass (shadow for 7 days) | 10i1 + 7 days of samples |
 | **10i3** | Gná's periodic rightsizing digest (weekly / bi-weekly / monthly) | 10i2 |
