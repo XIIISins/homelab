@@ -112,6 +112,20 @@
         }
       }
     },
+    "soak": {
+      "description": "Scheduled fault injection for the 10f canary soak: the Toolbelt stops one allow-listed unit on one canary on a schedule and restores it if autonomy did not. Scope only; the runtime gate is the autonomy flag family plus the server flag --soak.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hosts", "units", "interval_seconds", "max_per_day", "heal_deadline_seconds", "ends"],
+      "properties": {
+        "hosts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^canary-[0-9]+$"}},
+        "units": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9@:._-]+\\.service$"}},
+        "interval_seconds": {"type": "integer", "minimum": 3600},
+        "max_per_day": {"type": "integer", "minimum": 1, "maximum": 12},
+        "heal_deadline_seconds": {"type": "integer", "minimum": 300, "maximum": 7200},
+        "ends": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "UTC date after which the scheduler stops."}
+      }
+    },
     "rebuild": {
       "description": "Phase 10g fleet rebuild loop: scope (classes, hosts, ladder stages), hard limits, deny list and policies. Policy data only; the runtime switch autonomy_rebuild lives in the Toolbelt and is off by default.",
       "type": "object",
@@ -780,7 +794,11 @@
         },
         "internal": {
           "type": "boolean",
-          "description": "10h2: only the Toolbelt itself proposes this action (source `author`); the diagnosis and chat agents are never told about it and a proposal from them is refused."
+          "description": "10h2: only the Toolbelt itself proposes this action (source `author`, or `internal_source`); the diagnosis and chat agents are never told about it and a proposal from them is refused."
+        },
+        "internal_source": {
+          "enum": ["author", "soak"],
+          "description": "Which Toolbelt component may propose an `internal` action (default `author`; `soak` = the 10f soak fault scheduler)."
         }
       }
     },

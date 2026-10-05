@@ -58,6 +58,9 @@ ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/server.py \
 {% if aiops_toolbelt_burst_socket %}
   --burst-socket {{ aiops_toolbelt_burst_socket }} \
 {% endif %}
+{% if aiops_toolbelt_soak %}
+  --soak \
+{% endif %}
 {% endif %}
   --replay-dir {{ aiops_toolbelt_replay_dir }} \
 {% if aiops_toolbelt_forecast_enabled %}
