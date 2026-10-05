@@ -174,7 +174,8 @@ class ProofTests(unittest.TestCase):
         self.assertIn("aiops-restart-unit", names)
         for new in ("aiops-start-guest", "aiops-rebuild-converge", "aiops-rebuild-verify"):  # canary rebuild stage (2026-10-03)
             self.assertIn(new, names)
-        self.assertEqual(len(names), 10)
+        self.assertIn("aiops-canary-fault", names)  # the soak injector's template (applied 2026-10-05)
+        self.assertEqual(len(names), 11)
 
 
 if __name__ == "__main__":
