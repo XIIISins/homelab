@@ -377,7 +377,7 @@ actions:
     semaphore:
       template: aiops-canary-fault
       playbook: ansible/playbooks/aiops-canary-fault.yml
-      applied: false # operator gate: terraform apply in terraform/semaphore creates the template, then a PR flips this
+      applied: true # the aiops-canary-fault template was applied 2026-10-05 (terraform/semaphore, main checkout)
     extra_vars:
       target_host:
         type: string
