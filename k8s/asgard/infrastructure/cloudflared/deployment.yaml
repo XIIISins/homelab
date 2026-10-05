@@ -64,7 +64,7 @@ spec:
             periodSeconds: 5
           resources:
             requests:
-              cpu: 100m
+              cpu: 10m # Phase 10i: 30d daily p95 1-5m per replica
               memory: 128Mi
           volumeMounts:
             - name: config

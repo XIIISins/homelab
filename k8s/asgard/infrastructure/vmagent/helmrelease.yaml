@@ -45,7 +45,7 @@ spec:
     # fan-out) + protobuf serialize on remote-write. ~50-100 Mi RSS
     # steady-state for a homelab-sized scrape set.
     resources:
-      requests: { cpu: 100m, memory: 128Mi }
+      requests: { cpu: 40m, memory: 192Mi } # Phase 10i: 30d daily p95 19-35m, max 155Mi
       limits: { cpu: 500m, memory: 512Mi }
 
     # ServiceAccount with cluster-read for the kubernetes_sd_configs

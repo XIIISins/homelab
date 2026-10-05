@@ -53,7 +53,7 @@ spec:
       # Resource sizing — VM is single-binary, light. Bump if homelab
       # grows enough to spike ingest.
       resources:
-        requests: { cpu: 200m, memory: 512Mi }
+        requests: { cpu: 90m, memory: 1136Mi } # Phase 10i: 30d daily p95 17-85m, max 946Mi
         limits: { cpu: 1000m, memory: 2Gi }
       # Expose VM via a ClusterIP Service (default). HTTPRoute below
       # wires the external hostname → this Service.

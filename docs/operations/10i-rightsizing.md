@@ -45,6 +45,7 @@ What stays true:
 | Step | What | Depends on |
 |---|---|---|
 | **10i0** | Hand-trim the obvious over-requests (NetBox, `authentik-server`) in a normal PR. Done with live numbers from 2026-10-05: NetBox web CPU request 500m → 100m and memory raised (it ran at 1521Mi of a 1536Mi limit: request 1792Mi, limit 2560Mi); NetBox worker 500m/1Gi → 50m/384Mi requests, limits unchanged; `authentik-server` 200m → 50m CPU per replica. Frees about 1.3 CPU of requests across the workers | nothing |
+| **10i0b** | Initial tuning from 30 days of VictoriaMetrics history, by hand in a normal PR (2026-10-05, [below](#10i0b--initial-tuning-from-victoriametrics-history)) | 10i0 |
 | **10i1** | VPA recommender + `vpa-config/` + KSM VPA metrics | 10i0 |
 | **10i2** | Toolbelt `kube.rightsizing` tool + the findings pass (shadow for 7 days) | 10i1 + 7 days of samples |
 | **10i3** | Gná's periodic rightsizing digest (weekly / bi-weekly / monthly) | 10i2 |
@@ -52,6 +53,20 @@ What stays true:
 | **10i5** | Post-merge watch (72 h) | 10i2 |
 
 10i5 is built before 10i4 is enabled: no agent PR merges without a watch behind it.
+
+---
+
+## 10i0b — Initial tuning from VictoriaMetrics history
+
+Done by hand on 2026-10-05, the day VPA started, because VictoriaMetrics already held 30 days of cAdvisor data. The rules are the 10i2 table's, with one change for CPU: short-lived pods (rollouts, restarts) inflate a raw 30-day p99, so the CPU basis is the **median of the daily p95** (the worst day's p95 is kept as a floor).
+
+- **CPU request** = `ceil10m(max(1.5 × median daily p95, worst-day p95))`, floor 10m; only applied where the request was ≥ 3 × that.
+- **Memory under-request** (30-day max > request) = `ceil16Mi(1.2 × max)`; the limit goes to ≥ 1.5 × the new request where max was > 80 % of it.
+- **Memory over-request** = `ceil16Mi(1.3 × max)` where the request was ≥ 1.5 × max, floor 32Mi; limits are not cut.
+
+What it found: CPU is over-requested almost everywhere (cloudflared, Vault, VictoriaLogs/Metrics, vlagent, Garage, the Redis pods), but **memory was under-requested for most workloads**, and three ran close to their limit (apex-static and startpage Caddy at 63 of 64 Mi, `authentik-server` at 984Mi of 1Gi, Vault at 429 of 512Mi). Those three got limit raises; the rest are request changes only. Net: about 1.6 CPU of requests freed across the workers, about 6 GiB more memory requested (requests now match real use, so the scheduler stops overbooking).
+
+Left out on purpose: the NetBox pods (trimmed in 10i0 the same day); the VPA recommender (no history yet); Flux controllers (`gotk-components.yaml`, needs a patch in `flux-system/kustomization.yaml`); K3s addons (CoreDNS, metrics-server); Calico/Tigera (not Flux-managed); `csi-driver-nfs` (small numbers). **Workloads with no requests at all** (Immich server, up to 5.2Gi, and machine-learning, up to 1.5Gi; External Secrets, MetalLB, Sealed Secrets, Synology CSI, local-path) are a decision, not a trim: adding a request makes the scheduler count them.
 
 ---
 

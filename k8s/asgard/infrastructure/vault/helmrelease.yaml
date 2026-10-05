@@ -69,12 +69,16 @@ spec:
       extraEnvironmentVars:
         VAULT_CACERT: /vault/userconfig/vault-tls/ca.crt
 
+      # Phase 10i initial tuning (VictoriaMetrics 30d, 2026-10-05): CPU daily
+      # p95 20-24m; max working set 429Mi of the old 512Mi limit (84%).
+      # updateStrategy is OnDelete: the new values apply only when each pod
+      # is deleted (one at a time, followers first; KMS auto-unseals).
       resources:
         requests:
-          memory: 256Mi
-          cpu: 250m
+          memory: 528Mi
+          cpu: 30m
         limits:
-          memory: 512Mi
+          memory: 800Mi
           cpu: 500m
 
       statefulSet:

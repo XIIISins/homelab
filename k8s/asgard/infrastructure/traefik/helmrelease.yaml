@@ -100,11 +100,12 @@ spec:
         loadBalancerIP: 10.0.20.10
         externalTrafficPolicy: Local
 
-    # Modest resources; tune later
+    # Phase 10i initial tuning (VictoriaMetrics 30d, 2026-10-05): CPU daily
+    # p95 39-43m fits 50m; max working set 270Mi > the old 128Mi request.
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 336Mi
       limits:
         memory: 512Mi
 

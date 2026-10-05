@@ -50,6 +50,6 @@ spec:
     resources:
       requests:
         cpu: 10m
-        memory: 64Mi
+        memory: 144Mi # Phase 10i: 30d max working set 117Mi
       limits:
         memory: 256Mi

@@ -96,7 +96,7 @@ spec:
     # state, spikes during catch-up after a node reboot. Reasonable
     # cap below; bump if a noisy log producer lands.
     resources:
-      requests: { cpu: 50m, memory: 100Mi }
+      requests: { cpu: 10m, memory: 100Mi } # Phase 10i: 30d daily p95 2m
       limits: { cpu: 500m, memory: 256Mi }
 
     # ServiceMonitor (Prometheus-Operator CRD) — off until vm-operator

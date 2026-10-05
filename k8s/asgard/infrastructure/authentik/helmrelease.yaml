@@ -58,12 +58,15 @@ spec:
       # (2026-10-05), and three replicas at 200m held 600m of the workers'
       # CPU requests. Memory (576-697Mi used, above the 512Mi request) is
       # left for VPA to size once it has a week of data.
+      # Phase 10i initial tuning (VictoriaMetrics 30d, 2026-10-05): max
+      # working set 984Mi against the 1Gi limit, so memory request and
+      # limit go up (request = 1.2 x max, limit = 1.5 x request).
       resources:
         requests:
           cpu: 50m
-          memory: 512Mi
+          memory: 1184Mi
         limits:
-          memory: 1Gi
+          memory: 1792Mi
 
     worker:
       replicas: 1
@@ -78,10 +81,11 @@ spec:
       volumeMounts:
         - name: media
           mountPath: /media
+      # Phase 10i initial tuning: 30d max working set 673Mi > 512Mi request.
       resources:
         requests:
           cpu: 100m
-          memory: 512Mi
+          memory: 816Mi
         limits:
           memory: 1Gi
 

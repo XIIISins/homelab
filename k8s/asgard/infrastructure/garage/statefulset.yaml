@@ -97,8 +97,9 @@ spec:
             timeoutSeconds: 3
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              # Phase 10i: 30d daily p95 <=1m, max working set 60Mi
+              cpu: 10m
+              memory: 80Mi
             limits:
               memory: 1Gi
           securityContext:

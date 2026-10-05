@@ -41,7 +41,7 @@ spec:
     # Light resource limits — KSM is mostly idle, spikes briefly
     # on each scrape.
     resources:
-      requests: { cpu: 10m, memory: 64Mi }
+      requests: { cpu: 10m, memory: 128Mi } # Phase 10i: 30d max 106Mi
       limits: { cpu: 100m, memory: 256Mi }
 
     # Disable the ServiceMonitor — requires Prometheus-Operator
