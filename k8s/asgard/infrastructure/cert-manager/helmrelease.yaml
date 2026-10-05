@@ -40,11 +40,17 @@ spec:
     # Replica count: leader-election handles HA; 2 is enough for a homelab.
     replicaCount: 2
 
+    # Phase 10i (2026-10-05): webhook + cainjector had no requests; from 30 days
+    # of VictoriaMetrics history (CPU p95 <=9m; max 86Mi / 95Mi).
     webhook:
       replicaCount: 2
+      resources:
+        requests: {cpu: 10m, memory: 112Mi}
 
     cainjector:
       replicaCount: 2
+      resources:
+        requests: {cpu: 10m, memory: 128Mi}
 
     # Resource requests modest — cert-manager is light.
     resources:

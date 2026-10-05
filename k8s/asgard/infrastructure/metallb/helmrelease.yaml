@@ -35,6 +35,14 @@ spec:
     # known-issues/k8s-scheduling.md). Re-enable frrk8s only if BGP is adopted.
     frrk8s:
       enabled: false
+    # Phase 10i (2026-10-05): requests where the chart set none, from 30 days of
+    # VictoriaMetrics history. CPU = max(1.5 x median daily p95, worst-day p95),
+    # floor 10m; memory = 1.2 x the 30-day max working set. No limits added.
+    controller:
+      resources: # 30d: CPU p95 1-9m, max 124Mi
+        requests: {cpu: 10m, memory: 160Mi}
     speaker:
       frr:
         enabled: false
+      resources: # 30d: CPU p95 2-8m, max 95Mi (runs on the CPs too)
+        requests: {cpu: 10m, memory: 128Mi}

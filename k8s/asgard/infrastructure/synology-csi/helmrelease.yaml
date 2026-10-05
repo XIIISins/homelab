@@ -65,3 +65,40 @@ spec:
         disabled: true
       smb-delete:
         disabled: true
+  # Phase 10i (2026-10-05): the chart exposes no resources values, so requests
+  # are set by a post-render patch. From 30 days of VictoriaMetrics history:
+  # CPU = max(1.5 x median daily p95, worst-day p95), floor 10m (all p95 <=5m);
+  # memory = 1.2 x the 30-day max working set. No limits added.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target: {kind: StatefulSet, name: synology-csi-controller}
+            patch: |
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata: {name: synology-csi-controller}
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-provisioner # max 86Mi
+                        resources: {requests: {cpu: 10m, memory: 112Mi}}
+                      - name: csi-attacher # max 79Mi
+                        resources: {requests: {cpu: 10m, memory: 96Mi}}
+                      - name: csi-resizer # max 92Mi
+                        resources: {requests: {cpu: 10m, memory: 112Mi}}
+                      - name: csi-plugin # max 15Mi
+                        resources: {requests: {cpu: 10m, memory: 32Mi}}
+          - target: {kind: DaemonSet, name: synology-csi-node}
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata: {name: synology-csi-node}
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: csi-driver-registrar # max 28Mi
+                        resources: {requests: {cpu: 10m, memory: 48Mi}}
+                      - name: csi-plugin # max 42Mi
+                        resources: {requests: {cpu: 10m, memory: 64Mi}}
