@@ -37,7 +37,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 ### Services — what runs where
 - [`services/synology.md`](services/synology.md) — Munin NAS volumes, NFS shares, iSCSI target convention, OOB via Tailscale.
 - [`services/asgard-k3s.md`](services/asgard-k3s.md) — Asgard K3s cluster: core infrastructure table, automation, core services, VMs, multi-homed workers, K3s install role, Calico CNI addon, Flux Kustomization structure, HelmRelease pins.
-- [`services/jotunheim-k3s.md`](services/jotunheim-k3s.md) — Jotunheim K3s cluster: non-critical workloads, planned VMs, planned services.
+- [`services/jotunheim-k3s.md`](services/jotunheim-k3s.md) — Jotunheim K3s cluster: **shelved 2026-10-05** (Phase 7 dropped for resource capacity); kept as the design record.
 - [`services/asgard-lxcs.md`](services/asgard-lxcs.md) — full asgard LXC table (PBS, Zabbix, AdGuard, Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Jellyfin) + build-order revision.
 - [`services/factorio.md`](services/factorio.md) — Factorio LXC architecture (operator self-service via SFTPGo + reconcile loop). Template pattern for operator-managed services.
 - [`services/postgres.md`](services/postgres.md) — PostgreSQL LXC architecture (Fulla deployed 2026-05-17): PG 17 + TLS + scram-sha-256, management-role split, per-service DB provisioning, cluster build sequence.
