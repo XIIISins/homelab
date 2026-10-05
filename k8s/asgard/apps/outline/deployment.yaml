@@ -68,7 +68,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 880Mi # Phase 10i: 30d max working set 726Mi
             limits:
               memory: 1Gi
           securityContext:

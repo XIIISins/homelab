@@ -111,12 +111,14 @@ spec:
               port: 80
             initialDelaySeconds: 2
             periodSeconds: 5
+          # Phase 10i initial tuning (VictoriaMetrics 30d, 2026-10-05): max
+          # working set 63Mi against the old 64Mi limit.
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
+              memory: 80Mi
             limits:
-              memory: 64Mi
+              memory: 128Mi
           volumeMounts:
             - name: config
               mountPath: /etc/caddy/Caddyfile

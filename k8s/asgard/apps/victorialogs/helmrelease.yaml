@@ -50,7 +50,7 @@ spec:
         size: 20Gi
       retentionPeriod: "30d"
       resources:
-        requests: { cpu: 200m, memory: 512Mi }
+        requests: { cpu: 10m, memory: 752Mi } # Phase 10i: 30d daily p95 6-10m, max 616Mi
         limits: { cpu: 1000m, memory: 2Gi }
       service:
         type: ClusterIP

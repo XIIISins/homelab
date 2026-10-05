@@ -166,7 +166,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 752Mi # Phase 10i: 30d max working set 622Mi (Ansible runs)
             limits:
               # Ansible runs spawn ansible-playbook subprocesses inside
               # the same container; memory ceiling tuned for a fleet
