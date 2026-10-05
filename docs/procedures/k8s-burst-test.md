@@ -29,9 +29,11 @@ inventory, the burst copy builds, images exist) runs on EVERY k8s PR, agent or n
 ## Deploy the runner (operator steps; the role is OFF until you do these)
 
 1. **Merge** the PR carrying the runner, then `terraform apply` in `terraform/vault` (main checkout): the `aiops-burst-runner` policy and AppRole.
-2. **Seed** `secret/ansible/aiops/burst/env` (`vault kv put`, values never typed into a transcript): `digitalocean_token` (the burst-scoped token `terraform/digitalocean-burst`
-   already uses), `aws_access_key_id` + `aws_secret_access_key` (a state-only identity for `digitalocean-burst/terraform.tfstate` and its lock), `aws_default_region`.
-   Mirror it to 1Password (`scripts/secrets/vault-1p-mirror`, add the path to `scripts/secrets/mirror-map.toml`).
+2. **State identity + seed.** `terraform apply` in `terraform/aws` (Bootstrap identity, main checkout): the plan adds only `aws_iam_user.burst_runner_state`, its access key and
+   an inline policy (`terraform/aws/burst-runner.tf`: s3 get/put/delete on `digitalocean-burst/terraform.tfstate` and its `.tflock`, `ListBucket` on that prefix, nothing else).
+   Then `scripts/secrets/seed-burst-state-key` (Vault shim loaded) writes `secret/ansible/aiops/burst/env`: the AWS key from the Terraform outputs and `digitalocean_token` copied
+   from `secret/ansible/frigg/iac-env` (the shared custom-scope token; scopes in [`burst-substrate.md`](burst-substrate.md)). It prints only "ok" lines and hash-verifies the read-back;
+   `--check` re-verifies read-only. Not mirrored to 1Password on purpose (the DO token's source of truth is `iac-env`; the AWS key is re-minted by Terraform).
 3. **Mint a SecretID** (`vault write -f auth/approle/role/aiops-burst-runner/secret-id`) and install the role from the main checkout:
    `ansible-playbook playbooks/asgard-burst-runner.yml -e aiops_burst_runner_enabled=true -e aiops_burst_runner_role_id=... -e aiops_burst_runner_secret_id=...`
    (installs the user, the credential loader, a private memory-only ssh-agent for the fleet key and the runner; checks the socket is `0660`, group `aiops-burst-clients`).
