@@ -507,7 +507,7 @@ actions:
     idempotent: true
     idempotency: Every run builds a fresh cluster from Terraform and destroys it afterwards; nothing persists and nothing in asgard is touched, so a rerun is a clean new test.
     semaphore:
-      applied: false # operator gate: flip to true once roadmap 10h's burst runner is deployed (docs/procedures/k8s-burst-test.md "Deploy")
+      applied: true # the burst runner is deployed (2026-10-05, docs/procedures/k8s-burst-test.md "Deploy")
       runner_only: true
     extra_vars:
       pr_branch:
