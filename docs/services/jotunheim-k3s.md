@@ -4,7 +4,7 @@
 
 Non-critical services and experiments. Failure here doesn't cascade and doesn't block recovery — downtime of hours-to-days is acceptable. Same physical-cluster shape as asgard; the distinction is *failure-domain risk*, not "experimental vs production." Most jotunheim services have real users — just not me-needing-them-right-now users.
 
-**Status:** Not yet deployed.
+**Status:** ✖ **Shelved 2026-10-05: Phase 7 is dropped for lack of resource capacity** (the six VMs below need ~60 GB RAM; each node had ~6–8 GB free). Not deployed, not planned. This page is kept as the design record. K8s experiments now use the ephemeral burst cluster ([procedure](../procedures/burst-substrate.md)); the services listed below come back, if at all, as individual asgard workloads. VLANs 30/31, VMIDs 3001–3999 and the names stay reserved. See [`decisions.md`](../operations/decisions.md) "Jotunheim K3s dropped".
 
 **Planned VMs:**
 

@@ -50,7 +50,7 @@ The line is essentially: *is this secret needed before HashiCorp Vault is reacha
 
 ## Long-term direction
 
-The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is a future project on jotunheim cluster first (use the learning environment for that learning), then migrate asgard workloads.
+The current implementation has ESO sync-and-cache for K8s secrets (Vault → ESO → K8s Secret → pod env var). The enterprise pattern is *runtime retrieval* — pods pull from Vault at use time, no caching in K8s Secrets. The migration target is Vault Agent or Vault Secrets Operator. This is Phase 9: piloted first on the ephemeral burst cluster (it brings up real Flux and a one-node Vault per run), then asgard workloads one app at a time. *(Re-pointed 2026-10-05; the original plan was a jotunheim pilot, and jotunheim was dropped for capacity.)*
 
 ## Vault current state
 
