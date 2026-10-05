@@ -1,0 +1,113 @@
+# ansible/playbooks/aiops-canary-fault.yml
+---
+# Phase 10f soak action `canary-fault` (T1, internal to the Toolbelt's soak scheduler, max_autonomy: approval) -
+# registry entry in aiops/actions.yml, scope in its `soak:` section. Stops (mode=stop) or restores (mode=restore)
+# ONE allow-listed systemd unit on ONE canary, so the autonomy soak (docs/procedures/aiops-autonomy.md) gets faults
+# without anyone injecting them by hand. `scripts/canary/fault stop|restore` is the same two operations run ad hoc.
+#
+# The guard lives HERE as well as in the executor: the host must be in the registry's soak.hosts AND in the inventory
+# group `canary`, the unit in the action's per-host allow-list; anything else fails the first play before any change.
+#
+# Extra-vars: target_host (one canary), unit (<name>.service), mode (stop|restore)
+# Result line: AIOPS_RESULT {"action": "canary-fault", "mode": ..., "ok": ..., "active_state": ..., "was_in_state": ...}
+#   ok           the requested state now holds (stop: the unit is not active; restore: it is active)
+#   was_in_state it already held before this run (a restore of a unit someone else already started: the world healed itself)
+#
+# Idempotent: stop and start converge to the requested state on replay.
+
+- name: AIOps canary-fault - guard
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false # control-node ansible.cfg defaults become: true
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _soak_hosts: "{{ _registry.soak.hosts }}"
+    _allowed_units: "{{ _registry.actions['canary-fault'].guard.allowed_units }}"
+  tasks:
+    - name: Assert well-formed extra-vars
+      ansible.builtin.assert:
+        that:
+          - target_host is defined
+          - unit is defined
+          - mode is defined
+          - target_host is match('^canary-[0-9]+$')
+          - unit is match('^[A-Za-z0-9@:._-]+\.service$')
+          - mode in ['stop', 'restore']
+        fail_msg: "canary-fault needs target_host (canary-N), unit (<name>.service) and mode (stop|restore)."
+        quiet: true
+
+    - name: Assert the host is a soak canary and the unit is allow-listed for it
+      ansible.builtin.assert:
+        that:
+          - target_host in groups['all']
+          - target_host in groups['canary'] | default([])
+          - target_host in _soak_hosts
+          - target_host in (_registry.host_tiers.T1)
+          - unit in (_allowed_units[target_host] | default([]))
+        fail_msg: >-
+          canary-fault refused: {{ unit }} on {{ target_host }} is not allow-listed
+          (host must be a canary in soak.hosts and host_tiers.T1, and the unit in the
+          action's guard.allowed_units; see aiops/actions.yml).
+        quiet: true
+
+- name: AIOps canary-fault - stop or restore, then read the state
+  hosts: "{{ target_host | default('aiops-no-target') }}" # default only keeps --syntax-check/ansible-lint parseable; the guard play fails first when unset
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Read the unit before touching it
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+      register: _aiops_before
+      failed_when: false
+      check_mode: false
+      changed_when: false
+
+    - name: Stop the unit
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+        state: stopped
+      when: mode == 'stop'
+
+    - name: Start the unit
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+        state: started
+      when: mode == 'restore'
+
+    - name: Read the unit after
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+      register: _aiops_after
+      until: >-
+        (mode == 'stop' and _aiops_after.status.ActiveState | default('unknown') != 'active')
+        or (mode == 'restore' and _aiops_after.status.ActiveState | default('unknown') == 'active')
+      retries: 10
+      delay: 3
+      failed_when: false
+      check_mode: false
+      changed_when: false
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _before: "{{ _aiops_before.status.ActiveState | default('unknown') }}"
+        _after: "{{ _aiops_after.status.ActiveState | default('unknown') }}"
+        _aiops_result:
+          action: canary-fault
+          mode: "{{ mode }}"
+          target_host: "{{ target_host }}"
+          unit: "{{ unit }}"
+          ok: "{{ (_after != 'active') if mode == 'stop' else (_after == 'active') }}"
+          active_state: "{{ _after }}"
+          was_in_state: "{{ (_before != 'active') if mode == 'stop' else (_before == 'active') }}"
+
+    - name: Fail the run if the requested state does not hold
+      ansible.builtin.assert:
+        that: >-
+          (mode == 'stop' and _aiops_after.status.ActiveState | default('unknown') != 'active')
+          or (mode == 'restore' and _aiops_after.status.ActiveState | default('unknown') == 'active')
+        fail_msg: "{{ unit }} on {{ target_host }} is {{ _aiops_after.status.ActiveState | default('unknown') }} after mode {{ mode }}."
+        quiet: true

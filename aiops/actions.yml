@@ -108,6 +108,20 @@ autonomy:
       precheck: drift-present
       max_changed: 10
 
+# ---- Phase 10f soak: scheduled fault injection on the canaries -----------------------------------------------------
+# docs/procedures/aiops-autonomy.md "Scheduled fault injection". The Toolbelt (never a model) stops ONE allow-listed unit on ONE canary
+# on a schedule, so the soak collects evidence that `restart-failed-unit` heals real faults without anyone injecting them by hand,
+# and puts the unit back itself if autonomy did not. This is the SCOPE a reviewed PR can change; the runtime gate is the existing
+# flags (it runs only while `autonomy` is ON, and never under the kill switch, maintenance or an open breaker) plus the server
+# flag `--soak`. Hosts must be a subset of `autonomy.hosts`; the action it uses (`canary-fault`) is internal to the scheduler.
+soak:
+  hosts: [canary-1, canary-2, canary-3]
+  units: [zabbix-agent2.service] # the fault the Canary smoke test template turns into a problem (vlagent raises none: listed on the action, not injected)
+  interval_seconds: 28800 # at most one injection per 8 h, fleet-wide
+  max_per_day: 3
+  heal_deadline_seconds: 1500 # 25 min: diagnosis window, agent run, approval-free heal; after this the scheduler restores the unit itself and records a miss
+  ends: '2026-10-31' # the scheduler stops after this UTC date; extending it is a reviewed PR
+
 # ---- Phase 10g: fleet rebuild loop (POLICY DATA ONLY; the engine, runner and playbooks are not built) -----------------
 # docs/operations/10g-rebuild-loop.md. Same rule as `autonomy`: this is the SCOPE a reviewed PR can widen. The pure
 # decisions that read it live in toolbelt/rebuild.py; nothing here runs yet, every policy is disabled and the five
@@ -351,6 +365,44 @@ actions:
         ok: true
         active_state: active
     rollback: A restart has no inverse. If the unit does not come back active the play fails and the alert stays open; escalate to the unit's runbook. Bifrost is the subnet router, so restarting tailscaled there briefly interrupts tailnet routes (accepted at T1).
+
+  canary-fault:
+    description: Stop (or restore) ONE allow-listed systemd unit on ONE canary. Proposed only by the Toolbelt's own soak scheduler (10f soak), never by an agent or the operator's chat; mode restore is the undo.
+    tier: T1
+    max_autonomy: approval # never through an autonomy policy: the soak scheduler approves its own proposals as `soak`, and only while autonomy is ON
+    idempotent: true
+    idempotency: systemctl stop and start converge to the requested state on replay; the allow-list is two canary units and the guard confines the host to the disposable canary pool.
+    internal: true
+    internal_source: soak
+    semaphore:
+      template: aiops-canary-fault
+      playbook: ansible/playbooks/aiops-canary-fault.yml
+      applied: false # operator gate: terraform apply in terraform/semaphore creates the template, then a PR flips this
+    extra_vars:
+      target_host:
+        type: string
+        required: true
+        pattern: '[a-z0-9][a-z0-9-]*'
+      unit:
+        type: string
+        required: true
+        pattern: '[A-Za-z0-9@:._-]+\.service'
+      mode:
+        type: enum
+        required: true
+        values: [stop, restore]
+    guard:
+      summary: The host must be a canary in host_tiers.T1 AND in soak.hosts, the unit in the per-host allow-list below; the playbook re-checks all of it (and that the host is in the `canary` group) before any change.
+      target_policy: canaries
+      allowed_units:
+        canary-1: [vlagent.service, zabbix-agent2.service]
+        canary-2: [vlagent.service, zabbix-agent2.service]
+        canary-3: [vlagent.service, zabbix-agent2.service]
+    verify:
+      self: true
+      expect:
+        ok: true
+    rollback: Run the same action with mode restore (the soak scheduler does it itself when autonomy has not healed the fault by the deadline), or `scripts/canary/fault restore <canary> <unit>` by hand. The canaries are disposable and hold no state.
 
   replay-role:
     description: Converge ONE allow-listed role tag on ONE T1 host by running site.yml with --limit and --tags (the same code path as asgard-apply, narrowed).

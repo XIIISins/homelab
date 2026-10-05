@@ -300,6 +300,48 @@ REBUILD_DENY_VMIDS = {1101, 1102, 1110, 1120, 1121, 1122, 1130, 1131, 1132, 1133
 CONTROL_PLANE_NAMES = {"gondul", "hlokk", "sigrun", "rota", "hildr", "kara"}
 PBS_NAME, PBS_VMID = "pbs", 1101
 CANARY_VMIDS = {1190, 1191, 1192}
+def check_soak(reg: dict) -> list[str]:
+    """The soak section (10f scheduled fault injection): the scope the scheduler may inject in must sit inside the autonomy scope
+    and the `canary-fault` action's allow-list, and only the scheduler may propose that action."""
+    errs: list[str] = []
+    actions = reg["actions"]
+    for name, a in actions.items():
+        if a.get("internal_source") and not a.get("internal"):
+            errs.append(f"actions: {name}: internal_source needs internal: true")
+    sk = reg.get("soak")
+    soak_actions = sorted(n for n, a in actions.items() if a.get("internal_source") == "soak")
+    if not sk:
+        if soak_actions:
+            errs.append(f"soak: {soak_actions} are internal to the soak scheduler but the registry has no `soak` section")
+        return errs
+    act = actions.get("canary-fault")
+    if act is None or act.get("internal_source") != "soak" or not act.get("internal"):
+        return errs + ["soak: the section needs the `canary-fault` action with internal: true and internal_source: soak"]
+    if soak_actions != ["canary-fault"]:
+        errs.append(f"soak: only canary-fault may be internal to the scheduler (found {soak_actions})")
+    if (act["tier"], act["max_autonomy"]) != ("T1", "approval"):
+        errs.append("soak: canary-fault must be T1 / max_autonomy approval (the scheduler approves it itself, no autonomy policy may cover it)")
+    if act.get("guard", {}).get("target_policy") != "canaries":
+        errs.append("soak: canary-fault must have guard.target_policy canaries")
+    if "autonomy" not in reg:
+        errs.append("soak: the scheduler only runs while autonomy is on, so the registry needs an `autonomy` section")
+    t1, au = set(reg["host_tiers"]["T1"]), set((reg.get("autonomy") or {}).get("hosts", []))
+    allowed = act.get("guard", {}).get("allowed_units", {})
+    for h in sk["hosts"]:
+        if h not in t1:
+            errs.append(f"soak: host {h!r} is not in host_tiers.T1")
+        if h not in au:
+            errs.append(f"soak: host {h!r} is not in autonomy.hosts (a fault is only injected where autonomy may heal it)")
+        for u in sk["units"]:
+            if u not in allowed.get(h, []):
+                errs.append(f"soak: unit {u!r} is not allow-listed for {h!r} in canary-fault.guard.allowed_units")
+    try:
+        datetime.strptime(sk["ends"], "%Y-%m-%d")
+    except ValueError:
+        errs.append(f"soak: ends {sk['ends']!r} is not a real date")
+    return errs
+
+
 # action -> (tier, max_autonomy) exactly as the plan's table says
 REBUILD_ACTIONS = {
     "rebuild-plan": ("T0", "auto"),
@@ -814,6 +856,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_actions(reg, root)
     errs += check_runbooks(rb, reg, root)
     errs += check_autonomy(reg, rb)
+    errs += check_soak(reg)
     errs += check_rebuild(reg, rb)
     errs += check_routing(rt, rb)
     errs += check_fixtures(root, rt["routes"])

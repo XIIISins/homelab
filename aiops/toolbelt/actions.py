@@ -129,6 +129,7 @@ class Registry:
         self.autonomy = autonomy.Autonomy.from_registry(data)
         self.rebuild = rebuild.RebuildPolicy.from_registry(data)  # 10g: scope, limits, deny list (None = nothing is ever eligible)
         self.rebuild_raw: dict = data.get("rebuild") or {}
+        self.soak_raw: dict | None = data.get("soak")  # 10f soak scope (soak.SoakConfig.from_registry reads it)
 
     @classmethod
     def from_file(cls, path: Path) -> "Registry":
@@ -439,6 +440,7 @@ class Engine:
         if cfg.facts is None and cfg.reader is not None:
             cfg.facts = rebuild_exec.ReaderFacts(cfg.reader)
         self.verifier = cfg.verifier or rebuild_exec.SemaphoreVerify(self)
+        self.soak = None  # soak.Soak when the scheduled fault injector is on (server --soak); feeds report()
         self._resumable: list[int] = []
         self._recover()
         if cfg.auto_resume and self._resumable:
@@ -633,8 +635,10 @@ class Engine:
         clean, problems = self.reg.validate_params(action_id, params)
         if not problems:
             problems = self.reg.guard(action_id, clean)
-        if not problems and self.reg.get(action_id).get("internal") and source != "author":
+        if not problems and self.reg.get(action_id).get("internal") and source != self.reg.get(action_id).get("internal_source", "author"):
             problems = [f"{action_id} is proposed by the Toolbelt itself, not by {source}"]
+        if not problems and source == "soak" and not self.reg.get(action_id).get("internal_source") == "soak":
+            problems = [f"the soak scheduler may only propose its own action, not {action_id}"]
         if not problems:
             problems = self._pr_problems(action_id, clean)
         if problems:
@@ -675,12 +679,18 @@ class Engine:
         return self._view(pid)
 
     # -- decide --------------------------------------------------------------------------------------------
-    def decide(self, pid: int, decision: str, *, by: str, ref: str = "", params_hash_seen: str = "", run: bool = True) -> dict:
+    def decide(self, pid: int, decision: str, *, by: str, ref: str = "", params_hash_seen: str = "", run: bool = True,
+               system: bool = False) -> dict:
         """Approve or reject. `params_hash_seen` is the hash printed on the card the human clicked: a mismatch (the proposal
-        changed under them, which it cannot, or a forged request) refuses the decision."""
+        changed under them, which it cannot, or a forged request) refuses the decision. `system=True` is for the Toolbelt's own
+        soak scheduler only (no HTTP route passes it) and is honoured only for a proposal whose source is `soak`."""
         if decision not in ("approve", "reject"):
             raise Refused(400, "decision must be approve or reject")
-        self._check_operator(by)
+        if system:
+            if self._row(pid)["source"] != "soak":
+                raise Refused(403, "only a soak proposal may be decided by the system")
+        else:
+            self._check_operator(by)
         self.sweep()
         with self.lock:
             row = self._row(pid)
@@ -1034,7 +1044,8 @@ class Engine:
         return {"days": days, "autonomous_runs": len(rows), "by_policy": by_policy, "rebuild": rebuild_exec.rebuild_report(self, since),
                 "by_target": {t: len(ts) for t, ts in sorted(times.items())},
                 "skipped_reasons": {r["reason"]: r["n"] for r in skipped}, "breaker_trips": trips,
-                "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()}}
+                "flapping_targets": flapping, "flags": {k: v["value"] for k, v in self.flags().items()},
+                "soak": self.soak.report(since) if self.soak is not None else None}
 
     # -- views ---------------------------------------------------------------------------------------------
     def _view(self, pid: int, duplicate: bool = False) -> dict:

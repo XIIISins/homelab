@@ -70,6 +70,10 @@ Every matrix row below was injected on the canaries with `scripts/canary/fault` 
 
 The 14-day soak clock started 2026-10-03: the pass criteria (zero flapping, every autonomous action audited, no unexplained breaker trip) are read from `/aiops report 14`.
 
+## Scheduled fault injection (added 2026-10-05)
+
+The live check on 2026-10-05 showed the soak had little evidence beyond the fault matrix (last autonomous action 2026-10-03 18:02): nothing injected faults on a schedule. `aiops/toolbelt/soak.py` now does: one `zabbix-agent2` stop on a canary every 8 hours, restored by the scheduler if autonomy does not heal it within 25 minutes, recorded in `/aiops report`. It is gated by the same flags as autonomy and by a reviewed `soak:` scope with an end date; see [the procedure](../procedures/aiops-autonomy.md#scheduled-fault-injection-the-soak-driver-built-2026-10-05). The soak clock for the read-out should count from the day the injector starts, not from 2026-10-03.
+
 ## Exit criteria (from the roadmap)
 
 The injected-fault matrix on the canaries passes ([procedure](../procedures/aiops-autonomy.md#soak-on-the-canaries-10f3-about-14-days)), **zero flapping**, every autonomous action audited (`proposal_auto_approved` in the Toolbelt journal and VictoriaLogs). Rollback for anything here: `/aiops autonomy off`.
