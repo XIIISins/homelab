@@ -166,6 +166,16 @@ class Engine(unittest.TestCase):
         self.assertIn("Burst-cluster test: PASSED", text)
         self.assertIn("full run output is in the private Discord thread", text)
 
+    def test_an_offline_gate_failure_says_so_in_the_headline(self):
+        # Found live (PR 177): "Failed on a burst cluster" above a body that said no cluster was built.
+        s = {"kind": "burst", "status": "failed", "component": "microbin", "sha": "d4d5611e", "seconds": 5, "proposal": 34,
+             "markdown": "**Burst-cluster test: FAILED** (offline gate, no cluster was built)\n\nProblems:\n- unknown Vault path"}
+        text = pr_test.render(s)
+        self.assertIn("**Failed** at the offline gate, before a cluster was built", text)
+        self.assertNotIn("Failed** on a burst cluster", text)
+        on_cluster = dict(s, markdown="**Burst-cluster test: FAILED** (4 burst nodes)\nProblems:\n- workload 0/2")
+        self.assertIn("**Failed** on a burst cluster", pr_test.render(on_cluster))
+
     def test_a_failing_test_ends_verify_failed_and_the_pr_says_failed(self):
         eng = self.make(FakeBurst(passed=False, md="**Burst-cluster test: FAILED**\nProblems:\n- workload: outline/outline 0/2"))
         pid = eng.propose_pr_burst_test(BRANCH, None, 7)["proposal"]
