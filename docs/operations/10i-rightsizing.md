@@ -68,6 +68,8 @@ What it found: CPU is over-requested almost everywhere (cloudflared, Vault, Vict
 
 Left out on purpose: the NetBox pods (trimmed in 10i0 the same day); the VPA recommender (no history yet); Flux controllers (`gotk-components.yaml`, needs a patch in `flux-system/kustomization.yaml`); K3s addons (CoreDNS, metrics-server); Calico/Tigera (not Flux-managed); `csi-driver-nfs` (small numbers). **Workloads with no requests at all** (Immich server, up to 5.2Gi, and machine-learning, up to 1.5Gi; External Secrets, MetalLB, Sealed Secrets, Synology CSI, local-path) are a decision, not a trim: adding a request makes the scheduler count them.
 
+**Follow-up (same day, operator's call): requests for the workloads that had none.** Same CPU rule; memory = 1.2 × the 30-day max, except the two Immich pods whose peaks sit far above their usual level (server p95 3970Mi / max 5167Mi, machine-learning p95 608Mi / max 1533Mi on model loads): those get 1.2 × p95, so the peaks run above the request instead of booking a third of a worker. No limits added. Covered: Immich (server, machine-learning, valkey), External Secrets (3), MetalLB (controller, speaker), Sealed Secrets, local-path-provisioner, the cert-manager webhook and cainjector, and Synology CSI (controller and node, through a Flux `postRenderers` patch because the chart has no resources values). About +8 GiB of worker memory requests (to about 57 % of allocatable; about 85 % on two workers after a node loss). Still without requests: Calico and the Tigera operator, which are K3s addon files moved only by `calico-upgrade.yml`; their requests belong in the Installation CR through that playbook.
+
 ---
 
 ## 10i1 — VPA in recommend-only mode

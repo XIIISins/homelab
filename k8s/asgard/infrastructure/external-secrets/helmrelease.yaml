@@ -30,3 +30,14 @@ spec:
     installCRDs: true
     serviceAccount:
       name: external-secrets
+    # Phase 10i (2026-10-05): requests where the chart set none, from 30 days of
+    # VictoriaMetrics history. CPU = max(1.5 x median daily p95, worst-day p95),
+    # floor 10m; memory = 1.2 x the 30-day max working set. No limits added.
+    resources: # 30d: CPU p95 1-6m, max 217Mi
+      requests: {cpu: 10m, memory: 272Mi}
+    certController:
+      resources: # 30d: CPU p95 1-4m, max 228Mi
+        requests: {cpu: 10m, memory: 288Mi}
+    webhook:
+      resources: # 30d: CPU p95 <=1m, max 76Mi
+        requests: {cpu: 10m, memory: 96Mi}

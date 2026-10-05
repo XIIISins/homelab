@@ -58,6 +58,12 @@ spec:
     # cheap to rebuild on restart, same posture as Outline's redis) ────
     valkey:
       enabled: true
+      controllers:
+        main:
+          containers:
+            main:
+              resources: # Phase 10i: 30d max 37Mi, CPU p95 <=4m
+                requests: {cpu: 10m, memory: 48Mi}
 
     server:
       enabled: true
@@ -68,12 +74,29 @@ spec:
           # and racing migrations (the Outline/n8n precedent for any
           # app that migrates on boot). Single replica by chart default.
           strategy: Recreate
+          containers:
+            main:
+              # Phase 10i (2026-10-05): no requests before. From 30 days of
+              # VictoriaMetrics history: CPU = max(1.5 x median daily p95, worst-day
+              # p95). Memory spikes far above the usual level (p95 3970Mi, max
+              # 5167Mi), so the request is 1.2 x p95 and peaks run above it; 1.2 x
+              # max (6.2Gi) would book a third of a worker for a rare peak. No limit.
+              resources:
+                requests: {cpu: 50m, memory: 4768Mi}
       ingress:
         main:
           enabled: false # Gateway API HTTPRoute instead (httproute.yaml)
 
     machine-learning:
       enabled: true
+      controllers:
+        main:
+          containers:
+            main:
+              # Phase 10i: p95 608Mi, max 1533Mi on model loads; request 1.2 x p95
+              # (same reasoning as the server). CPU worst-day p95 21m. No limit.
+              resources:
+                requests: {cpu: 30m, memory: 736Mi}
       persistence:
         cache:
           # Downloaded face-recognition/CLIP model files — small,
