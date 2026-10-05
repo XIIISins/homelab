@@ -79,9 +79,12 @@ class DispatcherRestart(unittest.TestCase):
         import yaml
         tasks = yaml.safe_load((REPO / "ansible/roles/aiops-toolbelt/tasks/main.yml").read_text())
         copy = next(t for t in tasks if t.get("name") == "Install the API code and data from the repo")
-        self.assertEqual(sorted(copy["notify"]), ["Restart aiops-author", "Restart aiops-toolbelt"])
+        # ...and the loopback GitHub read proxy runs github_read_proxy.py from the same tree (2026-10-05: a stale allowlist answered 404 for k8s).
+        self.assertEqual(sorted(copy["notify"]), ["Restart aiops-author", "Restart aiops-toolbelt", "Restart aiops-toolbelt-ghread"])
         handlers = yaml.safe_load((REPO / "ansible/roles/aiops-author/handlers/main.yml").read_text())
         self.assertIn("Restart aiops-author", [h["name"] for h in handlers])
+        own = yaml.safe_load((REPO / "ansible/roles/aiops-toolbelt/handlers/main.yml").read_text())
+        self.assertIn("Restart aiops-toolbelt-ghread", [h["name"] for h in own])
         play = (REPO / "ansible/playbooks/asgard-control.yml").read_text()
         self.assertIn("role: aiops-author", play)  # the handler is only visible where both roles are in one play
 
