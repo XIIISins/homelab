@@ -17,6 +17,11 @@ k3s_service_cidr: "10.43.0.0/16"
 # CNI — we disable K3s built-in Flannel and install Calico separately
 k3s_flannel_backend: "none"
 
+# Extra kubelet flags for worker nodes (rendered as `kubelet-arg:` in the agent
+# config). Empty by default so the burst substrate is unchanged; asgard sets its
+# memory reservation in group_vars/k3s_worker.yml.
+k3s_worker_kubelet_args: []
+
 # Calico version — desired version. Changed on a live cluster ONLY via playbooks/calico-upgrade.yml
 # (one minor per run, with datastore backup + CRD-prune guard); the install path below is first-install only.
 calico_version: "v3.32.2"
