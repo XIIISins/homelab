@@ -34,7 +34,7 @@ Out of scope: the *arr stack, Jellyfin in K3s, Authentik SSO for Jellyfin (the d
 | Decisions | "Jellyfin: privileged LXC on Urd, QuickSync /dev/dri passthrough". Service page: NFS media from Munin, SQLite, local accounts, `jellyfin.midgard.xiiisins.com`, external via Cloudflared | Followed, except the Cloudflared part (next row). Privileged is still the right call, see "Why privileged" |
 | Cloudflared for external access | Cloudflare's terms only allow serving video through the CDN with their paid video products (Stream/R2); tunnel traffic is CDN traffic. A suspension would hit the whole `xiiisins.com` zone: Authentik, WebFinger/OIDC, MicroBin, the apex | **Do not put Jellyfin behind the tunnel.** Decision D-1 below; default is Tailscale (already live, split-DNS already serves `midgard`) |
 | Urd headroom ([`10d-diagnosis-chatops.md`](10d-diagnosis-chatops.md) D-f) | ~7.7 GB free on 2026-10-01, before Gná (1 GB) and Ratatoskr (512 MB) landed. Urd is the most loaded node: Factorio 8 GB, Einherjar-urd 16 GB, Göndul, Hugin, Vör, Hlin, Saga, PBS, the canaries | Jellyfin gets **3 GB** (it runs ~1 GB steady, ~2 GB during a big scan). J0 re-measures live; under 4 GB free → decision D-3 |
-| Munin media share | The storage redesign deferred the media volume ("own volume, created last", [`../procedures/synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)); the old `media` share table in [`../services/synology.md`](../services/synology.md) is flagged stale | **J0 prerequisite:** create the media share on its *final* volume before Jellyfin mounts it. Moving a share between volumes later changes its export path and strands NFS clients ([`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md)) |
+| Munin media share | The storage redesign deferred the media volume ("own volume, created last", [`../procedures/synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)); the old `media` share table in [`../services/synology.md`](../services/synology.md) is flagged stale | **Share exists (operator, 2026-10-05): `10.0.254.20:/volume5/media-backup`.** J0 only adds an NFS rule for `10.0.11.223`. Don't move the share to another volume later: that changes its export path and strands NFS clients ([`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md)) |
 | LXC features ([`lxc-proxmox.md`](../known-issues/lxc-proxmox.md)) | `device_passthrough` and `mount=nfs` both need `root@pam` ticket auth; an API token can only change `nesting` | The container lives in `terraform/proxmox/asgard-lxcs-root/` (the Tailscale trio's module), not the main one |
 | NFS inside an LXC (PBS precedent, LXC 1101) | PBS mounts its Munin share inside the container (`features: mount=nfs` + LXC fstab), so it doesn't depend on the host | Same pattern for `/media`, mounted **read-only** |
 | LXC reboot drift ([`lxc-proxmox.md`](../known-issues/lxc-proxmox.md) "LXC reboot persistence") | PVE rewrites resolv.conf at start; LXC sysctls reset at interface bring-up | `initialization.dns` in Terraform (fleet standard); the hardening role's LXC branches must also apply to a privileged container (check `ansible_virtualization_type == 'lxc'` is true for it, J3) |
@@ -43,7 +43,7 @@ Out of scope: the *arr stack, Jellyfin in K3s, Authentik SSO for Jellyfin (the d
 | Package source | No package mirror yet (5k Hvergelmir is not built); third-party repos have died on us before (SFTPGo) | Official Jellyfin apt repo, **versions pinned** in role defaults (`jellyfin`, `jellyfin-ffmpeg7`); a version bump is a reviewed PR |
 | Hermod | A `media` tag (Discord channel Ölrún) already exists | Optional: Jellyfin's webhook plugin posts "new media added" there (J6) |
 
-No Phase 0 closure from `open-questions.md` blocks this. The real prerequisites are the media share and the Urd memory check, both in J0.
+No Phase 0 closure from `open-questions.md` blocks this. The real prerequisites are the NFS rule on the media share and the Urd memory check, both in J0.
 
 ## Why privileged (re-checked, still right)
 
@@ -58,7 +58,7 @@ fallback (K3s down) ── http ──────> jellyfin-direct.niflheim →
 LXC 1123:  /dev/dri/renderD128 (passed, gid=render, 0660) → jellyfin-ffmpeg (iHD/QSV)
            /var/lib/jellyfin     rootfs, local-lvm, backed up    (config, SQLite DB, metadata)
            /var/cache/jellyfin   mount point, local-lvm, backup=false (transcodes, image cache)
-           /media                NFS ro from Munin, mounted in-container, RequiresMountsFor
+           /media                NFS ro 10.0.254.20:/volume5/media-backup, mounted in-container, RequiresMountsFor
 ```
 
 Identity: **LXC 1123, `10.0.11.223`, VLAN 11, Urd** (next free in the 1120–1129 services range). Sizing: 4 cores (scans, subtitle extraction and the occasional software fallback; iGPU work does not count against them), 3 GB RAM + 1 GB swap, 16 GB rootfs, 40 GB cache mount point. Not in a PVE HA group (passthrough + in-guest NFS: moves are a deliberate `pct migrate --restart`).
@@ -67,7 +67,7 @@ SQLite stays on local-lvm, never NFS (SQLite locking over NFS corrupts databases
 
 ## J0 — Prerequisites and host checks (read-only, plus one DSM change)
 
-- [ ] **Media share on Munin**: create it on its final volume (operator, DSM UI; Synology is not in IaC), NFS export to `10.0.11.223` only, read-only, `root_squash`, NFSv4.1. Record the export path and volume in [`../services/synology.md`](../services/synology.md).
+- [ ] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`.
 - [ ] **Urd headroom**: `pvesh get /nodes/urd/status` + `free -g` on Urd. ≥ 4 GB free → proceed with 3 GB. Less → D-3.
 - [ ] **Dual-channel RAM**: `dmidecode -t memory | grep -E 'Size|Locator'` on Urd. Two populated DIMMs = dual-channel. One DIMM → note it; tone-mapping capacity will be roughly halved (J5 measures it either way).
 - [ ] **iGPU on the host**: `ls -l /dev/dri/by-path/` (expect `pci-0000:00:02.0-render -> ../renderD128`), `lspci -nnk -s 00:02.0` (kernel driver `i915`), `getent group render` (note the gid).
@@ -94,7 +94,7 @@ Day-1 baseline as root, then the full play as `ansible`, per the LXC bootstrap f
 The `jellyfin` role:
 
 - `render` group with the pinned gid; `jellyfin` user in `render` (and `video`).
-- NFS: `nfs-common`, fstab entry `munin:/<export> /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0`, mount asserted.
+- NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media-backup /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
 - Jellyfin apt repo + pinned `jellyfin` and `jellyfin-ffmpeg7`.
 - systemd drop-in: `RequiresMountsFor=/media /var/cache/jellyfin`, so Jellyfin never starts against an empty mount point and scans the library away.
 - Paths in `/etc/default/jellyfin` / `system.xml`: cache and transcodes under `/var/cache/jellyfin`; metadata under `/var/lib/jellyfin`.
@@ -169,7 +169,7 @@ Elsewhere:
 
 ## Operator steps (the ones Claude cannot do)
 
-1. Create the media share + NFS export on Munin (J0).
+1. Add the NFS permission rule for `10.0.11.223` on `volume5/media-backup` (J0).
 2. Answer D-1 (and D-3 if J0 triggers it); give the KPN upload rate for the remote bitrate limit.
 3. `terraform apply` in `asgard-lxcs-root` (needs `PROXMOX_VE_PASSWORD`), `netbox`, `adguard`, from the main checkout.
 4. Jellyfin first-run wizard (admin account, libraries), then create household accounts.
