@@ -152,7 +152,7 @@ Elsewhere:
 
 ## Decisions (defaults picked; flip any)
 
-- [x] **D-1. Remote access.** ✅ **Decided 2026-10-05 (operator): Tailscale.** family devices join the tailnet with an ACL that only allows `10.0.20.10:443` (and `10.0.11.223:8096` for the fallback); split-DNS already resolves `midgard` there. Alternatives: a UCG port-forward of a dedicated port to Traefik (works on any TV, but a new public surface and needs its own hardening); Cloudflared (rejected above: ToS risk to the whole zone).
+- [x] **D-1. Remote access.** ✅ **Decided 2026-10-05 (operator): Tailscale.** Family devices join the tailnet with an ACL that only allows `10.0.20.10:443` (and `10.0.11.223:8096` for the fallback); split-DNS already resolves `midgard` there. Alternatives: a UCG port-forward of a dedicated port to Traefik (works on any TV, but a new public surface and needs its own hardening); Cloudflared (rejected above: ToS risk to the whole zone).
 - [ ] **D-2. Privileged vs unprivileged.** Default **privileged** (the decision row stands, reasons above).
 - [ ] **D-3. Urd too tight.** If J0 finds < 4 GB free: Jellyfin starts at 2 GB and the operator decides whether Factorio (8 GB, the largest LXC on Urd) is right-sized, or Jellyfin is placed on Verd instead (same iGPU; the decision row would change from "Urd" to "any node, Urd preferred").
 
