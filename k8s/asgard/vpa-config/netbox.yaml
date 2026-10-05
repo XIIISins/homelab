@@ -1,0 +1,40 @@
+# k8s/asgard/vpa-config/netbox.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: netbox
+  namespace: netbox
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: netbox
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: netbox-worker
+  namespace: netbox
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: netbox-worker
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: netbox-valkey-primary
+  namespace: netbox
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: netbox-valkey-primary
+  updatePolicy:
+    updateMode: "Off"

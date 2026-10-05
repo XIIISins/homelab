@@ -1,0 +1,14 @@
+# k8s/asgard/vpa-config/teamspeak.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: teamspeak
+  namespace: teamspeak
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: teamspeak
+  updatePolicy:
+    updateMode: "Off"

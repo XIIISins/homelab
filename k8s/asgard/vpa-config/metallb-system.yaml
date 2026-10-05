@@ -1,0 +1,27 @@
+# k8s/asgard/vpa-config/metallb-system.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: metallb-controller
+  namespace: metallb-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metallb-controller
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: metallb-speaker
+  namespace: metallb-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: metallb-speaker
+  updatePolicy:
+    updateMode: "Off"

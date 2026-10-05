@@ -52,3 +52,112 @@ spec:
         enabled: false
 
     # Default Service type=ClusterIP — what we want for vmagent.
+
+    # Phase 10i1: VPA recommendations as metrics, so VictoriaMetrics keeps their history (the
+    # Toolbelt's "is the recommendation stable over 7 days" check, and the 10i digest's trend lines).
+    # KSM dropped its built-in VPA collector in v2.9; this is the documented customResourceState
+    # replacement. Series: kube_customresource_vpa_containerrecommendations_{lowerbound,target,
+    # upperbound,uncappedtarget}{namespace,verticalpodautoscaler,target_kind,target_name,container,
+    # resource,unit}. vmagent already scrapes this Service; no scrape change.
+    customResourceState:
+      enabled: true
+      config:
+        kind: CustomResourceStateMetrics
+        spec:
+          resources:
+            - groupVersionKind:
+                group: autoscaling.k8s.io
+                kind: VerticalPodAutoscaler
+                version: v1
+              metricNamePrefix: kube_customresource
+              labelsFromPath:
+                namespace: [metadata, namespace]
+                verticalpodautoscaler: [metadata, name]
+                target_kind: [spec, targetRef, kind]
+                target_name: [spec, targetRef, name]
+              metrics:
+            - name: vpa_containerrecommendations_lowerbound
+              help: VPA container recommendation (lowerBound) for cpu.
+              commonLabels: {resource: cpu, unit: core}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [lowerBound, cpu]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_lowerbound
+              help: VPA container recommendation (lowerBound) for memory.
+              commonLabels: {resource: memory, unit: byte}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [lowerBound, memory]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_target
+              help: VPA container recommendation (target) for cpu.
+              commonLabels: {resource: cpu, unit: core}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [target, cpu]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_target
+              help: VPA container recommendation (target) for memory.
+              commonLabels: {resource: memory, unit: byte}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [target, memory]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_upperbound
+              help: VPA container recommendation (upperBound) for cpu.
+              commonLabels: {resource: cpu, unit: core}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [upperBound, cpu]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_upperbound
+              help: VPA container recommendation (upperBound) for memory.
+              commonLabels: {resource: memory, unit: byte}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [upperBound, memory]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_uncappedtarget
+              help: VPA container recommendation (uncappedTarget) for cpu.
+              commonLabels: {resource: cpu, unit: core}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [uncappedTarget, cpu]
+                  labelsFromPath:
+                    container: [containerName]
+            - name: vpa_containerrecommendations_uncappedtarget
+              help: VPA container recommendation (uncappedTarget) for memory.
+              commonLabels: {resource: memory, unit: byte}
+              each:
+                type: Gauge
+                gauge:
+                  path: [status, recommendation, containerRecommendations]
+                  valueFrom: [uncappedTarget, memory]
+                  labelsFromPath:
+                    container: [containerName]
+    rbac:
+      extraRules:
+        - apiGroups: [autoscaling.k8s.io]
+          resources: [verticalpodautoscalers]
+          verbs: [list, watch]
