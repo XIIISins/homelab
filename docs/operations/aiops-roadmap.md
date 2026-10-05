@@ -184,6 +184,8 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## Live state (checked 2026-10-05)
 
+*Table read in the morning; rows for the incident sweep, the scheduled injector and the open PRs were refreshed in the evening.*
+
 Read from the running systems (Toolbelt database on Frigg, Semaphore API, kubectl, the hosts), not from the plans.
 
 | Area | Live state |
@@ -193,12 +195,13 @@ Read from the running systems (Toolbelt database on Frigg, Semaphore API, kubect
 | Other hosts | Gna, Ratatoskr, `do1` and the three canaries are up with no failed units; the PBS LXC is up; no burst droplets exist |
 | PBS datastore | 81 % (195 / 240 GB), up from 75 % on 2026-10-03 |
 | Toolbelt flags | `autonomy` ON since 2026-10-03 15:57; `kill_switch`, `maintenance`, both breakers off |
-| Toolbelt history | 43 incidents (24 resolved, 19 still `posted`), 39 diagnoses, 242 tool calls, 62 chat turns |
-| 10f autonomy log | `restart-failed-unit`: 7 approved, 2 succeeded, 2 failed, 2 verify-failed, 4 skipped; the last action 2026-10-03 18:02 |
+| Toolbelt history | 43 incidents, 39 diagnoses, 242 tool calls, 62 chat turns. The incident sweep deployed later the same day closed 18 of the 19 stuck `posted` incidents (13 replay, 2 event, 3 silent); #22 (canary-2) closes at 48 h |
+| 10f autonomy log | `restart-failed-unit`: 7 approved, 2 succeeded, 2 failed, 2 verify-failed, 4 skipped; the last matrix action 2026-10-03 18:02 |
+| 10f scheduled injector | Live from 2026-10-05 (`aiops-canary-fault` applied). **Injection #1** (canary-1, `zabbix-agent2` stopped 13:31:38) was healed by autonomy in about 5 min 48 s (restart 13:36:26, recorded 13:37:26); the next is about 8 h later. One data point; count the soak from here |
 | 10g rebuilds | 6 runs (canary-1, -2, -3), the first five failed in bring-up, the sixth succeeded in 117 s |
 | 10h1 forecasts | 7 notes since 2026-10-04 15:29: 3 open (Verd memory slow-fill, ETA 7.1 days, low confidence, labelled useful; Urd `nvme0n1` read and write latency creep, medium), 4 resolved fast-rise (`vor:/`, and the PBS storage once per node); 1 labelled in total |
 | 10h2 change requests | 13: 6 merged (PRs #131, #137, #143, #149, #152, #166), 1 open (#167), 2 closed unmerged (the burst-tested k8s PRs #174 and #177), 4 failed (one test error, three no-change sessions) |
-| Open PRs | #167 (incident write-up), #165 (10i rightsizing plan, from another session) |
+| Open PRs | #167 (incident write-up), #186 (drift note), #188 (5h Jellyfin plan), #185 (docker/login-action bump), #79 (1Password mirror of the 10e secrets); #165 (10i plan) merged |
 
 ---
 
