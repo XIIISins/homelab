@@ -185,6 +185,8 @@ def draft_reason(db, incident_id: int, min_minutes: int = 30, min_alerts: int = 
     inc = db.execute("SELECT * FROM incidents WHERE id=?", (incident_id,)).fetchone()
     if inc is None or inc["state"] != "resolved" or inc["replay"] or not inc["resolved_at"]:
         return None
+    if "resolution" in inc.keys() and inc["resolution"]:  # closed by the bookkeeping sweep, not by a recovery: nothing to write up
+        return None
     alerts = db.execute("SELECT host, alert_json FROM alerts WHERE incident_id=?", (incident_id,)).fetchall()
     if not alerts or all(_is_canary(a) for a in alerts):
         return None
