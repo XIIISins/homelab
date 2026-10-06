@@ -1,0 +1,15 @@
+# ansible/inventory/group_vars/asgard_lxcs.yml
+---
+# Applies to every LXC (all service groups are children of asgard_lxcs).
+#
+# Load average inside an LXC is the Proxmox HOST's load, not the container's,
+# and `system.cpu.num` is the container's (often 1-2) CPU count. The stock
+# "Linux: Load average is too high" trigger (Average severity, so it routes to
+# Hermod) therefore fires on every LXC whenever any neighbour on the shared
+# host is busy. Per-container CPU pressure is still covered by the "High CPU
+# utilization" trigger; host load is covered by the Proxmox template on urd/
+# verd/skuld. Raise the per-CPU threshold so far out of reach that the trigger
+# is effectively off for LXCs, while VMs (K3s nodes, Frigg) keep the 1.5 stock
+# default. See docs/known-issues/zabbix.md.
+zabbix_agent_class_macros:
+  - { macro: "{$LOAD_AVG_PER_CPU.MAX.WARN}", value: "1000" }
