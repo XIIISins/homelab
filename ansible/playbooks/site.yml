@@ -80,6 +80,7 @@
 - import_playbook: asgard-hermod.yml
 - import_playbook: asgard-gna.yml
 - import_playbook: asgard-ratatoskr.yml
+- import_playbook: asgard-jellyfin.yml
 - import_playbook: asgard-zabbix.yml
 - import_playbook: asgard-proxmox.yml
 - import_playbook: asgard-pbs.yml
