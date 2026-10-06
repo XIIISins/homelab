@@ -21,7 +21,7 @@
 | HAProxy 2 (Eir) | 1134 | Verd | `10.0.11.234` | HAProxy + etcd DCS | ✅ |
 | HAProxy 3 (Snotra) | 1135 | Skuld | `10.0.11.235` | HAProxy + etcd DCS | ✅ |
 | canary-1/2/3 | 1190-1192 | Urd (only) | `10.0.11.190`-`.192` | AIOps canary pool: 512 MB baseline-only LXCs, disposable T1 fault-injection targets (Phase 10b1). Code landed, not yet applied. Fault injection must stay scoped to `canary-*` (Urd also hosts PBS/Hugin/K3s). See [`../procedures/canary-pool.md`](../procedures/canary-pool.md). | 🟡 |
-| Jellyfin | TBD | Urd | TBD | Media + QuickSync LXC | 🔲 |
+| Jellyfin | 1123 | Urd | `10.0.11.223` | Media server, QuickSync on `/dev/dri/renderD128`, privileged, NFS media read-only from Munin. [`jellyfin.md`](jellyfin.md) | ✅ |
 
 **AdGuard Home:** VIP at `10.0.10.200`. Sync via `adguardhome-sync` binary on Saga. ✅
 
