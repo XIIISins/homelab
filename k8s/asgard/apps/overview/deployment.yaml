@@ -41,6 +41,16 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          env:
+            # The finished `Authorization` header value for the Proxmox API (see
+            # externalsecret.yaml). Optional: without it the pods still start and the
+            # page simply has no Proxmox slide.
+            - name: OVERVIEW_PVE_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: overview-pve-token
+                  key: PVE_AUTH
+                  optional: true
           livenessProbe:
             httpGet:
               path: /healthz
