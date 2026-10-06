@@ -59,6 +59,7 @@
 | `10.0.11.220` | 1120 | Urd | Factorio + SFTPGo |
 | `10.0.11.221` | 1121 | Urd | Gná — AIOps agent host (n8n), 10d1 |
 | `10.0.11.222` | 1122 | Urd | Ratatoskr — AIOps Discord bot (chat transport + the only approver), 10e |
+| `10.0.11.223` | 1123 | Urd | Jellyfin — media server, QuickSync on the Intel iGPU (privileged LXC, NFS media read-only from Munin), 5h |
 | `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
 | `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
 | `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |

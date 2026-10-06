@@ -42,6 +42,7 @@ locals {
     "canary"            = "canary"
     "aiops-agent"       = "n8n-agent"
     "aiops-bot"         = "discord-bot"
+    "media-server"      = "media-server"
   }
 
   # Extra (non-`ansible:`) tags per role. The AIOps loop (10f/10g) selects
@@ -119,6 +120,10 @@ locals {
     # ── Ratatoskr - AIOps Discord bot (LXC 1122, Phase 10e, Urd) ────
     # terraform/proxmox/asgard-lxcs/lxcs.tf. New `aiops-bot` role (roles.tf).
     ratatoskr = { vmid = "1122", role = "aiops-bot", device = "urd", cpu = 1, memory = 512, primary_iface = "eth0" }
+
+    # ── Jellyfin - media server, QuickSync (LXC 1123, Phase 5h, Urd) ─
+    # terraform/proxmox/asgard-lxcs-root/lxcs.tf (privileged, /dev/dri passthrough). New `media-server` role (roles.tf).
+    jellyfin = { vmid = "1123", role = "media-server", device = "urd", cpu = 4, memory = 3072, primary_iface = "eth0" }
   }
 
   # Flat interface map keyed by "<vm>.<iface>". Workers + HAProxy/etcd
@@ -171,6 +176,7 @@ locals {
     "gna.eth0"      = { vm = "gna", name = "eth0", ip = "10.0.11.221/24" }
 
     "ratatoskr.eth0" = { vm = "ratatoskr", name = "eth0", ip = "10.0.11.222/24" }
+    "jellyfin.eth0"  = { vm = "jellyfin", name = "eth0", ip = "10.0.11.223/24" }
   }
 
   # Import IDs sourced from /api/virtualization/virtual-machines/ +

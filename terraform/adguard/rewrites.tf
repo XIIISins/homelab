@@ -64,6 +64,12 @@ locals {
     # Bare LXC (Phase 10e), outbound only: nothing listens, the name is for operators (ssh, Zabbix, NetBox).
     "ratatoskr.niflheim.xiiisins.com" = "10.0.11.222"
 
+    # ── niflheim.xiiisins.com - Jellyfin (media server, LXC 1123) ───
+    # jellyfin-direct.* goes straight to the LXC (Jellyfin on :8096, plain HTTP), skipping Traefik, so playback survives a
+    # K3s outage. The user-facing name is jellyfin.midgard.* below (via Traefik). Same shape as hugin / hugin-direct.
+    "jellyfin.niflheim.xiiisins.com"        = "10.0.11.223"
+    "jellyfin-direct.niflheim.xiiisins.com" = "10.0.11.223"
+
     # ── niflheim.xiiisins.com — Frigg (control-node watchtower) ────
     # Bare VM (Phase 6 Stage 2), NOT K8s-fronted → points straight at the
     # VM IP (like hugin/hermod), so NO CoreDNS rewrite needed. Reach it as
@@ -169,6 +175,11 @@ locals {
     # fronted hostname). LAN-direct-to-LXC backdoor remains
     # hugin-direct.niflheim.xiiisins.com (above).
     "hugin.midgard.xiiisins.com" = "10.0.20.10"
+
+    # Jellyfin - LAN and tailnet clients land on the Traefik VIP -> midgard Gateway -> jellyfin-ingress Service ->
+    # EndpointSlice -> LXC 10.0.11.223:8096. Midgard only: NOT on the apex / Cloudflare tunnel (decision D-1: video
+    # through the tunnel is a Cloudflare ToS risk for the whole zone).
+    "jellyfin.midgard.xiiisins.com" = "10.0.20.10"
 
     # ── xiiisins.com — apex LAN bypass ─────────────────────────────
     # factorio is bare-LXC (no Traefik), so the LAN bypass points
