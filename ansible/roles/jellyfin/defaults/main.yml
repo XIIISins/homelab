@@ -64,6 +64,7 @@ jellyfin_zabbix_userparameter_file: /etc/zabbix/zabbix_agent2.d/jellyfin.conf
 # must already exist in the section Jellyfin returns, so a misspelt or version-dependent name fails loudly instead of
 # being silently ignored.
 jellyfin_api_key_vault_path: ansible/jellyfin/api-key
+jellyfin_api_key_vault_field: key
 jellyfin_api_url: "http://127.0.0.1:{{ jellyfin_http_port }}"
 jellyfin_config_sections:
   # Dashboard -> Playback -> Transcoding. Codec list: tick exactly what `vainfo` reports as VLD profiles (the role prints

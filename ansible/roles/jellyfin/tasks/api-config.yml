@@ -6,7 +6,7 @@
 - name: Read the Jellyfin API key from Vault (empty when not seeded yet)
   ansible.builtin.set_fact:
     jellyfin_api_key: >-
-      {{ ((lookup('community.hashi_vault.vault_kv2_get', jellyfin_api_key_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', jellyfin_api_key_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get(jellyfin_api_key_vault_field, '') }}
   no_log: true
 
 - name: Say why the settings step is skipped
