@@ -122,14 +122,17 @@ into one wide row of four), then the row itself. It starts from everything shown
 before the browser paints. The fact tiles are in order of importance in `index.html` (deployments, restarts,
 fullest volume, certificates, then traffic, network, volume totals, counts) so the least useful go first.
 
-| Window height | What you get at 1440 px wide |
+| Window height (1440 px wide) | What shows |
 |---|---|
-| about 1,050 px and up | namespaces (4+ rows) and fact tiles side by side |
-| about 910 to 1,050 px | one wide row of four fact tiles |
-| 825 px and up, less than that | top sections only |
-| under 825 px | the same page tightened one step (smaller gauges and graphs, no small print) and a wide tile row from about 800 px |
-| under 650 px | tightened again: no graphs, no tile captions |
+| about 1,000 px and up | everything: namespaces (2 to 6 rows) beside the fact tiles |
+| about 900 to 1,000 px | the three sections plus one wide row of four fact tiles |
+| 825 to 900 px | the three sections only |
+| 750 to 825 px | the same, tightened one step (smaller gauges and graphs, no small print), plus the wide tile row |
+| 650 to 750 px | tightened one step, no bottom row |
+| 612 to 650 px | tightened again: no graphs, no tile captions |
 | under 612 px | too small to fit: the page scrolls rather than clipping |
+
+(Observed with the Browser pane at 1080, 960, 940, 900, 800, 700 and 630 px, going down and back up.)
 
 A narrow overview (the rail open on a small window) drops the everyday tiles' captions and the role pills, and
 keeps the headline card and tiles side by side. The numbers behind the steps are in `style.css`
