@@ -357,40 +357,75 @@ a {
   text-wrap: balance;
 }
 
-.verdict-detail {
+/* Under the title: one fixed-height zone that holds either the summary sentence or, when
+   something is wrong, a short borderless table (component, what). The card is the same size
+   in both cases; four rows is the most it shows, then "+N more". */
+.verdict-zone {
   margin-top: 14px;
+  min-height: 5.5rem;   /* four table rows, exactly */
+}
+
+.verdict-detail {
   max-width: 48ch;
   color: var(--fg-2);
   font-size: 1.125rem;
   text-wrap: pretty;
 }
 
+.verdict-detail[hidden],
+.attention[hidden] {
+  display: none;
+}
+
 .attention {
-  margin-top: 18px;
   display: grid;
-  gap: 8px;
-  max-width: 60ch;
+  gap: 2px;
+  max-width: 44rem;
 }
 
 .attention li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-weight: 550;
+  display: grid;
+  grid-template-columns: 8px 6rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-height: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.35;
 }
 
 .attention li::before {
   content: "";
-  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--warn);
-  transform: translateY(-1px);
 }
 
 .attention li[data-level="bad"]::before {
   background: var(--bad);
+}
+
+.attention li[data-level="more"]::before {
+  visibility: hidden;
+}
+
+.att-area {
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.att-text {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention li[data-level="more"] .att-text {
+  color: var(--fg-3);
+  font-weight: 400;
 }
 
 /* The trend slideshow: sets of three graphs, one visible at a time, stacked in

@@ -56,7 +56,10 @@
     cpu: { q: CLUSTER_CPU, live: true },
     mem: { q: CLUSTER_MEM, live: true },
     traffic: { q: QUERIES.traffic, live: true },
-    pods: { q: `sum(kube_pod_status_phase{${KSM},phase="Running"})`, format: (n) => `${Math.round(n)} pods`, fit: true },
+    errors: {
+      q: '(sum(rate(traefik_service_requests_total{code=~"5.."}[5m])) or vector(0)) / sum(rate(traefik_service_requests_total[5m]))',
+      format: (f) => (f === 0 ? '0%' : f < 0.001 ? '<0.1%' : `${(f * 100).toFixed(1)}%`),
+    },
     net: {
       q: 'sum(rate(container_network_receive_bytes_total{pod!=""}[5m])) + sum(rate(container_network_transmit_bytes_total{pod!=""}[5m]))',
       format: (b) => perSecond(b),
@@ -208,22 +211,50 @@
 
   // ---------- Verdict and facts ----------
 
+  // At most this many rows: with more issues the last row says how many were left out.
+  const MAX_ISSUE_ROWS = 4;
+
+  function makeRow(level, area, text, extra) {
+    const li = document.createElement('li');
+    li.dataset.level = level;
+    const a = document.createElement('span');
+    a.className = 'att-area';
+    a.textContent = area;
+    const t = document.createElement('span');
+    t.className = 'att-text';
+    t.textContent = text;
+    li.append(a, t);
+    if (extra) li.append(extra);
+    return li;
+  }
+
+  // The space under the title holds either the one-sentence summary (all is well) or a short
+  // table of what is wrong and where. Both live in the same fixed-height zone, so the card
+  // is the same size either way.
   function setVerdict(state, title, detail, issues) {
     const section = $('#verdict');
     section.dataset.state = state;
     $('#verdict-title').textContent = title;
-    $('#verdict-detail').textContent = detail || ' ';
+    const sentence = $('#verdict-detail');
+    sentence.textContent = detail || ' ';
     const list = $('#attention');
-    list.replaceChildren(...issues.map((i) => {
-      const li = document.createElement('li');
-      li.dataset.level = i.level;
-      li.textContent = i.text;
-      return li;
-    }));
+    const shown = issues.length > MAX_ISSUE_ROWS ? issues.slice(0, MAX_ISSUE_ROWS - 1) : issues;
+    const rows = shown.map((i) => makeRow(i.level, i.area, i.text));
+    if (shown.length < issues.length) {
+      const rest = issues.slice(shown.length);
+      const full = document.createElement('span');
+      full.className = 'vh';
+      full.textContent = ': ' + rest.map((i) => `${i.area} ${i.text}`).join('; ');
+      const more = makeRow('more', '', `+${rest.length} more`, full);
+      more.title = rest.map((i) => `${i.area}: ${i.text}`).join('\n');
+      rows.push(more);
+    }
+    list.replaceChildren(...rows);
     list.hidden = issues.length === 0;
+    sentence.hidden = issues.length !== 0;
 
-    const short = state === 'ok' ? 'all running' : state === 'unknown' ? 'no data'
-      : `${issues.length} to check`;
+    const short = state === 'ok' ? 'healthy' : state === 'unknown' ? 'no data'
+      : `${issues.length} ${pl(issues.length, 'issue', 'issues')}`;
     document.title = `Niflheim: ${short}`;
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='${FAVICON[state]}'/></svg>`;
     $('#favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
@@ -250,7 +281,7 @@
 
   function render(d) {
     const issues = [];
-    const add = (level, text) => issues.push({ level, text });
+    const add = (level, area, text) => issues.push({ level, area, text });
 
     const ready = byLabel(d.nodeReady, 'node');
     const cpuUse = byLabel(d.cpuUse, 'instance');
@@ -263,10 +294,10 @@
     for (const node of nodes) {
       const r = d.nodeReady === null ? null : ready.get(node);
       const { cpuFrac, memFrac } = showVM(node, r, cpuUse.get(node), cpuCap.get(node), memUse.get(node), memCap.get(node));
-      if (r === undefined) add('bad', `${node} is missing from the cluster.`);
-      else if (r === 0) add('bad', `${node} is not ready.`);
-      if (cpuFrac !== null && cpuFrac >= HIGH) add('warn', `${node} is using ${percent(cpuFrac)} of its CPU.`);
-      if (memFrac !== null && memFrac >= HIGH) add('warn', `${node} is using ${percent(memFrac)} of its memory.`);
+      if (r === undefined) add('bad', 'K3s node', `${node} missing`);
+      else if (r === 0) add('bad', 'K3s node', `${node} not ready`);
+      if (cpuFrac !== null && cpuFrac >= HIGH) add('warn', 'K3s node', `${node} CPU at ${percent(cpuFrac)}`);
+      if (memFrac !== null && memFrac >= HIGH) add('warn', 'K3s node', `${node} memory at ${percent(memFrac)}`);
     }
 
     const total = ready.size;
@@ -276,9 +307,9 @@
     const restarts = d.restarts === null ? null : Math.round(scalar(d.restarts));
     const short = scalar(d.deploysShort);
 
-    if (podsBad) add('bad', `${podsBad} ${pl(podsBad, 'pod is', 'pods are')} pending or failing.`);
-    if (short) add('warn', `${short} ${pl(short, 'deployment has', 'deployments have')} fewer replicas than wanted.`);
-    if (restarts !== null && restarts >= 5) add('warn', `${restarts} containers restarted in the last hour.`);
+    if (podsBad) add('bad', 'Pods', `${podsBad} pending or failing`);
+    if (short) add('warn', 'Deployments', `${short} below wanted replicas`);
+    if (restarts !== null && restarts >= 5) add('warn', 'Restarts', `${restarts} in the last hour`);
 
     // Facts
     const traffic = scalar(d.traffic);
@@ -312,7 +343,7 @@
       const pct = Math.round(Number(vol.value[1]));
       const level = pct >= 95 ? 'bad' : pct >= 85 ? 'warn' : '';
       setFact('f-volume', `${pct}% full`, `${vol.metric.persistentvolumeclaim} in ${vol.metric.namespace}`, level);
-      if (level) add(level, `Volume ${vol.metric.persistentvolumeclaim} in ${vol.metric.namespace} is ${pct}% full.`);
+      if (level) add(level, 'Volume', `${vol.metric.persistentvolumeclaim} ${pct}% full`);
     } else {
       setFact('f-volume', '–', '');
     }
@@ -327,8 +358,8 @@
       const days = expiry === null ? null : expiry / 86400;
       const level = certsReady < certsAll || (days !== null && days < 7) ? 'bad' : days !== null && days < 14 ? 'warn' : '';
       setFact('f-certs', `${certsReady} of ${certsAll} valid`, expiry === null ? '' : `${soonest.metric.name} expires in ${duration(expiry)}`, level);
-      if (certsReady < certsAll) add('bad', `${certsAll - certsReady} ${pl(certsAll - certsReady, 'certificate is', 'certificates are')} not ready.`);
-      else if (level) add(level, `A certificate expires in ${duration(expiry)}.`);
+      if (certsReady < certsAll) add('bad', 'Certificates', `${certsAll - certsReady} not ready`);
+      else if (level) add(level, 'Certificates', `${soonest.metric.name} expires in ${duration(expiry)}`);
     }
 
     renderNamespaces(d);
@@ -341,13 +372,13 @@
     issues.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
     const bad = issues.filter((i) => i.level === 'bad').length;
     let state = 'ok';
-    let title = 'Everything is running.';
+    let title = 'Homelab Healthy';
     if (bad) {
       state = 'bad';
-      title = `${issues.length} ${pl(issues.length, 'thing needs', 'things need')} attention.`;
+      title = `Homelab: ${issues.length} ${pl(issues.length, 'Issue', 'Issues')}`;
     } else if (issues.length) {
       state = 'warn';
-      title = `Running, with ${issues.length} ${pl(issues.length, 'thing', 'things')} to watch.`;
+      title = `Homelab: ${issues.length} ${pl(issues.length, 'Warning', 'Warnings')}`;
     }
 
     const parts = [];
@@ -474,7 +505,7 @@
     if (!pveSeen) return null;
     const note = $('#pve-note');
     if (!resources) {
-      add('warn', 'Proxmox did not answer.');
+      add('warn', 'Proxmox', 'not answering');
       note.textContent = 'Proxmox did not answer';
       for (const kind of PVE_SPARKS) setSpark(kind, null, String);
       return null;
@@ -484,12 +515,12 @@
     const online = nodes.filter((n) => n.status === 'online');
     for (const n of nodes) {
       if (n.status !== 'online') {
-        add('bad', `Proxmox host ${n.node} is ${n.status || 'not online'}.`);
+        add('bad', 'Proxmox', `${n.node} ${n.status || 'not online'}`);
         continue;
       }
       const mem = n.maxmem ? n.mem / n.maxmem : 0;
-      if (mem >= 0.9) add('warn', `Proxmox host ${n.node} is using ${percent(mem)} of its memory.`);
-      if (n.cpu >= 0.9) add('warn', `Proxmox host ${n.node} is using ${percent(n.cpu)} of its CPU.`);
+      if (mem >= 0.9) add('warn', 'Proxmox', `${n.node} memory at ${percent(mem)}`);
+      if (n.cpu >= 0.9) add('warn', 'Proxmox', `${n.node} CPU at ${percent(n.cpu)}`);
     }
     const cores = online.reduce((sum, n) => sum + (n.maxcpu || 0), 0);
     const maxmem = online.reduce((sum, n) => sum + (n.maxmem || 0), 0);
@@ -547,7 +578,7 @@
     for (const kind of [...Object.keys(SPARKS), ...PVE_SPARKS]) { setSpark(kind, null, String); drawSpark(kind, []); }
     sparkAt = 0;
     pveAt = 0;
-    setVerdict('unknown', "Can't read metrics.",
+    setVerdict('unknown', 'Homelab: No Data',
       'VictoriaMetrics did not answer, so the figures are blank. The app buttons still work. Trying again every 30 seconds.', []);
   }
 

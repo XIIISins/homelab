@@ -97,9 +97,11 @@
 
         <div class="hero">
           <section class="verdict" id="verdict" data-state="unknown" aria-labelledby="verdict-title">
-            <h2 class="verdict-title" id="verdict-title" aria-live="polite">Checking the cluster…</h2>
-            <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
-            <ul class="attention" id="attention" hidden></ul>
+            <h2 class="verdict-title" id="verdict-title" aria-live="polite">Checking homelab…</h2>
+            <div class="verdict-zone">
+              <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
+              <ul class="attention" id="attention" hidden></ul>
+            </div>
             <div class="deck" id="deck" role="group" aria-roledescription="carousel" aria-label="Trends">
               <div class="slides">
               <div class="slide" data-active data-slide="cluster" role="group" aria-roledescription="slide" aria-label="K3s cluster">
@@ -121,9 +123,9 @@
               </div>
               <div class="slide" data-slide="workloads" role="group" aria-roledescription="slide" aria-label="K3s workloads">
                 <div class="pulse">
-                <figure class="spark" data-kind="pods">
-                  <figcaption><span class="spark-label">Running pods</span><b class="spark-val">–</b></figcaption>
-                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Running pods over time"></svg>
+                <figure class="spark" data-kind="errors">
+                  <figcaption><span class="spark-label">Web errors</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web errors over time"></svg>
                 </figure>
                 <figure class="spark" data-kind="net">
                   <figcaption><span class="spark-label">Pod network</span><b class="spark-val">–</b></figcaption>
