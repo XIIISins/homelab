@@ -100,20 +100,71 @@
             <h2 class="verdict-title" id="verdict-title" aria-live="polite">Checking the cluster…</h2>
             <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
             <ul class="attention" id="attention" hidden></ul>
-            <div class="pulse" role="group" aria-label="The last six hours">
-              <figure class="spark" data-kind="cpu">
-                <figcaption><span class="spark-label">Cluster CPU</span><b class="spark-val">–</b></figcaption>
-                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster CPU over the last six hours"></svg>
-              </figure>
-              <figure class="spark" data-kind="mem">
-                <figcaption><span class="spark-label">Cluster memory</span><b class="spark-val">–</b></figcaption>
-                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster memory over the last six hours"></svg>
-              </figure>
-              <figure class="spark" data-kind="traffic">
-                <figcaption><span class="spark-label">Web traffic</span><b class="spark-val">–</b></figcaption>
-                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web traffic over the last six hours"></svg>
-              </figure>
-              <p class="pulse-note">The last six hours</p>
+            <div class="deck" id="deck" role="group" aria-roledescription="carousel" aria-label="Trends">
+              <div class="slides">
+              <div class="slide" data-active data-slide="cluster" role="group" aria-roledescription="slide" aria-label="K3s cluster">
+                <div class="pulse">
+                <figure class="spark" data-kind="cpu">
+                  <figcaption><span class="spark-label">Cluster CPU</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster CPU over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="mem">
+                  <figcaption><span class="spark-label">Cluster memory</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster memory over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="traffic">
+                  <figcaption><span class="spark-label">Web traffic</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web traffic over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note">K3s, the last six hours</p>
+              </div>
+              <div class="slide" data-slide="workloads" role="group" aria-roledescription="slide" aria-label="K3s workloads">
+                <div class="pulse">
+                <figure class="spark" data-kind="pods">
+                  <figcaption><span class="spark-label">Running pods</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Running pods over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="net">
+                  <figcaption><span class="spark-label">Pod network</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Pod network over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="vols">
+                  <figcaption><span class="spark-label">Volume use</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Volume use over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note">K3s, the last six hours</p>
+              </div>
+              <div class="slide" data-slide="proxmox" hidden role="group" aria-roledescription="slide" aria-label="Proxmox hosts">
+                <div class="pulse">
+                <figure class="spark" data-kind="pvecpu">
+                  <figcaption><span class="spark-label">Proxmox CPU</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox CPU over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="pvemem">
+                  <figcaption><span class="spark-label">Proxmox memory</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox memory over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="pvenet">
+                  <figcaption><span class="spark-label">Proxmox network</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox network over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note" id="pve-note">Proxmox, the last 24 hours</p>
+              </div>
+              </div>
+              <div class="deck-bar">
+                <div class="deck-tabs">
+                  <button type="button" class="deck-tab" data-go="cluster" aria-current="true"><span class="pre">K3s </span>cluster<span class="deck-timer" aria-hidden="true"></span></button>
+                  <button type="button" class="deck-tab" data-go="workloads"><span class="pre">K3s </span>workloads<span class="deck-timer" aria-hidden="true"></span></button>
+                  <button type="button" class="deck-tab" data-go="proxmox" hidden>Proxmox<span class="pre"> hosts</span><span class="deck-timer" aria-hidden="true"></span></button>
+                </div>
+                <button type="button" class="deck-play" id="deck-play" aria-label="Pause the rotation" title="Pause the rotation">
+                  <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                  <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
             </div>
           </section>
           <section class="group quick" data-tone="magenta" aria-labelledby="quick-title">

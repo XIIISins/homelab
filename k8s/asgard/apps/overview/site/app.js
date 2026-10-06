@@ -50,11 +50,25 @@
 
   // The six-hour trend lines in the status card (range queries, 5 minute steps).
   const SPARK_MS = 300_000;
+  // `live`: the number above the line comes from the 30 s instant queries; otherwise it is the
+  // last point of the line itself. Formats are wrapped because they are defined further down.
   const SPARKS = {
-    cpu: { q: CLUSTER_CPU },
-    mem: { q: CLUSTER_MEM },
-    traffic: { q: QUERIES.traffic },
+    cpu: { q: CLUSTER_CPU, live: true },
+    mem: { q: CLUSTER_MEM, live: true },
+    traffic: { q: QUERIES.traffic, live: true },
+    pods: { q: `sum(kube_pod_status_phase{${KSM},phase="Running"})`, format: (n) => `${Math.round(n)} pods`, fit: true },
+    net: {
+      q: 'sum(rate(container_network_receive_bytes_total{pod!=""}[5m])) + sum(rate(container_network_transmit_bytes_total{pod!=""}[5m]))',
+      format: (b) => perSecond(b),
+    },
+    vols: {
+      q: 'sum(max by(namespace,persistentvolumeclaim)(kubelet_volume_stats_used_bytes)) / sum(max by(namespace,persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes))',
+      format: (f) => percent(f),
+      fit: true,
+    },
   };
+  // The Proxmox slide is drawn from the Proxmox API, not from VictoriaMetrics.
+  const PVE_SPARKS = ['pvecpu', 'pvemem', 'pvenet'];
 
   const FAVICON = { ok: '#1b7360', warn: '#9a5b00', bad: '#ae3526', unknown: '#86a1b0' };
 
@@ -72,15 +86,32 @@
     return body.data.result;
   }
 
+  // Proxmox, read through Caddy (which holds the token): null when it did not answer, for
+  // any reason. Until it has answered once, the page treats that as "not connected".
+  // Capped at 3 s on its own: a Proxmox that is down must not hold up the K3s numbers.
+  async function fetchPve() {
+    try {
+      const res = await fetch('/api/pve/cluster/resources', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+      if (!res.ok) return null;
+      const body = await res.json();
+      return Array.isArray(body.data) ? body.data : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function readAll() {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
-      const entries = await Promise.all(Object.entries(QUERIES).map(async ([key, expr]) => {
-        try { return [key, await instant(expr, ctl.signal)]; } catch { return [key, null]; }
-      }));
+      const [entries, pve] = await Promise.all([
+        Promise.all(Object.entries(QUERIES).map(async ([key, expr]) => {
+          try { return [key, await instant(expr, ctl.signal)]; } catch { return [key, null]; }
+        })),
+        fetchPve(),
+      ]);
       if (entries.every(([, v]) => v === null)) throw new Error('no answer');
-      return Object.fromEntries(entries);
+      return { ...Object.fromEntries(entries), pve };
     } finally {
       clearTimeout(timer);
     }
@@ -304,6 +335,7 @@
     setSpark('cpu', scalar(d.clusterCpu), percent);
     setSpark('mem', scalar(d.clusterMem), percent);
     setSpark('traffic', traffic, reqRate);
+    const pveInfo = renderProxmox(d.pve, add);
 
     // Headline
     issues.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
@@ -324,6 +356,12 @@
     let detail = parts.length ? parts.join(' and ') + '.' : '';
     if (restarts === 0) detail += ' Nothing restarted in the last hour.';
     else if (restarts) detail += ` ${restarts} ${pl(restarts, 'container restarted', 'containers restarted')} in the last hour.`;
+
+    if (pveInfo) {
+      detail += pveInfo.online === pveInfo.total
+        ? ` All ${pveInfo.total} Proxmox hosts are online.`
+        : ` ${pveInfo.online} of ${pveInfo.total} Proxmox hosts are online.`;
+    }
 
     setVerdict(state, title, detail.trim(), issues);
   }
@@ -364,8 +402,19 @@
     const W = 120;
     const H = 36;
     const peak = Math.max(...values);
-    const top = peak * 1.15 || 1;     // honest scale: from zero, a little headroom
-    const points = values.map((v, i) => `${((i / (values.length - 1)) * W).toFixed(1)},${(H - 1 - (v / top) * (H - 4)).toFixed(1)}`);
+    // Honest scale: from zero, a little headroom. Slow-moving series (a pod count, a volume)
+    // would draw as a solid block that way, so those fit the data instead, with a minimum
+    // span so a one-pod wobble does not look like a swing.
+    let low = 0;
+    let top = peak * 1.15 || 1;
+    if (SPARKS[kind] && SPARKS[kind].fit) {
+      const floor = Math.min(...values);
+      const span = Math.max(peak - floor, peak * 0.05, 1e-9);
+      const mid = (peak + floor) / 2;
+      low = mid - span * 0.575;
+      top = mid + span * 0.575;
+    }
+    const points = values.map((v, i) => `${((i / (values.length - 1)) * W).toFixed(1)},${(H - 1 - ((v - low) / (top - low)) * (H - 4)).toFixed(1)}`);
     const line = 'M' + points.join('L');
     const make = (tag, attrs) => {
       const el = document.createElementNS(SVG_NS, tag);
@@ -395,19 +444,109 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const body = await res.json();
         const series = body.data.result[0];
-        drawSpark(kind, series ? series.values.map((v) => Number(v[1])).filter(Number.isFinite) : []);
+        const values = series ? series.values.map((v) => Number(v[1])).filter(Number.isFinite) : [];
+        drawSpark(kind, values);
+        if (!spark.live) setSpark(kind, values.length ? values[values.length - 1] : null, spark.format);
       } catch {
         drawSpark(kind, []);     // a missing trend line never hides the numbers
+        if (!spark.live) setSpark(kind, null, spark.format);
       }
     }));
+  }
+
+  // ---------- Proxmox ----------
+
+  let pveSeen = false;
+  let pveAt = 0;
+
+  function revealProxmox() {
+    for (const el of $$('[data-slide="proxmox"], [data-go="proxmox"]')) el.hidden = false;
+  }
+
+  // Hypervisor health from /cluster/resources. Returns what the headline sentence needs.
+  // Nothing is shown (and nothing complained about) until Proxmox has answered once: a
+  // missing token is a slide that is not there yet, not an error.
+  function renderProxmox(resources, add) {
+    if (resources && !pveSeen) {
+      pveSeen = true;
+      revealProxmox();
+    }
+    if (!pveSeen) return null;
+    const note = $('#pve-note');
+    if (!resources) {
+      add('warn', 'Proxmox did not answer.');
+      note.textContent = 'Proxmox did not answer';
+      for (const kind of PVE_SPARKS) setSpark(kind, null, String);
+      return null;
+    }
+    const nodes = resources.filter((r) => r.type === 'node');
+    const guests = resources.filter((r) => (r.type === 'lxc' || r.type === 'qemu') && !r.template);
+    const online = nodes.filter((n) => n.status === 'online');
+    for (const n of nodes) {
+      if (n.status !== 'online') {
+        add('bad', `Proxmox host ${n.node} is ${n.status || 'not online'}.`);
+        continue;
+      }
+      const mem = n.maxmem ? n.mem / n.maxmem : 0;
+      if (mem >= 0.9) add('warn', `Proxmox host ${n.node} is using ${percent(mem)} of its memory.`);
+      if (n.cpu >= 0.9) add('warn', `Proxmox host ${n.node} is using ${percent(n.cpu)} of its CPU.`);
+    }
+    const cores = online.reduce((sum, n) => sum + (n.maxcpu || 0), 0);
+    const maxmem = online.reduce((sum, n) => sum + (n.maxmem || 0), 0);
+    setSpark('pvecpu', cores ? online.reduce((sum, n) => sum + n.cpu * (n.maxcpu || 0), 0) / cores : null, percent);
+    setSpark('pvemem', maxmem ? online.reduce((sum, n) => sum + n.mem, 0) / maxmem : null, percent);
+    const running = guests.filter((g) => g.status === 'running').length;
+    note.textContent = `Proxmox, the last 24 hours. ${online.length} of ${nodes.length} hosts online, ${running} of ${guests.length} guests running.`;
+    if (Date.now() - pveAt >= SPARK_MS) loadProxmoxHistory(online.map((n) => n.node));
+    return { online: online.length, total: nodes.length };
+  }
+
+  // The day's history per host (30 minute points), summed into one line per graph. Only
+  // moments every answering host has a point for are kept, so a host that started
+  // reporting late does not bend the line.
+  async function loadProxmoxHistory(hosts) {
+    pveAt = Date.now();
+    const series = await Promise.all(hosts.map(async (host) => {
+      try {
+        const url = `/api/pve/nodes/${encodeURIComponent(host)}/rrddata?timeframe=day&cf=AVERAGE`;
+        const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS) });
+        if (!res.ok) return null;
+        const body = await res.json();
+        return Array.isArray(body.data) ? body.data : null;
+      } catch {
+        return null;
+      }
+    }));
+    const answered = series.filter(Boolean);
+    const byTime = new Map();
+    for (const points of answered) {
+      for (const p of points) {
+        if (p.time == null || p.cpu == null || p.memused == null || !p.memtotal) continue;
+        let t = byTime.get(p.time);
+        if (!t) byTime.set(p.time, (t = { hosts: 0, busy: 0, cores: 0, used: 0, total: 0, net: 0 }));
+        const cores = p.maxcpu || 1;
+        t.hosts += 1;
+        t.busy += p.cpu * cores;
+        t.cores += cores;
+        t.used += p.memused;
+        t.total += p.memtotal;
+        t.net += (p.netin || 0) + (p.netout || 0);
+      }
+    }
+    const moments = [...byTime.entries()].filter(([, t]) => t.hosts === answered.length).sort((a, b) => a[0] - b[0]).map(([, t]) => t);
+    drawSpark('pvecpu', moments.map((t) => t.busy / t.cores));
+    drawSpark('pvemem', moments.map((t) => t.used / t.total));
+    drawSpark('pvenet', moments.map((t) => t.net));
+    setSpark('pvenet', moments.length ? moments[moments.length - 1].net : null, perSecond);
   }
 
   function renderOutage() {
     for (const [node] of vms) showVM(node, null, null, null, null, null);
     for (const id of ['f-traffic', 'f-network', 'f-deploys', 'f-restarts', 'f-volume', 'f-storage', 'f-certs', 'f-scale']) setFact(id, '–', '');
     renderNamespaces({ nsMem: null, nsCpu: null });
-    for (const kind of Object.keys(SPARKS)) { setSpark(kind, null, String); drawSpark(kind, []); }
+    for (const kind of [...Object.keys(SPARKS), ...PVE_SPARKS]) { setSpark(kind, null, String); drawSpark(kind, []); }
     sparkAt = 0;
+    pveAt = 0;
     setVerdict('unknown', "Can't read metrics.",
       'VictoriaMetrics did not answer, so the figures are blank. The app buttons still work. Trying again every 30 seconds.', []);
   }
@@ -479,6 +618,7 @@
   }
 
   document.addEventListener('visibilitychange', () => {
+    deck.toggleAttribute('data-away', document.hidden);
     if (document.hidden) return;
     if (Date.now() - lastTry > POLL_MS) refresh();
     // A tab opened in the background has never probed; one left for a while is stale.
@@ -577,6 +717,52 @@
       find.select();
     }
   });
+
+  // ---------- The slideshow ----------
+  // Three sets of graphs (K3s cluster, K3s workloads, Proxmox) rotate in one place. The clock
+  // is a CSS animation on the active tab: when it ends, the next slide shows. Hovering or
+  // focusing the card, or leaving the tab, pauses the animation itself (see style.css), so
+  // there is no timer to keep in step here. A pause button is always there, and nothing
+  // rotates on its own for people who ask for reduced motion.
+
+  const deck = $('#deck');
+  const playButton = $('#deck-play');
+
+  const currentSlide = () => {
+    const slide = $('.slide[data-active]', deck);
+    return slide ? slide.dataset.slide : null;
+  };
+
+  function showSlide(name) {
+    for (const slide of $$('.slide', deck)) slide.toggleAttribute('data-active', slide.dataset.slide === name);
+    for (const tab of $$('.deck-tab', deck)) {
+      if (tab.dataset.go === name) tab.setAttribute('aria-current', 'true');
+      else tab.removeAttribute('aria-current');
+    }
+  }
+
+  function nextSlide() {
+    const slides = $$('.slide:not([hidden])', deck);
+    const i = slides.findIndex((slide) => slide.dataset.slide === currentSlide());
+    showSlide(slides[(i + 1) % slides.length].dataset.slide);
+  }
+
+  function setPlaying(on) {
+    deck.toggleAttribute('data-playing', on);
+    const label = on ? 'Pause the rotation' : 'Resume the rotation';
+    playButton.setAttribute('aria-label', label);
+    playButton.title = label;
+  }
+
+  deck.addEventListener('animationend', (e) => {
+    if (e.target.classList.contains('deck-timer')) nextSlide();
+  });
+  deck.addEventListener('click', (e) => {
+    const tab = e.target.closest('.deck-tab');
+    if (tab) showSlide(tab.dataset.go);
+  });
+  playButton.addEventListener('click', () => setPlaying(!deck.hasAttribute('data-playing')));
+  setPlaying(!matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   // ---------- Pinning the rail ----------
   // Hover opens the rail over the page; the pin keeps it open and gives it its own

@@ -393,12 +393,139 @@ a {
   background: var(--bad);
 }
 
+/* The trend slideshow: sets of three graphs, one visible at a time, stacked in
+   one grid cell so the card never changes height as it rotates. */
+.deck {
+  margin-top: 24px;
+}
+
+.slides {
+  display: grid;
+}
+
+.slide {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.45s ease, visibility 0s linear 0.45s;
+}
+
+.slide[data-active] {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.45s ease, visibility 0s;
+}
+
+.slide[hidden] {
+  display: none;
+}
+
+.deck-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.deck-tabs {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.deck-tab {
+  position: relative;
+  overflow: hidden;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg-3);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.deck-tab[hidden] {
+  display: none;
+}
+
+.deck-tab:hover {
+  color: var(--fg);
+}
+
+.deck-tab[aria-current="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
+}
+
+/* The clock: a thin bar that fills along the active tab. When it finishes the
+   script moves to the next slide. Hover, focus and a hidden tab pause it. */
+.deck-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--blue);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.deck[data-playing] .deck-tab[aria-current="true"] .deck-timer {
+  animation: deck-fill 9s linear forwards;
+}
+
+.deck:is(:hover, :focus-within) .deck-timer,
+.deck[data-away] .deck-timer {
+  animation-play-state: paused;
+}
+
+@keyframes deck-fill {
+  to { transform: scaleX(1); }
+}
+
+.deck-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--fg-3);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.deck-play:hover {
+  color: var(--fg);
+}
+
+.deck-play svg {
+  width: 14px;
+  height: 14px;
+}
+
+.deck-play .icon-play,
+.deck[data-playing] .deck-play .icon-pause {
+  display: block;
+}
+
+.deck-play .icon-pause,
+.deck[data-playing] .deck-play .icon-play {
+  display: none;
+}
+
 /* The last six hours: three trend lines, the current value above each. */
 .pulse {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 6px 22px;
-  margin-top: 24px;
 }
 
 .spark {
@@ -407,8 +534,15 @@ a {
   min-width: 0;
 }
 
-.spark[data-kind="mem"] { --c: var(--magenta); }
-.spark[data-kind="traffic"] { --c: var(--blue); }
+/* The same three colours in every slide, by position: cyan, magenta, blue.
+   (Green, yellow and red stay reserved for status.) */
+.spark[data-kind="mem"],
+.spark[data-kind="net"],
+.spark[data-kind="pvemem"] { --c: var(--magenta); }
+
+.spark[data-kind="traffic"],
+.spark[data-kind="vols"],
+.spark[data-kind="pvenet"] { --c: var(--blue); }
 
 .spark figcaption {
   display: flex;
@@ -462,6 +596,15 @@ a {
   .pulse {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     column-gap: 14px;
+  }
+
+  .deck-tab {
+    padding: 5px 10px;
+  }
+
+  /* "K3s cluster" becomes "cluster": the slide's caption names the source. */
+  .deck-tab .pre {
+    display: none;
   }
 
   .spark figcaption {
@@ -1112,6 +1255,7 @@ a {
   .app-link,
   .finder,
   .ns-bar i,
+  .slide,
   .shell {
     transition: none;
   }
