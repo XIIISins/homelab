@@ -25,4 +25,3 @@ zabbix_agent_host_groups:
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
   - "Jellyfin"
-
