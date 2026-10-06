@@ -4,7 +4,6 @@
 # the unattended-upgrade reboot window. Host layout:
 #   /opt/do1/                 this role (compose project "do1")
 #   /opt/do1/ts3-data/        TS3 state (SQLite DB, files) — bind mount, uid 9987
-#   /opt/do1/plantnet-proxy/  HeyLeaf build context at the pinned commit
 #   /opt/gatus, /etc/gatus    the 10b3 `gatus` role (own unprivileged user,
 #                             systemd binary — deliberately NOT in compose)
 offsite_root: /opt/do1
@@ -19,22 +18,15 @@ offsite_ts3_uid: 9987 # ts3server user inside the official image
 offsite_ts3_voice_port: 9987
 
 # ---- PlantNet proxy (HeyLeaf) ----
-# Built ON THE HOST from the HeyLeaf repo source — no registry, no CI. The
-# repo is private, so the source is exported on the CONTROL NODE (git archive
-# of the pinned commit) and unpacked on the host; no GitHub credential ever
-# lands on do1. Pin = last commit that touched plantnet-proxy-docker/
-# (2026-08-08, "plantnet-proxy-docker had no abuse protection and a broken
-# healthcheck"). Bump deliberately.
-offsite_plantnet_commit: 25fea29645ee191c44f71b694b2ca260a494accc
-offsite_plantnet_local_repo: "{{ lookup('env', 'HOME') }}/Dev/xiiisins/HeyLeaf" # controller checkout
-offsite_plantnet_subdir: plantnet-proxy-docker
-# HeyLeaf .gitignores package-lock.json, so the pinned commit has none and the
-# Dockerfile's `npm ci` cannot build from a git archive. The role ships the
-# controller checkout's (untracked) lockfile next to the exported source,
-# pinned by content hash so the build input stays reproducible. Bump the hash
-# deliberately (or drop this once HeyLeaf commits its lockfile).
-offsite_plantnet_lockfile_src: "{{ offsite_plantnet_local_repo }}/{{ offsite_plantnet_subdir }}/package-lock.json"
-offsite_plantnet_lockfile_sha256: dc2786762721c41cbd35fc1df3b43b658331e1ade42bfa51cd551d8e1ce991d7
+# Built by HeyLeaf CI (.github/workflows/plantnet-proxy-image.yml) and pushed
+# to GHCR; do1 only pulls. Pin = the immutable `sha-<commit>` tag of the HeyLeaf
+# commit to run. Bump deliberately (a homelab PR), then re-run
+# `do1.yml --tags offsite-node`.
+offsite_plantnet_image: ghcr.io/xiiisins/heyleaf-plantnet-proxy
+offsite_plantnet_tag: sha-REPLACE_WITH_HEYLEAF_COMMIT
+# Private package: Vault KV with `username` + `token` (classic PAT, read:packages
+# only). Empty string = anonymous pull (only if the package is made public).
+offsite_plantnet_ghcr_vault_path: ansible/do1/ghcr
 offsite_plantnet_loopback_port: 3000 # Caddy upstream; never published on a public interface
 # PlantNet API key: Vault KV `api_key` field (seeded 2026-10-01).
 offsite_plantnet_vault_path: ansible/do1/plantnet

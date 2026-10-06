@@ -19,9 +19,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   plantnet-proxy:
-    build:
-      context: {{ offsite_root }}/plantnet-proxy
-    image: plantnet-proxy:{{ offsite_plantnet_commit[:12] }}
+    image: {{ offsite_plantnet_image }}:{{ offsite_plantnet_tag }}
     container_name: plantnet-proxy
     restart: unless-stopped
     environment:
