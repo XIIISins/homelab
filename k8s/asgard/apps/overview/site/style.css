@@ -1181,7 +1181,9 @@ a {
    tall as the overview beside it. */
 @media (min-width: 1000px) {
   .rail-panel {
-    flex: 1;
+    /* --rail-h is set by app.js to end level with the lowest card shown; until then (or if
+       script fails) the panel fills the rail as before. It still shrinks if the window is short. */
+    flex: 0 1 var(--rail-h, 100%);
     overflow: hidden;
     width: calc(var(--rail-w) - 24px);
   }

@@ -808,7 +808,7 @@
   const factTiles = $$('.fact', factList);
   const wideScreen = matchMedia('(min-width: 1000px)');
 
-  function fitInsight() {
+  function trimInsight() {
     insightRegion.hidden = false;
     whereCard.hidden = false;
     factList.removeAttribute('data-wide');
@@ -837,6 +837,30 @@
       if (!overflowing()) break;
       step();
     }
+  }
+
+  // The rail ends level with the lowest card that is actually shown, not at the bottom of the
+  // window: when the bottom row is trimmed away (or does not fill the space it was given), the
+  // overview ends higher up and the rail should end with it.
+  function sizeRail() {
+    const shell = $('#shell');
+    if (!wideScreen.matches) {
+      shell.style.removeProperty('--rail-h');
+      return;
+    }
+    let bottom = $('.machines').getBoundingClientRect().bottom;
+    if (!insightRegion.hidden) {
+      for (const card of [whereCard, $('.facts')]) {
+        if (!card.hidden) bottom = Math.max(bottom, card.getBoundingClientRect().bottom);
+      }
+    }
+    const top = $('.rail-panel').getBoundingClientRect().top;
+    shell.style.setProperty('--rail-h', `${Math.max(0, Math.round(bottom - top))}px`);
+  }
+
+  function fitInsight() {
+    trimInsight();
+    sizeRail();
   }
 
   // Watch the whole main area, not the row itself: a row that has been dropped is display: none
