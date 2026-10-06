@@ -1,0 +1,15 @@
+# k8s/asgard/apps/overview/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: overview
+  namespace: overview
+spec:
+  type: ClusterIP
+  selector:
+    app: overview
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

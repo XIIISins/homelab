@@ -1,0 +1,98 @@
+# k8s/asgard/apps/overview/Caddyfile
+#
+# Serves the static overview page and a read-only window onto VictoriaMetrics.
+# Plain HTTP on :8080 (non-root); TLS terminates at Traefik upstream
+# (*.niflheim.xiiisins.com wildcard), same as apex-static.
+{
+	# No admin API, no ACME: nothing here needs either, and both would want a
+	# writable root filesystem.
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		# connect-src https: lets the page probe the app links (no-cors fetch)
+		# from the browser; everything else stays same-origin.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# Kubernetes probes.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# The only metrics paths the page needs: instant queries (the numbers) and
+	# range queries (the six-hour trend lines), exact paths, GET only. No admin
+	# API (delete_series, snapshots), no write paths. vmsingle is a headless
+	# Service; Caddy resolves it on each dial, so pod churn is fine.
+	@read {
+		method GET
+		path /api/v1/query /api/v1/query_range
+	}
+	handle @read {
+		reverse_proxy victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8428 {
+			transport http {
+				dial_timeout 3s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	# Proxmox, read-only. Two exact GET shapes: the cluster overview (nodes, guests,
+	# storage) and a node's history. Caddy adds the API token (a separate PVEAuditor
+	# identity, terraform/proxmox/overview-access/); the browser never sees it. The
+	# three hypervisors are tried in order, so one down does not blank the slide.
+	# Proxmox serves a self-signed certificate, hence no verification; these are
+	# IPs on the management VLAN, not names (internal-zone names can end up
+	# NXDOMAIN-cached in a pod: docs/known-issues/dns-adguard.md).
+	@pve {
+		method GET
+		path_regexp pve ^/api/pve/(cluster/resources|nodes/[a-z0-9-]+/rrddata)$
+	}
+	handle @pve {
+		rewrite * /api2/json/{re.pve.1}
+		reverse_proxy https://10.0.254.11:8006 https://10.0.254.12:8006 https://10.0.254.13:8006 {
+			lb_policy first
+			lb_try_duration 4s
+			lb_try_interval 250ms
+			fail_duration 20s
+			header_up Authorization "{env.OVERVIEW_PVE_AUTH}"
+			header_up -Cookie
+			transport http {
+				tls_insecure_skip_verify
+				dial_timeout 3s
+				response_header_timeout 10s
+			}
+		}
+	}
+
+	# Anything else under /api is deliberately a dead end.
+	handle /api/* {
+		respond "Not found" 404
+	}
+
+	# The font never changes, so it alone is cached for a week; the preload in
+	# index.html then costs nothing on repeat visits. (Two header directives
+	# for the same field do not override each other, so this is a separate
+	# handle rather than a second header line.)
+	@font path *.woff2
+	handle @font {
+		header Cache-Control "public, max-age=604800"
+		file_server
+	}
+
+	# Everything else is a handful of small files: always revalidate (cheap
+	# 304s) so a rollout is visible on the next load.
+	handle {
+		header Cache-Control "no-cache"
+		file_server
+	}
+}

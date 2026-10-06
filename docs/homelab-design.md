@@ -41,6 +41,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`services/asgard-lxcs.md`](services/asgard-lxcs.md) — full asgard LXC table (PBS, Zabbix, AdGuard, Tailscale, Factorio, Teamspeak, PostgreSQL, HAProxy, Jellyfin) + build-order revision.
 - [`services/factorio.md`](services/factorio.md) — Factorio LXC architecture (operator self-service via SFTPGo + reconcile loop). Template pattern for operator-managed services.
 - [`services/postgres.md`](services/postgres.md) — PostgreSQL LXC architecture (Fulla deployed 2026-05-17): PG 17 + TLS + scram-sha-256, management-role split, per-service DB provisioning, cluster build sequence.
+- [`services/overview.md`](services/overview.md) — Internal status page and app launcher at `overview.niflheim.xiiisins.com`: verdict sentence, per-machine CPU/memory, app buttons, read-only metrics path.
 - [`services/notifications.md`](services/notifications.md) — Hermod LXC (Phase 5h.2, planned): AppriseAPI aggregator, JSON schema, severity taxonomy, tag-driven Discord routing, source→tag mapping table.
 
 ### Operations — what's been done, what's decided, what's open

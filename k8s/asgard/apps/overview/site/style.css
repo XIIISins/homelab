@@ -1,0 +1,1566 @@
+/* Niflheim overview, in Tokyo Night (Night for dark, Day for light).
+   One typeface (Familjen Grotesk, OFL, latin subset, self-hosted). Status colours
+   (green, yellow, red) only carry meaning; the other accents only sort things:
+   magenta for everyday apps, blue for lab tools, cyan for hardware. */
+
+@font-face {
+  font-family: "Familjen Grotesk";
+  src: url("familjen-grotesk.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Registered so the gauge rings can animate their fill. inherits: the ring is
+   drawn by a pseudo-element that reads the value from its parent. */
+@property --v {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* The rail's width: one animated value drives the grid column and the panel,
+   so the overview resizes in step with it. */
+@property --rail-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 86px;
+}
+
+:root {
+  /* Tokyo Night (Night) */
+  --bg: #16161e;
+  --surface: #1a1b26;
+  --raised: #1f2335;
+  --line: #292e42;
+  --line-2: #3b4261;
+  --fg: #c0caf5;
+  --fg-2: #a9b1d6;
+  --fg-3: #828bb8;
+  --blue: #7aa2f7;
+  --cyan: #7dcfff;
+  --magenta: #bb9af7;
+  --ok: #9ece6a;
+  --warn: #e0af68;
+  --bad: #f7768e;
+  --none: #565f89;
+  --track-bg: #292e42;
+  --hi: rgb(255 255 255 / 0.04);
+  --lift: 0 12px 28px -16px rgb(0 0 0 / 0.7);
+  --font: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Tokyo Night Day; accents deepened a little so text stays readable */
+    --bg: #e1e2e7;
+    --surface: #ebecf1;
+    --raised: #f3f4f8;
+    --line: #c9cce0;
+    --line-2: #a8aecb;
+    --fg: #343b58;
+    --fg-2: #4a5275;
+    --fg-3: #5f6890;
+    --blue: #2a6fd1;
+    --cyan: #006f93;
+    --magenta: #8a47e0;
+    --ok: #4d6b2e;
+    --warn: #7a5a1e;
+    --bad: #c4204f;
+    --none: #848cb5;
+    --track-bg: #c9cce0;
+    --hi: rgb(255 255 255 / 0.7);
+    --lift: 0 12px 28px -18px rgb(52 59 88 / 0.35);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 1rem/1.5 var(--font);
+  font-variant-numeric: tabular-nums;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Two soft glows behind everything. A fixed pseudo-element, not a fixed
+   background, so scrolling stays cheap on phones. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 6% -8%, color-mix(in srgb, var(--blue) 12%, transparent), transparent 70%),
+    radial-gradient(820px 520px at 104% 108%, color-mix(in srgb, var(--magenta) 10%, transparent), transparent 70%);
+}
+
+h1, h2, h3, h4, p, dl, dd, ul {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+a {
+  color: inherit;
+}
+
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -64px;
+  padding: 8px 14px;
+  background: var(--blue);
+  color: var(--bg);
+  border-radius: 8px;
+  z-index: 10;
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ---------- Layout ---------- */
+
+/* Narrow screens: one column in the order that matters on a phone: headline,
+   everyday apps, the rest of the apps, then machine detail and facts. The
+   wrappers dissolve (display: contents) so `order` can interleave them. */
+.shell {
+  --rail-w: 86px;
+  display: grid;
+  gap: 20px;
+  padding: 18px 16px 56px;
+}
+
+.main,
+.page {
+  display: contents;
+}
+
+.top { order: 0; }
+.hero { order: 1; }
+.rail { order: 2; }
+.machines { order: 3; }
+.insight-fit { order: 4; }
+
+.shell[data-pinned] {
+  --rail-w: 344px;
+}
+
+.hero {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Wide screens: a slim rail on the left (icons only) and the overview beside
+   it. Hovering the rail, focusing it from the keyboard, or pinning it widens
+   the rail and the overview gives up that width. The rail is as tall as the
+   overview, no taller: it is a column of the page, not a fixed sidebar. */
+@media (min-width: 1000px) {
+  .shell {
+    /* Both columns use these, so the rail starts level with the header and
+       ends level with the last card. */
+    --pad-top: 28px;
+    --pad-bottom: 56px;
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+    transition: --rail-w 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) 0.06s;
+  }
+
+  .shell[data-pinned],
+  .shell:has(.rail :focus-visible) {
+    --rail-w: 344px;
+  }
+
+  .rail {
+    order: 0;
+    display: flex;
+    flex-direction: column;
+    /* 12px of air either side of the panel: rail width = panel width + 24px */
+    padding: var(--pad-top) 0 var(--pad-bottom) 12px;
+  }
+
+  .main {
+    display: block;
+    min-width: 0;
+    container: main / inline-size;
+  }
+
+  .page {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: var(--pad-top) 32px var(--pad-bottom) 12px;
+  }
+
+  .top,
+  .hero,
+  .machines,
+  .insight-fit {
+    order: 0;
+  }
+}
+
+@container main (min-width: 880px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+}
+
+/* The surfaces: one radius, one border, one faint top highlight. */
+.verdict,
+.machine,
+.fact,
+.where,
+.quick,
+.rail-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 var(--hi), var(--lift);
+}
+
+/* ---------- Header ---------- */
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.mark-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--cyan);
+}
+
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 14px 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--fg-2);
+  font-size: 0.8125rem;
+}
+
+.live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: ping 2.6s ease-out infinite;
+}
+
+.stamp[data-stale] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+
+.stamp[data-stale] .live {
+  background: var(--warn);
+  animation: none;
+}
+
+.stamp[data-down] .live {
+  background: var(--none);
+  animation: none;
+}
+
+@keyframes ping {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 7px transparent; }
+}
+
+/* ---------- Verdict: the headline ---------- */
+
+.verdict {
+  --state: var(--none);
+  container: verdict / inline-size;
+  position: relative;
+  padding: 26px 24px 24px;
+  min-height: 11rem;
+  overflow: hidden;
+  background:
+    radial-gradient(560px 230px at 0% 0%, color-mix(in srgb, var(--state) 15%, transparent), transparent 72%),
+    var(--surface);
+}
+
+/* A hairline of the state colour along the top edge. */
+.verdict::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--state), transparent 70%);
+}
+
+.verdict[data-state="ok"] { --state: var(--ok); }
+.verdict[data-state="warn"] { --state: var(--warn); }
+.verdict[data-state="bad"] { --state: var(--bad); }
+
+@media (min-width: 700px) {
+  .verdict {
+    padding: 34px 36px 32px;
+  }
+}
+
+.verdict-title {
+  font-size: clamp(1.75rem, 9cqi, 3.75rem);
+  font-weight: 650;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+/* Under the title: one fixed-height zone that holds either the summary sentence or, when
+   something is wrong, a short borderless table (component, what). The card is the same size
+   in both cases; four rows is the most it shows, then "+N more". */
+.verdict-zone {
+  position: relative;
+  margin-top: 14px;
+  padding-right: 46px;
+  min-height: 5.5rem;   /* four table rows, exactly */
+}
+
+.verdict-detail {
+  max-width: 48ch;
+  color: var(--fg-2);
+  font-size: 1.125rem;
+  text-wrap: pretty;
+}
+
+.verdict-detail[hidden],
+.attention[hidden] {
+  display: none;
+}
+
+.attention {
+  display: grid;
+  gap: 2px;
+  max-width: 44rem;
+}
+
+.attention li {
+  display: grid;
+  grid-template-columns: 8px 6rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  min-height: 1.25rem;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+}
+
+.attention li::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.attention li[data-level="bad"]::before {
+  background: var(--bad);
+}
+
+.attention li[data-level="more"]::before {
+  visibility: hidden;
+}
+
+.att-area {
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.att-text {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention li[data-level="more"] .att-text {
+  color: var(--fg-3);
+  font-weight: 400;
+}
+
+/* The trend slideshow: sets of three graphs, one visible at a time, stacked in
+   one grid cell so the card never changes height as it rotates. */
+.deck {
+  margin-top: 24px;
+}
+
+.slides {
+  display: grid;
+}
+
+.slide {
+  grid-area: 1 / 1;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.45s ease, visibility 0s linear 0.45s;
+}
+
+.slide[data-active] {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.45s ease, visibility 0s;
+}
+
+.slide[hidden] {
+  display: none;
+}
+
+/* The ticker: the round button in the corner of the text zone. Its ring is the clock
+   (it fills over nine seconds, then the next slide shows) and the button pauses and
+   resumes. Hovering or focusing the card, or leaving the browser tab, pauses the ring's
+   animation itself, so there is no timer to keep in step in script. */
+.ticker {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--fg-3);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ticker:hover {
+  color: var(--fg);
+}
+
+.ticker-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ticker-track,
+.ticker-fill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.ticker-track {
+  stroke: var(--line-2);
+}
+
+.ticker-fill {
+  stroke: var(--blue);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+}
+
+/* Two identical keyframes, swapped on every slide change (data-tick), restart the ring. */
+.verdict[data-playing][data-tick="a"] .ticker-fill {
+  animation: tick-a 9s linear forwards;
+}
+
+.verdict[data-playing][data-tick="b"] .ticker-fill {
+  animation: tick-b 9s linear forwards;
+}
+
+.verdict:is(:hover, :focus-within) .ticker-fill,
+.verdict[data-away] .ticker-fill {
+  animation-play-state: paused;
+}
+
+@keyframes tick-a {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes tick-b {
+  to { stroke-dashoffset: 0; }
+}
+
+.ticker svg:not(.ticker-ring) {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.ticker .icon-play,
+.verdict[data-playing] .ticker .icon-pause {
+  display: block;
+}
+
+.ticker .icon-pause,
+.verdict[data-playing] .ticker .icon-play {
+  display: none;
+}
+
+/* The last six hours: three trend lines, the current value above each. */
+.pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 6px 22px;
+}
+
+.spark {
+  --c: var(--cyan);
+  margin: 0;
+  min-width: 0;
+}
+
+/* The same three colours in every slide, by position: cyan, magenta, blue.
+   (Green, yellow and red stay reserved for status.) */
+.spark[data-kind="mem"],
+.spark[data-kind="net"],
+.spark[data-kind="pvemem"] { --c: var(--magenta); }
+
+.spark[data-kind="traffic"],
+.spark[data-kind="vols"],
+.spark[data-kind="pvenet"] { --c: var(--blue); }
+
+.spark figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 8px;
+}
+
+.spark-label {
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+}
+
+.spark-val {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.spark-svg {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: 6px;
+  overflow: visible;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-area {
+  fill: color-mix(in srgb, var(--c) 16%, transparent);
+  stroke: none;
+}
+
+.spark-base {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Phones: all three trend lines stay in one row, label above value. */
+@media (max-width: 520px) {
+  .pulse {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 14px;
+  }
+
+
+  .spark figcaption {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .spark-label {
+    font-size: 0.75rem;
+  }
+}
+
+.pulse-note {
+  grid-column: 1 / -1;
+  color: var(--fg-3);
+  font-size: 0.75rem;
+}
+
+/* ---------- Machines ---------- */
+
+.machines {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.machine {
+  padding: 18px 16px 8px;
+}
+
+.machine-name {
+  padding: 0 4px;
+  font-size: 1.375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.vm {
+  margin-top: 12px;
+  padding: 14px 12px 12px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.vm:last-child {
+  margin-bottom: 10px;
+}
+
+.vm-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.vm-name {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.vm-role {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+}
+
+.vm-role[data-role="cp"] {
+  color: var(--magenta);
+  background: color-mix(in srgb, var(--magenta) 15%, transparent);
+}
+
+/* A problem flag is a badge on the tile's corner, so showing it never changes the tile's height
+   (the page is exactly one window tall; an incident must not push it over). */
+.vm {
+  position: relative;
+}
+
+.vm-flag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 1px 9px;
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.vm-flag[hidden] {
+  display: none;
+}
+
+.gauges {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.meter {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  text-align: center;
+}
+
+/* The ring: a masked conic gradient on ::before, the percentage on top. */
+.m-ring {
+  --v: 0;
+  --fill: var(--cyan);
+  --track: color-mix(in srgb, var(--line-2) 60%, transparent);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  transition: --v 0.95s cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--i, 0) * 70ms);
+}
+
+.m-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--fill) calc(var(--v) * 360deg), var(--track) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+}
+
+.meter[data-kind="mem"] .m-ring {
+  --fill: var(--magenta);
+}
+
+.meter .m-ring[data-high] {
+  --fill: var(--warn);
+}
+
+.m-val {
+  position: relative;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.m-label {
+  margin-top: 2px;
+  color: var(--fg-2);
+  font-size: 0.8125rem;
+  font-weight: 550;
+}
+
+.m-sub {
+  color: var(--fg-3);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+/* ---------- Insight: busiest namespaces + facts ---------- */
+
+.insight {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container main (min-width: 880px) {
+  .insight {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  }
+}
+
+.where {
+  padding: 20px 22px 22px;
+}
+
+.card-title {
+  font-size: 1.375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.card-note {
+  margin-top: 2px;
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+}
+
+.ns-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.ns {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr) 5.25rem;
+  align-items: center;
+  gap: 14px;
+}
+
+.ns-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-bar {
+  --w: 0;
+  height: 8px;
+  background: var(--track-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ns-bar i {
+  display: block;
+  height: 100%;
+  background: var(--magenta);
+  border-radius: 4px;
+  transform-origin: left center;
+  transform: scaleX(var(--w));
+  transition: transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ns-val {
+  display: grid;
+  text-align: right;
+  line-height: 1.25;
+}
+
+.ns-val b {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.ns-val small {
+  color: var(--fg-3);
+  font-size: 0.75rem;
+}
+
+.fact-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+.fact {
+  padding: 15px 18px 14px;
+}
+
+.fact dt {
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.fact dd {
+  margin-top: 6px;
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.fact dd small {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.fact[data-level="warn"] dd { color: var(--warn); }
+.fact[data-level="bad"] dd { color: var(--bad); }
+
+/* ---------- Apps: the rail and the everyday tiles ---------- */
+
+.rail-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 0 8px;
+  /* A size container, so the labels can appear exactly when there is room. */
+  container: rail / inline-size;
+}
+
+.rail-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 11px 8px;
+}
+
+.pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: var(--fg-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.pin svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pin:hover {
+  color: var(--fg);
+  background: var(--raised);
+}
+
+.pin[aria-pressed="true"] {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+}
+
+.rail-title {
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.finder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 6px 4px;
+  padding: 0 14px;
+  min-height: 46px;
+  color: var(--fg-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.finder:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 24%, transparent);
+}
+
+.finder-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+#find {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+#find::placeholder {
+  color: var(--fg-3);
+}
+
+.finder kbd {
+  flex: none;
+  padding: 1px 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--fg-3);
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: 7px;
+}
+
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+.group {
+  --tone: var(--blue);
+}
+
+.group[data-tone="magenta"] { --tone: var(--magenta); }
+.group[data-tone="blue"] { --tone: var(--blue); }
+.group[data-tone="cyan"] { --tone: var(--cyan); }
+
+.group[hidden] {
+  display: none;
+}
+
+.group-title {
+  margin: 14px 10px 6px;
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.list {
+  display: grid;
+  gap: 2px;
+}
+
+.app[hidden] {
+  display: none;
+}
+
+.app-link,
+.app-multi {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  /* 6px (rail-scroll) + 1px border + 4px = 11px to the icon: 38px icon in a 60px
+     panel leaves 11px on the other side, so collapsed icons sit dead centre. */
+  padding: 5px 4px;
+  text-decoration: none;
+  border-radius: 14px;
+  border: 1px solid transparent;
+}
+
+.app-link {
+  transition: background-color 0.12s, border-color 0.12s;
+}
+
+.app-link:hover,
+.app-link:focus-visible {
+  background: var(--raised);
+  border-color: color-mix(in srgb, var(--tone) 45%, var(--line));
+}
+
+.app-link:focus-visible {
+  outline-offset: -2px;
+}
+
+.app-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+}
+
+.app-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-name {
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.app-desc {
+  color: var(--fg-3);
+  font-size: 0.875rem;
+  line-height: 1.3;
+  /* One line always: in the collapsed rail a wrapping caption would stretch the row. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-multi {
+  flex-wrap: nowrap;
+}
+
+.app-subs {
+  display: flex;
+  gap: 6px;
+  margin-right: 6px;
+}
+
+.app-sub {
+  min-width: 42px;
+  padding: 4px 8px;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  border-radius: 10px;
+}
+
+.app-sub:hover {
+  background: color-mix(in srgb, var(--tone) 24%, transparent);
+}
+
+/* Reachability: a badge on the corner of the icon, so it shows when the rail
+   is collapsed too. Hollow until the probe answers. */
+.dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--none);
+  background: var(--surface);
+}
+
+.app-link[data-up="1"] .dot {
+  border-color: var(--surface);
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
+}
+
+.app-link[data-up="0"] .dot {
+  border-color: var(--surface);
+  background: var(--bad);
+}
+
+.none {
+  margin: 18px 10px;
+  color: var(--fg-3);
+}
+
+/* The rail panel on wide screens: as wide as the rail minus its margins, as
+   tall as the overview beside it. */
+@media (min-width: 1000px) {
+  .rail-panel {
+    flex: 1;
+    overflow: hidden;
+    width: calc(var(--rail-w) - 24px);
+  }
+}
+
+/* Hover widens it only where hover exists; touch screens use the pin button. */
+@media (min-width: 1000px) and (hover: hover) {
+  .shell:has(.rail:hover) {
+    --rail-w: 344px;
+  }
+}
+
+/* Labels fade in only once the panel is wide enough to hold them. */
+@container rail (max-width: 199px) {
+  .rail-title,
+  .app-text,
+  .app-subs,
+  .group-title,
+  #find,
+  .finder kbd {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .app-multi .app-subs {
+    display: none;
+  }
+}
+
+@container rail (min-width: 200px) {
+  .rail-title,
+  .app-text,
+  .app-subs,
+  .group-title,
+  #find,
+  .finder kbd {
+    transition: opacity 0.15s 0.08s;
+  }
+
+  .app-multi .app-subs {
+    display: flex;
+  }
+}
+
+/* No pin button where there is no rail to pin. */
+@media (max-width: 999px) {
+  .pin,
+  .rail-top {
+    display: none;
+  }
+}
+
+/* Everyday apps: bigger tiles in the main area. */
+.quick {
+  padding: 4px 14px 14px;
+}
+
+.quick .group-title {
+  margin: 14px 4px 10px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+}
+
+.quick .list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick .app-link {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 118px;
+  padding: 14px;
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.quick .app-link:hover,
+.quick .app-link:focus-visible {
+  background: color-mix(in srgb, var(--tone) 9%, var(--raised));
+}
+
+.quick .app-icon {
+  width: 42px;
+  height: 42px;
+  font-size: 1rem;
+}
+
+.quick .app-name {
+  font-size: 1.0625rem;
+}
+
+.quick .app-desc {
+  font-size: 0.8125rem;
+  white-space: normal;
+}
+
+/* ---------- Fit to the window (wide screens) ----------
+   The page is exactly one window tall: header, headline card and machines keep their size
+   (tightened in steps as the window gets shorter, below) and the bottom row takes whatever
+   is left. app.js trims that row one item at a time until it fits, so namespaces shrink row
+   by row and a card disappears when there is no room for it. */
+@media (min-width: 1000px) {
+  .shell {
+    --pad-top: 22px;
+    --pad-bottom: 22px;
+    height: 100vh;
+    height: 100dvh;
+    /* Below this the tiers stop helping; the page scrolls instead of clipping. */
+    min-height: 612px;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .rail {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .main {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page {
+    height: 100%;
+    gap: 16px;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+  }
+
+  .insight-fit {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .insight {
+    gap: 16px;
+    align-content: start;
+  }
+
+  .verdict {
+    min-height: 0;
+    padding: 20px 28px 18px;
+  }
+
+  .verdict-zone {
+    min-height: 5.25rem;
+  }
+
+  .attention li {
+    min-height: 1.1875rem;
+  }
+
+  .deck {
+    margin-top: 14px;
+  }
+
+  .machines {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .machine {
+    padding: 12px 14px 2px;
+  }
+
+  .machine-name {
+    font-size: 1.25rem;
+  }
+
+  .vm {
+    margin-top: 8px;
+    padding: 9px 10px 7px;
+  }
+
+  .vm:last-child {
+    margin-bottom: 8px;
+  }
+
+  .gauges {
+    margin-top: 8px;
+  }
+
+  .m-ring {
+    width: 54px;
+    height: 54px;
+  }
+
+  .where {
+    padding: 16px 18px 18px;
+  }
+
+  .ns-list {
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .fact-list {
+    gap: 16px;
+  }
+
+  .fact {
+    padding: 10px 14px 9px;
+  }
+
+  .fact dd {
+    margin-top: 4px;
+    font-size: 1.125rem;
+  }
+
+  .fact dd small {
+    margin-top: 2px;
+  }
+}
+
+/* Fit mode keeps the headline card and the everyday tiles side by side even when an open rail
+   leaves the overview narrow; stacking them would be 200 px taller than any window allows. */
+@container main (min-width: 560px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+}
+
+/* A narrow overview (an open rail on a small window) wraps more, so it loses the small print
+   that does the wrapping: the tiles' captions and the role pills. */
+@container main (max-width: 780px) {
+  .quick .app-desc,
+  .vm-role {
+    display: none;
+  }
+
+  .quick .app-link {
+    min-height: 66px;
+  }
+}
+
+/* Shorter windows: the same page, tightened in two steps. First the graphs and gauges get
+   smaller and lose their small print; below that the graphs go and the tiles lose their
+   captions. (Thresholds are the heights at which the step before no longer fits.) */
+@media (min-width: 1000px) and (max-height: 824px) {
+  .page {
+    gap: 12px;
+  }
+
+  .verdict {
+    padding: 16px 24px 14px;
+  }
+
+  .verdict-title {
+    font-size: clamp(1.75rem, 8cqi, 3.25rem);
+  }
+
+  .verdict-zone {
+    min-height: 4.75rem;
+    margin-top: 8px;
+  }
+
+  .attention li {
+    min-height: 1.125rem;
+  }
+
+  .deck {
+    margin-top: 10px;
+  }
+
+  .spark-svg {
+    height: 30px;
+    margin-top: 4px;
+  }
+
+  .pulse-note {
+    display: none;
+  }
+
+  .quick {
+    padding: 2px 12px 12px;
+  }
+
+  .quick .group-title {
+    margin: 10px 4px 8px;
+  }
+
+  .quick .app-link {
+    min-height: 80px;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .quick .app-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .machine {
+    padding: 10px 12px 2px;
+  }
+
+  .vm {
+    margin-top: 8px;
+    padding: 8px 10px 6px;
+  }
+
+  .vm:last-child {
+    margin-bottom: 6px;
+  }
+
+  .gauges {
+    margin-top: 4px;
+  }
+
+  .m-ring {
+    width: 44px;
+    height: 44px;
+  }
+
+  .m-sub {
+    display: none;
+  }
+
+  .m-label {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1000px) and (max-height: 650px) {
+  .deck,
+  .ticker {
+    display: none;
+  }
+
+  .verdict {
+    min-height: 0;
+  }
+
+  .quick .app-desc {
+    display: none;
+  }
+
+  .quick .app-link {
+    min-height: 62px;
+  }
+
+  .vm-role {
+    display: none;
+  }
+}
+
+/* Pieces the fit script has dropped. (A class that sets `display` beats the UA's [hidden].) */
+.ns[hidden],
+.fact[hidden],
+.where[hidden],
+.insight-fit[hidden] {
+  display: none;
+}
+
+/* With the namespaces card gone, the tiles take the whole row, four across. */
+.fact-list[data-wide] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.insight:has(.where[hidden]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-ring,
+  .app-link,
+  .finder,
+  .ns-bar i,
+  .slide,
+  .shell {
+    transition: none;
+  }
+
+  .live {
+    animation: none;
+  }
+}

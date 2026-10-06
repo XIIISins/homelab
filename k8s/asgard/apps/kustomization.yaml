@@ -64,3 +64,9 @@ resources:
   # Ansible role instead). Bucket/IAM in terraform/aws/backups.tf, Vault policy
   # in terraform/vault/backups.tf, docs/procedures/offsite-backups.md.
   - backups
+  # Homelab overview page — internal-only at overview.niflheim.xiiisins.com.
+  # Static page on Caddy; the browser reads cluster health through a
+  # read-only /api/v1/query proxy to VictoriaMetrics. Separate from startpage
+  # (the personal bookmarks page at home.xiiisins.com), which it does not touch.
+  # AGH rewrite in terraform/adguard/rewrites.tf; VPA in vpa-config/overview.yaml.
+  - overview

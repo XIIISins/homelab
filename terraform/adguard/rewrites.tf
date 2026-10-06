@@ -145,6 +145,10 @@ locals {
     # No midgard / apex alias — operator UI, not user-facing.
     "semaphore.niflheim.xiiisins.com" = "10.0.20.10"
 
+    # Homelab overview page — K8s-fronted, internal-only (k8s/asgard/apps/overview/).
+    # Its only consumer is a browser, so no CoreDNS rewrite is needed.
+    "overview.niflheim.xiiisins.com" = "10.0.20.10"
+
     # HashiCorp Vault UI — K8s-fronted, internal-only, behind Authentik
     # OIDC (Phase 6 Stage 1). Unlike the other 10.0.20.10 entries this
     # needs NO CoreDNS rewrite: the only consumers are the operator's

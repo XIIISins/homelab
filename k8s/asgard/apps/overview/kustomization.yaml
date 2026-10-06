@@ -1,0 +1,30 @@
+# k8s/asgard/apps/overview/kustomization.yaml
+#
+# Homelab overview page: internal-only at overview.niflheim.xiiisins.com.
+# Static page + Caddy, no image build. The page and the Caddyfile come from
+# generated ConfigMaps WITH the default name hash, so any content change gets
+# a new ConfigMap name, kustomize rewrites the Deployment's reference, and the
+# pods roll on their own. (No subPath mounts either: see
+# docs/known-issues/flux-helm-kustomize.md.)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - externalsecret.yaml
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+
+configMapGenerator:
+  - name: overview-site
+    namespace: overview
+    files:
+      - site/index.html
+      - site/style.css
+      - site/app.js
+      - site/familjen-grotesk.woff2
+  - name: overview-caddy
+    namespace: overview
+    files:
+      - Caddyfile

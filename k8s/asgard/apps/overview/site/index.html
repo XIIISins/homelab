@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#e1e2e7" media="(prefers-color-scheme: light)">
+  <title>Niflheim overview</title>
+  <meta name="description" content="Cluster health and links to the homelab apps. Reachable from the home network only.">
+  <link rel="preload" href="familjen-grotesk.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23565f89'/%3E%3C/svg%3E">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the overview</a>
+  <div class="shell" id="shell">
+    <aside class="rail" id="rail" aria-label="Apps">
+      <div class="rail-panel">
+        <div class="rail-top">
+          <button class="pin" id="pin" type="button" aria-pressed="false" title="Keep the app list open">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4zM9.5 5.5v13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <span class="vh">Keep the app list open</span>
+          </button>
+          <span class="rail-title">Apps</span>
+        </div>
+        <label class="finder">
+          <svg class="finder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.3-4.3M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span class="vh">Find an app</span>
+          <input id="find" type="search" placeholder="Jump to an app" autocomplete="off" spellcheck="false">
+          <kbd aria-hidden="true">/</kbd>
+        </label>
+        <div class="rail-scroll">
+        <div class="group" data-tone="blue">
+          <h3 class="group-title">Run the lab</h3>
+          <ul class="list">
+          <li class="app" data-keywords="zabbix host and service alerts hugin monitoring alerts">
+            <a class="app-link" href="https://hugin.midgard.xiiisins.com" data-probe title="Zabbix: Host and service alerts"><span class="app-icon" aria-hidden="true">Z<i class="dot"></i></span><span class="app-text"><span class="app-name">Zabbix</span><span class="app-desc">Host and service alerts</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="victoriametrics query cluster metrics metrics vmui promql">
+            <a class="app-link" href="https://metric.niflheim.xiiisins.com" data-probe title="VictoriaMetrics: Query cluster metrics"><span class="app-icon" aria-hidden="true">VM<i class="dot"></i></span><span class="app-text"><span class="app-name">VictoriaMetrics</span><span class="app-desc">Query cluster metrics</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="victorialogs search logs from every host logs logsql">
+            <a class="app-link" href="https://logs.niflheim.xiiisins.com" data-probe title="VictoriaLogs: Search logs from every host"><span class="app-icon" aria-hidden="true">VL<i class="dot"></i></span><span class="app-text"><span class="app-name">VictoriaLogs</span><span class="app-desc">Search logs from every host</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="semaphore ansible runs and drift checks ansible playbooks drift">
+            <a class="app-link" href="https://semaphore.niflheim.xiiisins.com" data-probe title="Semaphore: Ansible runs and drift checks"><span class="app-icon" aria-hidden="true">S<i class="dot"></i></span><span class="app-text"><span class="app-name">Semaphore</span><span class="app-desc">Ansible runs and drift checks</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="netbox devices, ip addresses and vlans ipam dcim inventory">
+            <a class="app-link" href="https://netbox.niflheim.xiiisins.com" data-probe title="NetBox: Devices, IP addresses and VLANs"><span class="app-icon" aria-hidden="true">N<i class="dot"></i></span><span class="app-text"><span class="app-name">NetBox</span><span class="app-desc">Devices, IP addresses and VLANs</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="vault secrets hashicorp secrets passwords">
+            <a class="app-link" href="https://vault.niflheim.xiiisins.com" data-probe title="Vault: Secrets"><span class="app-icon" aria-hidden="true">V<i class="dot"></i></span><span class="app-text"><span class="app-name">Vault</span><span class="app-desc">Secrets</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="authentik users, groups and single sign-on sso login identity oidc">
+            <a class="app-link" href="https://authentik.midgard.xiiisins.com" data-probe title="Authentik: Users, groups and single sign-on"><span class="app-icon" aria-hidden="true">A<i class="dot"></i></span><span class="app-text"><span class="app-name">Authentik</span><span class="app-desc">Users, groups and single sign-on</span></span><span class="vh status"></span></a>
+          </li>
+          </ul>
+        </div>
+        <div class="group" data-tone="cyan">
+          <h3 class="group-title">Machines and network</h3>
+          <ul class="list">
+          <li class="app app-multi" data-keywords="proxmox consoles hypervisor vms urd verd skuld">
+            <span class="app-icon" aria-hidden="true">Px</span>
+            <span class="app-text"><span class="app-name">Proxmox</span><span class="app-desc">Consoles</span></span>
+            <span class="app-subs"><a class="app-sub" href="https://urd.niflheim.xiiisins.com:8006">Urd</a><a class="app-sub" href="https://verd.niflheim.xiiisins.com:8006">Verd</a><a class="app-sub" href="https://skuld.niflheim.xiiisins.com:8006">Skuld</a></span>
+          </li>
+          <li class="app" data-keywords="proxmox backup backups of every vm and container pbs backups">
+            <a class="app-link" href="https://pbs.niflheim.xiiisins.com:8007" title="Proxmox Backup: Backups of every VM and container"><span class="app-icon" aria-hidden="true">PB</span><span class="app-text"><span class="app-name">Proxmox Backup</span><span class="app-desc">Backups of every VM and container</span></span></a>
+          </li>
+          <li class="app" data-keywords="synology munin, the nas nas dsm munin storage">
+            <a class="app-link" href="https://munin.niflheim.xiiisins.com:5001" title="Synology: Munin, the NAS"><span class="app-icon" aria-hidden="true">Sy</span><span class="app-text"><span class="app-name">Synology</span><span class="app-desc">Munin, the NAS</span></span></a>
+          </li>
+          <li class="app" data-keywords="adguard home dns queries and filters dns saga">
+            <a class="app-link" href="http://adguard.niflheim.xiiisins.com" title="AdGuard Home: DNS queries and filters"><span class="app-icon" aria-hidden="true">AG</span><span class="app-text"><span class="app-name">AdGuard Home</span><span class="app-desc">DNS queries and filters</span></span></a>
+          </li>
+          <li class="app" data-keywords="router ucg-ultra gateway and firewall ucg unifi firewall gateway">
+            <a class="app-link" href="https://10.0.254.1" title="Router: UCG-Ultra gateway and firewall"><span class="app-icon" aria-hidden="true">Rt</span><span class="app-text"><span class="app-name">Router</span><span class="app-desc">UCG-Ultra gateway and firewall</span></span></a>
+          </li>
+          </ul>
+        </div>
+          <p class="none" id="none" hidden>No app matches that. Clear the search to see them all.</p>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main" id="main">
+      <div class="page">
+        <header class="top">
+          <h1 class="mark">
+            <svg class="mark-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5v19M3.8 7.25l16.4 9.5M3.8 16.75l16.4-9.5M9.5 4.2 12 6.5l2.5-2.3M9.5 19.8 12 17.5l2.5 2.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Niflheim
+          </h1>
+          <p class="stamp" id="stamp"><span class="live" aria-hidden="true"></span><span id="stamp-text">Reading metrics…</span></p>
+        </header>
+
+        <div class="hero">
+          <section class="verdict" id="verdict" data-state="unknown" aria-labelledby="verdict-title">
+            <h2 class="verdict-title" id="verdict-title" aria-live="polite">Checking homelab…</h2>
+            <div class="verdict-zone">
+              <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
+              <ul class="attention" id="attention" hidden></ul>
+              <button type="button" class="ticker" id="deck-play" aria-label="Pause the rotation" title="Pause the rotation (left and right arrow keys change slide)">
+                <svg class="ticker-ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="ticker-track" cx="16" cy="16" r="14"/><circle class="ticker-fill" cx="16" cy="16" r="14" pathLength="100"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7v10M15 7v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 7v10l8-5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <div class="deck" role="group" aria-roledescription="carousel" aria-label="Trends">
+              <div class="slides">
+              <div class="slide" data-active data-slide="cluster" role="group" aria-roledescription="slide" aria-label="K3s cluster">
+                <div class="pulse">
+                <figure class="spark" data-kind="cpu">
+                  <figcaption><span class="spark-label">Cluster CPU</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster CPU over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="mem">
+                  <figcaption><span class="spark-label">Cluster memory</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster memory over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="traffic">
+                  <figcaption><span class="spark-label">Web traffic</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web traffic over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note">K3s cluster, last six hours</p>
+              </div>
+              <div class="slide" data-slide="workloads" role="group" aria-roledescription="slide" aria-label="K3s workloads">
+                <div class="pulse">
+                <figure class="spark" data-kind="errors">
+                  <figcaption><span class="spark-label">Web errors</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web errors over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="net">
+                  <figcaption><span class="spark-label">Pod network</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Pod network over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="vols">
+                  <figcaption><span class="spark-label">Volume use</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Volume use over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note">K3s workloads, last six hours</p>
+              </div>
+              <div class="slide" data-slide="proxmox" hidden role="group" aria-roledescription="slide" aria-label="Proxmox hosts">
+                <div class="pulse">
+                <figure class="spark" data-kind="pvecpu">
+                  <figcaption><span class="spark-label">Proxmox CPU</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox CPU over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="pvemem">
+                  <figcaption><span class="spark-label">Proxmox memory</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox memory over time"></svg>
+                </figure>
+                <figure class="spark" data-kind="pvenet">
+                  <figcaption><span class="spark-label">Proxmox network</span><b class="spark-val">–</b></figcaption>
+                  <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox network over time"></svg>
+                </figure>
+                </div>
+                <p class="pulse-note" id="pve-note">Proxmox hosts, last 24 hours</p>
+              </div>
+              </div>
+            </div>
+          </section>
+          <section class="group quick" data-tone="magenta" aria-labelledby="quick-title">
+          <h2 class="group-title" id="quick-title">Every day</h2>
+          <ul class="list">
+          <li class="app" data-keywords="outline wiki and notes wiki docs notes">
+            <a class="app-link" href="https://wiki.midgard.xiiisins.com" data-probe title="Outline: Wiki and notes"><span class="app-icon" aria-hidden="true">O<i class="dot"></i></span><span class="app-text"><span class="app-name">Outline</span><span class="app-desc">Wiki and notes</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="immich photos and videos photos pictures gallery">
+            <a class="app-link" href="https://immich.midgard.xiiisins.com" data-probe title="Immich: Photos and videos"><span class="app-icon" aria-hidden="true">I<i class="dot"></i></span><span class="app-text"><span class="app-name">Immich</span><span class="app-desc">Photos and videos</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="microbin share text and files by link paste pastebin share">
+            <a class="app-link" href="https://paste.xiiisins.com" data-probe title="MicroBin: Share text and files by link"><span class="app-icon" aria-hidden="true">M<i class="dot"></i></span><span class="app-text"><span class="app-name">MicroBin</span><span class="app-desc">Share text and files by link</span></span><span class="vh status"></span></a>
+          </li>
+          <li class="app" data-keywords="bookmarks your personal start page startpage start home links">
+            <a class="app-link" href="https://home.xiiisins.com" data-probe title="Bookmarks: Your personal start page"><span class="app-icon" aria-hidden="true">B<i class="dot"></i></span><span class="app-text"><span class="app-name">Bookmarks</span><span class="app-desc">Your personal start page</span></span><span class="vh status"></span></a>
+          </li>
+          </ul>
+        </section>
+        </div>
+
+        <section class="machines" aria-label="The three machines and the nodes on them">
+      <article class="machine">
+        <h3 class="machine-name">Urd</h3>
+        <div class="vm" data-node="gondul">
+          <div class="vm-head"><h4 class="vm-name">gondul</h4><span class="vm-role" data-role="cp">control plane</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="gondul CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="gondul Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+        <div class="vm" data-node="einherjar-urd">
+          <div class="vm-head"><h4 class="vm-name">einherjar-urd</h4><span class="vm-role" data-role="worker">worker</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="einherjar-urd CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="einherjar-urd Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+      </article>
+      <article class="machine">
+        <h3 class="machine-name">Verd</h3>
+        <div class="vm" data-node="hlokk">
+          <div class="vm-head"><h4 class="vm-name">hlokk</h4><span class="vm-role" data-role="cp">control plane</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="hlokk CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="hlokk Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+        <div class="vm" data-node="einherjar-verd">
+          <div class="vm-head"><h4 class="vm-name">einherjar-verd</h4><span class="vm-role" data-role="worker">worker</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="einherjar-verd CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="einherjar-verd Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+      </article>
+      <article class="machine">
+        <h3 class="machine-name">Skuld</h3>
+        <div class="vm" data-node="sigrun">
+          <div class="vm-head"><h4 class="vm-name">sigrun</h4><span class="vm-role" data-role="cp">control plane</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="sigrun CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="sigrun Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+        <div class="vm" data-node="einherjar-skuld">
+          <div class="vm-head"><h4 class="vm-name">einherjar-skuld</h4><span class="vm-role" data-role="worker">worker</span></div>
+          <div class="gauges">
+            <div class="meter" data-kind="cpu" title="Average over the last 5 minutes">
+              <span class="m-ring" role="meter" aria-label="einherjar-skuld CPU use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">CPU</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+            <div class="meter" data-kind="mem" title="Used by pods, out of what Kubernetes can allocate on this node">
+              <span class="m-ring" role="meter" aria-label="einherjar-skuld Memory use" aria-valuemin="0" aria-valuemax="100"><b class="m-val">–</b></span>
+              <span class="m-label">Memory</span>
+              <span class="m-sub">&nbsp;</span>
+            </div>
+          </div>
+          <p class="vm-flag" hidden>Not ready</p>
+        </div>
+      </article>
+        </section>
+
+        <div class="insight-fit">
+        <div class="insight">
+          <section class="where" aria-labelledby="where-title">
+            <h2 class="card-title" id="where-title">Busiest namespaces</h2>
+            <p class="card-note">Memory used by pods, with CPU beside it</p>
+            <ul class="ns-list" id="ns-list">
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+            </ul>
+          </section>
+
+          <section class="facts" aria-label="Traffic, storage, deployments and certificates">
+            <dl class="fact-list">
+            <div class="fact" id="f-deploys"><dt>Deployments</dt><dd>–</dd></div>
+            <div class="fact" id="f-restarts"><dt>Restarts in the last hour</dt><dd>–</dd></div>
+            <div class="fact" id="f-volume"><dt>Fullest volume</dt><dd>–</dd></div>
+            <div class="fact" id="f-certs"><dt>Certificates</dt><dd>–</dd></div>
+            <div class="fact" id="f-traffic"><dt>Web traffic</dt><dd>–</dd></div>
+            <div class="fact" id="f-network"><dt>Pod network</dt><dd>–</dd></div>
+            <div class="fact" id="f-storage"><dt>Volumes in total</dt><dd>–</dd></div>
+            <div class="fact" id="f-scale"><dt>Running now</dt><dd>–</dd></div>
+            </dl>
+          </section>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
