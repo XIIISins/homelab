@@ -67,11 +67,13 @@
   when: offsite_plantnet_ghcr_vault_path | length > 0
   tags: [offsite-node, offsite-node:plantnet]
 
+# The CLI keeps this free of a community.docker dependency (collection pin +
+# Docker SDK/requests on the host); the token goes via stdin, never argv.
 - name: Log in to GHCR
-  community.docker.docker_login:
-    registry_url: ghcr.io
-    username: "{{ offsite_plantnet_ghcr.username }}"
-    password: "{{ offsite_plantnet_ghcr.token }}"
+  ansible.builtin.command:
+    cmd: docker login ghcr.io --username {{ offsite_plantnet_ghcr.username | quote }} --password-stdin
+    stdin: "{{ offsite_plantnet_ghcr.token }}"
+  changed_when: false
   no_log: true
   when:
     - offsite_plantnet_ghcr_vault_path | length > 0
