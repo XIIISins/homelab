@@ -8,10 +8,10 @@ Plan and rationale: [`docs/operations/5h-jellyfin.md`](../../../docs/operations/
 
 | Step (tag) | Effect |
 |---|---|
-| preflight (`jellyfin:preflight`) | Asserts the container reports `lxc` (so the hardening role's branches apply) and that `/dev/dri/renderD128` is a character device owned by gid 993 |
-| accounts (`jellyfin:accounts`) | Pins the `render` group to the host's gid 993 (before the package, whose systemd would pick a dynamic one) and creates `media` (gid 2000) |
+| preflight (`jellyfin:preflight`) | Asserts the container reports `lxc` (so the hardening role's branches apply) and that `/dev/dri/renderD128` is a character device owned by gid 2001 |
+| accounts (`jellyfin:accounts`) | Creates the `igpu` group with gid 2001 (the gid Terraform gives the passed render node; not the distro's `render` 992 / `kvm` 993, whose numbering is template-dependent) and `media` (gid 2000) |
 | media (`jellyfin:media`) | `nfs-common`; fstab + mount `10.0.254.20:/volume5/media-backup` at `/media`, **read-only**, NFSv4.1, `hard`, by IP (not DNS); asserts it is mounted `ro` |
-| install (`jellyfin:install`) | Official apt repo with the signing key verified by checksum; `jellyfin-server`, `jellyfin-web`, `jellyfin-ffmpeg7` at **exact versions**, on `dpkg hold`; a unit drop-in `RequiresMountsFor=/media /var/cache/jellyfin` so Jellyfin never starts against an empty mount; jellyfin user in `render`, `video`, `media` |
+| install (`jellyfin:install`) | Official apt repo with the signing key verified by checksum; `jellyfin-server`, `jellyfin-web`, `jellyfin-ffmpeg7` at **exact versions**, on `dpkg hold`; a unit drop-in `RequiresMountsFor=/media /var/cache/jellyfin` so Jellyfin never starts against an empty mount; jellyfin user in `igpu`, `video`, `media` |
 | service (`jellyfin:service`) | Enables/starts, waits for `/health` to say `Healthy` |
 | gpu (`jellyfin:gpu`) | `vainfo` as the jellyfin user must show the iHD driver and the H.264 / HEVC Main10 decode profiles (fails the play, not first playback); prints the VLD profile list the J4 decoder checkboxes come from |
 | monitoring (`jellyfin:monitoring`) | Hourly `jellyfin-qsv-smoke.timer` (h264_qsv + 10-bit hevc_qsv, 5 s each) writing `<ok> <epoch> <iso> <detail>` to `/var/lib/jellyfin-qsv-smoke/status`; runs once during the play and **fails it** if QSV is broken; zabbix-agent2 UserParameters (`jellyfin.qsv.smoke.ok`, `.age`, `jellyfin.media.mounted`, `jellyfin.health`) |

@@ -163,8 +163,9 @@ resource "proxmox_virtual_environment_container" "tailscale" {
 # disposable, and the PBS datastore is at ~81 %. Config, the SQLite database and metadata (rootfs, /var/lib/jellyfin)
 # ARE backed up. SQLite never goes on NFS.
 #
-# gid 993 is the host's `render` group; the container's `render` group is created with the SAME gid by the Ansible
-# jellyfin role, so host, Terraform and container agree after any rebuild. The device node name is asserted on every
+# gid 2001 is a gid reserved for this device inside the container (the Ansible jellyfin role creates group `igpu` with
+# it). Not the host's `render` (993): that number is `kvm` in the Debian template (render is 992 there), so tying to either
+# would depend on distro numbering. Found on first provisioning 2026-10-06; the role asserts the node's gid on every run. The device node name is asserted on every
 # host converge (ansible/roles/proxmox-host/tasks/gpu.yml).
 #
 # Not in a PVE HA group: passthrough plus an in-guest NFS mount means a move is a deliberate
@@ -255,10 +256,10 @@ resource "proxmox_virtual_environment_container" "jellyfin" {
     mount   = ["nfs"]
   }
 
-  # Only the render node, not card0 and not the whole of /dev/dri. gid = the host's `render` group (993).
+  # Only the render node, not card0 and not the whole of /dev/dri. gid 2001 = the container's `igpu` group.
   device_passthrough {
     path = "/dev/dri/renderD128"
-    gid  = 993
+    gid  = 2001
     mode = "0660"
   }
 

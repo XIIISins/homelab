@@ -64,10 +64,10 @@
     - jellyfin-web
     - jellyfin-ffmpeg7
 
-- name: Add the jellyfin user to the render, video and media groups
+- name: Add the jellyfin user to the igpu, video and media groups
   ansible.builtin.user:
     name: "{{ jellyfin_user }}"
-    groups: [render, video, "{{ jellyfin_media_group }}"]
+    groups: ["{{ jellyfin_gpu_group }}", video, "{{ jellyfin_media_group }}"]
     append: true
   notify: Restart jellyfin
 

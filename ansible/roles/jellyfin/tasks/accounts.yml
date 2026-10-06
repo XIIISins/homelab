@@ -1,12 +1,11 @@
 # ansible/roles/jellyfin/tasks/accounts.yml
 ---
-# Pinned gids BEFORE the package: Debian's systemd creates `render` with a dynamic gid at install time, and the passed
-# device node is owned by gid {{ jellyfin_render_gid }} inside the container.
-- name: Pin the render group to the host's gid
+# The passed render node is owned by gid {{ jellyfin_gpu_gid }} inside the container (Terraform device_passthrough). Create a
+# group with exactly that gid; the distro's own `render`/`kvm` groups (992/993 in the Debian 13 template) are left alone.
+- name: Create the group that owns the passed-through render node
   ansible.builtin.group:
-    name: render
-    gid: "{{ jellyfin_render_gid }}"
-    system: true
+    name: "{{ jellyfin_gpu_group }}"
+    gid: "{{ jellyfin_gpu_gid }}"
 
 - name: Create the media group (files Sonarr/SABnzbd write into the share)
   ansible.builtin.group:

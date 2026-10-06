@@ -17,9 +17,11 @@ jellyfin_apt_key_path: /etc/apt/keyrings/jellyfin.asc
 
 # ---- Accounts / device --------------------------------------------------------------------------------------------
 jellyfin_user: jellyfin
-# The host's `render` group is gid 993 on all three nodes and Terraform passes the device with gid 993; the container's
-# `render` group is pinned to the SAME gid so host, Terraform and container agree after any rebuild.
-jellyfin_render_gid: 993
+# Terraform passes the render node into the container with gid 2001 (device_passthrough), and this role creates a group with
+# that gid for it. Deliberately NOT the host's `render` (993): in the Debian template 993 is `kvm` and `render` is 992, so
+# tying the device to a distro group would depend on template numbering. Found on first provisioning 2026-10-06.
+jellyfin_gpu_group: igpu
+jellyfin_gpu_gid: 2001
 jellyfin_render_node: /dev/dri/renderD128
 # Group for files Sonarr/SABnzbd (M-steps) write into the share; Jellyfin only reads, but joins it.
 jellyfin_media_group: media
