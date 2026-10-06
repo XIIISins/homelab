@@ -12,15 +12,17 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 
 | Job | Checks | Runs when |
 |---|---|---|
-| `secrets (gitleaks)` | `gitleaks git --redact` over the commits the PR adds (full history on dispatch). Policy: [`.gitleaks.toml`](../../.gitleaks.toml) | always |
-| `yamllint` | YAML parses and is unambiguous ([`.yamllint.yml`](../../.yamllint.yml) — deliberately not a style gate) | always |
+| `secrets (gitleaks)` | `gitleaks git --redact` over the **entire repo history** (every commit on every fetched ref, ~2 s), not just the PR's commits. Policy: [`.gitleaks.toml`](../../.gitleaks.toml) | always |
+| `yamllint` | YAML parses and is unambiguous ([`.yamllint.yml`](../../.yamllint.yml) — deliberately not a style gate) | a `*.yaml` / `*.yml` / `.yamllint` file changed |
 | `actionlint` | workflow syntax + embedded shell | `.github/workflows/**` changed |
 | `terraform fmt` / `terraform validate (<module>)` | `fmt -check -recursive`; per module `init -backend=false` + `validate` (no plan, no state) | a `terraform/**` module changed |
 | `kubernetes` | `kubectl kustomize` of every `kustomization.yaml` under `k8s/`, then kubeconform `-strict` with the datreeio CRD catalog | `k8s/**` changed |
 | `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` (cached — see [Cache keys](#cache-keys--bump-checklist); Galaxy is only hit when a pin changes) | `ansible/**` changed |
 | `docs links` | relative Markdown links + `#anchors` resolve | any `*.md` changed |
-| `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or known-issues/procedures/services docs changed |
+| `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or a docs change adds/removes a `<!-- runbook: RB-… -->` marker or deletes (or renames) a doc file |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
+
+A Markdown-only PR therefore runs `changes`, `secrets (gitleaks)`, `docs links`, `agent-scope` (a security gate, kept on every PR) and `CI gate`; prose edits to docs never start `yamllint` or `aiops`.
 
 Changes to `.github/**`, `.yamllint.yml`, `.gitleaks.toml`, `ansible/.ansible-lint` or `ansible/requirements.yml` run everything.
 
@@ -79,7 +81,7 @@ Branches: `feat/<descriptive>`, `doc/<descriptive>` (also `fix/`, `chore/`). Con
 ```bash
 git switch -c feat/<name> origin/main
 # ...commit...
-git push -u origin feat/<name>        # pre-push gitleaks hook still runs locally
+git push -u origin feat/<name>        # pre-push gitleaks hook scans the entire repo (needs `git config core.hooksPath .githooks` once per clone)
 # open the PR; then, once CI is green, either click Merge or:
 #   PR page → "Enable auto-merge" (squash or rebase; merge commits are disabled)
 ```
@@ -107,4 +109,4 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 ## Open follow-ups
 
 - ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Seed gotcha: the 1P field label is `token`, not `credential`; `op read` of a wrong label returns empty and a hash-compare of two empty strings still "matches" (`e3b0c44298fc1c14`) — `test -n "$GH"` before `vault kv patch`. Rotation: add a GitHub section to `credential-rotation.md` (90-day expiry — due ~2027-01-01).
-- Optional later: required `CODEOWNERS`, signed commits, a weekly full-history gitleaks run, `terraform plan` on PRs once a read-only state role exists.
+- Optional later: required `CODEOWNERS`, signed commits, `terraform plan` on PRs once a read-only state role exists.

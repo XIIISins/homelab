@@ -4,7 +4,7 @@
 # (Flux reconciles it), so this is the gate in front of that: nothing here
 # touches a cluster, a hypervisor, Vault or Terraform state — static checks only.
 #
-#   secrets     gitleaks over the commits being added (public repo; findings are
+#   secrets     gitleaks over the entire repo history, every run (public repo; findings are
 #               --redact'ed so the Actions log never prints a value)
 #   yamllint    YAML parses + is unambiguous (config: .yamllint.yml)
 #   workflows   actionlint on .github/workflows
@@ -14,6 +14,8 @@
 #   docs        relative Markdown links + anchors resolve
 #   aiops       Phase 10c: alert/runbook/action schemas, cross-file consistency, tests
 #   CI gate     the ONE job a branch ruleset requires (see terraform/github/)
+#
+# A Markdown-only PR therefore runs just: changes, secrets, docs links, agent-scope and the gate.
 #
 # Why a single gate job: jobs are skipped when their paths didn't change
 # (.github/scripts/ci-changes.sh). A *required* check that is skipped by a
@@ -70,6 +72,7 @@ jobs:
     outputs:
       terraform_modules: ${{ steps.c.outputs.terraform_modules }}
       k8s: ${{ steps.c.outputs.k8s }}
+      yaml: ${{ steps.c.outputs.yaml }}
       ansible: ${{ steps.c.outputs.ansible }}
       docs: ${{ steps.c.outputs.docs }}
       workflows: ${{ steps.c.outputs.workflows }}
@@ -96,24 +99,16 @@ jobs:
           path: ${{ env.TOOL_CACHE }}
           key: tool-gitleaks-${{ env.GITLEAKS_SHA }}
       - run: .github/scripts/install-tool.sh "$GITLEAKS_URL" "$GITLEAKS_SHA" gitleaks
-      - name: scan the commits this change adds
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PUSH_AFTER: ${{ github.sha }}
-        run: |
-          zero=0000000000000000000000000000000000000000
-          args=(--no-banner --redact)
-          case "$EVENT" in
-            pull_request) args+=(--log-opts="$PR_BASE..$PR_HEAD") ;;
-            push) [ "$PUSH_BEFORE" = "$zero" ] || args+=(--log-opts="$PUSH_BEFORE..$PUSH_AFTER") ;;
-          esac   # workflow_dispatch / new branch: full-history scan
-          gitleaks git "${args[@]}" .
+      # The WHOLE repo, every time: all commits on every fetched ref (full history, ~2 s at this size), not
+      # just the commits the PR adds. A leak that slipped in earlier, or a .gitleaks.toml change that stops
+      # suppressing something, then fails the next run instead of staying invisible.
+      - name: scan the entire repository history
+        run: gitleaks git --no-banner --redact .
 
   yamllint:
     name: yamllint
+    needs: changes
+    if: needs.changes.outputs.yaml == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
