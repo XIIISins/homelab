@@ -15,9 +15,15 @@ the overview links to it as "Bookmarks".
 ## What it shows
 
 1. **A verdict sentence** ("Everything is running." / "2 things need attention.") with the reasons listed underneath,
-   and three six-hour trend lines under it: cluster CPU, cluster memory and web traffic, each with its current value.
-   Bad: a node not ready or missing, pending/failed pods, a certificate not ready or expiring within 7 days,
-   a volume 95 % full. Watch: CPU or memory at 85 % or more, deployments below their replica count,
+   and a **slideshow of trend graphs** under it. Three slides of three graphs each, rotating every 9 seconds:
+   *K3s cluster* (CPU, memory, web traffic; six hours), *K3s workloads* (running pods, pod network, volume use; six
+   hours) and *Proxmox hosts* (CPU, memory, network over 24 hours, with the host and guest counts in the caption).
+   The Proxmox slide appears only once Proxmox has answered. The tab strip jumps to any slide; the active tab carries
+   the timer bar; hovering or focusing the card, or leaving the browser tab, pauses it; the round button pauses and
+   resumes it; and nothing rotates on its own under `prefers-reduced-motion`.
+   Bad: a node not ready or missing, a Proxmox host not online, pending/failed pods, a certificate not ready or
+   expiring within 7 days, a volume 95 % full. Watch: a Proxmox host over 90 % CPU or memory, Proxmox not answering
+   (after it has worked once), CPU or memory at 85 % or more, deployments below their replica count,
    five or more restarts in the last hour, a volume 85 % full, a certificate expiring within 14 days.
 2. **The three machines** (Urd, Verd, Skuld), each with its control-plane and worker VM and their CPU (cyan)
    and memory (magenta) as ring gauges; a ring turns yellow at 85 %. A node the page does not list still
@@ -51,6 +57,8 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
                                                      ├─ /            static page (ConfigMap volume at /srv)
                                                      ├─ /healthz     probes
                                                      ├─ GET /api/v1/query{,_range} ──▶ vmsingle.monitoring.svc:8428
+                                                     ├─ GET /api/pve/cluster/resources           ─┐ token added by Caddy,
+                                                     ├─ GET /api/pve/nodes/<node>/rrddata        ─┴▶ first of 10.0.254.11/12/13:8006
                                                      └─ any other /api/*     404
 ```
 
@@ -65,6 +73,21 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
   (`/api/v1/query` and `/api/v1/query_range`, GET only). The admin API (`delete_series`, snapshots), export and every
   write path are not routable. The cost: anyone on the LAN can run PromQL against cluster telemetry through this page. Accepted;
   see the decision row.
+- **Proxmox, and why it is wired this way.** Proxmox metrics are not in VictoriaMetrics (host-level data goes to
+  Zabbix, there is no exporter), so the page reads the Proxmox API itself. It uses a dedicated read-only identity,
+  `overview@pve` with the stock `PVEAuditor` role, minted by `terraform/proxmox/overview-access/` into Vault
+  `secret/k8s/overview/pve-token`; External Secrets builds the finished `Authorization` value into the Secret
+  `overview-pve-token`; the Deployment reads it as the **optional** env var `OVERVIEW_PVE_AUTH`; Caddy adds it to the
+  request. The browser never sees it. Only the two GET shapes above are routable (everything else, including path
+  traversal and encoded variants, is 404), a client-supplied `Authorization` is replaced and cookies are stripped.
+  Caddy tries the three hypervisors in order, so one down (Skuld has frozen before) does not blank the slide.
+  Certificate verification is skipped (self-signed, management-VLAN IPs, read-only token).
+- **Order of operations (matters).** Apply `terraform/proxmox/overview-access` first, then merge. Until the Vault
+  path exists ESO cannot build the Secret; because the env var is optional the pods still start, and the page shows two
+  slides and says nothing, which is the right behaviour for "not connected yet". Env vars are read once, so a token
+  that appears after the pods started needs `kubectl rollout restart deploy/overview -n overview`.
+- **Revoking it:** delete the `overview-access` Terraform resources (or the token in Proxmox); the page drops back to
+  two slides.
 - **ConfigMaps are generated with the name hash**, so editing the page or the Caddyfile gives a new ConfigMap
   name, kustomize rewrites the Deployment and the pods roll. No `rollout restart` step (unlike the subPath
   mounts in `apex-static`).
@@ -86,6 +109,8 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 - **Every `kube_*` query must pin `job="kube-state-metrics"`.** kube-state-metrics is scraped twice (see
   [`known-issues/observability.md`](../known-issues/observability.md)); unpinned sums read double (188 running
   pods instead of 94, 12 nodes instead of 6).
+- **A Proxmox that is down must not slow the K3s numbers.** The page caps its Proxmox request at 3 s; Caddy gives up on
+  all three hypervisors after about 4 s.
 - **No Flux tile.** The `gotk_reconcile_condition` series do not exist in VictoriaMetrics, so there is nothing to read.
 - **Memory is the pods' working set against the node's allocatable memory**, not the VM's total. It leaves out the
   OS and K3s reservation (2 GiB per worker), so it reads lower than the Proxmox or Zabbix figure.

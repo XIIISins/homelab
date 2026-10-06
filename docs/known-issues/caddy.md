@@ -11,3 +11,10 @@
 
 
 - **`admin off` + `systemctl reload caddy` cannot work.** The role's Caddyfile disables the admin API, and `caddy reload` (the unit's `ExecReload`) goes through it. Hermod has not changed its Caddyfile since, so the failure is latent there (unverified). The role now has `caddy_reload_method` (default `reloaded`, unchanged behaviour); do1 sets `restarted` so Caddyfile changes always apply (sub-second restart, certs persist on disk). **Hit for real on Gná 2026-10-03** (the per-path source rules): the unit reload failed with `connection refused` to `localhost:2019` while Caddy kept serving the OLD config, so a Caddyfile change silently did not apply. Gná and Hermod now set `caddy_reload_method: restarted` too.
+
+## Caddy in K8s pods (apex-static, startpage, overview)
+
+- **Two `header` directives for the same field do NOT override each other (found 2026-10-06).** `header Cache-Control "no-cache"` followed by `header @font Cache-Control "public, max-age=604800"` in one `handle` served the font `no-cache`. Give each case its own `handle @matcher { header ...; file_server }` block instead.
+- **`admin off` means `caddy reload` cannot work.** The pods set `admin off` (nothing needs the admin API); a config change needs a pod restart, which the hashed ConfigMap name already causes. Locally, restart the process instead of reloading.
+- **`header_up Authorization "{env.NAME}"` is evaluated at start, from the pod's env.** An unset variable is an empty header, so the upstream answers 401. With a Secret-backed env var that is `optional: true`, a Secret that appears after the pods started is NOT picked up: `kubectl rollout restart` them.
+- **Validate before you ship it:** `caddy validate --config <Caddyfile> --adapter caddyfile` and `caddy fmt --diff <Caddyfile>` (the repo has no CI check for Caddyfiles). To exercise one locally, substitute only the listen port, root and upstream addresses, and keep the rest identical.
