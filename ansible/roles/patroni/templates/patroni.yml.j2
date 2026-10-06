@@ -41,6 +41,9 @@ bootstrap:
         work_mem: {{ postgres_work_mem }}
         maintenance_work_mem: {{ postgres_maintenance_work_mem }}
         wal_buffers: {{ postgres_wal_buffers }}
+{% for k, v in patroni_dcs_reconciled_parameters.items() %}
+        {{ k }}: '{{ v }}'
+{% endfor %}
         wal_level: {{ postgres_wal_level }}
         max_wal_senders: {{ postgres_max_wal_senders }}
         max_replication_slots: {{ postgres_max_replication_slots }}

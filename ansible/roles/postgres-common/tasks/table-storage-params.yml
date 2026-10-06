@@ -1,0 +1,44 @@
+# ansible/roles/postgres-common/tasks/table-storage-params.yml
+---
+# Per-table storage parameters from postgres_table_storage_params.
+#
+# Find first, alter second: the query returns only the tables that exist and
+# whose pg_class.reloptions do not already contain every wanted setting, so a
+# converged cluster does nothing (no `changed`) and a missing table is skipped
+# instead of erroring. `ALTER TABLE ... SET (autovacuum_*)` takes a SHARE UPDATE
+# EXCLUSIVE lock: concurrent reads and writes continue.
+
+- name: Find tables whose storage parameters differ from the wanted set
+  community.postgresql.postgresql_query:
+    db: "{{ item.db }}"
+    login_unix_socket: /var/run/postgresql
+    query: >-
+      SELECT c.relname
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p')
+        AND c.relname::text = ANY(%(tables)s)
+        AND NOT (coalesce(c.reloptions, ARRAY[]::text[]) @> %(opts)s::text[])
+      ORDER BY c.relname
+    named_args:
+      tables: "{{ item.tables }}"
+      opts: "{{ item.params.items() | map('join', '=') | list }}"
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_table_storage_params }}"
+  loop_control:
+    label: "{{ item.db }}"
+  register: postgres_table_params_check
+  changed_when: false
+
+- name: Set per-table storage parameters
+  community.postgresql.postgresql_query:
+    db: "{{ item.0.item.db }}"
+    login_unix_socket: /var/run/postgresql
+    query: >-
+      ALTER TABLE public.{{ item.1.relname }} SET ({% for k, v in item.0.item.params.items() %}{{ k }} = {{ v }}{{ ', ' if not loop.last }}{% endfor %})
+  become: true
+  become_user: postgres
+  loop: "{{ postgres_table_params_check.results | subelements('query_result', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.item.db }}.{{ item.1.relname }}"

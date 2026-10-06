@@ -26,3 +26,12 @@
 - name: Start Patroni + wait for cluster leader
   ansible.builtin.include_tasks: service.yml
   tags: [patroni-service]
+
+# Reload-only tuning parameters on the live cluster (bootstrap.dcs is
+# first-start-only). Needs patroni_is_leader from service.yml, so it comes last.
+- name: Reconcile Patroni DCS parameters onto the running cluster
+  ansible.builtin.include_tasks:
+    file: dcs-parameters.yml
+    apply:
+      tags: [patroni, patroni-dcs]
+  tags: [patroni, patroni-dcs]

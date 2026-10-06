@@ -76,6 +76,7 @@ See `defaults/main.yml` for the annotated schema:
 | `postgres_patroni_managed` | `false` | Toggle the leader-gate in main.yml |
 | `postgres_management_users` | admin + ansible + replicator | Cluster-wide management roles |
 | `postgres_databases` | `[]` | Per-service DBs + their owning LOGIN roles |
+| `postgres_table_storage_params` | `[]` | Per-table storage parameters (autovacuum tuning), `{db, tables, params}`, applied leader-only; missing tables are skipped |
 
 Group_vars for `postgres` (`ansible/inventory/group_vars/postgres.yml`)
 overrides `postgres_databases` to declare the per-service DBs that exist
