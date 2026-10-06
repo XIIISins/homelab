@@ -13,14 +13,16 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 | Job | Checks | Runs when |
 |---|---|---|
 | `secrets (gitleaks)` | `gitleaks git --redact` over the commits the PR adds (full history on dispatch). Policy: [`.gitleaks.toml`](../../.gitleaks.toml) | always |
-| `yamllint` | YAML parses and is unambiguous ([`.yamllint.yml`](../../.yamllint.yml) — deliberately not a style gate) | always |
+| `yamllint` | YAML parses and is unambiguous ([`.yamllint.yml`](../../.yamllint.yml) — deliberately not a style gate) | a `*.yaml` / `*.yml` / `.yamllint` file changed |
 | `actionlint` | workflow syntax + embedded shell | `.github/workflows/**` changed |
 | `terraform fmt` / `terraform validate (<module>)` | `fmt -check -recursive`; per module `init -backend=false` + `validate` (no plan, no state) | a `terraform/**` module changed |
 | `kubernetes` | `kubectl kustomize` of every `kustomization.yaml` under `k8s/`, then kubeconform `-strict` with the datreeio CRD catalog | `k8s/**` changed |
 | `ansible-lint` | profile in [`ansible/.ansible-lint`](../../ansible/.ansible-lint), collections installed from `ansible/requirements.yml` (cached — see [Cache keys](#cache-keys--bump-checklist); Galaxy is only hit when a pin changes) | `ansible/**` changed |
 | `docs links` | relative Markdown links + `#anchors` resolve | any `*.md` changed |
-| `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or known-issues/procedures/services docs changed |
+| `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or a docs change adds/removes a `<!-- runbook: RB-… -->` marker or deletes (or renames) a doc file |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
+
+A Markdown-only PR therefore runs `changes`, `secrets (gitleaks)`, `docs links`, `agent-scope` (a security gate, kept on every PR) and `CI gate`; prose edits to docs never start `yamllint` or `aiops`.
 
 Changes to `.github/**`, `.yamllint.yml`, `.gitleaks.toml`, `ansible/.ansible-lint` or `ansible/requirements.yml` run everything.
 
