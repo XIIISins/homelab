@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: jellyfin
+  author: XIIISins
+  description: >
+    Jellyfin media server in a privileged LXC with Intel QuickSync (iGPU passthrough), the Munin media share mounted
+    read-only in-container, pinned official-repo packages, an hourly QSV smoke test and Zabbix items (Phase 5h).
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Debian
+      versions: [trixie]
+dependencies: []

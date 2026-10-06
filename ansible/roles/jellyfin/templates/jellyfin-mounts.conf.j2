@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Never start Jellyfin against an empty mount point: it would see an empty library and scan the real one away.
+[Unit]
+RequiresMountsFor={{ jellyfin_media_mount }} {{ jellyfin_cache_dir }}

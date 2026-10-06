@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Jellyfin items for zabbix-agent2 (Phase 5h). The server-side items/triggers read these keys.
+# QSV smoke test state: 1 = last run passed, 0 = failed; age in seconds so a stalled timer also alerts.
+UserParameter=jellyfin.qsv.smoke.ok,awk '{print $1}' {{ jellyfin_smoke_state_dir }}/status 2>/dev/null || echo 0
+UserParameter=jellyfin.qsv.smoke.age,echo $(( $(date +%s) - $(awk '{print $2}' {{ jellyfin_smoke_state_dir }}/status 2>/dev/null || echo 0) ))
+# 1 when the media share is mounted (a `hard` NFS mount that vanished means Jellyfin is blind).
+UserParameter=jellyfin.media.mounted,findmnt -rn -M {{ jellyfin_media_mount }} >/dev/null 2>&1 && echo 1 || echo 0
+# 1 when /health answers Healthy.
+UserParameter=jellyfin.health,curl -fsS -m 5 http://127.0.0.1:{{ jellyfin_http_port }}/health 2>/dev/null | grep -c Healthy

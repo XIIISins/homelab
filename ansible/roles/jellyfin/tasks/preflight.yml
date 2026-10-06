@@ -1,0 +1,27 @@
+# ansible/roles/jellyfin/tasks/preflight.yml
+---
+# Fail early, on the host side of the problem, with the fix in the message.
+
+# The hardening role gates AppArmor / modprobe on virtualization_type and the sysctl reapply unit on it being `lxc`. A
+# privileged container still reports `lxc`; if that ever stops being true, hardening would start AppArmor inside a
+# privileged container that shares the host kernel, so stop here instead.
+- name: Assert this is an LXC (the hardening role's LXC branches must apply)
+  ansible.builtin.assert:
+    that: ansible_virtualization_type == 'lxc'
+    fail_msg: "Expected virtualization_type 'lxc', got '{{ ansible_virtualization_type | default('unknown') }}'. Do not run hardening here until that is understood."
+
+- name: Stat the passed-through render node
+  ansible.builtin.stat:
+    path: "{{ jellyfin_render_node }}"
+  register: jellyfin_render_stat
+
+- name: Assert the iGPU render node is present with the pinned group
+  ansible.builtin.assert:
+    that:
+      - jellyfin_render_stat.stat.exists
+      - jellyfin_render_stat.stat.ischr
+      - jellyfin_render_stat.stat.gr_gid == jellyfin_render_gid
+    fail_msg: >-
+      {{ jellyfin_render_node }} is missing, not a character device, or not group {{ jellyfin_render_gid }} (it is
+      gid {{ jellyfin_render_stat.stat.gr_gid | default('n/a') }}). It comes from the Terraform device_passthrough in
+      terraform/proxmox/asgard-lxcs-root (root@pam); the host side is asserted by roles/proxmox-host/tasks/gpu.yml.

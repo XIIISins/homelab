@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Jellyfin QuickSync smoke test (hardware transcode of a test pattern)
+Documentation=file:///usr/share/doc/jellyfin-ffmpeg7
+
+[Service]
+Type=oneshot
+User={{ jellyfin_user }}
+Group={{ jellyfin_user }}
+{% for k, v in jellyfin_libva_env.items() %}
+Environment={{ k }}={{ v }}
+{% endfor %}
+ExecStart={{ jellyfin_smoke_script }}
+Nice=10

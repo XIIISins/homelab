@@ -1,0 +1,33 @@
+# ansible/roles/jellyfin/tasks/main.yml
+---
+- name: Preflight - container, device and gid checks
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [jellyfin, jellyfin:preflight]
+
+- name: Accounts - pinned render and media groups
+  ansible.builtin.import_tasks: accounts.yml
+  tags: [jellyfin, jellyfin:accounts]
+
+- name: Media - Munin NFS share, read-only, in the container
+  ansible.builtin.import_tasks: media-mount.yml
+  tags: [jellyfin, jellyfin:media]
+
+- name: Install - pinned and held packages from the official repo
+  ansible.builtin.import_tasks: install.yml
+  tags: [jellyfin, jellyfin:install]
+
+- name: Service - enable, start, wait for /health
+  ansible.builtin.import_tasks: service.yml
+  tags: [jellyfin, jellyfin:service]
+
+- name: GPU - prove the passthrough with vainfo as the jellyfin user
+  ansible.builtin.import_tasks: gpu-selfcheck.yml
+  tags: [jellyfin, jellyfin:gpu]
+
+- name: Monitoring - hourly QSV smoke test and Zabbix agent items
+  ansible.builtin.import_tasks: monitoring.yml
+  tags: [jellyfin, jellyfin:monitoring]
+
+- name: Settings - transcoding, network and server settings through the Jellyfin API
+  ansible.builtin.import_tasks: api-config.yml
+  tags: [jellyfin, jellyfin:config]

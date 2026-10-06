@@ -1,0 +1,19 @@
+# ansible/roles/jellyfin/handlers/main.yml
+---
+- name: Reload systemd (jellyfin)
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart jellyfin
+  ansible.builtin.systemd:
+    name: jellyfin.service
+    state: restarted
+    daemon_reload: true
+
+- name: Restart zabbix-agent2 (jellyfin items)
+  ansible.builtin.systemd:
+    name: zabbix-agent2.service
+    state: restarted
+  # The agent is installed by the zabbix-agent role AFTER this role in the play; on a first run the unit does not exist
+  # yet and picks the drop-in up when it starts.
+  failed_when: false

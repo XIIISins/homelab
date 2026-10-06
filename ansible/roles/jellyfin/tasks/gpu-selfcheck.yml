@@ -1,0 +1,41 @@
+# ansible/roles/jellyfin/tasks/gpu-selfcheck.yml
+---
+# A permissions or driver problem fails the play HERE, not at first playback. vainfo ships inside jellyfin-ffmpeg. Run as
+# the jellyfin user, because that is who opens the render node in production.
+- name: Probe the iGPU with vainfo as the jellyfin user
+  ansible.builtin.command:
+    argv:
+      - runuser
+      - -u
+      - "{{ jellyfin_user }}"
+      - --
+      - "{{ jellyfin_ffmpeg_dir }}/vainfo"
+      - --display
+      - drm
+      - --device
+      - "{{ jellyfin_render_node }}"
+  environment: "{{ jellyfin_libva_env }}"
+  register: jellyfin_vainfo
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Assert the iHD driver is in use and the decode profiles exist
+  ansible.builtin.assert:
+    that:
+      - jellyfin_vainfo.rc == 0
+      - "'iHD' in (jellyfin_vainfo.stdout + jellyfin_vainfo.stderr)"
+      - "'VAProfileH264Main' in jellyfin_vainfo.stdout"
+      - "'VAProfileHEVCMain10' in jellyfin_vainfo.stdout"
+    fail_msg: >-
+      vainfo as {{ jellyfin_user }} on {{ jellyfin_render_node }} failed (rc {{ jellyfin_vainfo.rc | default('n/a') }}):
+      {{ (jellyfin_vainfo.stderr | default('') | trim)[-400:] }}. Check the device_passthrough gid, the group membership
+      of {{ jellyfin_user }}, and `intel_gpu_top` on the host; if only the driver was not found, set jellyfin_libva_env.
+  when: not ansible_check_mode
+
+# J4 ticks the hardware-decoding checkboxes from exactly this list.
+- name: Show the decode (VLD) profiles the iGPU reports
+  ansible.builtin.debug:
+    msg: "{{ jellyfin_vainfo.stdout_lines | select('search', 'VAEntrypointVLD') | map('trim') | list }}"
+  when: not ansible_check_mode

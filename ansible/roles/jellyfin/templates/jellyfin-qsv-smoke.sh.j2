@@ -1,0 +1,42 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Hourly proof that the iGPU passthrough still transcodes: two 5 s hardware encodes of a generated test pattern as the
+# jellyfin user (the same identity, device and ffmpeg Jellyfin uses). Writes "<0|1> <epoch> <iso> <detail>" to the state
+# file, atomically; the Zabbix agent reads it. Exit 1 on any failed leg so `systemctl status` and the journal show it too.
+set -u
+
+FF="{{ jellyfin_ffmpeg_dir }}/ffmpeg"
+DEV="{{ jellyfin_render_node }}"
+STATE_DIR="{{ jellyfin_smoke_state_dir }}"
+STATE="$STATE_DIR/status"
+
+ok=1
+detail=""
+
+leg() {
+    local name="$1"
+    shift
+    local out
+    if out=$(timeout 60 "$FF" -hide_banner -loglevel error -nostdin \
+        -init_hw_device "vaapi=va:$DEV" -init_hw_device "qsv=hw@va" -filter_hw_device hw \
+        -f lavfi -i "testsrc2=size=1280x720:rate=30" -t 5 "$@" -f null - 2>&1); then
+        detail="$detail$name=ok "
+    else
+        ok=0
+        detail="$detail$name=FAIL($(printf '%s' "$out" | tail -n 1 | tr -c '[:print:]' ' ' | cut -c1-120)) "
+    fi
+}
+
+leg h264 -vf "format=nv12,hwupload=extra_hw_frames=64" -c:v h264_qsv
+leg hevc10 -vf "format=p010le,hwupload=extra_hw_frames=64" -c:v hevc_qsv -profile:v main10
+
+tmp=$(mktemp "$STATE_DIR/.status.XXXXXX")
+printf '%s %s %s %s\n' "$ok" "$(date +%s)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$detail" > "$tmp"
+chmod 0644 "$tmp"
+mv -f "$tmp" "$STATE"
+
+if [ "$ok" != 1 ]; then
+    logger -t jellyfin-qsv-smoke -p daemon.err "QSV smoke FAILED: $detail"
+    exit 1
+fi
+logger -t jellyfin-qsv-smoke "QSV smoke ok: $detail"

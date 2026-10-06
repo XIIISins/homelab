@@ -1,0 +1,71 @@
+# ansible/roles/jellyfin/tasks/monitoring.yml
+---
+- name: Create the smoke-test state directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_smoke_state_dir }}"
+    state: directory
+    owner: "{{ jellyfin_user }}"
+    group: "{{ jellyfin_user }}"
+    mode: "0755" # world-readable: the zabbix agent reads the state file
+
+- name: Install the QSV smoke-test script
+  ansible.builtin.template:
+    src: jellyfin-qsv-smoke.sh.j2
+    dest: "{{ jellyfin_smoke_script }}"
+    mode: "0755"
+
+- name: Install the smoke-test unit and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - jellyfin-qsv-smoke.service
+    - jellyfin-qsv-smoke.timer
+  notify: Reload systemd (jellyfin)
+
+- name: Flush handlers (the units must be known before they are enabled)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the hourly smoke-test timer
+  ansible.builtin.systemd:
+    name: jellyfin-qsv-smoke.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+
+# A first run now, so the state file exists and a broken QSV path fails THIS play (the self-test the plan asks for).
+- name: Run the QSV smoke test once and fail the play if it fails
+  ansible.builtin.systemd:
+    name: jellyfin-qsv-smoke.service
+    state: started
+  when: not ansible_check_mode
+
+- name: Read the smoke-test state
+  ansible.builtin.slurp:
+    src: "{{ jellyfin_smoke_state_dir }}/status"
+  register: jellyfin_smoke_state
+  when: not ansible_check_mode
+
+- name: Assert the first QSV smoke run passed
+  ansible.builtin.assert:
+    that: (jellyfin_smoke_state.content | b64decode).split()[0] == '1'
+    fail_msg: "QSV smoke test failed: {{ jellyfin_smoke_state.content | b64decode | trim }}. See `journalctl -u jellyfin-qsv-smoke`."
+    success_msg: "QSV smoke ok: {{ jellyfin_smoke_state.content | b64decode | trim }}"
+  when: not ansible_check_mode
+
+# The zabbix-agent role installs the agent LATER in the play; the .d directory is plain root-owned config, so create it here
+# and the agent picks the file up on its first start. The matching Zabbix items and triggers live server-side (J6).
+- name: Create the zabbix agent drop-in directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_zabbix_userparameter_file | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Install the Jellyfin zabbix UserParameters
+  ansible.builtin.template:
+    src: zabbix-jellyfin.conf.j2
+    dest: "{{ jellyfin_zabbix_userparameter_file }}"
+    mode: "0644"
+  notify: Restart zabbix-agent2 (jellyfin items)

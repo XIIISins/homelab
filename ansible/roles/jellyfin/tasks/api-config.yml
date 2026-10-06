@@ -1,0 +1,27 @@
+# ansible/roles/jellyfin/tasks/api-config.yml
+---
+# J4 through Jellyfin's own configuration API: `GET/POST /System/Configuration/<section>` with the section's JSON. JSON keeps
+# the types (a hand-edited XML would not), survives Jellyfin rewriting its own files, and is idempotent (read, compare, POST
+# only on a difference). Inert until the operator has done the first-run wizard and put an API key in Vault.
+- name: Read the Jellyfin API key from Vault (empty when not seeded yet)
+  ansible.builtin.set_fact:
+    jellyfin_api_key: >-
+      {{ ((lookup('community.hashi_vault.vault_kv2_get', jellyfin_api_key_vault_path, errors='ignore') | default({}, true)).get('secret', {})).get('value', '') }}
+  no_log: true
+
+- name: Say why the settings step is skipped
+  ansible.builtin.debug:
+    msg: >-
+      No API key at secret/{{ jellyfin_api_key_vault_path }}: skipping the settings step. After the first-run wizard create one
+      (Dashboard -> API Keys), store it in Vault, and re-run with --tags jellyfin:config.
+  when: jellyfin_api_key | length == 0
+
+- name: Converge the Jellyfin settings sections
+  ansible.builtin.include_tasks: api-config-section.yml
+  loop: "{{ jellyfin_config_sections | dict2items }}"
+  loop_control:
+    loop_var: jellyfin_section
+    label: "{{ jellyfin_section.key }}"
+  when:
+    - jellyfin_api_key | length > 0
+    - not ansible_check_mode
