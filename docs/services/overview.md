@@ -22,9 +22,13 @@ the overview links to it as "Bookmarks".
    and memory (magenta) as ring gauges; a ring turns yellow at 85 %. A node the page does not list still
    appears, under "Other nodes".
 3. **Four facts:** web traffic through Traefik, restarts in the last hour, the fullest volume, certificates.
-4. **App launcher**, grouped and filterable: `/` or Ctrl/Cmd+K focuses the search, Enter opens the first match, the
-   arrow keys walk the results. Hosts with a browser-trusted certificate get a reachability dot, a no-cors `fetch`
-   from the viewer's own browser, so it answers "can I open this from here".
+4. **Apps.** The everyday ones (Outline, Immich, MicroBin, Bookmarks) are four tiles beside the headline. The lab
+   and hardware apps live in a **left rail**: an icon strip by default that opens over the page on hover or keyboard
+   focus (the main area never shifts), with a pin button that keeps it open and gives it its own column (remembered
+   per browser in `localStorage`). Search sits in the rail and filters both: `/` or Ctrl/Cmd+K focuses it, Enter opens
+   the first match, the arrow keys walk the results. Hosts with a browser-trusted certificate get a reachability
+   badge on their icon, a no-cors `fetch` from the viewer's own browser, so it answers "can I open this from here".
+   Under 1000 px wide there is no rail: headline, everyday tiles, the rest of the apps, then machines and facts.
 
 **Look.** Tokyo Night (Night) by default and Tokyo Night Day when the OS asks for light (accents deepened a little
 for contrast). Blue, magenta and cyan only sort things (everyday apps, lab tools, hardware); green, yellow and red
@@ -43,8 +47,8 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 ```
 
 - **Static first.** The machines and the app buttons are in `index.html`, so the first paint is complete
-  and works without JavaScript; `app.js` only fills in numbers. The page is about 33 KB on the wire on a first
-  visit (about 14 KB once the font is cached), makes no external requests, and fires its 14 queries in
+  and works without JavaScript; `app.js` only fills in numbers. The page is about 34 KB on the wire on a first
+  visit (about 15 KB once the font is cached), makes no external requests, and fires its 14 queries in
   parallel (each answers in under 30 ms). Polling runs every 30 s (vmagent's scrape interval) and pauses while
   the tab is hidden; reachability probes start after the first metrics attempt, when the browser is idle.
 - **Why a proxy and not `metric.niflheim`.** That host sits behind Authentik ForwardAuth, and a page cannot
@@ -60,7 +64,7 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 
 ## Changing it
 
-- **Add or move an app button:** edit the list in `site/index.html` (each `<li class="app">`; `data-probe` on the
+- **Add or move an app button:** edit `site/index.html` (each `<li class="app">`; the first group, `quick`, is the main-area tiles, the others are the rail; `data-probe` on the
   link turns on the reachability dot, which only works for hosts whose certificate browsers trust, so not for
   Proxmox, PBS, DSM or the router). Merge; Flux rolls the pods.
 - **Change a metric or a threshold:** `QUERIES` and `HIGH` at the top of `site/app.js`.
