@@ -53,6 +53,12 @@ spec:
 
     # Default Service type=ClusterIP — what we want for vmagent.
 
+    # The chart annotates its Service prometheus.io/scrape=true by default, which the
+    # vmagent `kubernetes-service-endpoints` job also picks up, so every kube_* series
+    # arrived twice (job=kube-state-metrics and job=kubernetes-service-endpoints). The
+    # static job in vmagent is the one scrape we keep (the overview page pins it).
+    prometheusScrape: false
+
     # Phase 10i1: VPA recommendations as metrics, so VictoriaMetrics keeps their history (the
     # Toolbelt's "is the recommendation stable over 7 days" check, and the 10i digest's trend lines).
     # KSM dropped its built-in VPA collector in v2.9; this is the documented customResourceState
@@ -156,8 +162,133 @@ spec:
                       valueFrom: [uncappedTarget, memory]
                       labelsFromPath:
                         container: [containerName]
+            - groupVersionKind:
+                group: kustomize.toolkit.fluxcd.io
+                kind: Kustomization
+                version: v1
+              metricNamePrefix: gotk
+              commonLabels:
+                kind: Kustomization
+              labelsFromPath:
+                name: [metadata, name]
+                namespace: [metadata, namespace]
+              metrics:
+                - name: reconcile_condition
+                  help: Flux object status conditions, one series per condition type and status.
+                  each:
+                    type: StateSet
+                    stateSet:
+                      labelName: status
+                      path: [status, conditions]
+                      labelsFromPath:
+                        type: [type]
+                      valueFrom: [status]
+                      list: ["True", "False", "Unknown"]
+                - name: suspend_status
+                  help: 1 when spec.suspend is true.
+                  each:
+                    type: Gauge
+                    gauge:
+                      path: [spec, suspend]
+                      nilIsZero: true
+            - groupVersionKind:
+                group: helm.toolkit.fluxcd.io
+                kind: HelmRelease
+                version: v2
+              metricNamePrefix: gotk
+              commonLabels:
+                kind: HelmRelease
+              labelsFromPath:
+                name: [metadata, name]
+                namespace: [metadata, namespace]
+              metrics:
+                - name: reconcile_condition
+                  help: Flux object status conditions, one series per condition type and status.
+                  each:
+                    type: StateSet
+                    stateSet:
+                      labelName: status
+                      path: [status, conditions]
+                      labelsFromPath:
+                        type: [type]
+                      valueFrom: [status]
+                      list: ["True", "False", "Unknown"]
+                - name: suspend_status
+                  help: 1 when spec.suspend is true.
+                  each:
+                    type: Gauge
+                    gauge:
+                      path: [spec, suspend]
+                      nilIsZero: true
+            - groupVersionKind:
+                group: source.toolkit.fluxcd.io
+                kind: GitRepository
+                version: v1
+              metricNamePrefix: gotk
+              commonLabels:
+                kind: GitRepository
+              labelsFromPath:
+                name: [metadata, name]
+                namespace: [metadata, namespace]
+              metrics:
+                - name: reconcile_condition
+                  help: Flux object status conditions, one series per condition type and status.
+                  each:
+                    type: StateSet
+                    stateSet:
+                      labelName: status
+                      path: [status, conditions]
+                      labelsFromPath:
+                        type: [type]
+                      valueFrom: [status]
+                      list: ["True", "False", "Unknown"]
+                - name: suspend_status
+                  help: 1 when spec.suspend is true.
+                  each:
+                    type: Gauge
+                    gauge:
+                      path: [spec, suspend]
+                      nilIsZero: true
+            - groupVersionKind:
+                group: source.toolkit.fluxcd.io
+                kind: HelmRepository
+                version: v1
+              metricNamePrefix: gotk
+              commonLabels:
+                kind: HelmRepository
+              labelsFromPath:
+                name: [metadata, name]
+                namespace: [metadata, namespace]
+              metrics:
+                - name: reconcile_condition
+                  help: Flux object status conditions, one series per condition type and status.
+                  each:
+                    type: StateSet
+                    stateSet:
+                      labelName: status
+                      path: [status, conditions]
+                      labelsFromPath:
+                        type: [type]
+                      valueFrom: [status]
+                      list: ["True", "False", "Unknown"]
+                - name: suspend_status
+                  help: 1 when spec.suspend is true.
+                  each:
+                    type: Gauge
+                    gauge:
+                      path: [spec, suspend]
+                      nilIsZero: true
     rbac:
       extraRules:
         - apiGroups: [autoscaling.k8s.io]
           resources: [verticalpodautoscalers]
+          verbs: [list, watch]
+        - apiGroups: [kustomize.toolkit.fluxcd.io]
+          resources: [kustomizations]
+          verbs: [list, watch]
+        - apiGroups: [helm.toolkit.fluxcd.io]
+          resources: [helmreleases]
+          verbs: [list, watch]
+        - apiGroups: [source.toolkit.fluxcd.io]
+          resources: [gitrepositories, helmrepositories]
           verbs: [list, watch]
