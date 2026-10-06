@@ -14,9 +14,10 @@ the overview links to it as "Bookmarks".
 
 ## What it shows
 
-1. **A verdict sentence** ("Everything is running." / "2 things need attention.") with the reasons listed underneath,
-   and a **slideshow of trend graphs** under it. Three slides of three graphs each, rotating every 9 seconds:
-   *K3s cluster* (CPU, memory, web traffic; six hours), *K3s workloads* (running pods, pod network, volume use; six
+1. **A headline** ("Homelab Healthy" / "Homelab: 3 Issues") with, in a fixed-height zone under it, either one
+   summary sentence (all well) or a short borderless table of what is wrong and where (see "The hero card's texts"),
+   and a **slideshow of trend graphs** under that. Three slides of three graphs each, rotating every 9 seconds:
+   *K3s cluster* (CPU, memory, web traffic; six hours), *K3s workloads* (web errors, pod network, volume use; six
    hours) and *Proxmox hosts* (CPU, memory, network over 24 hours, with the host and guest counts in the caption).
    The Proxmox slide appears only once Proxmox has answered. The tab strip jumps to any slide; the active tab carries
    the timer bar; hovering or focusing the card, or leaving the browser tab, pauses it; the round button pauses and
@@ -43,6 +44,21 @@ the overview links to it as "Bookmarks".
 
 When VictoriaMetrics does not answer the page says so, blanks every figure and trend line and keeps the buttons
 working; it recovers by itself on the next poll.
+
+**The hero card's texts** (all in `site/app.js`, `setVerdict` and `render`):
+
+| Where | Text |
+|---|---|
+| Headline | `Homelab Healthy` · `Homelab: N Warnings` (only yellow items) · `Homelab: N Issues` (any red item; N counts every item) · `Homelab: No Data` (VictoriaMetrics silent) · `Checking homelab…` while loading |
+| Summary sentence (all well, or no data) | `All 6 nodes are ready and 94 pods are running. Nothing restarted in the last hour. All 3 Proxmox hosts are online.` Variants: `4 of 5 nodes are ready`, `N containers restarted in the last hour`, `2 of 3 Proxmox hosts are online`. No data: `VictoriaMetrics did not answer, so the figures are blank. The app buttons still work. Trying again every 30 seconds.` |
+| Issue table (replaces the sentence while there are issues) | one row per item as *component* then *what*: `K3s node` einherjar-verd not ready / sigrun missing / einherjar-urd CPU at 95% / memory at 91%; `Pods` 3 pending or failing; `Deployments` 2 below wanted replicas; `Restarts` 7 in the last hour; `Volume` data-outline-0 91% full; `Certificates` 1 not ready / trust-manager expires in 9 days; `Proxmox` verd offline / urd memory at 95% / urd CPU at 93% / not answering. Red dot = bad, yellow = watch. Four rows at most, then `+N more` (full list in the tooltip and for screen readers). |
+| Browser tab title | `Niflheim: healthy` · `Niflheim: N issues` · `Niflheim: no data` |
+| Status pill | `Reading metrics…` · `Updated just now` / `N seconds ago` / `N minutes ago` · `Last good reading …` (stale, amber) · `No metrics yet` |
+| Slideshow tabs and captions | `K3s cluster`, `K3s workloads`, `Proxmox hosts` (phones: `cluster`, `workloads`, `Proxmox`); captions `K3s, the last six hours` and `Proxmox, the last 24 hours. 3 of 3 hosts online, 18 of 21 guests running.` |
+
+The zone under the headline is `min-height: 5.5rem`, exactly four table rows, so the card measures the same with no
+issues and with a dozen (401.4 px at 1360 px wide in both). Change the number of rows with `MAX_ISSUE_ROWS` and
+that height together.
 
 **Look.** Tokyo Night (Night) by default and Tokyo Night Day when the OS asks for light (accents deepened a little
 for contrast). Blue, magenta and cyan only sort things (everyday apps, lab tools, hardware); green, yellow and red
