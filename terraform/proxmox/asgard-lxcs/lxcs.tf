@@ -34,8 +34,11 @@ resource "proxmox_virtual_environment_container" "factorio" {
     cores = 4
   }
 
+  # A cap, not a reservation. Measured 2026-10-06 on a 4-vCPU server with a
+  # tiny map and no players for weeks: ~45 MB anonymous, ~1 GB peak (nearly all
+  # page cache). 2 GB leaves ~2x the observed peak; raise it if the map grows.
   memory {
-    dedicated = 8192 # MB
+    dedicated = 2048 # MB
     swap      = 1024
   }
 
@@ -283,14 +286,16 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
 
   # Sizing is cluster-wide, NOT per-node. Failover symmetry requires
   # identical resources — same rule as the PG nodes. 2GB accommodates
-  # etcd (~300-500MB working set + Raft log) + HAProxy (~50MB) +
-  # keepalived (~20MB) with headroom for logs/metrics.
+  # etcd (small DCS: the bolt DB is mmapped, so it shows up as reclaimable
+  # page cache) + HAProxy (~50MB) + keepalived (~20MB) with headroom for
+  # logs/metrics. Measured 2026-10-06: 55-140 MB anonymous per node, so a 1 GB
+  # cap is ~7x the real need (was 2 GB).
   cpu {
     cores = 2
   }
 
   memory {
-    dedicated = 2048 # MB
+    dedicated = 1024 # MB
     swap      = 1024
   }
 
@@ -565,11 +570,12 @@ resource "proxmox_virtual_environment_container" "adguard" {
 # (via a separate playbook + role) — they push metrics to this LXC's
 # port 10051. See ansible/roles/zabbix-agent/.
 #
-# Sizing: 2 vCPU / 4GB / 8GB disk. Server + frontend share the
+# Sizing: 2 vCPU / 2GB / 8GB disk. Server + frontend share the
 # memory; DB lives elsewhere (Patroni VIP) so no PG memory pressure
-# here. 4GB is the realistic floor for Zabbix 7.0 server + frontend
-# (PHP-FPM workers ~50MB each) with headroom for initial schema
-# import + migration peaks. Bump further if dashboard latency or
+# here. Started at 4GB as a guess for Zabbix 7.0 server + frontend
+# (PHP-FPM workers ~50MB each) plus schema import/migration peaks;
+# measured 2026-10-06 at ~170MB anon+shmem and ~850MB peak (cache
+# included), so the cap is 2GB. Bump it if dashboard latency or
 # OOMKills appear in vmui.
 #
 # Placement: Urd (not Skuld). Original 7c.2 spec placed this on
@@ -610,7 +616,7 @@ resource "proxmox_virtual_environment_container" "hugin" {
   }
 
   memory {
-    dedicated = 4096 # MB — see header for sizing rationale
+    dedicated = 2048 # MB — see header for sizing rationale (measured 2026-10-06: ~170 MB anon+shmem, ~850 MB peak)
     swap      = 1024
   }
 
