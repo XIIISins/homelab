@@ -24,6 +24,7 @@ Keeping this role config-only means it's safe to run under
 | Remove enterprise sources | `pve-enterprise.sources`, `ceph.sources`, legacy `.list` variants → absent |
 | Ensure no-subscription | **Default off** — templates `pve-no-subscription.sources` only when `proxmox_host_manage_no_subscription: true` |
 | apt cache refresh | Handler runs `apt update` after any repo change |
+| Intel iGPU (`gpu.yml`, tag `proxmox-host:gpu`) | Installs `intel-gpu-tools`; asserts on every run that `/dev/dri/renderD128` is the `00:02.0` render node on the `i915` driver, because the Jellyfin LXC is given the node by number. Fails the play if a second DRM device shifted it |
 
 **The existing fleet already has a hand-rolled no-sub repo at
 `/etc/apt/sources.list.d/proxmox.sources`** (+ the

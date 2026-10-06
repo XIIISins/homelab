@@ -1,0 +1,48 @@
+# ansible/roles/proxmox-host/tasks/gpu.yml
+---
+# Intel iGPU (QuickSync) on the hypervisors, for the Jellyfin LXC (Phase 5h, docs/operations/5h-jellyfin.md).
+# Applied to ALL three nodes because Jellyfin may be `pct migrate`d to any of them (identical MSI Cubi 5 12M).
+#
+# - intel-gpu-tools: `intel_gpu_top` for live engine use during a transcode. It must run on the host: a container
+#   cannot read the GPU's PMU.
+# - The assert: the Terraform device_passthrough hands the container `/dev/dri/renderD128`, a bare minor number. If a
+#   second DRM device ever appears (a USB display adapter, a future dGPU) the numbering can shift and the container
+#   would silently get the wrong device (or none). Fail the play instead, here, on the host.
+# i915 is the driver Alder Lake uses; `xe` must not claim it (never force_probe this platform).
+- name: Install intel-gpu-tools
+  ansible.builtin.apt:
+    name: intel-gpu-tools
+    state: present
+    update_cache: false
+  when: proxmox_host_gpu_tools
+
+# Read-only probes: they must also run under --check, where they feed the asserts below.
+- name: Resolve the iGPU render node from its PCI path
+  ansible.builtin.command: "readlink -f /dev/dri/by-path/pci-{{ proxmox_host_igpu_pci }}-render"
+  register: proxmox_host_igpu_render
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Read the kernel driver bound to the iGPU
+  ansible.builtin.shell: "basename \"$(readlink -f /sys/bus/pci/devices/{{ proxmox_host_igpu_pci }}/driver)\""
+  args:
+    executable: /bin/bash
+  register: proxmox_host_igpu_driver_bound
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Assert the iGPU render node is the one the LXC is given, on the driver we expect
+  ansible.builtin.assert:
+    that:
+      - proxmox_host_igpu_render.rc == 0
+      - proxmox_host_igpu_render.stdout == proxmox_host_igpu_render_node
+      - proxmox_host_igpu_driver_bound.stdout == proxmox_host_igpu_driver
+    fail_msg: >-
+      iGPU {{ proxmox_host_igpu_pci }}: expected render node {{ proxmox_host_igpu_render_node }} on driver
+      {{ proxmox_host_igpu_driver }}, got '{{ proxmox_host_igpu_render.stdout | default('') }}' on
+      '{{ proxmox_host_igpu_driver_bound.stdout | default('') }}'. The Jellyfin LXC's device_passthrough
+      (terraform/proxmox/asgard-lxcs-root) names the node by number: fix the host, or change it there, before
+      this goes further.
+    success_msg: "{{ proxmox_host_igpu_pci }} -> {{ proxmox_host_igpu_render.stdout }} on {{ proxmox_host_igpu_driver_bound.stdout }}"

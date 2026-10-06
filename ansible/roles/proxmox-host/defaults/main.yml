@@ -54,3 +54,12 @@ proxmox_host_archive_keyring: "/usr/share/keyrings/proxmox-archive-keyring.gpg"
 # clients are connected trips the watchdog and resets the node, so this
 # role never restarts it. Validate with a reboot (see known-issues).
 proxmox_host_watchdog_module: ""
+
+# --- Intel iGPU (QuickSync) for the Jellyfin LXC ------------------------
+# Same hardware on all three nodes (MSI Cubi 5 12M, Alder Lake-UP3 GT1 [8086:46b3]), so Jellyfin can move between
+# them. The LXC is given the render node by number (terraform/proxmox/asgard-lxcs-root, device_passthrough), so the
+# role asserts on every run that /dev/dri/renderD128 really is this PCI device and that i915 owns it.
+proxmox_host_gpu_tools: true # intel-gpu-tools (intel_gpu_top)
+proxmox_host_igpu_pci: "0000:00:02.0"
+proxmox_host_igpu_render_node: /dev/dri/renderD128
+proxmox_host_igpu_driver: i915
