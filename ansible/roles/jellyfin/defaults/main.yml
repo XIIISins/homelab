@@ -64,10 +64,13 @@ jellyfin_zabbix_userparameter_file: /etc/zabbix/zabbix_agent2.d/jellyfin.conf
 # must already exist in the section Jellyfin returns, so a misspelt or version-dependent name fails loudly instead of
 # being silently ignored.
 jellyfin_api_key_vault_path: ansible/jellyfin/api-key
+jellyfin_api_key_vault_field: key
 jellyfin_api_url: "http://127.0.0.1:{{ jellyfin_http_port }}"
 jellyfin_config_sections:
   # Dashboard -> Playback -> Transcoding. Codec list: tick exactly what `vainfo` reports as VLD profiles (the role prints
   # them). VP8 is not decoded by Gen12. AV1 *encode* is off (no encoder on this iGPU).
+  # The transcode directory is not in the encoding API section in 10.11; its default (<cache dir>/transcodes) is already
+  # jellyfin_transcode_dir, on the cache mount, so there is nothing to set.
   encoding:
     HardwareAccelerationType: qsv
     VaapiDevice: "{{ jellyfin_render_node }}"
@@ -86,7 +89,6 @@ jellyfin_config_sections:
     EnableDecodingColorDepth10HevcRext: true
     EnableDecodingColorDepth12HevcRext: true
     HardwareDecodingCodecs: [h264, hevc, mpeg2video, vc1, vp9, av1]
-    TranscodingTempPath: "{{ jellyfin_transcode_dir }}"
     EnableThrottling: true
     EnableSegmentDeletion: true
   # Dashboard -> Networking: LAN (client VLAN 60 and the rest of 10.0.0.0/16) + tailnet; Traefik's traffic leaves the
