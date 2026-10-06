@@ -1,5 +1,13 @@
 # ansible/roles/jellyfin/tasks/install.yml
 ---
+# curl: not in the minimal LXC template; the zabbix `jellyfin.health` item and operators use it.
+- name: Install curl
+  ansible.builtin.apt:
+    name: curl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
 - name: Create the apt keyrings directory
   ansible.builtin.file:
     path: "{{ jellyfin_apt_key_path | dirname }}"
@@ -26,6 +34,14 @@
     signed_by: "{{ jellyfin_apt_key_path }}"
     state: present
     enabled: true
+  register: jellyfin_repo
+
+# deb822_repository does not refresh the index, and the cache is usually fresh from baseline (cache_valid_time below would
+# skip the update), so the new repository's packages would be "not available". Found on first provisioning 2026-10-06.
+- name: Refresh the apt index when the repository was added or changed
+  ansible.builtin.apt:
+    update_cache: true
+  when: jellyfin_repo.changed
 
 # Before the packages, so the unit never starts against a missing mount even on the very first install.
 - name: Create the unit drop-in directory
