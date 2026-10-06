@@ -36,9 +36,8 @@ the overview links to it as "Bookmarks".
    restarts in the last hour, the fullest volume, volume use in total, certificates (with the soonest to expire,
    by name), and how many containers, pods and namespaces are running.
 5. **Apps.** The everyday ones (Outline, Immich, MicroBin, Bookmarks) are four tiles beside the headline. The lab
-   and hardware apps live in a **left rail**: an icon strip by default that widens on hover or keyboard focus, with
-   the overview giving up that width in step, and a pin button that keeps it open (remembered per browser in
-   `localStorage`). The rail starts level with the top of the headline card and ends level with the lowest card
+   and hardware apps live in a **left rail**: an icon strip by default that widens on hover or keyboard focus; a pin button keeps it open
+   (remembered per browser in `localStorage`). The rail starts level with the top of the headline card and ends level with the lowest card
    shown (`app.js` measures both into `--rail-top` and `--rail-h`, so it follows the bottom row being trimmed). When
    its list is longer than the room, the list fades out where it is cut off, at the bottom and, once scrolled, at the
    top. The **light/dark switch** is pinned at the foot of the rail, outside the scrolling list, so it never needs
@@ -49,6 +48,15 @@ the overview links to it as "Bookmarks".
 
 When VictoriaMetrics does not answer the page says so, blanks every figure and trend line and keeps the buttons
 working; it recovers by itself on the next poll.
+
+**How the rail opens.** The rail's grid column keeps its collapsed width (86 px); only the panel grows, over what
+is beside it. The page is at most 1440 px wide and centred in the space to the right of the collapsed rail, so on a
+wide window there is blank space either side of it. The page's left margin is
+`max(open rail width - 86 px, the blank space centring leaves)`, so it moves only when that space is not enough, and
+only by the missing amount. At 1440 px wide there is no spare space and the page is pushed by the full 258 px (and
+narrows), as before. From about 1530 px wide the blank margin covers part of the 258 px, and from about 2040 px wide it
+covers all of it: the page does not move at all. The page (not `.main`) is the layout container its own queries use, so
+the compact layouts switch on when it is genuinely squeezed.
 
 **The hero card's texts** (all in `site/app.js`, `setVerdict` and `render`):
 
