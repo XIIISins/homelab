@@ -404,12 +404,13 @@
     none.hidden = any;
   });
 
-  const visibleLinks = () => $$('.app:not([hidden]) a');
+  // Rail first, then the everyday tiles: the order the arrow keys walk in.
+  const visibleLinks = () => $$('.rail .app:not([hidden]) a, .quick .app:not([hidden]) a');
 
   find.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const first = visibleLinks()[0];
-      if (first) first.click();
+      if (first && find.value.trim()) first.click();
     } else if (e.key === 'ArrowDown') {
       const first = visibleLinks()[0];
       if (first) { e.preventDefault(); first.focus(); }
@@ -421,13 +422,15 @@
   });
 
   // Arrow keys walk the visible buttons; going up from the first returns to the search box.
-  $('.apps-scroll').addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  document.addEventListener('keydown', (e) => {
+    const forward = e.key === 'ArrowDown' || e.key === 'ArrowRight';
+    const back = e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+    if (!forward && !back) return;
     const links = visibleLinks();
     const i = links.indexOf(document.activeElement);
     if (i === -1) return;
     e.preventDefault();
-    if (e.key === 'ArrowDown') (links[i + 1] || links[i]).focus();
+    if (forward) (links[i + 1] || links[i]).focus();
     else if (i === 0) find.focus();
     else links[i - 1].focus();
   });
@@ -442,6 +445,27 @@
       find.select();
     }
   });
+
+  // ---------- Pinning the rail ----------
+  // Hover opens the rail over the page; the pin keeps it open and gives it its own
+  // column. The choice is remembered in this browser (and works without storage).
+
+  const shell = $('#shell');
+  const pin = $('#pin');
+  const PIN_KEY = 'overview.railPinned';
+
+  function setPinned(on) {
+    shell.toggleAttribute('data-pinned', on);
+    pin.setAttribute('aria-pressed', String(on));
+    pin.title = on ? 'Let the app list close again' : 'Keep the app list open';
+    $('.vh', pin).textContent = pin.title;
+    try { localStorage.setItem(PIN_KEY, on ? '1' : '0'); } catch { /* private mode */ }
+  }
+
+  let pinned = false;
+  try { pinned = localStorage.getItem(PIN_KEY) === '1'; } catch { /* private mode */ }
+  if (pinned) setPinned(true);
+  pin.addEventListener('click', () => setPinned(!shell.hasAttribute('data-pinned')));
 
   refresh();
 })();

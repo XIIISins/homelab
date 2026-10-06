@@ -38,6 +38,7 @@
   --none: #565f89;
   --hi: rgb(255 255 255 / 0.04);
   --lift: 0 12px 28px -16px rgb(0 0 0 / 0.7);
+  --float: 0 28px 60px -22px rgb(0 0 0 / 0.8);
   --font: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark light;
 }
@@ -62,6 +63,7 @@
     --none: #848cb5;
     --hi: rgb(255 255 255 / 0.7);
     --lift: 0 12px 28px -18px rgb(52 59 88 / 0.35);
+    --float: 0 28px 60px -24px rgb(52 59 88 / 0.45);
   }
 }
 
@@ -138,55 +140,82 @@ a {
 
 /* ---------- Layout ---------- */
 
-.page {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 18px 16px 56px;
+/* Narrow screens: one column in the order that matters on a phone: headline,
+   everyday apps, the rest of the apps, then machine detail and facts. The
+   wrappers dissolve (display: contents) so `order` can interleave them. */
+.shell {
+  --rail-w: 86px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
+  padding: 18px 16px 56px;
 }
 
-/* On narrow screens the status column dissolves so the order can be
-   verdict, apps, machines, facts: the first thing to reach is an app. */
-.col-status {
+.main,
+.page {
   display: contents;
 }
 
 .top { order: 0; }
-.verdict { order: 1; }
-.apps { order: 2; }
+.hero { order: 1; }
+.rail { order: 2; }
 .machines { order: 3; }
 .facts { order: 4; }
 
-/* Two columns only where three machine cards still fit side by side in the
-   left one (about 640px at this width). */
-@media (min-width: 1200px) {
-  .page {
-    padding: 28px 40px 64px;
-    grid-template-columns: minmax(0, 1fr) 400px;
-    column-gap: 24px;
+.shell[data-pinned] {
+  --rail-w: 344px;
+}
+
+.hero {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Wide screens: a slim rail on the left (icons only; opens over the page on
+   hover or keyboard focus, or stays open when pinned) and the overview beside it. */
+@media (min-width: 1000px) {
+  .shell {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
     align-items: start;
+    gap: 0;
+    padding: 0;
   }
 
-  .top {
-    grid-column: 1 / -1;
+  .rail {
+    order: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 5;
   }
 
-  .col-status {
+  .main {
+    display: block;
+    min-width: 0;
+    container: main / inline-size;
+  }
+
+  .page {
     display: grid;
     gap: 20px;
-    grid-column: 1;
-    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 28px 32px 56px 12px;
   }
 
-  .apps {
-    grid-column: 2;
-    grid-row: 2;
-    position: sticky;
-    top: 24px;
-    max-height: calc(100vh - 48px);
-    max-height: calc(100dvh - 48px);
+  .top,
+  .hero,
+  .machines,
+  .facts {
+    order: 0;
+  }
+}
+
+@container main (min-width: 880px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
   }
 }
 
@@ -194,7 +223,8 @@ a {
 .verdict,
 .machine,
 .fact,
-.apps {
+.quick,
+.rail-panel {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -522,22 +552,64 @@ a {
 .fact[data-level="warn"] dd { color: var(--warn); }
 .fact[data-level="bad"] dd { color: var(--bad); }
 
-/* ---------- Apps: a launcher ---------- */
+/* ---------- Apps: the rail and the everyday tiles ---------- */
 
-.apps {
+.rail-panel {
   display: flex;
   flex-direction: column;
-  padding: 14px 8px 8px;
-  min-height: 0;
+  padding: 10px 0 8px;
+  /* A size container, so the labels can appear exactly when there is room. */
+  container: rail / inline-size;
+}
+
+.rail-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 11px 8px;
+}
+
+.pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: var(--fg-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.pin svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pin:hover {
+  color: var(--fg);
+  background: var(--raised);
+}
+
+.pin[aria-pressed="true"] {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+}
+
+.rail-title {
+  font-weight: 650;
+  letter-spacing: -0.005em;
 }
 
 .finder {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 6px 6px;
-  padding: 0 12px;
-  min-height: 48px;
+  margin: 0 6px 4px;
+  padding: 0 14px;
+  min-height: 46px;
   color: var(--fg-3);
   background: var(--bg);
   border: 1px solid var(--line);
@@ -583,19 +655,18 @@ a {
   border-radius: 7px;
 }
 
-.apps-scroll {
+.rail-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 4px 4px;
+  padding: 0 6px 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
 }
 
 .group {
   --tone: var(--blue);
-  margin-top: 16px;
 }
 
 .group[data-tone="magenta"] { --tone: var(--magenta); }
@@ -607,11 +678,12 @@ a {
 }
 
 .group-title {
-  margin: 0 10px 6px;
+  margin: 14px 10px 6px;
   color: var(--fg-3);
   font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .list {
@@ -625,11 +697,14 @@ a {
 
 .app-link,
 .app-multi {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 56px;
-  padding: 8px 12px 8px 10px;
+  min-height: 48px;
+  /* 6px (rail-scroll) + 1px border + 4px = 11px to the icon: 38px icon in a 60px
+     panel leaves 11px on the other side, so collapsed icons sit dead centre. */
+  padding: 5px 4px;
   text-decoration: none;
   border-radius: 14px;
   border: 1px solid transparent;
@@ -650,6 +725,7 @@ a {
 }
 
 .app-icon {
+  position: relative;
   flex: none;
   display: grid;
   place-items: center;
@@ -672,28 +748,34 @@ a {
 .app-name {
   font-weight: 600;
   line-height: 1.3;
+  white-space: nowrap;
 }
 
 .app-desc {
   color: var(--fg-3);
   font-size: 0.875rem;
   line-height: 1.3;
+  /* One line always: in the collapsed rail a wrapping caption would stretch the row. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-multi {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .app-subs {
   display: flex;
   gap: 6px;
+  margin-right: 6px;
 }
 
 .app-sub {
-  min-width: 54px;
-  padding: 6px 12px;
+  min-width: 42px;
+  padding: 4px 8px;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-decoration: none;
   color: var(--tone);
@@ -706,23 +788,27 @@ a {
   background: color-mix(in srgb, var(--tone) 24%, transparent);
 }
 
-/* Reachability dot: empty until the probe answers. */
+/* Reachability: a badge on the corner of the icon, so it shows when the rail
+   is collapsed too. Hollow until the probe answers. */
 .dot {
-  flex: none;
-  width: 9px;
-  height: 9px;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   border: 2px solid var(--none);
+  background: var(--surface);
 }
 
 .app-link[data-up="1"] .dot {
-  border-color: var(--ok);
+  border-color: var(--surface);
   background: var(--ok);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 60%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
 }
 
 .app-link[data-up="0"] .dot {
-  border-color: var(--bad);
+  border-color: var(--surface);
   background: var(--bad);
 }
 
@@ -731,10 +817,142 @@ a {
   color: var(--fg-3);
 }
 
+/* The rail on wide screens: an icon strip that opens over the page. */
+@media (min-width: 1000px) {
+  .rail-panel {
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: 62px;
+    overflow: hidden;
+    transition: width 0.2s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.2s;
+  }
+
+  .shell[data-pinned] .rail-panel {
+    width: 320px;
+  }
+
+  .rail:has(:focus-visible) .rail-panel {
+    width: 320px;
+  }
+
+}
+
+/* Hover only opens it where hover exists; touch screens use the pin button. */
+@media (min-width: 1000px) and (hover: hover) {
+  .rail:hover .rail-panel {
+    width: 320px;
+  }
+}
+
+/* Floating over the page (not pinned): a deeper shadow says so. */
+@media (min-width: 1000px) {
+  .shell:not([data-pinned]) .rail:has(:focus-visible) .rail-panel {
+    box-shadow: inset 0 1px 0 var(--hi), var(--float);
+  }
+}
+
+@media (min-width: 1000px) and (hover: hover) {
+  .shell:not([data-pinned]) .rail:hover .rail-panel {
+    box-shadow: inset 0 1px 0 var(--hi), var(--float);
+  }
+}
+
+/* Labels fade in only once the panel is wide enough to hold them. */
+@container rail (max-width: 199px) {
+  .rail-title,
+  .app-text,
+  .app-subs,
+  .group-title,
+  #find,
+  .finder kbd {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .app-multi .app-subs {
+    display: none;
+  }
+}
+
+@container rail (min-width: 200px) {
+  .rail-title,
+  .app-text,
+  .app-subs,
+  .group-title,
+  #find,
+  .finder kbd {
+    transition: opacity 0.15s 0.08s;
+  }
+
+  .app-multi .app-subs {
+    display: flex;
+  }
+}
+
+/* No pin button where there is no rail to pin. */
+@media (max-width: 999px) {
+  .pin,
+  .rail-top {
+    display: none;
+  }
+}
+
+/* Everyday apps: bigger tiles in the main area. */
+.quick {
+  padding: 4px 14px 14px;
+}
+
+.quick .group-title {
+  margin: 14px 4px 10px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+}
+
+.quick .list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick .app-link {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 118px;
+  padding: 14px;
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.quick .app-link:hover,
+.quick .app-link:focus-visible {
+  background: color-mix(in srgb, var(--tone) 9%, var(--raised));
+}
+
+.quick .app-icon {
+  width: 42px;
+  height: 42px;
+  font-size: 1rem;
+}
+
+.quick .app-name {
+  font-size: 1.0625rem;
+}
+
+.quick .app-desc {
+  font-size: 0.8125rem;
+  white-space: normal;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .m-ring,
   .app-link,
-  .finder {
+  .finder,
+  .rail-panel {
     transition: none;
   }
 
