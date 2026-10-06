@@ -20,8 +20,8 @@
     that:
       - jellyfin_render_stat.stat.exists
       - jellyfin_render_stat.stat.ischr
-      - jellyfin_render_stat.stat.gr_gid == jellyfin_gpu_gid
+      - jellyfin_render_stat.stat.gid == jellyfin_gpu_gid
     fail_msg: >-
       {{ jellyfin_render_node }} is missing, not a character device, or not group {{ jellyfin_gpu_gid }} (it is
-      gid {{ jellyfin_render_stat.stat.gr_gid | default('n/a') }}). It comes from the Terraform device_passthrough in
+      gid {{ jellyfin_render_stat.stat.gid | default('n/a') }}). It comes from the Terraform device_passthrough in
       terraform/proxmox/asgard-lxcs-root (root@pam); the host side is asserted by roles/proxmox-host/tasks/gpu.yml.
