@@ -46,3 +46,30 @@
       (terraform/proxmox/asgard-lxcs-root) names the node by number: fix the host, or change it there, before
       this goes further.
     success_msg: "{{ proxmox_host_igpu_pci }} -> {{ proxmox_host_igpu_render.stdout }} on {{ proxmox_host_igpu_driver_bound.stdout }}"
+
+# --- GPU-hang counter for Zabbix (template "Proxmox iGPU") -------------------------------------------------------------
+# `i915 ... GPU HANG` is the most common Alder Lake media failure: the engine resets and Jellyfin silently falls back to the
+# CPU or fails. The zabbix user cannot read the kernel journal, so (like smartctl in smart.yml) allow EXACTLY one journalctl
+# invocation, no arguments free, and nothing else.
+- name: Let the zabbix agent read this boot's kernel journal, and only that
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/zabbix-igpu-journal
+    content: |
+      # Managed by Ansible (proxmox-host role, gpu.yml). Zabbix item pve.igpu.hang.count.
+      zabbix ALL=(root) NOPASSWD: /usr/bin/journalctl -k -b --no-pager
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Install the iGPU hang-count UserParameter
+  ansible.builtin.copy:
+    dest: /etc/zabbix/zabbix_agent2.d/proxmox-igpu.conf
+    content: |
+      # Managed by Ansible (proxmox-host role, gpu.yml). Read by the "Proxmox iGPU" Zabbix template.
+      UserParameter=pve.igpu.hang.count,sudo -n /usr/bin/journalctl -k -b --no-pager | grep -ciE 'i915.*GPU HANG' || true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: proxmox-host restart zabbix-agent2
+

@@ -1,0 +1,82 @@
+# ansible/playbooks/files/zabbix/jellyfin.yml
+#
+# "Jellyfin": a Zabbix 7.0 template linked ONLY to the Jellyfin LXC (group_vars/media_server.yml). Imported by
+# playbooks/zabbix-host-groups.yml. The items are the UserParameters the `jellyfin` role installs
+# (roles/jellyfin/templates/zabbix-jellyfin.conf.j2); their keys are deliberately not keys "Linux by Zabbix agent" defines.
+#
+# Why these four (docs/operations/5h-jellyfin.md, J6):
+#   QSV smoke test   the hourly hardware-transcode self-test. A broken passthrough (host kernel update, a renumbered render
+#                    node, a GPU hang) shows up here within the hour instead of as "it buffers". High after 2 failed runs.
+#   smoke age        a stalled timer is as bad as a failing one; the state file must be less than ~2 h old.
+#   media mounted    the `hard` NFS mount: if it vanishes Jellyfin is blind and its library scan can drop items.
+#   /health          the server answers `Healthy`.
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 975b190287a5423a9c92a88f4ca37e9c
+      template: Jellyfin
+      name: Jellyfin
+      description: Jellyfin media server with Intel QuickSync (LXC 1123). Items come from roles/jellyfin UserParameters.
+      groups:
+        - name: Templates
+      items:
+        - uuid: 4acaa5b51db6450fb4bf2a3a75a827f1
+          name: 'Jellyfin: QSV smoke test passed'
+          key: 'jellyfin.qsv.smoke.ok'
+          delay: 5m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 1 when the last hourly hardware-transcode self-test passed, 0 when it failed.
+          triggers:
+            - uuid: 097b526f54d94873b5e9aa06d9908bce
+              expression: 'min(/Jellyfin/jellyfin.qsv.smoke.ok,70m)=0 and count(/Jellyfin/jellyfin.qsv.smoke.ok,70m)>=10'
+              name: 'Jellyfin: QuickSync transcode self-test failing'
+              priority: HIGH
+              description: The hourly QSV smoke test has failed for two consecutive runs (about 70 minutes). Hardware transcoding is broken, so playback of anything that needs a transcode falls back to the CPU or fails. Check `journalctl -u jellyfin-qsv-smoke` on the LXC, `intel_gpu_top` and the i915 kernel log on Urd, and that /dev/dri/renderD128 is still passed (device_passthrough).
+        - uuid: a59bc16e304040328f466ec6092ca87d
+          name: 'Jellyfin: QSV smoke test age'
+          key: 'jellyfin.qsv.smoke.age'
+          delay: 5m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          units: s
+          description: Seconds since the QSV smoke test last wrote its state file.
+          triggers:
+            - uuid: c8a245a9d20f40489f640aa27935d2ae
+              expression: 'last(/Jellyfin/jellyfin.qsv.smoke.age)>7500'
+              name: 'Jellyfin: QuickSync smoke-test timer stalled'
+              priority: AVERAGE
+              description: The smoke-test state file is more than ~2 hours old (the timer runs hourly). The test is not running, so a broken GPU path would go unnoticed.
+        - uuid: f2525474993a462687b593859c0d7830
+          name: 'Jellyfin: media share mounted'
+          key: 'jellyfin.media.mounted'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 1 when the Munin media share is mounted at /media.
+          triggers:
+            - uuid: 4f4975ee9ee2419a98ffffd31345ef84
+              expression: 'max(/Jellyfin/jellyfin.media.mounted,3m)=0'
+              name: 'Jellyfin: media share not mounted'
+              priority: HIGH
+              description: /media is not mounted for 3 minutes. Jellyfin cannot read the library (and its unit RequiresMountsFor the share, so it will not restart without it). Check the NFS permission rule for this host on volume5/media-backup and Munin itself.
+        - uuid: 21744a23cf01401e9c0cec317bc4faae
+          name: 'Jellyfin: /health Healthy'
+          key: 'jellyfin.health'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 1 when http://127.0.0.1:8096/health answers Healthy.
+          triggers:
+            - uuid: 7669a1a0eacb4d3191ff82d4102477cd
+              expression: 'max(/Jellyfin/jellyfin.health,3m)=0'
+              name: 'Jellyfin: server not healthy'
+              priority: HIGH
+              description: Jellyfin's /health has not answered Healthy for 3 minutes (stopped, crashed, or waiting on its mounts).
