@@ -65,6 +65,22 @@ keeps working through the adoption — Fulla's IP doesn't change and PG
 is briefly down only during the postgresql@17-main → patroni handoff
 (seconds).
 
+## Tuning parameters on a live cluster
+
+`bootstrap.dcs.*` in `patroni.yml` is written to etcd once, at the very first
+start. Editing a `postgres_*` default therefore changes nothing on a running
+cluster. For the **reload-only** parameters listed in
+`patroni_dcs_reconciled_parameters` (planner and observability settings:
+`random_page_cost`, `effective_io_concurrency`, `jit`, `track_io_timing`,
+`log_temp_files`), `tasks/dcs-parameters.yml` reads the live `/config`, and when
+a value differs PATCHes it onto the cluster through the REST API (leader only,
+cluster-wide, no restart). `--check` reports the drift without applying it.
+Run just this step with `--tags patroni-dcs`.
+
+Restart-required parameters (`shared_buffers`, `max_connections`, ...) are
+deliberately not reconciled: changing them is a rolling restart and stays a
+manual `patronictl edit-config` plus restart, one node at a time.
+
 ## Verifying
 
 ```fish

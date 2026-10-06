@@ -73,3 +73,16 @@
     - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
     - not ansible_check_mode
   tags: [postgres-common-databases]
+
+# Per-table storage parameters (autovacuum tuning for the big Zabbix history
+# tables). Leader-only; SHARE UPDATE EXCLUSIVE lock, so reads and writes go on.
+- name: Apply per-table storage parameters
+  ansible.builtin.include_tasks:
+    file: table-storage-params.yml
+    apply:
+      tags: [postgres-common-tables]
+  when:
+    - postgres_table_storage_params | length > 0
+    - (not postgres_patroni_managed) or (patroni_is_leader | default(false))
+    - not ansible_check_mode
+  tags: [postgres-common-tables]

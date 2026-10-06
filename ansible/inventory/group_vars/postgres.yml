@@ -153,3 +153,16 @@ zabbix_agent_host_macros:
     value: "75"
   - macro: "{$VFS.FS.PUSED.MAX.CRIT}"
     value: "85"
+
+# Per-table storage parameters (applied leader-only by postgres-common).
+# Zabbix's housekeeper deletes expired history in batches; with the stock
+# autovacuum_vacuum_scale_factor of 0.2 an 84M-row table needs ~17M dead rows
+# before autovacuum even looks at it (measured 2026-10-06: 13M dead in `history`,
+# 11.9M in `history_uint`, last vacuumed days earlier), and that bloat takes up
+# cache the 4 GB nodes cannot spare. 0.01 triggers around 0.85M dead rows.
+# Tables that do not exist (history_bin etc. on older schemas) are skipped.
+postgres_table_storage_params:
+  - db: zabbix
+    tables: [history, history_uint, history_str, history_text, history_log, history_bin]
+    params:
+      autovacuum_vacuum_scale_factor: "0.01"

@@ -1,0 +1,63 @@
+# ansible/roles/patroni/tasks/dcs-parameters.yml
+---
+# Converge the live Patroni DCS (etcd) config to patroni_dcs_reconciled_parameters.
+#
+# Why this exists: patroni.yml's bootstrap.dcs.* only seeds etcd on the very
+# first start. Editing postgres_* defaults therefore changes nothing on a
+# running cluster. Patroni's REST API takes a merge-PATCH on /config, which is
+# cluster-wide and applies the reload-only parameters on every member without a
+# restart. JSON bodies keep the values typed (a YAML `off` would become a
+# boolean), which a `patronictl edit-config --set` would not.
+#
+# Runs on the leader only (the config is cluster-wide; one writer is enough).
+# GET /config is unauthenticated; PATCH needs the REST basic-auth credentials.
+
+- name: Read the live Patroni DCS config
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ patroni_restapi_port }}/config"
+    status_code: [200]
+    return_content: true
+  register: patroni_dcs_live
+  changed_when: false
+  check_mode: false # read-only GET; needed in --check to report drift
+  when: patroni_is_leader | default(false)
+
+# Compare as lowercase strings so a value once stored as a bool/number (an
+# operator's `patronictl edit-config`) does not make this re-apply forever.
+- name: Work out which reconciled parameters differ from the live DCS
+  ansible.builtin.set_fact:
+    patroni_dcs_param_drift: >-
+      {%- set live = (patroni_dcs_live.json.postgresql | default({})).parameters | default({}) -%}
+      {%- set out = {} -%}
+      {%- for k, v in patroni_dcs_reconciled_parameters.items() -%}
+      {%- if (live[k] | default('') | string | lower) != (v | string | lower) -%}
+      {%- set _ = out.update({k: v | string}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+  when: patroni_is_leader | default(false)
+
+- name: Report Patroni DCS parameter drift
+  ansible.builtin.debug:
+    msg: "DCS parameters to apply: {{ patroni_dcs_param_drift }}"
+  when:
+    - patroni_is_leader | default(false)
+    - patroni_dcs_param_drift | length > 0
+
+# no_log: the request carries the REST API password.
+- name: Apply the drifted parameters (cluster-wide, reload only)
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ patroni_restapi_port }}/config"
+    method: PATCH
+    url_username: "{{ patroni_restapi_username }}"
+    url_password: "{{ lookup('community.hashi_vault.vault_kv2_get', patroni_restapi_password_vault_path).secret.value }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      postgresql:
+        parameters: "{{ patroni_dcs_param_drift }}"
+    status_code: [200]
+  no_log: true
+  when:
+    - patroni_is_leader | default(false)
+    - patroni_dcs_param_drift | length > 0

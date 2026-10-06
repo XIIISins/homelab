@@ -65,6 +65,22 @@ postgres_maintenance_work_mem: 256MB
 postgres_max_connections: 300
 postgres_wal_buffers: 16MB
 
+# ---- Planner / observability tuning (all reloadable, no restart) ----
+# Local LVM-thin on NVMe, so random reads are nearly as cheap as sequential
+# ones: the stock random_page_cost of 4 makes the planner avoid index scans it
+# should use, and effective_io_concurrency of 1 disables read-ahead for bitmap
+# scans. JIT compilation is a net loss for the short OLTP queries every consumer
+# here runs (Zabbix, Authentik, NetBox). track_io_timing and log_temp_files make
+# I/O waits and work_mem spills visible instead of silent.
+# Patroni-managed mode: written to etcd at bootstrap AND reconciled onto a live
+# cluster by roles/patroni/tasks/dcs-parameters.yml (bootstrap.dcs is otherwise
+# first-start-only). Values are strings on purpose: Patroni compares them as-is.
+postgres_random_page_cost: "1.1"
+postgres_effective_io_concurrency: "200"
+postgres_jit: "off"
+postgres_track_io_timing: "on"
+postgres_log_temp_files: "10MB"
+
 # ---- Logging (postgresql-common defaults) ----
 postgres_log_destination: stderr
 postgres_logging_collector: true

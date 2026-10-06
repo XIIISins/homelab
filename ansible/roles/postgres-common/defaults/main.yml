@@ -40,3 +40,12 @@ postgres_management_users:
 # Set in inventory/group_vars/postgres.yml. Each entry:
 #   { name, owner, password_vault_path }
 postgres_databases: []
+
+# ---- Per-table storage parameters ----
+# Set in inventory/group_vars/postgres.yml. Applied leader-only by
+# tasks/table-storage-params.yml with ALTER TABLE ... SET (...). Tables that do
+# not exist yet (a service whose schema is created later, e.g. Zabbix's by the
+# zabbix-server role) are skipped, so the next converge picks them up.
+# Schema: { db, tables: [name...], params: { storage_param: "value" } }
+# Values are strings, written exactly as they appear in pg_class.reloptions.
+postgres_table_storage_params: []

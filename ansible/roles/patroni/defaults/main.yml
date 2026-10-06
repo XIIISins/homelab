@@ -117,3 +117,17 @@ patroni_hermod_curl_timeout: 5
 # vlagent picks up /var/log/patroni-hermod.log via group_vars if shipping
 # is desired (default: not configured).
 patroni_hermod_callback_log: /var/log/patroni-hermod.log
+
+# ---- DCS parameters reconciled onto a LIVE cluster ----
+# bootstrap.dcs.* in patroni.yml is written to etcd once, at first start; after
+# that the template changes nothing. tasks/dcs-parameters.yml PATCHes exactly
+# this dict onto the running cluster's /config when it differs (reload-only
+# parameters, so no restart). Deliberately NOT the restart-required ones
+# (shared_buffers, max_connections, ...): changing those on a live cluster is a
+# rolling restart and stays a deliberate `patronictl edit-config` + restart.
+patroni_dcs_reconciled_parameters:
+  random_page_cost: "{{ postgres_random_page_cost }}"
+  effective_io_concurrency: "{{ postgres_effective_io_concurrency }}"
+  jit: "{{ postgres_jit }}"
+  track_io_timing: "{{ postgres_track_io_timing }}"
+  log_temp_files: "{{ postgres_log_temp_files }}"
