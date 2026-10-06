@@ -877,7 +877,10 @@
     fitInsight();
     requestAnimationFrame(() => requestAnimationFrame(fitInsight));
   };
-  new ResizeObserver(refit).observe($('.main'));
+  // .main changes with the window; .page also changes when an open rail pushes it.
+  const fitObserver = new ResizeObserver(refit);
+  fitObserver.observe($('.main'));
+  fitObserver.observe($('.page'));
   for (const query of ['(min-width: 1000px)', '(max-height: 824px)', '(max-height: 650px)']) {
     matchMedia(query).addEventListener('change', refit);
   }

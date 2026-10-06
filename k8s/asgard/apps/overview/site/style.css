@@ -176,7 +176,10 @@ a {
        ends level with the last card. */
     --pad-top: 28px;
     --pad-bottom: 56px;
-    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    /* The rail's column keeps its collapsed width; only the panel in it grows (it overlays what is
+       beside it), and .page makes room for it only when the room is really needed (below). */
+    --rail-base: 86px;
+    grid-template-columns: var(--rail-base) minmax(0, 1fr);
     gap: 0;
     padding: 0;
     transition: --rail-w 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) 0.06s;
@@ -189,6 +192,8 @@ a {
 
   .rail {
     order: 0;
+    position: relative;
+    z-index: 5;
     display: flex;
     flex-direction: column;
     /* 12px of air either side of the panel: rail width = panel width + 24px */
@@ -198,15 +203,22 @@ a {
   .main {
     display: block;
     min-width: 0;
-    container: main / inline-size;
+    container: shell-main / inline-size;
   }
 
+  /* The page is at most 1440px wide, so on a wide screen there is blank space either side of it.
+     An open rail grows into that space and the page does not move. Only when the space is not
+     enough does the page give way, and only by the missing amount: its left margin is the larger
+     of "what the rail needs" (rail width minus its collapsed width) and "the blank space centring
+     would leave anyway". The page, not .main, is the container its own layout is judged by, so the
+     compact layouts below still switch on when it is genuinely squeezed. */
   .page {
+    container: main / inline-size;
     display: grid;
     gap: 20px;
     grid-template-columns: minmax(0, 1fr);
     max-width: 1440px;
-    margin: 0 auto;
+    margin: 0 0 0 max(calc(var(--rail-w) - var(--rail-base)), max(0px, calc((100cqi - 1440px) / 2)));
     padding: var(--pad-top) 32px var(--pad-bottom) 12px;
   }
 
@@ -1224,6 +1236,20 @@ a {
   }
 }
 
+/* An open rail floats over the page (or over the blank space beside it): give it depth. */
+@media (min-width: 1000px) {
+  .shell[data-pinned] .rail-panel,
+  .shell:has(.rail :focus-visible) .rail-panel {
+    box-shadow: inset 0 1px 0 var(--hi), 0 24px 48px -20px var(--lift-c);
+  }
+}
+
+@media (min-width: 1000px) and (hover: hover) {
+  .shell:has(.rail:hover) .rail-panel {
+    box-shadow: inset 0 1px 0 var(--hi), 0 24px 48px -20px var(--lift-c);
+  }
+}
+
 /* Hover widens it only where hover exists; touch screens use the pin button. */
 @media (min-width: 1000px) and (hover: hover) {
   .shell:has(.rail:hover) {
@@ -1339,7 +1365,7 @@ a {
 
   .rail {
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .main {
