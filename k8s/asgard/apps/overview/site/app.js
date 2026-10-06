@@ -343,7 +343,10 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && Date.now() - lastTry > POLL_MS) refresh();
+    if (document.hidden) return;
+    if (Date.now() - lastTry > POLL_MS) refresh();
+    // A tab opened in the background has never probed; one left for a while is stale.
+    if (probing && Date.now() - lastProbe >= PROBE_MS / 2) runProbes();
   });
   setInterval(tickStamp, 5000);
 
@@ -365,15 +368,19 @@
   }
 
   let probing = false;
+  let lastProbe = 0;
+
+  function runProbes() {
+    if (document.hidden) return;
+    lastProbe = Date.now();
+    $$('.app-link[data-probe]').forEach((a, i) => setTimeout(() => probe(a), i * 80));
+  }
+
   function startProbes() {
     if (probing) return;
     probing = true;
-    const run = () => {
-      if (document.hidden) return;
-      $$('.app-link[data-probe]').forEach((a, i) => setTimeout(() => probe(a), i * 80));
-    };
-    run();
-    setInterval(run, PROBE_MS);
+    runProbes();
+    setInterval(() => { if (Date.now() - lastProbe >= PROBE_MS) runProbes(); }, 10_000);
   }
 
   // ---------- Finder ----------
