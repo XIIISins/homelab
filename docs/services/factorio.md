@@ -18,7 +18,7 @@ LXC 1120 hosts the Factorio headless server *and* SFTPGo on the same host. The o
 | `status/factorio-status.json` | `root:factorio` | read-only | Reconciler-written state |
 | `logs/reconcile.log` | `factorio:factorio` | read-only | Rotating reconcile log |
 
-RCON password lives outside `/factorio/` at `/var/lib/factorio-secrets/rconpw` (root:factorio 0750 dir, factorio:factorio 0640 file) so it's not in the operator's SFTP home tree at all.
+RCON password lives outside `/factorio/` at `/var/lib/factorio-secrets/rconpw` (root:factorio 0750 dir, factorio:factorio 0640 file) so it's not in the operator's SFTP home tree at all. `factorio-launch` generates a **fresh password on every service start** (no operator-supplied value) and execs the server with an `LD_PRELOAD` shim (`libargvscrub.so`, built on the host from `files/argv-scrub.c`) that zeroes it out of `/proc/<pid>/cmdline`; the role verifies this after every run. See [known-issues](../known-issues/sftpgo-factorio.md).
 
 **Reconcile loop.** `/usr/local/bin/factorio-reconcile` is a Python script (stdlib only) run by a systemd timer every 30s as root. It:
 - Reads `/factorio/control/factorio-control.json` to determine desired version + state
