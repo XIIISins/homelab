@@ -165,7 +165,7 @@ Detail: [`docs/services/asgard-k3s.md`](docs/services/asgard-k3s.md), [`k3s-life
 
 - ✅ **Foundation:** UCG-Ultra, KPN DMZ, Synology (Munin), Proxmox `niflheim` (PVE 9.x), PBS (LXC 1101 on Urd), three identical MSI Cubi nodes.
 - ✅ **Asgard K3s core:** cluster (teardown+rebuild validated), Sealed Secrets, Synology CSI, Vault, ESO, MetalLB, tigera-operator, CP taint.
-- ✅ **Edge + services:** Traefik/Gateway API/cert-manager, Cloudflared, Tailscale, AdGuard IaC, Factorio, PG HA, Teamspeak, Authentik, NetBox (+ TF→NetBox), Observability (8a), Zabbix (8c), Hermod, Semaphore, Outline + Garage, Startpage, MicroBin, Immich.
+- ✅ **Edge + services:** Traefik/Gateway API/cert-manager, Cloudflared, Tailscale, AdGuard IaC, Factorio, PG HA, Teamspeak, Authentik, NetBox (+ TF→NetBox), Observability (8a), Zabbix (8c), Hermod, Semaphore, Outline + Garage, Startpage, MicroBin, Immich, Overview page (internal status + launcher, `overview.niflheim.xiiisins.com`).
 - ✅ **1.0 stabilization (S1–S7)** complete 2026-05-31 ([plan](docs/operations/1.0-stabilization.md)).
 - ✅ **Phase 6** Vault OIDC, Frigg control node (HA VM 2900, Vault-backed shim, `claude remote-control`, self-healing `frigg-reauth-listener`), Vault TLS. The fleet `ansible_niflheim` key lives only in a memory-only ssh-agent on Frigg ([`frigg-control-node.md`](docs/known-issues/frigg-control-node.md)).
 - ✖ **Phase 7 Jotunheim** dropped 2026-10-05 (capacity); Phase 9's Vault Agent / VSO pilot moves to the burst cluster, then asgard app by app.
