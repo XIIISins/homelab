@@ -100,8 +100,12 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
   traversal and encoded variants, is 404), a client-supplied `Authorization` is replaced and cookies are stripped.
   Caddy tries the three hypervisors in order, so one down (Skuld has frozen before) does not blank the slide.
   Certificate verification is skipped (self-signed, management-VLAN IPs, read-only token).
-- **Order of operations (matters).** Apply `terraform/proxmox/overview-access` first, then merge. Until the Vault
-  path exists ESO cannot build the Secret; because the env var is optional the pods still start, and the page shows two
+- **Order of operations: merge first, then apply.** `terraform apply` runs only from the main checkout, and the
+  `overview-access` module is not in it until the PR is merged, so the sequence is: merge; `git pull` in the main
+  checkout; `terraform apply` in `terraform/proxmox/overview-access`; mirror the token to 1Password; `terraform apply`
+  in `terraform/adguard`; force-sync the ExternalSecret and restart the pods (steps in
+  [`open-questions.md`](../operations/open-questions.md)). Until the Vault path exists ESO cannot build the Secret
+  and shows an error, which is expected; because the env var is optional the pods still start, and the page shows two
   slides and says nothing, which is the right behaviour for "not connected yet". Env vars are read once, so a token
   that appears after the pods started needs `kubectl rollout restart deploy/overview -n overview`.
 - **Revoking it:** delete the `overview-access` Terraform resources (or the token in Proxmox); the page drops back to
