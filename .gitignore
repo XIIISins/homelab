@@ -90,8 +90,11 @@ __pycache__/
 
 # ============================================================================
 # Claude working tree (worktrees, local settings) — but agents/ and scripts/ are
-# versioned: the chart-bump agent + its helper scripts are part of the repo.
+# versioned: the chart-bump agent + its helper scripts, and the project settings
+# + SessionStart hook (.claude/hooks/) are part of the repo.
 # ============================================================================
 .claude/*
 !.claude/agents/
 !.claude/scripts/
+!.claude/hooks/
+!.claude/settings.json
