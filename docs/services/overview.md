@@ -23,9 +23,9 @@ the overview links to it as "Bookmarks".
    appears, under "Other nodes".
 3. **Four facts:** web traffic through Traefik, restarts in the last hour, the fullest volume, certificates.
 4. **Apps.** The everyday ones (Outline, Immich, MicroBin, Bookmarks) are four tiles beside the headline. The lab
-   and hardware apps live in a **left rail**: an icon strip by default that opens over the page on hover or keyboard
-   focus (the main area never shifts), with a pin button that keeps it open and gives it its own column (remembered
-   per browser in `localStorage`). Search sits in the rail and filters both: `/` or Ctrl/Cmd+K focuses it, Enter opens
+   and hardware apps live in a **left rail**: an icon strip by default that widens on hover or keyboard focus, with the overview giving up
+   that width in step, and a pin button that keeps it open (remembered per browser in `localStorage`). The rail is
+   as tall as the overview: it starts level with the header and ends level with the last card. Search sits in the rail and filters both: `/` or Ctrl/Cmd+K focuses it, Enter opens
    the first match, the arrow keys walk the results. Hosts with a browser-trusted certificate get a reachability
    badge on their icon, a no-cors `fetch` from the viewer's own browser, so it answers "can I open this from here".
    Under 1000 px wide there is no rail: headline, everyday tiles, the rest of the apps, then machines and facts.
