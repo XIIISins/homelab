@@ -65,7 +65,8 @@ admin manages day-to-day server state (mods, version, restart) via SFTP only.
 
 /etc/logrotate.d/factorio
 /var/cache/factorio-reconcile/       # API response cache
-/var/lib/factorio-secrets/           # RCON password — outside operator's SFTP tree
+/var/lib/factorio-secrets/           # RCON password (rewritten each start) — outside operator's SFTP tree
+/usr/local/lib/factorio/libargvscrub.so   # LD_PRELOAD shim, built from /usr/local/src/factorio/argv-scrub.c
 ```
 
 ## Variables
@@ -76,8 +77,8 @@ See `defaults/main.yml`. Key ones:
 | -------------------------------- | -------------------- | ------- |
 | `factorio_initial_version`       | `stable`             | Version written into factorio-control.json on first deploy |
 | `factorio_port`                  | `34197`              | Game UDP port |
-| `factorio_rcon_port`             | `27015`              | RCON TCP port (LAN-internal) |
-| `factorio_rcon_password`         | `""` (auto-generate) | Override with a vault lookup if you need RCON access |
+| `factorio_rcon_port`             | `27015`              | RCON TCP port (LAN-internal). The password is generated per start by `factorio-launch` and scrubbed from the process list — see [`known-issues/sftpgo-factorio.md`](../../../docs/known-issues/sftpgo-factorio.md) |
+| `factorio_rcon_rotate_on_apply`  | `false`              | Restart factorio every play run so RCON rotates then (kicks players; every run reports `changed`). Default: rotates on each service start only |
 | `factorio_server_name`           | `Factorio Server`    | Surfaced in server browser |
 | `factorio_visibility_public`     | `false`              | Whether to list publicly |
 | `factorio_force_overwrite_server_settings` | `false`    | Set true once to push Ansible-managed config over operator edits |

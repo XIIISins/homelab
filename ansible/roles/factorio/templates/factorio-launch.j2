@@ -1,10 +1,17 @@
 #!/bin/bash
 # factorio-launch — start the Factorio dedicated server.
 #
-# Called from factorio.service. Reads the RCON password from disk (since
-# factorio's CLI only takes the password inline, not a file path) and execs
-# the binary. /opt/factorio is a symlink managed by factorio-reconcile and
-# points at the currently-installed version's directory.
+# Called from factorio.service. /opt/factorio is a symlink managed by
+# factorio-reconcile and points at the currently-installed version's directory.
+#
+# RCON password: factorio only takes it inline (`--rcon-password <pw>`), which
+# would put it in /proc/<pid>/cmdline for every local user to read. So:
+#   - a fresh random password is generated on EVERY start (rotation), kept in
+#     shell memory and written to {{ factorio_rconpw_path }} for local consumers;
+#   - the binary is exec'd with libargvscrub.so preloaded, which zeroes the
+#     password out of the process list before the game runs (see
+#     files/argv-scrub.c). The password is never in this script's own argv.
+# If the shim is missing, the server starts WITHOUT RCON rather than leak it.
 
 set -euo pipefail
 
@@ -14,6 +21,7 @@ SERVER_ADMINLIST="/factorio/config/server-adminlist.json"
 SERVER_BANLIST="/factorio/config/server-banlist.json"
 SERVER_WHITELIST="/factorio/config/server-whitelist.json"
 RCON_PW_FILE="{{ factorio_rconpw_path }}"
+ARGV_SCRUB_LIB="{{ factorio_argv_scrub_lib }}"
 
 PORT="${FACTORIO_PORT:-34197}"
 RCON_PORT="${FACTORIO_RCON_PORT:-27015}"
@@ -24,20 +32,23 @@ if [[ ! -x "$FACTORIO_BIN" ]]; then
     exit 1
 fi
 
-if [[ ! -r "$RCON_PW_FILE" ]]; then
-    echo "factorio-launch: rcon password file missing at $RCON_PW_FILE" >&2
-    exit 1
-fi
-
-RCON_PASSWORD="$(cat "$RCON_PW_FILE")"
-
 args=(
     --start-server-load-latest
     --server-settings "$SERVER_SETTINGS"
     --port "$PORT"
-    --rcon-port "$RCON_PORT"
-    --rcon-password "$RCON_PASSWORD"
 )
+
+if [[ -r "$ARGV_SCRUB_LIB" && -w "$RCON_PW_FILE" ]]; then
+    # Alphanumeric only, so the value can never be parsed as an option.
+    RCON_PASSWORD="$(python3 -c 'import secrets, string; a = string.ascii_letters + string.digits; print("".join(secrets.choice(a) for _ in range(32)))')"
+    # The file already exists (created by Ansible); truncating it in place
+    # keeps owner/mode — the factorio user cannot create files in the 0750 dir.
+    printf '%s\n' "$RCON_PASSWORD" > "$RCON_PW_FILE"
+    args+=(--rcon-port "$RCON_PORT" --rcon-password "$RCON_PASSWORD")
+    export LD_PRELOAD="$ARGV_SCRUB_LIB"
+else
+    echo "factorio-launch: $ARGV_SCRUB_LIB or $RCON_PW_FILE unusable; starting WITHOUT RCON" >&2
+fi
 
 # Optional list files — only pass if present, otherwise Factorio uses defaults.
 [[ -f "$SERVER_ADMINLIST" ]] && args+=(--server-adminlist "$SERVER_ADMINLIST")

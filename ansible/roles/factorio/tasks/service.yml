@@ -1,4 +1,40 @@
 ---
+# argv-scrub shim: keeps the RCON password out of /proc/<pid>/cmdline.
+# Built on the host so no binary lives in the (public) repo.
+- name: Create shim source and library directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ factorio_argv_scrub_src | dirname }}"
+    - "{{ factorio_argv_scrub_dir }}"
+
+- name: Install argv-scrub shim source
+  ansible.builtin.copy:
+    src: argv-scrub.c
+    dest: "{{ factorio_argv_scrub_src }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: factorio_shim_src
+
+- name: Check whether the argv-scrub shim is built
+  ansible.builtin.stat:
+    path: "{{ factorio_argv_scrub_lib }}"
+  register: factorio_shim_stat
+
+- name: Build argv-scrub shim
+  ansible.builtin.command:
+    cmd: >-
+      gcc -shared -fPIC -O2 -Wall
+      -o {{ factorio_argv_scrub_lib }} {{ factorio_argv_scrub_src }} -ldl
+  when: factorio_shim_src.changed or not factorio_shim_stat.stat.exists
+  register: factorio_shim_build
+  changed_when: true
+
 - name: Install factorio-launch wrapper
   ansible.builtin.template:
     src: factorio-launch.j2
@@ -6,6 +42,7 @@
     owner: root
     group: root
     mode: "0755"
+  register: factorio_launch_wrapper
 
 - name: Install factorio.service
   ansible.builtin.copy:
