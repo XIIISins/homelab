@@ -65,9 +65,15 @@ Identity: **LXC 1123, `10.0.11.223`, VLAN 11, Urd** (next free in the 1120–112
 
 SQLite stays on local-lvm, never NFS (SQLite locking over NFS corrupts databases).
 
+## Build status (2026-10-06)
+
+J1 (host role, PRs #207/#212), J2 (Terraform, NetBox, AdGuard, #208/#209/#213), J3 (role and playbook, #210, fixes #213/#214/#217/#220), J4 (settings through the API, converged and verified) and J6 (Zabbix templates #212, K8s ingress #211, `site.yml` #218) are done and applied. J5 is partial (below). Operator steps still open: libraries and household accounts in the Jellyfin UI, the Tailscale ACL (D-1), the remote bitrate limit. Service page: [`../services/jellyfin.md`](../services/jellyfin.md); what the build surfaced: [`../known-issues/jellyfin.md`](../known-issues/jellyfin.md).
+
+**M0 correction:** a DSM group with a fixed gid (2000) cannot be created, and DSM NFS decides by numeric uid and mode bits, not the share ACL, so the shared-`media`-gid scheme below does not work as written. Give Sonarr and SABnzbd their own share and rule, and re-derive the permissions from the NFS behaviour documented in the known-issues file.
+
 ## J0 — Prerequisites and host checks (read-only, plus one DSM change)
 
-- [ ] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`.
+- [x] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`. ✅ Rule in place 2026-10-06 with Squash "Map all users to admin", Read only (the first attempt with "Map root to guest" denied everyone; see [`jellyfin.md`](../known-issues/jellyfin.md)).
 - [x] **Urd headroom** ✅ 2026-10-06: **7.6 GB available** (0.75 GB "free" is mostly reclaimable cache), swap 2.3 of 8 GB, memory PSI 0.00, load 0.4-1.1 on 8 cores, `local-lvm` 758 GB free. Read as *available* (the figure that matters; page cache is reclaimable) the gate passes: **3 GB RAM + 1 GB swap, 4 cores, D-3 not triggered.** The LXC caps trim (Factorio 8 → 2 GB, Hugin 4 → 2 GB, HAProxy/etcd trio 2 → 1 GB) lowered Urd's configured guest RAM from 44.5 to 34 GB but frees no live RAM: caps are not reservations ([`lxc-proxmox.md`](../known-issues/lxc-proxmox.md)). At the 3 GB cap Urd keeps about 4.6 GB available. **Portability:** Verd has 5.6 GB available (a migration there leaves ~2.5 GB: free room first), Skuld 7.2 GB with almost no swap but it is the node that hard-freezes.
 - [x] **Dual-channel RAM** ✅ 2026-10-06, **all three nodes**: two 16 GB DDR4-2400 DIMMs on separate controllers (`Controller0/1-ChannelA-DIMM0`), so dual-channel. J5 still measures tone-mapping capacity.
 - [x] **iGPU on the host** ✅ 2026-10-06, **all three nodes identical**: `pci-0000:00:02.0-render -> ../renderD128` (the only DRM render node), Alder Lake-UP3 GT1 `[8086:46b3]` on `i915`, `renderD128` is `root:render 0660`, **render gid 993** everywhere (matches the pinned gid in J2). Kernel `7.0.14-17-pve` on Urd and Verd, `-19` on Skuld.
@@ -135,10 +141,10 @@ Elsewhere:
 
 ## J5 — Acceptance (before calling it done)
 
-- [ ] `vainfo` in the LXC lists iHD and the decode profiles above; `intel_gpu_top` on Urd shows the Video/VideoEnhance engines busy during a transcode while the LXC's CPU stays low.
+- [~] `vainfo` in the LXC lists iHD and the decode profiles above; `intel_gpu_top` on Urd shows the Video/VideoEnhance engines busy during a transcode while the LXC's CPU stays low. ✅ 2026-10-06: `vainfo` (iHD) lists the decode profiles and the QSV smoke test passes (H.264 and 10-bit HEVC). `intel_gpu_top` on Urd not looked at yet.
 - [ ] Playback matrix, each confirmed as hardware in the transcode log (`h264_qsv`/`hevc_qsv` in the ffmpeg line): 1080p H.264 direct play; 4K HEVC 10-bit HDR → 1080p SDR (VPP tone map); AV1 → H.264; PGS subtitle burn-in; a VC-1 or MPEG-2 file.
-- [ ] Capacity measured, not assumed: concurrent 4K HDR→1080p tone-mapped streams until one drops below 1.0× real time; same for 1080p H.264. Record the numbers in the service page. They decide the remote bitrate limit and whether HEVC output stays on.
-- [ ] **Reboot test of the LXC and of Urd** (persistence rule): after Urd comes back the NFS mount, the render device permissions, the smoke timer and playback all work with no hand step.
+- [~] Capacity measured, not assumed: concurrent 4K HDR→1080p tone-mapped streams until one drops below 1.0× real time; same for 1080p H.264. Record the numbers in the service page. They decide the remote bitrate limit and whether HEVC output stays on. Partial 2026-10-06: synthetic 1080p 10-bit HEVC 25 Mbps → H.264 8 Mbps saturates at ~10.8× real time in aggregate (about 10 concurrent heavy 1080p streams). 4K HDR tone-mapped not measured.
+- [~] **Reboot test of the LXC and of Urd** (persistence rule): after Urd comes back the NFS mount, the render device permissions, the smoke timer and playback all work with no hand step. LXC reboot ✅ 2026-10-06 (mount `ro`, device readable, services and smoke run fine with no hand step). Urd reboot still to do.
 - [ ] `pct migrate 1123 verd --restart` and back: plays on Verd's iGPU (proves portability and the J1 assert).
 - [ ] PBS backup of 1123 completes; its size is small (cache mount excluded); a restore to a scratch VMID starts Jellyfin with the library intact.
 - [ ] Smoke timer failure path: remove the `jellyfin` user from `igpu` → the next run alerts in Zabbix → re-run the play → it clears.
