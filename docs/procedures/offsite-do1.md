@@ -16,7 +16,7 @@ The new node is built **beside** the legacy droplet. Nothing below touches the l
 4. **`terraform/cloudflare`** — add `hel_ts3_ip`, `offsite_ip` (= **legacy** droplet IP, so apply is a no-op) and `do1_next_ip` (= new reserved IP) to `terraform.tfvars`; plan (expect **5 to import, 1 to add** (`do1-next`), 0 to change), apply.
 5. **`terraform/netbox`** — plan under the netbox TF lock (needs step 2's state), expect 6 adds (site, role, tag, VM, interface, IP), apply.
 6. **Operator: PlantNet allowlist** — add the new reserved IP at my.plantnet.org. Keep the legacy IP (dual-IP window).
-7. **Ansible** (from a checkout where the HeyLeaf repo exists at `offsite_plantnet_local_repo`; Vault env loaded):
+7. **Ansible** (Vault env loaded; the PlantNet image is pulled from GHCR with the token at `secret/ansible/do1/ghcr`):
    `ansible-playbook playbooks/do1.yml -e ansible_user=root --tags baseline --check --diff` then for real (`-e ansible_host=<reserved ip>` if `do1-next` DNS has not propagated), then `ansible-playbook playbooks/do1.yml -e do1_reserved_ip=<reserved ip> --check --diff`, then for real. The play asserts the host is named `do1` and that egress comes from the reserved IP.
 8. **Restore TS3** (before first real use): stop the stack, replace `/opt/do1/ts3-data/ts3server.sqlitedb` with the integrity-checked dump (`sqlite3 <db> 'PRAGMA integrity_check;'` → `ok`; dump taken via the SQLite backup API because the live DB is WAL-mode), `chown -R 9987:9987 /opt/do1/ts3-data`, start the stack. **The dump named in the roadmap (`~/do1-ts3-dump/` on Frigg) was not found on 2026-10-01 — re-take it (or locate it) first.**
 

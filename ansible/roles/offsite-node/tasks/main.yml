@@ -42,98 +42,42 @@
     label: "{{ item.path }}"
   tags: [offsite-node, offsite-node:layout]
 
-# ---- PlantNet proxy source: pinned HeyLeaf commit, exported on the controller ----
-- name: Read currently-deployed PlantNet source commit
-  ansible.builtin.slurp:
-    src: "{{ offsite_root }}/plantnet-proxy/.source-commit"
-  register: offsite_plantnet_marker
-  failed_when: false
+# ---- PlantNet proxy image: pulled from GHCR (built by HeyLeaf CI) ----
+# The old on-host build context is no longer used; remove it so a stale
+# source tree cannot be mistaken for what is running.
+- name: Assert the PlantNet image tag is pinned to a HeyLeaf commit
+  ansible.builtin.assert:
+    that: offsite_plantnet_tag is match('^sha-[0-9a-f]{40}$')
+    fail_msg: "offsite_plantnet_tag must be sha-<full HeyLeaf commit>, got {{ offsite_plantnet_tag }}"
   tags: [offsite-node, offsite-node:plantnet]
 
-- name: Decide whether the PlantNet source needs (re)deploying
-  ansible.builtin.set_fact:
-    offsite_plantnet_needs_source: >-
-      {{ offsite_plantnet_marker.content is not defined
-         or (offsite_plantnet_marker.content | b64decode | trim) != offsite_plantnet_commit }}
-  tags: [offsite-node, offsite-node:plantnet]
-
-- name: Export plantnet-proxy-docker at the pinned commit (controller)
-  ansible.builtin.command:
-    argv:
-      - git
-      - -C
-      - "{{ offsite_plantnet_local_repo }}"
-      - archive
-      - --format=tar
-      - --prefix=plantnet-proxy/
-      - -o
-      - "/tmp/plantnet-proxy-{{ offsite_plantnet_commit[:12] }}.tar"
-      - "{{ offsite_plantnet_commit }}:{{ offsite_plantnet_subdir }}"
-  delegate_to: localhost
-  become: false
-  changed_when: false
-  check_mode: false
-  when: offsite_plantnet_needs_source | bool
-  tags: [offsite-node, offsite-node:plantnet]
-
-- name: Replace the build context with the pinned source
+- name: Remove the retired on-host PlantNet build context
   ansible.builtin.file:
     path: "{{ offsite_root }}/plantnet-proxy"
     state: absent
-  when: offsite_plantnet_needs_source | bool
   tags: [offsite-node, offsite-node:plantnet]
 
-- name: Unpack the PlantNet source on the host
-  ansible.builtin.unarchive:
-    src: "/tmp/plantnet-proxy-{{ offsite_plantnet_commit[:12] }}.tar"
-    dest: "{{ offsite_root }}"
-    owner: root
-    group: root
-  register: offsite_plantnet_unpacked
-  when: offsite_plantnet_needs_source | bool and not ansible_check_mode
+# The package is private: pull with a read:packages token from Vault. The
+# login stores the credential in /root/.docker/config.json (root-only), the
+# same trust boundary as the compose .env holding the API key.
+- name: Fetch GHCR pull credential from Vault
+  ansible.builtin.set_fact:
+    offsite_plantnet_ghcr: "{{ lookup('community.hashi_vault.vault_kv2_get', offsite_plantnet_ghcr_vault_path).secret }}"
+  no_log: true
+  when: offsite_plantnet_ghcr_vault_path | length > 0
   tags: [offsite-node, offsite-node:plantnet]
 
-- name: Record the deployed source commit
-  ansible.builtin.copy:
-    dest: "{{ offsite_root }}/plantnet-proxy/.source-commit"
-    content: "{{ offsite_plantnet_commit }}\n"
-    owner: root
-    group: root
-    mode: "0644"
-  when: offsite_plantnet_needs_source | bool and not ansible_check_mode
-  tags: [offsite-node, offsite-node:plantnet]
-
-# The pinned commit has no package-lock.json (HeyLeaf .gitignores it), and the
-# Dockerfile runs `npm ci`. Ship the controller's lockfile, pinned by hash.
-- name: Stat the controller PlantNet lockfile
-  ansible.builtin.stat:
-    path: "{{ offsite_plantnet_lockfile_src }}"
-    checksum_algorithm: sha256
-  delegate_to: localhost
-  become: false
-  register: offsite_plantnet_lockfile_local
-  check_mode: false
-  tags: [offsite-node, offsite-node:plantnet]
-
-- name: Assert the controller lockfile exists and matches the pinned hash
-  ansible.builtin.assert:
-    that:
-      - offsite_plantnet_lockfile_local.stat.exists
-      - offsite_plantnet_lockfile_local.stat.checksum == offsite_plantnet_lockfile_sha256
-    fail_msg: >-
-      {{ offsite_plantnet_lockfile_src }} is missing or does not match
-      offsite_plantnet_lockfile_sha256; review the lockfile change, then bump the pin.
-  tags: [offsite-node, offsite-node:plantnet]
-
-- name: Ship the pinned PlantNet package-lock.json
-  ansible.builtin.copy:
-    src: "{{ offsite_plantnet_lockfile_src }}"
-    dest: "{{ offsite_root }}/plantnet-proxy/package-lock.json"
-    owner: root
-    group: root
-    mode: "0644"
-  register: offsite_plantnet_lockfile
-  when: not ansible_check_mode
+# The CLI keeps this free of a community.docker dependency (collection pin +
+# Docker SDK/requests on the host); the token goes via stdin, never argv.
+- name: Log in to GHCR
+  ansible.builtin.command:
+    cmd: docker login ghcr.io --username {{ offsite_plantnet_ghcr.username | quote }} --password-stdin
+    stdin: "{{ offsite_plantnet_ghcr.token }}"
+  changed_when: false
+  no_log: true
+  when:
+    - offsite_plantnet_ghcr_vault_path | length > 0
+    - not ansible_check_mode
   tags: [offsite-node, offsite-node:plantnet]
 
 # ---- Compose project ----
@@ -163,28 +107,12 @@
   register: offsite_compose_file
   tags: [offsite-node, offsite-node:compose]
 
-# A failed build leaves nothing "changed" on the next run, so also build when
-# the image for the pinned commit simply does not exist.
-- name: Check whether the PlantNet image for the pinned commit exists
+- name: Pull the pinned PlantNet proxy image
   ansible.builtin.command:
-    cmd: docker image inspect plantnet-proxy:{{ offsite_plantnet_commit[:12] }}
-  register: offsite_plantnet_image
-  failed_when: false
-  changed_when: false
+    cmd: docker compose --project-directory {{ offsite_root }} pull plantnet-proxy
+  register: offsite_plantnet_pull
+  changed_when: "offsite_plantnet_pull.stderr is search('Pulled|Downloaded')"
   when: not ansible_check_mode
-  tags: [offsite-node, offsite-node:compose]
-
-- name: Build the PlantNet proxy image on the host
-  ansible.builtin.command:
-    cmd: docker compose --project-directory {{ offsite_root }} build plantnet-proxy
-  when:
-    - not ansible_check_mode
-    - >-
-      offsite_plantnet_unpacked is changed
-      or offsite_plantnet_lockfile is changed
-      or offsite_compose_file is changed
-      or offsite_plantnet_image.rc != 0
-  changed_when: true
   tags: [offsite-node, offsite-node:compose]
 
 - name: Converge the compose stack
