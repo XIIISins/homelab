@@ -66,7 +66,7 @@ locals {
     pbs = { vmid = "1101", role = "backup-server", device = "urd", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
     # ── Hugin — Zabbix server (LXC 1102, Phase 7c) ─────────────────
-    hugin = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 4096, primary_iface = "eth0" }
+    hugin = { vmid = "1102", role = "monitoring", device = "urd", cpu = 2, memory = 2048, primary_iface = "eth0" }
 
     # ── Hermod — Notifications hub (LXC 1103, Phase 5h.2) ──────────
     # New `notifications` role (see roles.tf). No import_id below —
@@ -88,7 +88,7 @@ locals {
     gjallarbru = { vmid = "1115", role = "tailscale-gateway", device = "verd", cpu = 1, memory = 512, primary_iface = "eth0" }
 
     # ── Factorio LXC ───────────────────────────────────────────────
-    factorio = { vmid = "1120", role = "game-server", device = "urd", cpu = 4, memory = 8192, primary_iface = "eth0" }
+    factorio = { vmid = "1120", role = "game-server", device = "urd", cpu = 4, memory = 2048, primary_iface = "eth0" }
 
     # ── PostgreSQL trio (Patroni) ──────────────────────────────────
     fulla = { vmid = "1130", role = "db", device = "skuld", cpu = 2, memory = 4096, primary_iface = "eth0" }
@@ -96,9 +96,9 @@ locals {
     idunn = { vmid = "1132", role = "db", device = "verd", cpu = 2, memory = 4096, primary_iface = "eth0" }
 
     # ── HAProxy+etcd+keepalived trio (Patroni DCS + PG VIP frontend) ─
-    hlin   = { vmid = "1133", role = "service-frontend", device = "urd", cpu = 2, memory = 2048, primary_iface = "eth0" }
-    eir    = { vmid = "1134", role = "service-frontend", device = "verd", cpu = 2, memory = 2048, primary_iface = "eth0" }
-    snotra = { vmid = "1135", role = "service-frontend", device = "skuld", cpu = 2, memory = 2048, primary_iface = "eth0" }
+    hlin   = { vmid = "1133", role = "service-frontend", device = "urd", cpu = 2, memory = 1024, primary_iface = "eth0" }
+    eir    = { vmid = "1134", role = "service-frontend", device = "verd", cpu = 2, memory = 1024, primary_iface = "eth0" }
+    snotra = { vmid = "1135", role = "service-frontend", device = "skuld", cpu = 2, memory = 1024, primary_iface = "eth0" }
 
     # ── Frigg — control-node watchtower (VM 2900, Phase 6 Stage 2) ──
     # Non-K3s standalone VM (terraform/proxmox/asgard-vms), HA-on-NFS.
