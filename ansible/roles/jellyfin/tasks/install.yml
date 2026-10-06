@@ -37,11 +37,19 @@
   register: jellyfin_repo
 
 # deb822_repository does not refresh the index, and the cache is usually fresh from baseline (cache_valid_time below would
-# skip the update), so the new repository's packages would be "not available". Found on first provisioning 2026-10-06.
-- name: Refresh the apt index when the repository was added or changed
+# skip the update), so the new repository's packages would be "not available". Found on first provisioning 2026-10-06. Gate on
+# what apt can actually see, not on whether the file changed: a re-run after a failed first attempt has an unchanged file and
+# still no index (found one run later).
+- name: Check that apt can see the Jellyfin packages
+  ansible.builtin.command: apt-cache policy jellyfin-server
+  register: jellyfin_apt_policy
+  changed_when: false
+  check_mode: false
+
+- name: Refresh the apt index when the repository is new or its packages are not visible yet
   ansible.builtin.apt:
     update_cache: true
-  when: jellyfin_repo.changed
+  when: jellyfin_repo.changed or 'Candidate' not in jellyfin_apt_policy.stdout or '(none)' in jellyfin_apt_policy.stdout
 
 # Before the packages, so the unit never starts against a missing mount even on the very first install.
 - name: Create the unit drop-in directory
