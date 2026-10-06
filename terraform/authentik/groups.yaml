@@ -121,3 +121,10 @@ immich-users:
   # Immich's own first-run wizard, keeps admin rights). is_superuser=false
   # (no Authentik-side privileges); gating is the per-app policy binding
   # only.
+
+media-admins:
+  is_superuser: false
+  # Members can open Sonarr (sonarr.niflheim.xiiisins.com) and SABnzbd
+  # (sabnzbd.niflheim.xiiisins.com), gated by Authentik ForwardAuth through
+  # Traefik (see media.tf). Both apps are set to external auth, so access =
+  # full control of the media automation. Operator-only.

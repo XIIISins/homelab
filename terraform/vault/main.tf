@@ -900,6 +900,48 @@ resource "vault_kv_secret_v2" "microbin_admin" {
 }
 
 # -----------------------------------------------------------------------------
+# Sonarr + SABnzbd API keys (media automation, k8s/asgard/apps/media/, plan 5h M0-M4)
+# -----------------------------------------------------------------------------
+# TF-minted so they survive a config-volume loss: Sonarr takes its key from SONARR__AUTH__APIKEY, SABnzbd gets it
+# written into sabnzbd.ini by an init container. Consumed via ESO (externalsecret-*.yaml). The paid Usenet provider
+# login is NOT minted here: the operator seeds secret/k8s/media/usenet by hand (host, port, username, password,
+# connections) and mirrors it to 1P (scripts/secrets/vault-1p-mirror).
+resource "random_password" "sonarr_api_key" {
+  length  = 32
+  special = false
+  upper   = false # Sonarr and SABnzbd expect a 32-char lowercase hex-like key
+}
+
+resource "random_password" "sabnzbd_api_key" {
+  length  = 32
+  special = false
+  upper   = false
+}
+
+resource "random_password" "sabnzbd_nzb_key" {
+  length  = 32
+  special = false
+  upper   = false
+}
+
+resource "vault_kv_secret_v2" "media_sonarr" {
+  mount = vault_mount.kv.path
+  name  = "k8s/media/sonarr"
+  data_json = jsonencode({
+    api_key = random_password.sonarr_api_key.result
+  })
+}
+
+resource "vault_kv_secret_v2" "media_sabnzbd" {
+  mount = vault_mount.kv.path
+  name  = "k8s/media/sabnzbd"
+  data_json = jsonencode({
+    api_key = random_password.sabnzbd_api_key.result
+    nzb_key = random_password.sabnzbd_nzb_key.result
+  })
+}
+
+# -----------------------------------------------------------------------------
 # Immich photo/video library, asgard K3s (k8s/asgard/apps/immich/).
 # Standard CREATE DATABASE immich OWNER immich — Immich runs its own
 # migrations on server startup. Dual-pathed to ansible/postgres/immich-password
