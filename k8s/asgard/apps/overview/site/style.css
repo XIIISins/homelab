@@ -167,7 +167,7 @@ a {
 .hero { order: 1; }
 .rail { order: 2; }
 .machines { order: 3; }
-.insight { order: 4; }
+.insight-fit { order: 4; }
 
 .shell[data-pinned] {
   --rail-w: 344px;
@@ -226,7 +226,7 @@ a {
   .top,
   .hero,
   .machines,
-  .insight {
+  .insight-fit {
     order: 0;
   }
 }
@@ -319,6 +319,7 @@ a {
 
 .verdict {
   --state: var(--none);
+  container: verdict / inline-size;
   position: relative;
   padding: 26px 24px 24px;
   min-height: 11rem;
@@ -350,7 +351,7 @@ a {
 }
 
 .verdict-title {
-  font-size: clamp(2.125rem, 1rem + 4.2vw, 4.25rem);
+  font-size: clamp(1.75rem, 9cqi, 3.75rem);
   font-weight: 650;
   line-height: 1.02;
   letter-spacing: -0.03em;
@@ -361,7 +362,9 @@ a {
    something is wrong, a short borderless table (component, what). The card is the same size
    in both cases; four rows is the most it shows, then "+N more". */
 .verdict-zone {
+  position: relative;
   margin-top: 14px;
+  padding-right: 46px;
   min-height: 5.5rem;   /* four table rows, exactly */
 }
 
@@ -455,104 +458,90 @@ a {
   display: none;
 }
 
-.deck-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.deck-tabs {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.deck-tab {
-  position: relative;
-  overflow: hidden;
-  padding: 5px 12px;
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--fg-3);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.deck-tab[hidden] {
-  display: none;
-}
-
-.deck-tab:hover {
-  color: var(--fg);
-}
-
-.deck-tab[aria-current="true"] {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--blue) 14%, transparent);
-  border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
-}
-
-/* The clock: a thin bar that fills along the active tab. When it finishes the
-   script moves to the next slide. Hover, focus and a hidden tab pause it. */
-.deck-timer {
+/* The ticker: the round button in the corner of the text zone. Its ring is the clock
+   (it fills over nine seconds, then the next slide shows) and the button pauses and
+   resumes. Hovering or focusing the card, or leaving the browser tab, pauses the ring's
+   animation itself, so there is no timer to keep in step in script. */
+.ticker {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--blue);
-  transform: scaleX(0);
-  transform-origin: left center;
-}
-
-.deck[data-playing] .deck-tab[aria-current="true"] .deck-timer {
-  animation: deck-fill 9s linear forwards;
-}
-
-.deck:is(:hover, :focus-within) .deck-timer,
-.deck[data-away] .deck-timer {
-  animation-play-state: paused;
-}
-
-@keyframes deck-fill {
-  to { transform: scaleX(1); }
-}
-
-.deck-play {
-  flex: none;
+  top: -2px;
+  right: 0;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   color: var(--fg-3);
   background: transparent;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 50%;
   cursor: pointer;
 }
 
-.deck-play:hover {
+.ticker:hover {
   color: var(--fg);
 }
 
-.deck-play svg {
+.ticker-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ticker-track,
+.ticker-fill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.ticker-track {
+  stroke: var(--line-2);
+}
+
+.ticker-fill {
+  stroke: var(--blue);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+}
+
+/* Two identical keyframes, swapped on every slide change (data-tick), restart the ring. */
+.verdict[data-playing][data-tick="a"] .ticker-fill {
+  animation: tick-a 9s linear forwards;
+}
+
+.verdict[data-playing][data-tick="b"] .ticker-fill {
+  animation: tick-b 9s linear forwards;
+}
+
+.verdict:is(:hover, :focus-within) .ticker-fill,
+.verdict[data-away] .ticker-fill {
+  animation-play-state: paused;
+}
+
+@keyframes tick-a {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes tick-b {
+  to { stroke-dashoffset: 0; }
+}
+
+.ticker svg:not(.ticker-ring) {
+  position: relative;
   width: 14px;
   height: 14px;
 }
 
-.deck-play .icon-play,
-.deck[data-playing] .deck-play .icon-pause {
+.ticker .icon-play,
+.verdict[data-playing] .ticker .icon-pause {
   display: block;
 }
 
-.deck-play .icon-pause,
-.deck[data-playing] .deck-play .icon-play {
+.ticker .icon-pause,
+.verdict[data-playing] .ticker .icon-play {
   display: none;
 }
 
@@ -633,14 +622,6 @@ a {
     column-gap: 14px;
   }
 
-  .deck-tab {
-    padding: 5px 10px;
-  }
-
-  /* "K3s cluster" becomes "cluster": the slide's caption names the source. */
-  .deck-tab .pre {
-    display: none;
-  }
 
   .spark figcaption {
     flex-direction: column;
@@ -718,11 +699,28 @@ a {
   background: color-mix(in srgb, var(--magenta) 15%, transparent);
 }
 
+/* A problem flag is a badge on the tile's corner, so showing it never changes the tile's height
+   (the page is exactly one window tall; an incident must not push it over). */
+.vm {
+  position: relative;
+}
+
 .vm-flag {
-  margin-top: 10px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  margin: 0;
+  padding: 1px 9px;
   color: var(--bad);
-  font-size: 0.875rem;
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  border-radius: 999px;
+  font-size: 0.75rem;
   font-weight: 650;
+  line-height: 1.5;
+}
+
+.vm-flag[hidden] {
+  display: none;
 }
 
 .gauges {
@@ -1283,6 +1281,273 @@ a {
 .quick .app-desc {
   font-size: 0.8125rem;
   white-space: normal;
+}
+
+/* ---------- Fit to the window (wide screens) ----------
+   The page is exactly one window tall: header, headline card and machines keep their size
+   (tightened in steps as the window gets shorter, below) and the bottom row takes whatever
+   is left. app.js trims that row one item at a time until it fits, so namespaces shrink row
+   by row and a card disappears when there is no room for it. */
+@media (min-width: 1000px) {
+  .shell {
+    --pad-top: 22px;
+    --pad-bottom: 22px;
+    height: 100vh;
+    height: 100dvh;
+    /* Below this the tiers stop helping; the page scrolls instead of clipping. */
+    min-height: 612px;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .rail {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .main {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .page {
+    height: 100%;
+    gap: 16px;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+  }
+
+  .insight-fit {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .insight {
+    gap: 16px;
+    align-content: start;
+  }
+
+  .verdict {
+    min-height: 0;
+    padding: 20px 28px 18px;
+  }
+
+  .verdict-zone {
+    min-height: 5.25rem;
+  }
+
+  .attention li {
+    min-height: 1.1875rem;
+  }
+
+  .deck {
+    margin-top: 14px;
+  }
+
+  .machines {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .machine {
+    padding: 12px 14px 2px;
+  }
+
+  .machine-name {
+    font-size: 1.25rem;
+  }
+
+  .vm {
+    margin-top: 8px;
+    padding: 9px 10px 7px;
+  }
+
+  .vm:last-child {
+    margin-bottom: 8px;
+  }
+
+  .gauges {
+    margin-top: 8px;
+  }
+
+  .m-ring {
+    width: 54px;
+    height: 54px;
+  }
+
+  .where {
+    padding: 16px 18px 18px;
+  }
+
+  .ns-list {
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .fact-list {
+    gap: 16px;
+  }
+
+  .fact {
+    padding: 10px 14px 9px;
+  }
+
+  .fact dd {
+    margin-top: 4px;
+    font-size: 1.125rem;
+  }
+
+  .fact dd small {
+    margin-top: 2px;
+  }
+}
+
+/* Fit mode keeps the headline card and the everyday tiles side by side even when an open rail
+   leaves the overview narrow; stacking them would be 200 px taller than any window allows. */
+@container main (min-width: 560px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+}
+
+/* A narrow overview (an open rail on a small window) wraps more, so it loses the small print
+   that does the wrapping: the tiles' captions and the role pills. */
+@container main (max-width: 780px) {
+  .quick .app-desc,
+  .vm-role {
+    display: none;
+  }
+
+  .quick .app-link {
+    min-height: 66px;
+  }
+}
+
+/* Shorter windows: the same page, tightened in two steps. First the graphs and gauges get
+   smaller and lose their small print; below that the graphs go and the tiles lose their
+   captions. (Thresholds are the heights at which the step before no longer fits.) */
+@media (min-width: 1000px) and (max-height: 824px) {
+  .page {
+    gap: 12px;
+  }
+
+  .verdict {
+    padding: 16px 24px 14px;
+  }
+
+  .verdict-title {
+    font-size: clamp(1.75rem, 8cqi, 3.25rem);
+  }
+
+  .verdict-zone {
+    min-height: 4.75rem;
+    margin-top: 8px;
+  }
+
+  .attention li {
+    min-height: 1.125rem;
+  }
+
+  .deck {
+    margin-top: 10px;
+  }
+
+  .spark-svg {
+    height: 30px;
+    margin-top: 4px;
+  }
+
+  .pulse-note {
+    display: none;
+  }
+
+  .quick {
+    padding: 2px 12px 12px;
+  }
+
+  .quick .group-title {
+    margin: 10px 4px 8px;
+  }
+
+  .quick .app-link {
+    min-height: 80px;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .quick .app-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .machine {
+    padding: 10px 12px 2px;
+  }
+
+  .vm {
+    margin-top: 8px;
+    padding: 8px 10px 6px;
+  }
+
+  .vm:last-child {
+    margin-bottom: 6px;
+  }
+
+  .gauges {
+    margin-top: 4px;
+  }
+
+  .m-ring {
+    width: 44px;
+    height: 44px;
+  }
+
+  .m-sub {
+    display: none;
+  }
+
+  .m-label {
+    margin-top: 0;
+  }
+}
+
+@media (min-width: 1000px) and (max-height: 650px) {
+  .deck,
+  .ticker {
+    display: none;
+  }
+
+  .verdict {
+    min-height: 0;
+  }
+
+  .quick .app-desc {
+    display: none;
+  }
+
+  .quick .app-link {
+    min-height: 62px;
+  }
+
+  .vm-role {
+    display: none;
+  }
+}
+
+/* Pieces the fit script has dropped. (A class that sets `display` beats the UA's [hidden].) */
+.ns[hidden],
+.fact[hidden],
+.where[hidden],
+.insight-fit[hidden] {
+  display: none;
+}
+
+/* With the namespaces card gone, the tiles take the whole row, four across. */
+.fact-list[data-wide] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.insight:has(.where[hidden]) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 @media (prefers-reduced-motion: reduce) {

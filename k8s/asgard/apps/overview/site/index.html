@@ -101,8 +101,13 @@
             <div class="verdict-zone">
               <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
               <ul class="attention" id="attention" hidden></ul>
+              <button type="button" class="ticker" id="deck-play" aria-label="Pause the rotation" title="Pause the rotation (left and right arrow keys change slide)">
+                <svg class="ticker-ring" viewBox="0 0 32 32" aria-hidden="true"><circle class="ticker-track" cx="16" cy="16" r="14"/><circle class="ticker-fill" cx="16" cy="16" r="14" pathLength="100"/></svg>
+                <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7v10M15 7v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 7v10l8-5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              </button>
             </div>
-            <div class="deck" id="deck" role="group" aria-roledescription="carousel" aria-label="Trends">
+            <div class="deck" role="group" aria-roledescription="carousel" aria-label="Trends">
               <div class="slides">
               <div class="slide" data-active data-slide="cluster" role="group" aria-roledescription="slide" aria-label="K3s cluster">
                 <div class="pulse">
@@ -119,7 +124,7 @@
                   <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web traffic over time"></svg>
                 </figure>
                 </div>
-                <p class="pulse-note">K3s, the last six hours</p>
+                <p class="pulse-note">K3s cluster, last six hours</p>
               </div>
               <div class="slide" data-slide="workloads" role="group" aria-roledescription="slide" aria-label="K3s workloads">
                 <div class="pulse">
@@ -136,7 +141,7 @@
                   <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Volume use over time"></svg>
                 </figure>
                 </div>
-                <p class="pulse-note">K3s, the last six hours</p>
+                <p class="pulse-note">K3s workloads, last six hours</p>
               </div>
               <div class="slide" data-slide="proxmox" hidden role="group" aria-roledescription="slide" aria-label="Proxmox hosts">
                 <div class="pulse">
@@ -153,19 +158,8 @@
                   <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Proxmox network over time"></svg>
                 </figure>
                 </div>
-                <p class="pulse-note" id="pve-note">Proxmox, the last 24 hours</p>
+                <p class="pulse-note" id="pve-note">Proxmox hosts, last 24 hours</p>
               </div>
-              </div>
-              <div class="deck-bar">
-                <div class="deck-tabs">
-                  <button type="button" class="deck-tab" data-go="cluster" aria-current="true"><span class="pre">K3s </span>cluster<span class="deck-timer" aria-hidden="true"></span></button>
-                  <button type="button" class="deck-tab" data-go="workloads"><span class="pre">K3s </span>workloads<span class="deck-timer" aria-hidden="true"></span></button>
-                  <button type="button" class="deck-tab" data-go="proxmox" hidden>Proxmox<span class="pre"> hosts</span><span class="deck-timer" aria-hidden="true"></span></button>
-                </div>
-                <button type="button" class="deck-play" id="deck-play" aria-label="Pause the rotation" title="Pause the rotation">
-                  <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-                  <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-                </button>
               </div>
             </div>
           </section>
@@ -296,6 +290,7 @@
       </article>
         </section>
 
+        <div class="insight-fit">
         <div class="insight">
           <section class="where" aria-labelledby="where-title">
             <h2 class="card-title" id="where-title">Busiest namespaces</h2>
@@ -312,16 +307,17 @@
 
           <section class="facts" aria-label="Traffic, storage, deployments and certificates">
             <dl class="fact-list">
-            <div class="fact" id="f-traffic"><dt>Web traffic</dt><dd>–</dd></div>
-            <div class="fact" id="f-network"><dt>Pod network</dt><dd>–</dd></div>
             <div class="fact" id="f-deploys"><dt>Deployments</dt><dd>–</dd></div>
             <div class="fact" id="f-restarts"><dt>Restarts in the last hour</dt><dd>–</dd></div>
             <div class="fact" id="f-volume"><dt>Fullest volume</dt><dd>–</dd></div>
-            <div class="fact" id="f-storage"><dt>Volumes in total</dt><dd>–</dd></div>
             <div class="fact" id="f-certs"><dt>Certificates</dt><dd>–</dd></div>
+            <div class="fact" id="f-traffic"><dt>Web traffic</dt><dd>–</dd></div>
+            <div class="fact" id="f-network"><dt>Pod network</dt><dd>–</dd></div>
+            <div class="fact" id="f-storage"><dt>Volumes in total</dt><dd>–</dd></div>
             <div class="fact" id="f-scale"><dt>Running now</dt><dd>–</dd></div>
             </dl>
           </section>
+        </div>
         </div>
       </div>
     </div>

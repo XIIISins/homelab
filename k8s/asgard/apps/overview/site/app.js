@@ -357,9 +357,9 @@
     } else {
       const days = expiry === null ? null : expiry / 86400;
       const level = certsReady < certsAll || (days !== null && days < 7) ? 'bad' : days !== null && days < 14 ? 'warn' : '';
-      setFact('f-certs', `${certsReady} of ${certsAll} valid`, expiry === null ? '' : `${soonest.metric.name} expires in ${duration(expiry)}`, level);
+      setFact('f-certs', `${certsReady} of ${certsAll} valid`, expiry === null ? '' : `${(soonest.metric.name || 'A certificate')} expires in ${duration(expiry)}`, level);
       if (certsReady < certsAll) add('bad', 'Certificates', `${certsAll - certsReady} not ready`);
-      else if (level) add(level, 'Certificates', `${soonest.metric.name} expires in ${duration(expiry)}`);
+      else if (level) add(level, 'Certificates', `${(soonest.metric.name || 'A certificate')} expires in ${duration(expiry)}`);
     }
 
     renderNamespaces(d);
@@ -491,7 +491,7 @@
   let pveAt = 0;
 
   function revealProxmox() {
-    for (const el of $$('[data-slide="proxmox"], [data-go="proxmox"]')) el.hidden = false;
+    for (const el of $$('[data-slide="proxmox"]')) el.hidden = false;
   }
 
   // Hypervisor health from /cluster/resources. Returns what the headline sentence needs.
@@ -506,7 +506,7 @@
     const note = $('#pve-note');
     if (!resources) {
       add('warn', 'Proxmox', 'not answering');
-      note.textContent = 'Proxmox did not answer';
+      note.textContent = 'Proxmox hosts, did not answer';
       for (const kind of PVE_SPARKS) setSpark(kind, null, String);
       return null;
     }
@@ -527,7 +527,7 @@
     setSpark('pvecpu', cores ? online.reduce((sum, n) => sum + n.cpu * (n.maxcpu || 0), 0) / cores : null, percent);
     setSpark('pvemem', maxmem ? online.reduce((sum, n) => sum + n.mem, 0) / maxmem : null, percent);
     const running = guests.filter((g) => g.status === 'running').length;
-    note.textContent = `Proxmox, the last 24 hours. ${online.length} of ${nodes.length} hosts online, ${running} of ${guests.length} guests running.`;
+    note.textContent = `Proxmox hosts, last 24 hours. ${online.length} of ${nodes.length} online, ${running} of ${guests.length} guests running.`;
     if (Date.now() - pveAt >= SPARK_MS) loadProxmoxHistory(online.map((n) => n.node));
     return { online: online.length, total: nodes.length };
   }
@@ -618,6 +618,7 @@
       if (firstRender) staggerMeters();   // the delay must be set before --v changes
       render(data);
       lastOk = Date.now();
+      fitInsight();
       if (Date.now() - sparkAt >= SPARK_MS) loadSparks();
       if (firstRender) settleMotion();
     } catch {
@@ -750,50 +751,107 @@
   });
 
   // ---------- The slideshow ----------
-  // Three sets of graphs (K3s cluster, K3s workloads, Proxmox) rotate in one place. The clock
-  // is a CSS animation on the active tab: when it ends, the next slide shows. Hovering or
-  // focusing the card, or leaving the tab, pauses the animation itself (see style.css), so
-  // there is no timer to keep in step here. A pause button is always there, and nothing
-  // rotates on its own for people who ask for reduced motion.
+  // Three sets of graphs (K3s cluster, K3s workloads, Proxmox) rotate in one place. The round
+  // ticker in the corner of the text zone is both the clock and the pause button: its ring fills
+  // over nine seconds (a CSS animation) and when it ends the next slide shows. Hovering or
+  // focusing the card, or leaving the browser tab, pauses the animation itself (see style.css),
+  // so there is no timer to keep in step here. Left and right arrow keys on the ticker change
+  // slide. Nothing rotates on its own for people who ask for reduced motion.
 
-  const deck = $('#deck');
+  const deck = $('#verdict');
   const playButton = $('#deck-play');
 
-  const currentSlide = () => {
-    const slide = $('.slide[data-active]', deck);
-    return slide ? slide.dataset.slide : null;
-  };
+  const shownSlides = () => $$('.slide:not([hidden])', deck);
+  const currentIndex = () => shownSlides().findIndex((slide) => slide.hasAttribute('data-active'));
 
-  function showSlide(name) {
-    for (const slide of $$('.slide', deck)) slide.toggleAttribute('data-active', slide.dataset.slide === name);
-    for (const tab of $$('.deck-tab', deck)) {
-      if (tab.dataset.go === name) tab.setAttribute('aria-current', 'true');
-      else tab.removeAttribute('aria-current');
-    }
-  }
-
-  function nextSlide() {
-    const slides = $$('.slide:not([hidden])', deck);
-    const i = slides.findIndex((slide) => slide.dataset.slide === currentSlide());
-    showSlide(slides[(i + 1) % slides.length].dataset.slide);
+  function showSlide(index) {
+    const slides = shownSlides();
+    const wanted = (index + slides.length) % slides.length;
+    for (const slide of $$('.slide', deck)) slide.toggleAttribute('data-active', slide === slides[wanted]);
+    // Two identical keyframes, swapped each time, restart the ring's animation with no script.
+    deck.dataset.tick = deck.dataset.tick === 'a' ? 'b' : 'a';
   }
 
   function setPlaying(on) {
     deck.toggleAttribute('data-playing', on);
     const label = on ? 'Pause the rotation' : 'Resume the rotation';
     playButton.setAttribute('aria-label', label);
-    playButton.title = label;
+    playButton.title = `${label} (left and right arrow keys change slide)`;
   }
 
   deck.addEventListener('animationend', (e) => {
-    if (e.target.classList.contains('deck-timer')) nextSlide();
-  });
-  deck.addEventListener('click', (e) => {
-    const tab = e.target.closest('.deck-tab');
-    if (tab) showSlide(tab.dataset.go);
+    if (e.target.classList.contains('ticker-fill')) showSlide(currentIndex() + 1);
   });
   playButton.addEventListener('click', () => setPlaying(!deck.hasAttribute('data-playing')));
+  playButton.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      showSlide(currentIndex() + (e.key === 'ArrowRight' ? 1 : -1));
+    }
+  });
+  deck.dataset.tick = 'a';
   setPlaying(!matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // ---------- Fitting the bottom row ----------
+  // On wide screens the page is exactly one window tall and the bottom row (busiest
+  // namespaces + facts) gets whatever the rest leaves. Starting from everything shown, it
+  // drops the least important piece at a time until nothing overflows: the last row of fact
+  // tiles, then namespace rows from the bottom, alternating, until the namespaces card goes
+  // and the remaining tiles spread across one wide row, and finally that row too. It re-runs
+  // whenever the row's size or its content changes, and does all of it before the browser
+  // paints, so nothing flickers.
+
+  const insightRegion = $('.insight-fit');
+  const whereCard = $('.where');
+  const nsRows = $$('.ns', whereCard);
+  const factList = $('.fact-list');
+  const factTiles = $$('.fact', factList);
+  const wideScreen = matchMedia('(min-width: 1000px)');
+
+  function fitInsight() {
+    insightRegion.hidden = false;
+    whereCard.hidden = false;
+    factList.removeAttribute('data-wide');
+    for (const el of [...nsRows, ...factTiles]) el.hidden = false;
+    if (!wideScreen.matches) return;
+
+    const overflowing = () => insightRegion.scrollHeight > insightRegion.clientHeight + 1;
+    const dropTiles = (from) => factTiles.slice(from).forEach((t) => { t.hidden = true; });
+    const dropRows = (from) => nsRows.slice(from).forEach((r) => { r.hidden = true; });
+    const steps = [
+      () => dropTiles(6),
+      () => dropRows(5),
+      () => dropRows(4),
+      () => dropTiles(4),
+      () => dropRows(3),
+      () => dropRows(2),
+      () => dropTiles(2),
+      () => {
+        whereCard.hidden = true;
+        factList.dataset.wide = '';
+        factTiles.forEach((t, i) => { t.hidden = i >= 4; });
+      },
+      () => { insightRegion.hidden = true; },
+    ];
+    for (const step of steps) {
+      if (!overflowing()) break;
+      step();
+    }
+  }
+
+  // Watch the whole main area, not the row itself: a row that has been dropped is display: none
+  // and reports no size changes, so it could never come back when the window grows.
+  // The fit is idempotent, so after any change it simply runs once more a frame later, when the
+  // layout (including the height tiers in style.css) has settled; if nothing moved, nothing happens.
+  const refit = () => {
+    fitInsight();
+    requestAnimationFrame(() => requestAnimationFrame(fitInsight));
+  };
+  new ResizeObserver(refit).observe($('.main'));
+  for (const query of ['(min-width: 1000px)', '(max-height: 824px)', '(max-height: 650px)']) {
+    matchMedia(query).addEventListener('change', refit);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitInsight);
 
   // ---------- Pinning the rail ----------
   // Hover opens the rail over the page; the pin keeps it open and gives it its own
