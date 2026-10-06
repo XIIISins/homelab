@@ -28,51 +28,38 @@
 }
 
 :root {
-  /* Tokyo Night (Night) */
-  --bg: #16161e;
-  --surface: #1a1b26;
-  --raised: #1f2335;
-  --line: #292e42;
-  --line-2: #3b4261;
-  --fg: #c0caf5;
-  --fg-2: #a9b1d6;
-  --fg-3: #828bb8;
-  --blue: #7aa2f7;
-  --cyan: #7dcfff;
-  --magenta: #bb9af7;
-  --ok: #9ece6a;
-  --warn: #e0af68;
-  --bad: #f7768e;
-  --none: #565f89;
-  --track-bg: #292e42;
-  --hi: rgb(255 255 255 / 0.04);
-  --lift: 0 12px 28px -16px rgb(0 0 0 / 0.7);
+  /* Tokyo Night. Each token is light-dark(Day, Night): the OS decides, unless the visitor has
+     chosen (data-theme on <html>, set by theme.js and the switch at the foot of the rail).
+     The Day accents are deepened a little so text stays readable. */
+  --bg: light-dark(#e1e2e7, #16161e);
+  --surface: light-dark(#ebecf1, #1a1b26);
+  --raised: light-dark(#f3f4f8, #1f2335);
+  --line: light-dark(#c9cce0, #292e42);
+  --line-2: light-dark(#a8aecb, #3b4261);
+  --fg: light-dark(#343b58, #c0caf5);
+  --fg-2: light-dark(#4a5275, #a9b1d6);
+  --fg-3: light-dark(#5f6890, #828bb8);
+  --blue: light-dark(#2a6fd1, #7aa2f7);
+  --cyan: light-dark(#006f93, #7dcfff);
+  --magenta: light-dark(#8a47e0, #bb9af7);
+  --ok: light-dark(#4d6b2e, #9ece6a);
+  --warn: light-dark(#7a5a1e, #e0af68);
+  --bad: light-dark(#c4204f, #f7768e);
+  --none: light-dark(#848cb5, #565f89);
+  --track-bg: light-dark(#c9cce0, #292e42);
+  --hi: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.04));
+  /* the colour of the card shadow (the offsets are in the rule that uses it) */
+  --lift-c: light-dark(rgb(52 59 88 / 0.35), rgb(0 0 0 / 0.7));
   --font: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark light;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    /* Tokyo Night Day; accents deepened a little so text stays readable */
-    --bg: #e1e2e7;
-    --surface: #ebecf1;
-    --raised: #f3f4f8;
-    --line: #c9cce0;
-    --line-2: #a8aecb;
-    --fg: #343b58;
-    --fg-2: #4a5275;
-    --fg-3: #5f6890;
-    --blue: #2a6fd1;
-    --cyan: #006f93;
-    --magenta: #8a47e0;
-    --ok: #4d6b2e;
-    --warn: #7a5a1e;
-    --bad: #c4204f;
-    --none: #848cb5;
-    --track-bg: #c9cce0;
-    --hi: rgb(255 255 255 / 0.7);
-    --lift: 0 12px 28px -18px rgb(52 59 88 / 0.35);
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 *,
@@ -205,7 +192,7 @@ a {
     display: flex;
     flex-direction: column;
     /* 12px of air either side of the panel: rail width = panel width + 24px */
-    padding: var(--pad-top) 0 var(--pad-bottom) 12px;
+    padding: var(--rail-top, var(--pad-top)) 0 var(--pad-bottom) 12px;
   }
 
   .main {
@@ -247,7 +234,7 @@ a {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 18px;
-  box-shadow: inset 0 1px 0 var(--hi), var(--lift);
+  box-shadow: inset 0 1px 0 var(--hi), 0 12px 28px -16px var(--lift-c);
 }
 
 /* ---------- Header ---------- */
@@ -926,10 +913,11 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 11px 8px;
+  padding: 0 11px 6px;
 }
 
-.pin {
+.pin,
+.rail-btn {
   flex: none;
   display: grid;
   place-items: center;
@@ -943,12 +931,14 @@ a {
   cursor: pointer;
 }
 
-.pin svg {
+.pin svg,
+.rail-btn svg {
   width: 20px;
   height: 20px;
 }
 
-.pin:hover {
+.pin:hover,
+.rail-btn:hover {
   color: var(--fg);
   background: var(--raised);
 }
@@ -1016,6 +1006,8 @@ a {
 }
 
 .rail-scroll {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1023,6 +1015,43 @@ a {
   padding: 0 6px 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
+}
+
+/* When the list is longer than the rail, it fades out where it is cut off instead of ending on a
+   hard line, at the bottom while there is more below and at the top once scrolled. app.js sets the
+   two attributes. */
+.rail-scroll[data-more-above] {
+  --fade-top: 36px;
+}
+
+.rail-scroll[data-more-below] {
+  --fade-bottom: 36px;
+}
+
+.rail-scroll[data-more-above],
+.rail-scroll[data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+}
+
+/* The foot of the rail: the light/dark switch, in the same column as the pin button. */
+.rail-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 11px 2px;
+}
+
+/* Sun while it is dark (click for light), moon while it is light (click for dark). */
+.rail-btn .icon-moon,
+.rail-btn[data-mode="light"] .icon-sun {
+  display: none;
+}
+
+.rail-btn .icon-sun,
+.rail-btn[data-mode="light"] .icon-moon {
+  display: block;
 }
 
 .group {
@@ -1038,10 +1067,11 @@ a {
 }
 
 .group-title {
-  margin: 14px 10px 6px;
+  margin: 6px 10px 1px;
   color: var(--fg-3);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
+  line-height: 1.15;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -1049,6 +1079,11 @@ a {
 .list {
   display: grid;
   gap: 2px;
+}
+
+/* The first group's title sits right under the search box. */
+.rail-scroll .group:first-child .group-title {
+  margin-top: 0;
 }
 
 .app[hidden] {
@@ -1552,12 +1587,48 @@ a {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Hovering a card highlights it: an accent border, and a faint tint on the tiles. Only where a
+   pointer exists, and a machine card does not light up while one of its node tiles is hovered
+   (the tile lights up instead). The quick-app card is left alone: its own tiles do this. */
+@media (hover: hover) {
+  .verdict,
+  .machine,
+  .vm,
+  .fact,
+  .where {
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .verdict:hover,
+  .machine:hover:not(:has(.vm:hover)),
+  .fact:hover,
+  .where:hover {
+    border-color: color-mix(in srgb, var(--blue) 50%, var(--line));
+  }
+
+  .machine:hover:not(:has(.vm:hover)),
+  .fact:hover,
+  .where:hover {
+    background-color: color-mix(in srgb, var(--blue) 5%, var(--surface));
+  }
+
+  .vm:hover {
+    border-color: color-mix(in srgb, var(--blue) 40%, var(--line));
+    background-color: color-mix(in srgb, var(--blue) 7%, var(--raised));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .m-ring,
   .app-link,
   .finder,
   .ns-bar i,
   .slide,
+  .verdict,
+  .machine,
+  .vm,
+  .fact,
+  .where,
   .shell {
     transition: none;
   }
