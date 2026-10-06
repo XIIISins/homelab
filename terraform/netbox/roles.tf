@@ -37,6 +37,8 @@ locals {
     aiops-agent = { vm_role = true, description = "AIOps agent host (n8n diagnosis agent, Gna)" }
     # aiops-bot: added Phase 10e (Ratatoskr, the Discord bot that relays chat and is the only approver).
     aiops-bot = { vm_role = true, description = "AIOps Discord bot (chat transport + approver, Ratatoskr)" }
+    # media-server: added Phase 5h (Jellyfin, QuickSync on the Intel iGPU). Created on first apply.
+    media-server = { vm_role = true, description = "Media server (Jellyfin with Intel QuickSync)" }
   }
 
   # Import IDs sourced from /api/dcim/device-roles/ at retrofit time.
