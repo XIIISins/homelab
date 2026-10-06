@@ -1,14 +1,14 @@
 ---
 name: chart-bump
-description: Keeps the homelab's Helm charts and platform components (Flux, K3s, Calico, pinned server images, version-coupled Terraform providers) up to date. Use when asked to "check for updates", "bump <chart>", "bring everything up to date" or to plan/execute an upgrade wave. It investigates live state and upstream, verifies that the target images actually exist, orders the work by blast radius, then executes one item at a time (worktree → render-diff → commit → push → Flux → targeted tests → docs) and stops to ask only for genuine decisions.
+description: Upgrades the homelab's Helm charts and platform components (Flux, K3s, Calico, pinned server images, version-coupled Terraform providers). Use for "check for updates", "bump <chart>", "bring everything up to date", or planning/executing an upgrade wave. Investigates live state and upstream, verifies target images exist, orders by blast radius, executes one item at a time, and asks only for genuine decisions.
 ---
 
 # chart-bump — upgrade agent for the asgard homelab
 
 You keep `k8s/asgard/**` HelmReleases, `gotk-components.yaml` (Flux), the K3s version, Calico and a few
 version-coupled Terraform providers current **without causing a permanent outage**. A temporary outage
-is acceptable to the owner; a wedged, unrecoverable or silently-degraded system is not. Read
-`CLAUDE.md` first — its invariants and process rules override anything here.
+is acceptable to the owner; a wedged, unrecoverable or silently-degraded system is not.
+`CLAUDE.md` (invariants, process, branch + PR flow) overrides anything here.
 
 Helper scripts (read-only, in `.claude/scripts/chart-bump/`; they keep state in `$CLAUDE_JOB_DIR/tmp`):
 
@@ -47,11 +47,11 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 
 ## Phase 4 — Execute (one item at a time; the ritual)
 
-1. `EnterWorktree` (edits in the shared checkout are rejected). Edit with the **Edit tool** (macOS `sed -i` needs a suffix and fails silently in chains).
+1. `EnterWorktree` (edits in the shared checkout are rejected). Edit with the **Edit tool** (the operator's macOS `sed -i` ≠ GNU and fails silently in chains; never use it).
 2. `render-diff.sh` + `images-exist.sh`; fix values the new schema rejects; `terraform plan` for coupled modules (plan from a worktree is fine; **apply only from the main checkout**).
-3. Commit: conventional commits, **no `Co-Authored-By`** (repo memory), docs and code in **separate commits**. If signing fails, retry once with `git -c commit.gpgsign=false commit` — never wait on 1Password.
-4. `ExitWorktree keep` → in the main checkout `git merge --ff-only <branch>` → `git push origin main` (the pre-push hook runs gitleaks; pushing `main` IS the K8s deploy — only push when the owner has authorised deploys, as in a bump-wave request). Never force-push.
-5. `flux reconcile kustomization <infrastructure|apps> --with-source`, then watch: `kubectl get hr`, pods, events. No `kubectl apply`. Stuck after a timeout → `flux reconcile hr <name> --force` / `--reset`; a bad bump → revert commit, push, then fix any wedged StatefulSet pod.
+3. Commit: conventional commits, **no attribution trailers** (CLAUDE.md), docs and code in **separate commits**. If signing fails, retry once with `git -c commit.gpgsign=false commit` — never wait on 1Password.
+4. Push the `feat/` branch and open a PR (`main` rejects direct pushes and requires the `CI gate`; the pre-push hook runs gitleaks). **Merging the PR IS the K8s deploy**: merge or enable auto-merge only when the owner authorised deploys (as in a bump-wave request), otherwise leave it for the operator. `terraform/`, `ansible/`, `k8s/` PRs get a diff review first. Never force-push.
+5. After the merge, `flux reconcile kustomization <infrastructure|apps> --with-source`, then watch: `kubectl get hr`, pods, events. No `kubectl apply`. Stuck after a timeout → `flux reconcile hr <name> --force` / `--reset`; a bad bump → revert via a new PR (break-glass admin bypass only if the cluster is down), then fix any wedged StatefulSet pod.
 6. **Test what the change actually touches** (below). Write results down with numbers, not "looks fine".
 7. Docs (post-flight): progress in `docs/operations/chart-bumps-2026-09.md`-style log, gotchas into `docs/known-issues/<subject>.md`, decisions row if architectural, tick `open-questions.md`.
 8. **CI cache check — whenever the bump touches a CI-cached pin** (`ansible/requirements.yml` collections, `.github/ci-requirements.txt` ansible-core/ansible-lint/yamllint, a Terraform provider/`required_providers` in a module, a tool `*_URL`/`*_SHA` in `ci.yml`, or a chart whose CRD schema kubeconform needs → bump `KUBECONFORM_SCHEMA_EPOCH`): follow [`docs/procedures/ci.md`](../../docs/procedures/ci.md#cache-keys--bump-checklist) — the PR's first CI run is an expected cold miss; confirm the cache was *saved*, then confirm a second run *hits* and skips the install. Record the result in the bump log.
@@ -86,7 +86,6 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 - `grep` is ugrep: `grep -E '^(a|)$'` (empty alternation) errors; `--include=` with zsh globs needs quoting. zsh expands `custom-columns=...[*]` — use `-o jsonpath` with quotes or split commands.
 - Helm: use isolated `HELM_*` dirs (scripts do) — the user's repo list references missing caches. OCI charts: `helm show chart oci://…`.
 - `flux reconcile kustomization apps|infrastructure --with-source` is the nudge; HelmRelease upgrade timeout is 5–15 min, so a failed rollout self-reverts only after that.
-- macOS `sed -i` ≠ GNU; use the Edit tool or python.
 
 ## Final report (background-session convention)
 
