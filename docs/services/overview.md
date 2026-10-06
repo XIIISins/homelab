@@ -19,9 +19,11 @@ the overview links to it as "Bookmarks".
    and a **slideshow of trend graphs** under that. Three slides of three graphs each, rotating every 9 seconds:
    *K3s cluster* (CPU, memory, web traffic; six hours), *K3s workloads* (web errors, pod network, volume use; six
    hours) and *Proxmox hosts* (CPU, memory, network over 24 hours, with the host and guest counts in the caption).
-   The Proxmox slide appears only once Proxmox has answered. The tab strip jumps to any slide; the active tab carries
-   the timer bar; hovering or focusing the card, or leaving the browser tab, pauses it; the round button pauses and
-   resumes it; and nothing rotates on its own under `prefers-reduced-motion`.
+   The Proxmox slide appears only once Proxmox has answered. There are no tabs: the caption under the graphs
+   names the slide, and a round **ticker** in the free corner of the headline card's text zone is both the clock
+   (its ring fills over 9 seconds, then the next slide shows) and the pause/resume button; left and right arrow keys
+   on it change slide. The whole card is the carousel, so hovering or focusing anywhere on it, or leaving the
+   browser tab, pauses it; nothing rotates on its own under `prefers-reduced-motion`.
    Bad: a node not ready or missing, a Proxmox host not online, pending/failed pods, a certificate not ready or
    expiring within 7 days, a volume 95 % full. Watch: a Proxmox host over 90 % CPU or memory, Proxmox not answering
    (after it has worked once), CPU or memory at 85 % or more, deployments below their replica count,
@@ -54,7 +56,7 @@ working; it recovers by itself on the next poll.
 | Issue table (replaces the sentence while there are issues) | one row per item as *component* then *what*: `K3s node` einherjar-verd not ready / sigrun missing / einherjar-urd CPU at 95% / memory at 91%; `Pods` 3 pending or failing; `Deployments` 2 below wanted replicas; `Restarts` 7 in the last hour; `Volume` data-outline-0 91% full; `Certificates` 1 not ready / trust-manager expires in 9 days; `Proxmox` verd offline / urd memory at 95% / urd CPU at 93% / not answering. Red dot = bad, yellow = watch. Four rows at most, then `+N more` (full list in the tooltip and for screen readers). |
 | Browser tab title | `Niflheim: healthy` · `Niflheim: N issues` · `Niflheim: no data` |
 | Status pill | `Reading metrics…` · `Updated just now` / `N seconds ago` / `N minutes ago` · `Last good reading …` (stale, amber) · `No metrics yet` |
-| Slideshow tabs and captions | `K3s cluster`, `K3s workloads`, `Proxmox hosts` (phones: `cluster`, `workloads`, `Proxmox`); captions `K3s, the last six hours` and `Proxmox, the last 24 hours. 3 of 3 hosts online, 18 of 21 guests running.` |
+| Slideshow captions (the slides' names) | `K3s cluster, last six hours` · `K3s workloads, last six hours` · `Proxmox hosts, last 24 hours. 3 of 3 online, 18 of 21 guests running.` (or `Proxmox hosts, did not answer`). Ticker: `Pause the rotation` / `Resume the rotation` |
 
 The zone under the headline is `min-height: 5.5rem`, exactly four table rows, so the card measures the same with no
 issues and with a dozen (401.4 px at 1360 px wide in both). Change the number of rows with `MAX_ISSUE_ROWS` and
@@ -79,8 +81,8 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 ```
 
 - **Static first.** The machines and the app buttons are in `index.html`, so the first paint is complete
-  and works without JavaScript; `app.js` only fills in numbers. The page is about 37 KB on the wire on a first
-  visit (about 18 KB once the font is cached), makes no external requests, and fires its 26 instant queries in
+  and works without JavaScript; `app.js` only fills in numbers. The page is about 44 KB on the wire on a first
+  visit (about 25 KB once the font is cached), makes no external requests, and fires its 26 instant queries in
   parallel (each answers in under 30 ms; HTTP/2 through Traefik multiplexes them). The three trend lines are
   range queries (six hours, 5 minute steps) fetched once and then every five minutes. Polling runs every 30 s
   (vmagent's scrape interval) and pauses while the tab is hidden; reachability probes start after the first metrics attempt, when the browser is idle.
@@ -110,6 +112,35 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 - **Font:** Familjen Grotesk (SIL OFL), latin subset, variable weight, vendored as `site/familjen-grotesk.woff2`
   (from the fontsource package via jsDelivr, 18.9 KB). It is served from the pod with a one-week cache.
 
+## Fits the window
+
+On screens 1000 px wide and up the page is exactly one window tall: it never scrolls. The header, the headline card
+and the three machine cards always show; the bottom row (busiest namespaces and facts) takes what is left, and
+**`fitInsight()` in `app.js` trims it one piece at a time until nothing overflows**: the last row of fact tiles, then
+namespace rows from the bottom (alternating with fact rows), then the namespaces card (the remaining tiles spread
+into one wide row of four), then the row itself. It starts from everything shown on every run and does all of it
+before the browser paints. The fact tiles are in order of importance in `index.html` (deployments, restarts,
+fullest volume, certificates, then traffic, network, volume totals, counts) so the least useful go first.
+
+| Window height | What you get at 1440 px wide |
+|---|---|
+| about 1,050 px and up | namespaces (4+ rows) and fact tiles side by side |
+| about 910 to 1,050 px | one wide row of four fact tiles |
+| 825 px and up, less than that | top sections only |
+| under 825 px | the same page tightened one step (smaller gauges and graphs, no small print) and a wide tile row from about 800 px |
+| under 650 px | tightened again: no graphs, no tile captions |
+| under 612 px | too small to fit: the page scrolls rather than clipping |
+
+A narrow overview (the rail open on a small window) drops the everyday tiles' captions and the role pills, and
+keeps the headline card and tiles side by side. The numbers behind the steps are in `style.css`
+(`max-height: 824px` and `650px`, `min-height: 612px` on `.shell`), measured with the Browser pane; if the layout
+changes, re-measure rather than guess: resize to a few heights and read `scrollHeight > clientHeight` on `.main`.
+Under 1000 px wide there is no fitting at all (phones and tablets scroll as normal).
+
+An incident must not make the page taller, or it would push content out of a window it fitted a minute ago. So the
+headline card's text zone is fixed-height (the sentence or at most four issue rows), and a node's "Not ready" flag is
+a corner badge, not a new line.
+
 ## Changing it
 
 - **Add or move an app button:** edit `site/index.html` (each `<li class="app">`; the first group, `quick`, is the main-area tiles, the others are the rail; `data-probe` on the
@@ -127,6 +158,10 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
   pods instead of 94, 12 nodes instead of 6).
 - **A Proxmox that is down must not slow the K3s numbers.** The page caps its Proxmox request at 3 s; Caddy gives up on
   all three hypervisors after about 4 s.
+- **A `ResizeObserver` on an element that is `display: none` never fires.** The fit routine hides the bottom
+  row when there is no room; watching that row could never bring it back when the window grew. It watches `.main`,
+  and also re-runs a frame later (the routine is idempotent) because the height tiers in `style.css` change layout
+  in the same frame the observer fires.
 - **No Flux tile.** The `gotk_reconcile_condition` series do not exist in VictoriaMetrics, so there is nothing to read.
 - **Memory is the pods' working set against the node's allocatable memory**, not the VM's total. It leaves out the
   OS and K3s reservation (2 GiB per worker), so it reads lower than the Proxmox or Zabbix figure.
