@@ -1,0 +1,30 @@
+# k8s/asgard/apps/jellyfin-ingress/httproute.yaml
+#
+# jellyfin.midgard.xiiisins.com on the midgard Gateway ONLY. Deliberately NOT attached to the apex listener
+# (websecure-apex-wildcard) and NOT behind the Cloudflare tunnel: Cloudflare's terms only allow serving video through their
+# paid video products, tunnel traffic is CDN traffic, and a suspension would hit the whole xiiisins.com zone (Authentik,
+# OIDC, MicroBin). Remote access is Tailscale (decision D-1: docs/operations/5h-jellyfin.md).
+#
+# No Authentik ForwardAuth middleware: Jellyfin keeps local accounts, and the TV/phone apps cannot follow a browser SSO
+# redirect. TLS terminates here with the midgard wildcard certificate; Jellyfin itself speaks plain HTTP on 8096.
+# jellyfin-direct.niflheim.xiiisins.com (AdGuard rewrite) goes straight to the LXC when K3s or Traefik is the thing on fire.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: jellyfin-midgard
+  namespace: jellyfin-ingress
+spec:
+  parentRefs:
+    - name: midgard
+      namespace: traefik
+      sectionName: websecure-midgard
+  hostnames:
+    - jellyfin.midgard.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: jellyfin
+          port: 8096

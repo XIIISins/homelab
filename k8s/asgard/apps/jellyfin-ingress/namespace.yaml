@@ -1,0 +1,9 @@
+# k8s/asgard/apps/jellyfin-ingress/namespace.yaml
+#
+# Routing-only namespace for the Jellyfin ingress shim. Jellyfin itself runs on the privileged LXC 1123 on Urd (outside
+# K3s, QuickSync on the Intel iGPU, terraform/proxmox/asgard-lxcs-root); this directory only holds the K8s-side Service +
+# EndpointSlice + HTTPRoute that lets Traefik front it at jellyfin.midgard.xiiisins.com. Same pattern as zabbix-ingress.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jellyfin-ingress
