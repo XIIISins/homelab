@@ -55,7 +55,7 @@ PVE 8.2+ can pass a device into an *unprivileged* container too, so GPU access a
 clients (LAN, tailnet) ── https ──> Traefik VIP 10.0.20.10 (jellyfin.midgard, midgard wildcard cert)
                                       └─ EndpointSlice ──> 10.0.11.223:8096  LXC 1123 "jellyfin" (Urd, privileged)
 fallback (K3s down) ── http ──────> jellyfin-direct.niflheim → 10.0.11.223:8096
-LXC 1123:  /dev/dri/renderD128 (passed, gid=render, 0660) → jellyfin-ffmpeg (iHD/QSV)
+LXC 1123:  /dev/dri/renderD128 (passed, gid=2001 `igpu`, 0660) → jellyfin-ffmpeg (iHD/QSV)
            /var/lib/jellyfin     rootfs, local-lvm, backed up    (config, SQLite DB, metadata)
            /var/cache/jellyfin   mount point, local-lvm, backup=false (transcodes, image cache)
            /media                NFS ro 10.0.254.20:/volume5/media-backup, mounted in-container, RequiresMountsFor
@@ -82,7 +82,7 @@ SQLite stays on local-lvm, never NFS (SQLite locking over NFS corrupts databases
 
 ## J2 — Terraform
 
-- `terraform/proxmox/asgard-lxcs-root/lxcs.tf`: `proxmox_virtual_environment_container.jellyfin` — `unprivileged = false`, `features { nesting = true, mount = ["nfs"] }`, `device_passthrough { path = "/dev/dri/renderD128", gid = <container render gid>, mode = "0660" }`, a `mount_point` at `/var/cache/jellyfin` with `backup = false`, `initialization.dns` (AdGuard VIP + UCG fallback, fleet standard), tags `asgard, lxc, jellyfin, managed-by-terraform`. Pin the render gid to a fixed number (for example 993) and have Ansible create the container's `render` group with that gid, so host, Terraform and container agree after any rebuild.
+- `terraform/proxmox/asgard-lxcs-root/lxcs.tf`: `proxmox_virtual_environment_container.jellyfin` — `unprivileged = false`, `features { nesting = true, mount = ["nfs"] }`, `device_passthrough { path = "/dev/dri/renderD128", gid = 2001, mode = "0660" }`, a `mount_point` at `/var/cache/jellyfin` with `backup = false`, `initialization.dns` (AdGuard VIP + UCG fallback, fleet standard), tags `asgard, lxc, jellyfin, managed-by-terraform`. The device's gid is a number reserved for it (**2001**), and Ansible creates a group `igpu` with that gid. (First provisioning, 2026-10-06: the plan's "pin to the host's render gid 993" collides with the Debian 13 template, where 993 is `kvm` and `render` is 992, so the device is tied to its own group instead of to distro numbering.)
 - `terraform/netbox/vms.tf`: VM + interface + IP (standing TF→NetBox rule).
 - `terraform/adguard/rewrites.tf`: `jellyfin.midgard.xiiisins.com → 10.0.20.10`, `jellyfin-direct.niflheim.xiiisins.com → 10.0.11.223`.
 - `inventory/hosts.yml`: new `jellyfin` group.
@@ -93,7 +93,7 @@ Day-1 baseline as root, then the full play as `ansible`, per the LXC bootstrap f
 
 The `jellyfin` role:
 
-- `render` group with the pinned gid; `jellyfin` user in `render` (and `video`).
+- `igpu` group (gid 2001, the passed device's gid); `jellyfin` user in `igpu` (and `video`, `media`).
 - NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media-backup /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
 - Jellyfin apt repo + pinned `jellyfin` and `jellyfin-ffmpeg7`.
 - systemd drop-in: `RequiresMountsFor=/media /var/cache/jellyfin`, so Jellyfin never starts against an empty mount point and scans the library away.
@@ -141,7 +141,7 @@ Elsewhere:
 - [ ] **Reboot test of the LXC and of Urd** (persistence rule): after Urd comes back the NFS mount, the render device permissions, the smoke timer and playback all work with no hand step.
 - [ ] `pct migrate 1123 verd --restart` and back: plays on Verd's iGPU (proves portability and the J1 assert).
 - [ ] PBS backup of 1123 completes; its size is small (cache mount excluded); a restore to a scratch VMID starts Jellyfin with the library intact.
-- [ ] Smoke timer failure path: remove the `jellyfin` user from `render` → the next run alerts in Zabbix → re-run the play → it clears.
+- [ ] Smoke timer failure path: remove the `jellyfin` user from `igpu` → the next run alerts in Zabbix → re-run the play → it clears.
 
 ## J6 — Monitoring, docs and post-flight
 
