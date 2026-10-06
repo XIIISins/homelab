@@ -72,4 +72,3 @@
     group: root
     mode: "0644"
   notify: proxmox-host restart zabbix-agent2
-
