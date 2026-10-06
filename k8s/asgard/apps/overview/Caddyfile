@@ -1,0 +1,63 @@
+# k8s/asgard/apps/overview/Caddyfile
+#
+# Serves the static overview page and a read-only window onto VictoriaMetrics.
+# Plain HTTP on :8080 (non-root); TLS terminates at Traefik upstream
+# (*.niflheim.xiiisins.com wildcard), same as apex-static.
+{
+	# No admin API, no ACME: nothing here needs either, and both would want a
+	# writable root filesystem.
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		# connect-src https: lets the page probe the app links (no-cors fetch)
+		# from the browser; everything else stays same-origin.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# Kubernetes probes.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# The only metrics path the page needs: instant queries, GET only. No range
+	# queries, no admin API (delete_series, snapshots), no write paths. vmsingle
+	# is a headless Service; Caddy resolves it on each dial, so pod churn is fine.
+	@instant {
+		method GET
+		path /api/v1/query
+	}
+	handle @instant {
+		reverse_proxy victoriametrics-victoria-metrics-single-server.monitoring.svc.cluster.local:8428 {
+			transport http {
+				dial_timeout 3s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	# Anything else under /api is deliberately a dead end.
+	handle /api/* {
+		respond "Not found" 404
+	}
+
+	handle {
+		# The page is a handful of small files; always revalidate (cheap 304s)
+		# so a rollout is visible on the next load. The font never changes, so
+		# it alone is cached for a week; the preload in index.html then costs
+		# nothing on repeat visits.
+		header Cache-Control "no-cache"
+		@font path *.woff2
+		header @font Cache-Control "public, max-age=604800"
+		file_server
+	}
+}

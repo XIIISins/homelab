@@ -1,0 +1,92 @@
+# k8s/asgard/apps/overview/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overview
+  namespace: overview
+spec:
+  # 2 replicas on different workers: a status page that disappears when a
+  # node does is the wrong way round. Same shape as apex-static.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: overview
+  template:
+    metadata:
+      labels:
+        app: overview
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - overview
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: caddy:2.11.2-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          # Sized like apex-static (the same Caddy, idle most of the time).
+          # The VPA object in vpa-config/overview.yaml records what it really uses.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: caddy
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: site
+              mountPath: /srv
+              readOnly: true
+            # Caddy wants somewhere writable for its instance id and state,
+            # even with the admin API and ACME switched off.
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+      volumes:
+        - name: caddy
+          configMap:
+            name: overview-caddy
+        - name: site
+          configMap:
+            name: overview-site
+        - name: caddy-data
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: caddy-config
+          emptyDir:
+            sizeLimit: 16Mi

@@ -28,6 +28,7 @@ resources:
   - monitoring.yaml
   - netbox.yaml
   - outline.yaml
+  - overview.yaml
   - sealed-secrets.yaml
   - semaphore.yaml
   - startpage.yaml

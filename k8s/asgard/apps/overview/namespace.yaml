@@ -1,0 +1,5 @@
+# k8s/asgard/apps/overview/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: overview
