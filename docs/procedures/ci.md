@@ -86,6 +86,14 @@ git push -u origin feat/<name>        # pre-push gitleaks hook still runs locall
 
 Auto-merge is for docs and routine bumps. Anything touching `terraform/`, `ansible/` or `k8s/` gets a diff review before merging (CLAUDE.md "Mutating operations").
 
+### Claude Code cloud sessions: gitleaks + the pre-push hook
+
+A fresh cloud container has neither `gitleaks` nor `core.hooksPath`, so the `.githooks/pre-push` scan would silently not exist there (CI is then the only scan). The project `SessionStart` hook ([`.claude/settings.json`](../../.claude/settings.json) → [`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh)) fixes that for every cloud session: it installs the gitleaks version CI pins, reading URL + sha256 from the `env:` block of `ci.yml` and installing through `install-tool.sh` (hash-verified), then runs `git config core.hooksPath .githooks`. It does nothing outside cloud sessions (`CLAUDE_CODE_REMOTE`), is idempotent (container state is cached; resume/clear/compact re-run it as a no-op) and runs synchronously, so the tool exists before the first push.
+
+- **Bumping gitleaks** needs no change here: edit the pin in `ci.yml` (see [Changing CI](#changing-ci)) and the next session installs the new version.
+- **The environment's network policy must allow `github.com` release downloads** (plus the host GitHub redirects release assets to, e.g. `objects.githubusercontent.com` or `release-assets.githubusercontent.com`). If the download is blocked the hook exits 1, the session still starts, and the pre-push hook then fails closed (blocks pushes) until gitleaks is installed; fix the allowlist rather than `--no-verify`.
+- Only sessions started after this file is on the default branch pick it up. Local machines keep using `brew install gitleaks` + the one-time `git config core.hooksPath .githooks`.
+
 ## Applying the ruleset (the last step — operator, from the main checkout)
 
 **Status: applied 2026-10-01** (ruleset id `24308920`). Surprises on the way: (1) the first `main` push run failed — a Galaxy 502 poisoned the retry loop, fixed in #10; (2) the first plan wanted to null `description` / `has_issues` / `has_projects` on the imported repo (provider plans omitted args as null) — pinned in #11 before applying. Applied with `gh auth token` injected inline (broad `repo` scope) rather than the fine-grained PAT below; the fine-grained PAT has since been minted into 1P (see follow-ups).
