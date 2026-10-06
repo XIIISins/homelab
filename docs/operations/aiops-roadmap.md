@@ -174,6 +174,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 *Detailed plan (drafted 2026-10-04, restarted 2026-10-05): [`10i-rightsizing.md`](10i-rightsizing.md). Goal: the pods on the asgard workers use and reserve less memory over time; the worker VMs keep their Proxmox size. CPU requests (84–90 % requested, [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md)) are trimmed by the same loop.*
 
 - **10i0 — Hand-trim** NetBox and `authentik-server` so the recommender fits.
+- **10i0b — Initial tuning** from 30 days of VictoriaMetrics history, requests for the pods that had none, and a 2 GiB per-worker reservation for the OS and K3s (live 2026-10-05).
 - **10i1 — VPA recommender only**, `updateMode: "Off"` objects in `vpa-config/`, VPA metrics through kube-state-metrics.
 - **10i2 — Data and findings (T0):** `kube.rightsizing` joins VPA with 30 days of VictoriaMetrics usage; Gná gets it too.
 - **10i3 — Gná's digest:** weekly by default, bi-weekly or monthly by choice; a scoreboard, the top suggestions, tuning advice, and earlier PRs' results.
