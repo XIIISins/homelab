@@ -14,3 +14,7 @@
 - name: Install smartmontools (disk-health telemetry)
   ansible.builtin.import_tasks: smart.yml
   tags: [proxmox-host, proxmox-host:smart]
+
+- name: Intel iGPU (QuickSync) tooling and render-node check for the Jellyfin LXC
+  ansible.builtin.import_tasks: gpu.yml
+  tags: [proxmox-host, proxmox-host:gpu]

@@ -2,7 +2,7 @@
 
 # Phase 5h — Jellyfin (QuickSync LXC on Urd) + media automation (Sonarr, SABnzbd): plan
 
-*Drafted 2026-10-05. Status: 🔲 **plan only, nothing built**. Build-sequence row: [`build-sequence.md`](build-sequence.md) "5h — Remaining LXCs". Decision row: [`decisions.md`](decisions.md) "Jellyfin" (privileged LXC on Urd, QuickSync `/dev/dri` passthrough). Service page (planned shape): [`../outline/services-and-purpose/jellyfin.md`](../outline/services-and-purpose/jellyfin.md). Steps are labelled **J0–J6** (Jellyfin) and **M0–M4** (media automation) so they don't collide with the existing `5h.2` (Hermod) and `5h.3` (Semaphore) rows.*
+*Drafted 2026-10-05. Status: 🟡 **J0 host checks done 2026-10-06 (all pass except the DSM NFS rule, an operator step); implementation starting**. Build-sequence row: [`build-sequence.md`](build-sequence.md) "5h — Remaining LXCs". Decision row: [`decisions.md`](decisions.md) "Jellyfin" (privileged LXC on Urd, QuickSync `/dev/dri` passthrough). Service page (planned shape): [`../outline/services-and-purpose/jellyfin.md`](../outline/services-and-purpose/jellyfin.md). Steps are labelled **J0–J6** (Jellyfin) and **M0–M4** (media automation) so they don't collide with the existing `5h.2` (Hermod) and `5h.3` (Semaphore) rows.*
 
 ---
 
@@ -68,11 +68,11 @@ SQLite stays on local-lvm, never NFS (SQLite locking over NFS corrupts databases
 ## J0 — Prerequisites and host checks (read-only, plus one DSM change)
 
 - [ ] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`.
-- [ ] **Urd headroom**: `pvesh get /nodes/urd/status` + `free -g` on Urd. ≥ 4 GB free → proceed with 3 GB. Less → D-3.
-- [ ] **Dual-channel RAM**: `dmidecode -t memory | grep -E 'Size|Locator'` on Urd. Two populated DIMMs = dual-channel. One DIMM → note it; tone-mapping capacity will be roughly halved (J5 measures it either way).
-- [ ] **iGPU on the host**: `ls -l /dev/dri/by-path/` (expect `pci-0000:00:02.0-render -> ../renderD128`), `lspci -nnk -s 00:02.0` (kernel driver `i915`), `getent group render` (note the gid).
-- [ ] **GuC/HuC firmware**: `dmesg | grep -iE 'guc|huc'` on Urd. Expect GuC submission enabled and HuC authenticated (the default on Alder Lake-P; firmware ships in `pve-firmware`). Only if HuC is not loaded: `options i915 enable_guc=3` via the `proxmox-host` role + reboot test. Without HuC, leave the low-power encoders off (J4).
-- [ ] **Nothing else holds the GPU**: no `nomodeset`, no `i915` blacklist, no GVT-g / SR-IOV DKMS module on the host (Alder Lake has no GVT-g; out-of-tree SR-IOV is exactly the kind of fragility this plan avoids).
+- [x] **Urd headroom** ✅ 2026-10-06: **7.6 GB available** (0.75 GB "free" is mostly reclaimable cache), swap 2.3 of 8 GB, memory PSI 0.00, load 0.4-1.1 on 8 cores, `local-lvm` 758 GB free. Read as *available* (the figure that matters; page cache is reclaimable) the gate passes: **3 GB RAM + 1 GB swap, 4 cores, D-3 not triggered.** The LXC caps trim (Factorio 8 → 2 GB, Hugin 4 → 2 GB, HAProxy/etcd trio 2 → 1 GB) lowered Urd's configured guest RAM from 44.5 to 34 GB but frees no live RAM: caps are not reservations ([`lxc-proxmox.md`](../known-issues/lxc-proxmox.md)). At the 3 GB cap Urd keeps about 4.6 GB available. **Portability:** Verd has 5.6 GB available (a migration there leaves ~2.5 GB: free room first), Skuld 7.2 GB with almost no swap but it is the node that hard-freezes.
+- [x] **Dual-channel RAM** ✅ 2026-10-06, **all three nodes**: two 16 GB DDR4-2400 DIMMs on separate controllers (`Controller0/1-ChannelA-DIMM0`), so dual-channel. J5 still measures tone-mapping capacity.
+- [x] **iGPU on the host** ✅ 2026-10-06, **all three nodes identical**: `pci-0000:00:02.0-render -> ../renderD128` (the only DRM render node), Alder Lake-UP3 GT1 `[8086:46b3]` on `i915`, `renderD128` is `root:render 0660`, **render gid 993** everywhere (matches the pinned gid in J2). Kernel `7.0.14-17-pve` on Urd and Verd, `-19` on Skuld.
+- [x] **GuC/HuC firmware** ✅ 2026-10-06, **all three nodes**: `adlp_guc_70.bin` 70.49.4 and `tgl_huc.bin` 7.9.3 RUNNING, "HuC: authenticated for all workloads", "GUC: submission enabled", no GPU hangs this boot. (Read `journalctl -k -b`, not `dmesg`: on a node up for weeks the ring buffer has rolled past boot.) No `enable_guc` option is needed, so the low-power encoders stay **on** in J4 and the `proxmox-host` role needs no i915 change.
+- [x] **Nothing else holds the GPU** ✅ 2026-10-06 (Urd): no `nomodeset`, no i915 blacklist, no DKMS/GVT-g/SR-IOV module; the `xe` module is loaded but has zero users and `i915` is the bound driver.
 
 ## J1 — Host role (`proxmox-host`, Urd/Verd/Skuld alike)
 
@@ -154,7 +154,7 @@ Elsewhere:
 
 - [x] **D-1. Remote access.** ✅ **Decided 2026-10-05 (operator): Tailscale.** Family devices join the tailnet with an ACL that only allows `10.0.20.10:443` (and `10.0.11.223:8096` for the fallback); split-DNS already resolves `midgard` there. Alternatives: a UCG port-forward of a dedicated port to Traefik (works on any TV, but a new public surface and needs its own hardening); Cloudflared (rejected above: ToS risk to the whole zone).
 - [ ] **D-2. Privileged vs unprivileged.** Default **privileged** (the decision row stands, reasons above).
-- [ ] **D-3. Urd too tight.** If J0 finds < 4 GB free: Jellyfin starts at 2 GB and the operator decides whether any remaining over-sized cap on Urd can shrink (Factorio already went 8 → 2 GB, which frees no live RAM: caps are not reservations, see [`lxc-proxmox.md`](../known-issues/lxc-proxmox.md)), or Jellyfin is placed on Verd instead (same iGPU; the decision row would change from "Urd" to "any node, Urd preferred").
+- [x] **D-3. Urd too tight.** ✅ **Not triggered 2026-10-06** (7.6 GB available, see J0). If J0 had found < 4 GB free: Jellyfin starts at 2 GB and the operator decides whether any remaining over-sized cap on Urd can shrink (Factorio already went 8 → 2 GB, which frees no live RAM: caps are not reservations, see [`lxc-proxmox.md`](../known-issues/lxc-proxmox.md)), or Jellyfin is placed on Verd instead (same iGPU; the decision row would change from "Urd" to "any node, Urd preferred").
 
 - [x] **D-4. Where Sonarr + SABnzbd run.** ✅ **Decided 2026-10-05 (operator): in K8s.** Asgard K3s (the only cluster since jotunheim was dropped the same day). Rejected: an LXC next to Jellyfin (simplest, no K8s involved, but a second pattern to undo later and it competes with Jellyfin for Urd's memory);.
 - [ ] **D-5. Downloader.** Default **SABnzbd** (named in the design; Python, well supported by Sonarr). NZBGet (the maintained `nzbgetcom` fork) is lighter on CPU during unpack and is a fair swap if worker load becomes a problem.
