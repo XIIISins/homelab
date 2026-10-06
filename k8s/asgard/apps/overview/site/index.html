@@ -100,6 +100,21 @@
             <h2 class="verdict-title" id="verdict-title" aria-live="polite">Checking the cluster…</h2>
             <p class="verdict-detail" id="verdict-detail">&nbsp;</p>
             <ul class="attention" id="attention" hidden></ul>
+            <div class="pulse" role="group" aria-label="The last six hours">
+              <figure class="spark" data-kind="cpu">
+                <figcaption><span class="spark-label">Cluster CPU</span><b class="spark-val">–</b></figcaption>
+                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster CPU over the last six hours"></svg>
+              </figure>
+              <figure class="spark" data-kind="mem">
+                <figcaption><span class="spark-label">Cluster memory</span><b class="spark-val">–</b></figcaption>
+                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Cluster memory over the last six hours"></svg>
+              </figure>
+              <figure class="spark" data-kind="traffic">
+                <figcaption><span class="spark-label">Web traffic</span><b class="spark-val">–</b></figcaption>
+                <svg class="spark-svg" viewBox="0 0 120 36" preserveAspectRatio="none" role="img" aria-label="Web traffic over the last six hours"></svg>
+              </figure>
+              <p class="pulse-note">The last six hours</p>
+            </div>
           </section>
           <section class="group quick" data-tone="magenta" aria-labelledby="quick-title">
           <h2 class="group-title" id="quick-title">Every day</h2>
@@ -228,14 +243,33 @@
       </article>
         </section>
 
-        <section class="facts" aria-label="Traffic, storage and certificates">
-          <dl class="fact-list">
+        <div class="insight">
+          <section class="where" aria-labelledby="where-title">
+            <h2 class="card-title" id="where-title">Busiest namespaces</h2>
+            <p class="card-note">Memory used by pods, with CPU beside it</p>
+            <ul class="ns-list" id="ns-list">
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+              <li class="ns"><span class="ns-name">–</span><span class="ns-bar"><i></i></span><span class="ns-val"><b>–</b><small>&nbsp;</small></span></li>
+            </ul>
+          </section>
+
+          <section class="facts" aria-label="Traffic, storage, deployments and certificates">
+            <dl class="fact-list">
             <div class="fact" id="f-traffic"><dt>Web traffic</dt><dd>–</dd></div>
+            <div class="fact" id="f-network"><dt>Pod network</dt><dd>–</dd></div>
+            <div class="fact" id="f-deploys"><dt>Deployments</dt><dd>–</dd></div>
             <div class="fact" id="f-restarts"><dt>Restarts in the last hour</dt><dd>–</dd></div>
             <div class="fact" id="f-volume"><dt>Fullest volume</dt><dd>–</dd></div>
+            <div class="fact" id="f-storage"><dt>Volumes in total</dt><dd>–</dd></div>
             <div class="fact" id="f-certs"><dt>Certificates</dt><dd>–</dd></div>
-          </dl>
-        </section>
+            <div class="fact" id="f-scale"><dt>Running now</dt><dd>–</dd></div>
+            </dl>
+          </section>
+        </div>
       </div>
     </div>
   </div>

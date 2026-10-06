@@ -44,6 +44,7 @@
   --warn: #e0af68;
   --bad: #f7768e;
   --none: #565f89;
+  --track-bg: #292e42;
   --hi: rgb(255 255 255 / 0.04);
   --lift: 0 12px 28px -16px rgb(0 0 0 / 0.7);
   --font: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -68,6 +69,7 @@
     --warn: #7a5a1e;
     --bad: #c4204f;
     --none: #848cb5;
+    --track-bg: #c9cce0;
     --hi: rgb(255 255 255 / 0.7);
     --lift: 0 12px 28px -18px rgb(52 59 88 / 0.35);
   }
@@ -165,7 +167,7 @@ a {
 .hero { order: 1; }
 .rail { order: 2; }
 .machines { order: 3; }
-.facts { order: 4; }
+.insight { order: 4; }
 
 .shell[data-pinned] {
   --rail-w: 344px;
@@ -224,7 +226,7 @@ a {
   .top,
   .hero,
   .machines,
-  .facts {
+  .insight {
     order: 0;
   }
 }
@@ -239,6 +241,7 @@ a {
 .verdict,
 .machine,
 .fact,
+.where,
 .quick,
 .rail-panel {
   background: var(--surface);
@@ -390,6 +393,93 @@ a {
   background: var(--bad);
 }
 
+/* The last six hours: three trend lines, the current value above each. */
+.pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 6px 22px;
+  margin-top: 24px;
+}
+
+.spark {
+  --c: var(--cyan);
+  margin: 0;
+  min-width: 0;
+}
+
+.spark[data-kind="mem"] { --c: var(--magenta); }
+.spark[data-kind="traffic"] { --c: var(--blue); }
+
+.spark figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 8px;
+}
+
+.spark-label {
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+}
+
+.spark-val {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.spark-svg {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: 6px;
+  overflow: visible;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-area {
+  fill: color-mix(in srgb, var(--c) 16%, transparent);
+  stroke: none;
+}
+
+.spark-base {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Phones: all three trend lines stay in one row, label above value. */
+@media (max-width: 520px) {
+  .pulse {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 14px;
+  }
+
+  .spark figcaption {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .spark-label {
+    font-size: 0.75rem;
+  }
+}
+
+.pulse-note {
+  grid-column: 1 / -1;
+  color: var(--fg-3);
+  font-size: 0.75rem;
+}
+
 /* ---------- Machines ---------- */
 
 .machines {
@@ -522,22 +612,100 @@ a {
   line-height: 1.25;
 }
 
-/* ---------- Facts ---------- */
+/* ---------- Insight: busiest namespaces + facts ---------- */
+
+.insight {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container main (min-width: 880px) {
+  .insight {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  }
+}
+
+.where {
+  padding: 20px 22px 22px;
+}
+
+.card-title {
+  font-size: 1.375rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.card-note {
+  margin-top: 2px;
+  color: var(--fg-3);
+  font-size: 0.8125rem;
+}
+
+.ns-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.ns {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr) 5.25rem;
+  align-items: center;
+  gap: 14px;
+}
+
+.ns-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-bar {
+  --w: 0;
+  height: 8px;
+  background: var(--track-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ns-bar i {
+  display: block;
+  height: 100%;
+  background: var(--magenta);
+  border-radius: 4px;
+  transform-origin: left center;
+  transform: scaleX(var(--w));
+  transition: transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.ns-val {
+  display: grid;
+  text-align: right;
+  line-height: 1.25;
+}
+
+.ns-val b {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.ns-val small {
+  color: var(--fg-3);
+  font-size: 0.75rem;
+}
 
 .fact-list {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (min-width: 760px) {
-  .fact-list {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+  align-content: start;
 }
 
 .fact {
-  padding: 16px 18px 15px;
+  padding: 15px 18px 14px;
 }
 
 .fact dt {
@@ -548,7 +716,7 @@ a {
 
 .fact dd {
   margin-top: 6px;
-  font-size: 1.375rem;
+  font-size: 1.25rem;
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: -0.01em;
@@ -943,6 +1111,7 @@ a {
   .m-ring,
   .app-link,
   .finder,
+  .ns-bar i,
   .shell {
     transition: none;
   }

@@ -15,6 +15,9 @@
   const HIGH = 0.85;            // CPU or memory share that counts as "watch this"
 
   const KSM = 'job="kube-state-metrics"';
+  // Cluster-wide CPU and memory use as a share of what the nodes can allocate.
+  const CLUSTER_CPU = `sum(rate(container_cpu_usage_seconds_total{image!=""}[5m])) / sum(kube_node_status_allocatable{${KSM},resource="cpu"})`;
+  const CLUSTER_MEM = `sum(container_memory_working_set_bytes{image!=""}) / sum(kube_node_status_allocatable{${KSM},resource="memory"})`;
   const QUERIES = {
     nodeReady: `max by(node)(kube_node_status_condition{${KSM},condition="Ready",status="true"})`,
     cpuUse: 'sum by(instance)(rate(container_cpu_usage_seconds_total{image!=""}[5m]))',
@@ -29,7 +32,28 @@
     traffic: 'sum(rate(traefik_service_requests_total[5m]))',
     certsReady: 'count(certmanager_certificate_ready_status{condition="True"} == 1)',
     certsAll: 'count(certmanager_certificate_ready_status{condition="True"})',
-    certExpiry: 'min(certmanager_certificate_expiration_timestamp_seconds) - time()',
+    // Seconds left on the soonest-expiring certificate, labelled with its name.
+    certSoonest: 'bottomk(1, certmanager_certificate_expiration_timestamp_seconds - time())',
+    clusterCpu: CLUSTER_CPU,
+    clusterMem: CLUSTER_MEM,
+    nsMem: 'topk(6, sum by(namespace)(container_memory_working_set_bytes{image!="",namespace!=""}))',
+    nsCpu: 'sum by(namespace)(rate(container_cpu_usage_seconds_total{image!="",namespace!=""}[5m]))',
+    netIn: 'sum(rate(container_network_receive_bytes_total{pod!=""}[5m]))',
+    netOut: 'sum(rate(container_network_transmit_bytes_total{pod!=""}[5m]))',
+    deploysTotal: `count(kube_deployment_spec_replicas{${KSM}})`,
+    storageUsed: 'sum(max by(namespace,persistentvolumeclaim)(kubelet_volume_stats_used_bytes))',
+    storageCap: 'sum(max by(namespace,persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes))',
+    volumeCount: 'count(max by(namespace,persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes))',
+    namespaces: `count(kube_namespace_status_phase{${KSM},phase="Active"})`,
+    containers: `sum(kube_pod_container_status_running{${KSM}})`,
+  };
+
+  // The six-hour trend lines in the status card (range queries, 5 minute steps).
+  const SPARK_MS = 300_000;
+  const SPARKS = {
+    cpu: { q: CLUSTER_CPU },
+    mem: { q: CLUSTER_MEM },
+    traffic: { q: QUERIES.traffic },
   };
 
   const FAVICON = { ok: '#1b7360', warn: '#9a5b00', bad: '#ae3526', unknown: '#86a1b0' };
@@ -132,6 +156,10 @@
     return g >= 10 ? String(Math.round(g)) : g.toFixed(1);
   };
 
+  const size = (bytes) => (bytes >= 2 ** 30 ? `${gib(bytes)} GiB` : `${Math.round(bytes / 2 ** 20)} MiB`);
+  const perSecond = (bytes) => (bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB/s` : `${Math.round(bytes / 1e3)} KB/s`);
+  const reqRate = (n) => `${n < 10 ? n.toFixed(1) : Math.round(n)} req/s`;
+
   function showVM(node, ready, cpu, cpuCap, mem, memCap) {
     const vm = ensureVM(node);
     const cpuFrac = cpu != null && cpuCap ? cpu / cpuCap : null;
@@ -223,7 +251,27 @@
 
     // Facts
     const traffic = scalar(d.traffic);
-    setFact('f-traffic', traffic === null ? '–' : `${traffic < 10 ? traffic.toFixed(1) : Math.round(traffic)} requests/s`, 'Through Traefik');
+    setFact('f-traffic', traffic === null ? '–' : reqRate(traffic), 'Through Traefik');
+
+    const netIn = scalar(d.netIn);
+    const netOut = scalar(d.netOut);
+    setFact('f-network', netIn === null || netOut === null ? '–' : `${perSecond(netIn)} in`,
+      netIn === null || netOut === null ? '' : `${perSecond(netOut)} out, all pods`);
+
+    const deploysTotal = scalar(d.deploysTotal);
+    setFact('f-deploys', deploysTotal === null || short === null ? '–' : `${deploysTotal - short} of ${deploysTotal}`,
+      deploysTotal === null ? '' : 'deployments with every replica up', short ? 'warn' : '');
+
+    const storUsed = scalar(d.storageUsed);
+    const storCap = scalar(d.storageCap);
+    const volCount = scalar(d.volumeCount);
+    setFact('f-storage', storUsed === null || !storCap ? '–' : size(storUsed),
+      storUsed === null || !storCap ? '' : `of ${size(storCap)} across ${volCount} ${pl(volCount, 'volume', 'volumes')}`);
+
+    const containers = scalar(d.containers);
+    const namespaces = scalar(d.namespaces);
+    setFact('f-scale', containers === null ? '–' : `${containers} containers`,
+      pods === null || namespaces === null ? '' : `in ${pods} pods across ${namespaces} namespaces`);
 
     setFact('f-restarts', restarts === null ? '–' : restarts === 0 ? 'None' : String(restarts),
       restarts === null ? '' : 'Container restarts', restarts >= 5 ? 'warn' : '');
@@ -240,16 +288,22 @@
 
     const certsAll = scalar(d.certsAll);
     const certsReady = scalar(d.certsReady);
-    const expiry = scalar(d.certExpiry);
+    const soonest = d.certSoonest && d.certSoonest[0];
+    const expiry = soonest ? Number(soonest.value[1]) : null;
     if (certsAll === null) {
       setFact('f-certs', '–', '');
     } else {
       const days = expiry === null ? null : expiry / 86400;
       const level = certsReady < certsAll || (days !== null && days < 7) ? 'bad' : days !== null && days < 14 ? 'warn' : '';
-      setFact('f-certs', `${certsReady} of ${certsAll} valid`, expiry === null ? '' : `Soonest expiry in ${duration(expiry)}`, level);
+      setFact('f-certs', `${certsReady} of ${certsAll} valid`, expiry === null ? '' : `${soonest.metric.name} expires in ${duration(expiry)}`, level);
       if (certsReady < certsAll) add('bad', `${certsAll - certsReady} ${pl(certsAll - certsReady, 'certificate is', 'certificates are')} not ready.`);
       else if (level) add(level, `A certificate expires in ${duration(expiry)}.`);
     }
+
+    renderNamespaces(d);
+    setSpark('cpu', scalar(d.clusterCpu), percent);
+    setSpark('mem', scalar(d.clusterMem), percent);
+    setSpark('traffic', traffic, reqRate);
 
     // Headline
     issues.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
@@ -274,9 +328,86 @@
     setVerdict(state, title, detail.trim(), issues);
   }
 
+  // ---------- Busiest namespaces and trend lines ----------
+
+  function renderNamespaces(d) {
+    const rows = $$('#ns-list .ns');
+    const cpu = byLabel(d.nsCpu, 'namespace');
+    const list = (d.nsMem || [])
+      .map((x) => ({ name: x.metric.namespace, mem: Number(x.value[1]) }))
+      .sort((a, b) => b.mem - a.mem)
+      .slice(0, rows.length);
+    const top = list.length ? list[0].mem : 1;
+    rows.forEach((li, i) => {
+      const item = list[i];
+      $('.ns-name', li).textContent = item ? item.name : '–';
+      $('.ns-bar', li).style.setProperty('--w', item ? item.mem / top : 0);
+      $('.ns-val b', li).textContent = item ? size(item.mem) : '–';
+      const c = item ? cpu.get(item.name) : undefined;
+      $('.ns-val small', li).textContent = c === undefined ? '\u00a0' : `${cores(c)} cores`;
+    });
+  }
+
+  function setSpark(kind, value, format) {
+    $(`.spark[data-kind="${kind}"] .spark-val`).textContent = value === null ? '–' : format(value);
+    sparkFormat[kind] = format;
+  }
+
+  const sparkFormat = {};
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function drawSpark(kind, values) {
+    const figure = $(`.spark[data-kind="${kind}"]`);
+    const svg = $('.spark-svg', figure);
+    svg.replaceChildren();
+    if (values.length < 2) return;
+    const W = 120;
+    const H = 36;
+    const peak = Math.max(...values);
+    const top = peak * 1.15 || 1;     // honest scale: from zero, a little headroom
+    const points = values.map((v, i) => `${((i / (values.length - 1)) * W).toFixed(1)},${(H - 1 - (v / top) * (H - 4)).toFixed(1)}`);
+    const line = 'M' + points.join('L');
+    const make = (tag, attrs) => {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    };
+    svg.append(
+      make('line', { class: 'spark-base', x1: 0, x2: W, y1: H - 0.5, y2: H - 0.5 }),
+      make('path', { class: 'spark-area', d: `${line}L${W},${H}L0,${H}Z` }),
+      make('path', { class: 'spark-line', d: line }),
+    );
+    const format = sparkFormat[kind];
+    svg.setAttribute('aria-label',
+      `${$('.spark-label', figure).textContent} over the last six hours` + (format ? `, peak ${format(peak)}` : ''));
+  }
+
+  let sparkAt = 0;
+
+  async function loadSparks() {
+    sparkAt = Date.now();
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - 6 * 3600;
+    await Promise.all(Object.entries(SPARKS).map(async ([kind, spark]) => {
+      try {
+        const params = new URLSearchParams({ query: spark.q, start, end, step: 300 });
+        const res = await fetch('/api/v1/query_range?' + params, { cache: 'no-store', signal: AbortSignal.timeout(TIMEOUT_MS) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const body = await res.json();
+        const series = body.data.result[0];
+        drawSpark(kind, series ? series.values.map((v) => Number(v[1])).filter(Number.isFinite) : []);
+      } catch {
+        drawSpark(kind, []);     // a missing trend line never hides the numbers
+      }
+    }));
+  }
+
   function renderOutage() {
     for (const [node] of vms) showVM(node, null, null, null, null, null);
-    for (const id of ['f-traffic', 'f-restarts', 'f-volume', 'f-certs']) setFact(id, '–', '');
+    for (const id of ['f-traffic', 'f-network', 'f-deploys', 'f-restarts', 'f-volume', 'f-storage', 'f-certs', 'f-scale']) setFact(id, '–', '');
+    renderNamespaces({ nsMem: null, nsCpu: null });
+    for (const kind of Object.keys(SPARKS)) { setSpark(kind, null, String); drawSpark(kind, []); }
+    sparkAt = 0;
     setVerdict('unknown', "Can't read metrics.",
       'VictoriaMetrics did not answer, so the figures are blank. The app buttons still work. Trying again every 30 seconds.', []);
   }
@@ -317,6 +448,7 @@
       if (firstRender) staggerMeters();   // the delay must be set before --v changes
       render(data);
       lastOk = Date.now();
+      if (Date.now() - sparkAt >= SPARK_MS) loadSparks();
       if (firstRender) settleMotion();
     } catch {
       renderOutage();
