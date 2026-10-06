@@ -23,7 +23,7 @@ offsite_ts3_voice_port: 9987
 # commit to run. Bump deliberately (a homelab PR), then re-run
 # `do1.yml --tags offsite-node`.
 offsite_plantnet_image: ghcr.io/xiiisins/heyleaf-plantnet-proxy
-offsite_plantnet_tag: sha-REPLACE_WITH_HEYLEAF_COMMIT
+offsite_plantnet_tag: sha-caa3c6abc45e9f540f2e3782bd3e24cf0e727815 # HeyLeaf staging, 2026-10-06 (GHCR workflow, PR #23)
 # Private package: Vault KV with `username` + `token` (classic PAT, read:packages
 # only). Empty string = anonymous pull (only if the package is made public).
 offsite_plantnet_ghcr_vault_path: ansible/do1/ghcr
