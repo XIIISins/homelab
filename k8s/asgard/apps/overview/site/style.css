@@ -19,6 +19,14 @@
   initial-value: 0;
 }
 
+/* The rail's width: one animated value drives the grid column and the panel,
+   so the overview resizes in step with it. */
+@property --rail-w {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 86px;
+}
+
 :root {
   /* Tokyo Night (Night) */
   --bg: #16161e;
@@ -38,7 +46,6 @@
   --none: #565f89;
   --hi: rgb(255 255 255 / 0.04);
   --lift: 0 12px 28px -16px rgb(0 0 0 / 0.7);
-  --float: 0 28px 60px -22px rgb(0 0 0 / 0.8);
   --font: "Familjen Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark light;
 }
@@ -63,7 +70,6 @@
     --none: #848cb5;
     --hi: rgb(255 255 255 / 0.7);
     --lift: 0 12px 28px -18px rgb(52 59 88 / 0.35);
-    --float: 0 28px 60px -24px rgb(52 59 88 / 0.45);
   }
 }
 
@@ -171,23 +177,33 @@ a {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* Wide screens: a slim rail on the left (icons only; opens over the page on
-   hover or keyboard focus, or stays open when pinned) and the overview beside it. */
+/* Wide screens: a slim rail on the left (icons only) and the overview beside
+   it. Hovering the rail, focusing it from the keyboard, or pinning it widens
+   the rail and the overview gives up that width. The rail is as tall as the
+   overview, no taller: it is a column of the page, not a fixed sidebar. */
 @media (min-width: 1000px) {
   .shell {
+    /* Both columns use these, so the rail starts level with the header and
+       ends level with the last card. */
+    --pad-top: 28px;
+    --pad-bottom: 56px;
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
-    align-items: start;
     gap: 0;
     padding: 0;
+    transition: --rail-w 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) 0.06s;
+  }
+
+  .shell[data-pinned],
+  .shell:has(.rail :focus-visible) {
+    --rail-w: 344px;
   }
 
   .rail {
     order: 0;
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    height: 100dvh;
-    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    /* 12px of air either side of the panel: rail width = panel width + 24px */
+    padding: var(--pad-top) 0 var(--pad-bottom) 12px;
   }
 
   .main {
@@ -202,7 +218,7 @@ a {
     grid-template-columns: minmax(0, 1fr);
     max-width: 1440px;
     margin: 0 auto;
-    padding: 28px 32px 56px 12px;
+    padding: var(--pad-top) 32px var(--pad-bottom) 12px;
   }
 
   .top,
@@ -817,45 +833,20 @@ a {
   color: var(--fg-3);
 }
 
-/* The rail on wide screens: an icon strip that opens over the page. */
+/* The rail panel on wide screens: as wide as the rail minus its margins, as
+   tall as the overview beside it. */
 @media (min-width: 1000px) {
   .rail-panel {
-    position: absolute;
-    top: 12px;
-    bottom: 12px;
-    left: 12px;
-    width: 62px;
+    flex: 1;
     overflow: hidden;
-    transition: width 0.2s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.2s;
+    width: calc(var(--rail-w) - 24px);
   }
-
-  .shell[data-pinned] .rail-panel {
-    width: 320px;
-  }
-
-  .rail:has(:focus-visible) .rail-panel {
-    width: 320px;
-  }
-
 }
 
-/* Hover only opens it where hover exists; touch screens use the pin button. */
+/* Hover widens it only where hover exists; touch screens use the pin button. */
 @media (min-width: 1000px) and (hover: hover) {
-  .rail:hover .rail-panel {
-    width: 320px;
-  }
-}
-
-/* Floating over the page (not pinned): a deeper shadow says so. */
-@media (min-width: 1000px) {
-  .shell:not([data-pinned]) .rail:has(:focus-visible) .rail-panel {
-    box-shadow: inset 0 1px 0 var(--hi), var(--float);
-  }
-}
-
-@media (min-width: 1000px) and (hover: hover) {
-  .shell:not([data-pinned]) .rail:hover .rail-panel {
-    box-shadow: inset 0 1px 0 var(--hi), var(--float);
+  .shell:has(.rail:hover) {
+    --rail-w: 344px;
   }
 }
 
@@ -952,7 +943,7 @@ a {
   .m-ring,
   .app-link,
   .finder,
-  .rail-panel {
+  .shell {
     transition: none;
   }
 
