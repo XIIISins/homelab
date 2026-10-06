@@ -1,0 +1,83 @@
+# ansible/roles/jellyfin/tasks/install.yml
+---
+- name: Create the apt keyrings directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_apt_key_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+# Verified by checksum: a changed key fails the play instead of being trusted. apt accepts an ASCII-armoured key
+# (.asc) in Signed-By, so no gpg dearmor step.
+- name: Fetch the Jellyfin repository signing key
+  ansible.builtin.get_url:
+    url: "{{ jellyfin_apt_key_url }}"
+    dest: "{{ jellyfin_apt_key_path }}"
+    checksum: "sha256:{{ jellyfin_apt_signer_sha256 }}"
+    mode: "0644"
+
+- name: Configure the Jellyfin apt repository
+  ansible.builtin.deb822_repository:
+    name: jellyfin
+    types: [deb]
+    uris: "{{ jellyfin_apt_uri }}"
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: [main]
+    architectures: [amd64]
+    signed_by: "{{ jellyfin_apt_key_path }}"
+    state: present
+    enabled: true
+
+# Before the packages, so the unit never starts against a missing mount even on the very first install.
+- name: Create the unit drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/jellyfin.service.d
+    state: directory
+    mode: "0755"
+
+- name: Make jellyfin.service wait for the media share and the cache volume
+  ansible.builtin.template:
+    src: jellyfin-mounts.conf.j2
+    dest: /etc/systemd/system/jellyfin.service.d/10-requires-mounts.conf
+    mode: "0644"
+  notify:
+    - Reload systemd (jellyfin)
+    - Restart jellyfin
+
+- name: Install the pinned Jellyfin packages
+  ansible.builtin.apt:
+    name:
+      - "jellyfin-server={{ jellyfin_version }}"
+      - "jellyfin-web={{ jellyfin_version }}"
+      - "jellyfin-ffmpeg7={{ jellyfin_ffmpeg_version }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    allow_change_held_packages: true # a deliberate version bump is this task with new values
+  notify: Restart jellyfin
+
+- name: Hold the pinned packages (no unattended upgrade moves them)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - jellyfin-server
+    - jellyfin-web
+    - jellyfin-ffmpeg7
+
+- name: Add the jellyfin user to the render, video and media groups
+  ansible.builtin.user:
+    name: "{{ jellyfin_user }}"
+    groups: [render, video, "{{ jellyfin_media_group }}"]
+    append: true
+  notify: Restart jellyfin
+
+- name: Own the cache volume and the transcode directory
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ jellyfin_user }}"
+    group: "{{ jellyfin_user }}"
+    mode: "0755"
+  loop:
+    - "{{ jellyfin_cache_dir }}"
+    - "{{ jellyfin_transcode_dir }}"

@@ -1,0 +1,97 @@
+# ansible/roles/jellyfin/defaults/main.yml
+---
+# Jellyfin in a privileged LXC (1123) with the Intel iGPU passed through. Plan: docs/operations/5h-jellyfin.md.
+
+# ---- Packages: official Jellyfin apt repo, EXACT versions, held ------------------------------------------------
+# No package mirror yet and third-party repos have died on us (SFTPGo), so the three packages are pinned and put on
+# `dpkg hold`: a version bump is a reviewed PR that changes these values, not an unattended upgrade. Look the versions
+# up in https://repo.jellyfin.org/debian/dists/trixie/main/binary-amd64/Packages (values below: 2026-10-06).
+# The `jellyfin` metapackage is not installed: it only depends on these three, unversioned.
+jellyfin_version: "10.11.1+deb13"
+jellyfin_ffmpeg_version: "7.1.2-1-trixie"
+jellyfin_apt_uri: https://repo.jellyfin.org/debian
+jellyfin_apt_key_url: https://repo.jellyfin.org/jellyfin_team.gpg.key
+# sha256 of the ASCII-armoured signing file above (fetched 2026-10-06; a public checksum, not a secret). Verified, not trusted on first use.
+jellyfin_apt_signer_sha256: a0cde241ae297fa6f0265c0bf15ce9eb9ee97c008904a59ab367a67d59532839
+jellyfin_apt_key_path: /etc/apt/keyrings/jellyfin.asc
+
+# ---- Accounts / device --------------------------------------------------------------------------------------------
+jellyfin_user: jellyfin
+# The host's `render` group is gid 993 on all three nodes and Terraform passes the device with gid 993; the container's
+# `render` group is pinned to the SAME gid so host, Terraform and container agree after any rebuild.
+jellyfin_render_gid: 993
+jellyfin_render_node: /dev/dri/renderD128
+# Group for files Sonarr/SABnzbd (M-steps) write into the share; Jellyfin only reads, but joins it.
+jellyfin_media_group: media
+jellyfin_media_gid: 2000
+
+# ---- Media: Munin NFS share, mounted IN the container, read-only ----------------------------------------------------
+# By IP, not a name (like PBS): the mount must not depend on DNS being up. `hard` stalls reads on an NFS outage instead
+# of returning errors; Jellyfin's unit RequiresMountsFor so it never starts against an empty /media and scans the
+# library away. The share's export path must not change (it strands NFS clients): docs/known-issues/storage-iscsi-synology.md.
+jellyfin_media_nfs_source: "10.0.254.20:/volume5/media-backup"
+jellyfin_media_mount: /media
+jellyfin_media_mount_options: "ro,vers=4.1,hard,_netdev,noatime"
+
+# ---- Paths --------------------------------------------------------------------------------------------------------
+jellyfin_data_dir: /var/lib/jellyfin # config, SQLite DB, metadata: on rootfs, BACKED UP. Never NFS (SQLite locking).
+jellyfin_cache_dir: /var/cache/jellyfin # separate mount point (Terraform), backup=false: image cache + transcodes
+jellyfin_transcode_dir: /var/cache/jellyfin/transcodes
+jellyfin_ffmpeg_dir: /usr/lib/jellyfin-ffmpeg
+jellyfin_http_port: 8096
+
+# Environment for the vainfo/ffmpeg probes (only if the bundled VA-API driver is not found on its own, e.g.
+# {LIBVA_DRIVER_NAME: iHD, LIBVA_DRIVERS_PATH: /usr/lib/jellyfin-ffmpeg/lib/dri}).
+jellyfin_libva_env: {}
+
+# ---- QSV smoke test (hourly) ---------------------------------------------------------------------------------------
+# A 5 s hardware transcode of a generated test pattern (h264_qsv, plus a 10-bit hevc_qsv leg) as the jellyfin user.
+# Writes `<0|1> <epoch> <iso> <detail>` to the state file; the Zabbix agent reads it. A broken passthrough (host kernel
+# update, a renumbered render node, a GPU hang) then alerts within the hour instead of surfacing as "it buffers".
+jellyfin_smoke_state_dir: /var/lib/jellyfin-qsv-smoke
+jellyfin_smoke_script: /usr/local/bin/jellyfin-qsv-smoke
+jellyfin_smoke_calendar: hourly
+
+# ---- Zabbix agent items (the agent role installs the agent; this role adds UserParameters) -------------------------
+jellyfin_zabbix_userparameter_file: /etc/zabbix/zabbix_agent2.d/jellyfin.conf
+
+# ---- J4: Jellyfin settings through its own API (optional, inert until an API key exists) -----------------------------
+# The first-run wizard and the API key are operator steps (docs/operations/5h-jellyfin.md). Once the key is seeded in
+# Vault at the path below, `--tags jellyfin:config` converges the transcoding / network / server settings below; without
+# it the step is skipped with a message. Each section is read, compared and POSTed only when it differs, and every key
+# must already exist in the section Jellyfin returns, so a misspelt or version-dependent name fails loudly instead of
+# being silently ignored.
+jellyfin_api_key_vault_path: ansible/jellyfin/api-key
+jellyfin_api_url: "http://127.0.0.1:{{ jellyfin_http_port }}"
+jellyfin_config_sections:
+  # Dashboard -> Playback -> Transcoding. Codec list: tick exactly what `vainfo` reports as VLD profiles (the role prints
+  # them). VP8 is not decoded by Gen12. AV1 *encode* is off (no encoder on this iGPU).
+  encoding:
+    HardwareAccelerationType: qsv
+    VaapiDevice: "{{ jellyfin_render_node }}"
+    QsvDevice: "{{ jellyfin_render_node }}"
+    EnableHardwareEncoding: true
+    PreferSystemNativeHwDecoder: true
+    EnableIntelLowPowerH264HwEncoder: true # J0: HuC authenticated on all three nodes, so the VDEnc path works
+    EnableIntelLowPowerHevcHwEncoder: true
+    AllowHevcEncoding: true
+    AllowAv1Encoding: false
+    EnableTonemapping: true
+    EnableVppTonemapping: true
+    TonemappingAlgorithm: bt2390
+    EnableDecodingColorDepth10Hevc: true
+    EnableDecodingColorDepth10Vp9: true
+    EnableDecodingColorDepth10HevcRext: true
+    EnableDecodingColorDepth12HevcRext: true
+    HardwareDecodingCodecs: [h264, hevc, mpeg2video, vc1, vp9, av1]
+    TranscodingTempPath: "{{ jellyfin_transcode_dir }}"
+    EnableThrottling: true
+    EnableSegmentDeletion: true
+  # Dashboard -> Networking: LAN (client VLAN 60 and the rest of 10.0.0.0/16) + tailnet; Traefik's traffic leaves the
+  # workers' eth0 addresses, so they are the known proxies.
+  network:
+    LocalNetworkSubnets: ["10.0.0.0/16", "100.64.0.0/10"]
+    KnownProxies: ["10.0.21.21", "10.0.21.22", "10.0.21.23"]
+  # Dashboard server settings: Prometheus-format /metrics (scraped on the direct address, never exposed on the midgard route).
+  system:
+    EnableMetrics: true

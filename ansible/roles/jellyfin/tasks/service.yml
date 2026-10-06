@@ -1,0 +1,24 @@
+# ansible/roles/jellyfin/tasks/service.yml
+---
+- name: Flush handlers (apply the drop-in and any restart before the health check)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Jellyfin
+  ansible.builtin.systemd:
+    name: jellyfin.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# /health answers `Healthy` once the server is up (it needs no authentication).
+- name: Wait for Jellyfin to report healthy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ jellyfin_http_port }}/health"
+    return_content: true
+  register: jellyfin_health
+  until: jellyfin_health.status == 200 and 'Healthy' in jellyfin_health.content
+  retries: 24
+  delay: 5
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode

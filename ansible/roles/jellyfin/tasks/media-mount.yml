@@ -1,0 +1,41 @@
+# ansible/roles/jellyfin/tasks/media-mount.yml
+---
+# Needs `features: mount=nfs` on the container (Terraform) and the NFS permission rule for this host's IP on the Munin
+# share (DSM, operator, read-only + root_squash + NFSv4.1). If the mount fails, that rule is the first thing to check.
+- name: Install the NFS client
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the media mount point
+  ansible.builtin.file:
+    path: "{{ jellyfin_media_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Mount the media share (fstab entry + mounted)
+  ansible.posix.mount:
+    path: "{{ jellyfin_media_mount }}"
+    src: "{{ jellyfin_media_nfs_source }}"
+    fstype: nfs4
+    opts: "{{ jellyfin_media_mount_options }}"
+    state: mounted
+
+- name: Read the live mount options
+  ansible.builtin.command: "findmnt -rn -M {{ jellyfin_media_mount }} -o FSTYPE,OPTIONS"
+  register: jellyfin_media_findmnt
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Assert the share is mounted read-only
+  ansible.builtin.assert:
+    that:
+      - jellyfin_media_findmnt.rc == 0
+      - jellyfin_media_findmnt.stdout.split()[0] == 'nfs4'
+      - "'ro' in jellyfin_media_findmnt.stdout.split()[1].split(',')"
+    fail_msg: >-
+      {{ jellyfin_media_mount }} is not an NFS mount, or not read-only (got '{{ jellyfin_media_findmnt.stdout | default('') }}').
+      Library writes belong to Sonarr; Jellyfin must never be able to modify the media.

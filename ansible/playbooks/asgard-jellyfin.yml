@@ -1,0 +1,40 @@
+# ansible/playbooks/asgard-jellyfin.yml
+---
+# Jellyfin - media server with Intel QuickSync, privileged LXC 1123 on Urd (Phase 5h, docs/operations/5h-jellyfin.md).
+#
+# Bootstrap (day 1, before the `ansible` user exists):
+#     ansible-playbook playbooks/asgard-jellyfin.yml -e 'ansible_user=root' --tags baseline
+# then the full play as `ansible` (hardening locks root SSH out at the end):
+#     ansible-playbook playbooks/asgard-jellyfin.yml
+# Run it from Frigg (macOS cannot fork the Vault lookups reliably: docs/known-issues/frigg-control-node.md).
+#
+# Prerequisites: `terraform apply` in terraform/proxmox/asgard-lxcs-root (the LXC: operator, root@pam), terraform/netbox
+# (-parallelism=2) and terraform/adguard (the names), and the NFS permission rule for 10.0.11.223 on
+# volume5/media-backup in DSM (read-only, root_squash, NFSv4.1) - the role fails with a clear message if the mount is not
+# there. The host-side GPU check is `proxmox-host:gpu` (asgard-proxmox.yml).
+#
+# Not yet in site.yml: add it after the first successful provisioning, so the scheduled asgard-apply does not try to
+# converge a host that does not exist yet / has no NFS rule.
+- name: Configure Jellyfin (media server, QuickSync)
+  hosts: media_server
+  become: true
+
+  # Single host. Serialised so a future second server never restarts both at once.
+  serial: 1
+
+  roles:
+    - role: baseline
+      tags: [baseline]
+
+    - role: jellyfin
+      tags: [jellyfin]
+
+    # journald/syslog + Jellyfin's log files -> VictoriaLogs.
+    - role: vlagent
+      tags: [vlagent]
+
+    - role: zabbix-agent
+      tags: [zabbix-agent]
+
+    - role: hardening
+      tags: [hardening]

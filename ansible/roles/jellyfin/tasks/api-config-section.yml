@@ -1,0 +1,38 @@
+# ansible/roles/jellyfin/tasks/api-config-section.yml
+---
+# One section of the configuration API. `system` is the main server configuration (no section name in the path).
+- name: "Read the live settings of section {{ jellyfin_section.key }}"
+  ansible.builtin.uri:
+    url: "{{ jellyfin_api_url }}/System/Configuration{{ '' if jellyfin_section.key == 'system' else '/' ~ jellyfin_section.key }}"
+    headers:
+      Authorization: 'MediaBrowser Token="{{ jellyfin_api_key }}"'
+    return_content: true
+  register: jellyfin_section_live
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: "Assert every wanted key exists in this Jellyfin version, section {{ jellyfin_section.key }}"
+  ansible.builtin.assert:
+    that: jellyfin_section.value.keys() | list | difference(jellyfin_section_live.json.keys() | list) | length == 0
+    fail_msg: >-
+      Jellyfin {{ jellyfin_version }} has no setting named
+      {{ jellyfin_section.value.keys() | list | difference(jellyfin_section_live.json.keys() | list) }} in the
+      '{{ jellyfin_section.key }}' section (a misspelt or version-dependent name). Fix jellyfin_config_sections; nothing was changed.
+
+# Compare as JSON text (sorted keys) so bool/list/str types all match without per-key logic.
+- name: "Merge the wanted values into the live document, section {{ jellyfin_section.key }}"
+  ansible.builtin.set_fact:
+    jellyfin_section_wanted: "{{ jellyfin_section_live.json | combine(jellyfin_section.value) }}"
+
+- name: "Apply the settings when they differ, section {{ jellyfin_section.key }}"
+  ansible.builtin.uri:
+    url: "{{ jellyfin_api_url }}/System/Configuration{{ '' if jellyfin_section.key == 'system' else '/' ~ jellyfin_section.key }}"
+    method: POST
+    headers:
+      Authorization: 'MediaBrowser Token="{{ jellyfin_api_key }}"'
+    body_format: json
+    body: "{{ jellyfin_section_wanted }}"
+    status_code: [200, 204]
+  when: (jellyfin_section_wanted | to_json(sort_keys=True)) != (jellyfin_section_live.json | to_json(sort_keys=True))
+  no_log: true
