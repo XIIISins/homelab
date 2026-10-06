@@ -38,8 +38,11 @@ the overview links to it as "Bookmarks".
 5. **Apps.** The everyday ones (Outline, Immich, MicroBin, Bookmarks) are four tiles beside the headline. The lab
    and hardware apps live in a **left rail**: an icon strip by default that widens on hover or keyboard focus, with
    the overview giving up that width in step, and a pin button that keeps it open (remembered per browser in
-   `localStorage`). The rail is as tall as the overview: it starts level with the header and ends level with the
-   last card. Search sits in the rail and filters both: `/` or Ctrl/Cmd+K focuses it, Enter opens the first match,
+   `localStorage`). The rail starts level with the top of the headline card and ends level with the lowest card
+   shown (`app.js` measures both into `--rail-top` and `--rail-h`, so it follows the bottom row being trimmed). When
+   its list is longer than the room, the list fades out where it is cut off, at the bottom and, once scrolled, at the
+   top. The **light/dark switch** is pinned at the foot of the rail, outside the scrolling list, so it never needs
+   scrolling to. Search sits in the rail and filters both: `/` or Ctrl/Cmd+K focuses it, Enter opens the first match,
    the arrow keys walk the results. Hosts with a browser-trusted certificate get a reachability badge on their icon,
    a no-cors `fetch` from the viewer's own browser, so it answers "can I open this from here". Under 1000 px wide
    there is no rail: headline, everyday tiles, the rest of the apps, then machines, namespaces and facts.
@@ -62,9 +65,14 @@ The zone under the headline is `min-height: 5.5rem`, exactly four table rows, so
 issues and with a dozen (401.4 px at 1360 px wide in both). Change the number of rows with `MAX_ISSUE_ROWS` and
 that height together.
 
-**Look.** Tokyo Night (Night) by default and Tokyo Night Day when the OS asks for light (accents deepened a little
-for contrast). Blue, magenta and cyan only sort things (everyday apps, lab tools, hardware); green, yellow and red
-only ever mean status. The colour tokens are at the top of `site/style.css`.
+**Look.** Tokyo Night (Night) and Tokyo Night Day (accents deepened a little for contrast). The page follows the OS
+until the switch at the foot of the rail is used; after that the choice is remembered in this browser
+(`localStorage` key `overview.theme`) and a tiny blocking `site/theme.js` applies it before the first paint so there is
+no flash. Every colour token in `site/style.css` is `light-dark(Day, Night)`; choosing only sets `data-theme` on
+`<html>`, which forces `color-scheme`. That needs `light-dark()` (Chrome 123, Firefox 120, Safari 17.5 or newer).
+Blue, magenta and cyan only sort things (everyday apps, lab tools, hardware); green, yellow and red only ever mean
+status. Hovering a card (where a pointer exists) gives it an accent border; a node tile inside a machine card
+lights up on its own instead of lighting its card too.
 
 When VictoriaMetrics does not answer the page says so, blanks the figures and keeps the buttons working.
 
@@ -169,6 +177,9 @@ a corner badge, not a new line.
   row when there is no room; watching that row could never bring it back when the window grew. It watches `.main`,
   and also re-runs a frame later (the routine is idempotent) because the height tiers in `style.css` change layout
   in the same frame the observer fires.
+- **Testing in a browser pane that is not on screen:** such a page reports `document.hidden`, renders no frames, and
+  so delivers no `ResizeObserver` or media-query events until something forces a frame. A resize or an OS theme
+  change then looks like it did nothing. In the Browser pane, take a screenshot after resizing before measuring.
 - **No Flux tile.** The `gotk_reconcile_condition` series do not exist in VictoriaMetrics, so there is nothing to read.
 - **Memory is the pods' working set against the node's allocatable memory**, not the VM's total. It leaves out the
   OS and K3s reservation (2 GiB per worker), so it reads lower than the Proxmox or Zabbix figure.
