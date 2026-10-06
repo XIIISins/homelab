@@ -74,7 +74,7 @@
   function bindVM(el) {
     const meter = (kind) => {
       const m = $(`.meter[data-kind="${kind}"]`, el);
-      return { bar: $('.m-bar', m), fill: $('.m-bar i', m), val: $('.m-val', m), sub: $('.m-sub', m) };
+      return { bar: $('.m-ring', m), val: $('.m-val', m), sub: $('.m-sub', m) };
     };
     return { el, flag: $('.vm-flag', el), cpu: meter('cpu'), mem: meter('mem') };
   }
@@ -82,25 +82,26 @@
   // A node the page does not list (a future worker, say) still gets shown.
   function ensureVM(node) {
     if (vms.has(node)) return vms.get(node);
-    let slab = $('.slab[data-extra]');
-    if (!slab) {
-      slab = document.createElement('article');
-      slab.className = 'slab';
-      slab.dataset.extra = '';
+    let card = $('.machine[data-extra]');
+    if (!card) {
+      card = document.createElement('article');
+      card.className = 'machine';
+      card.dataset.extra = '';
       const title = document.createElement('h3');
-      title.className = 'slab-name';
+      title.className = 'machine-name';
       title.textContent = 'Other nodes';
-      slab.append(title);
-      $('.machines').append(slab);
+      card.append(title);
+      $('.machines').append(card);
     }
     const el = $('.vm').cloneNode(true);
     el.dataset.node = node;
-    $('.vm-name', el).replaceChildren(node);
-    for (const bar of $$('.m-bar', el)) {
-      const kind = bar.closest('.meter').dataset.kind === 'cpu' ? 'CPU' : 'Memory';
-      bar.setAttribute('aria-label', `${node} ${kind} use`);
+    $('.vm-name', el).textContent = node;
+    $('.vm-role', el).remove();   // the role of an unlisted node is not known
+    for (const ring of $$('.m-ring', el)) {
+      const kind = ring.closest('.meter').dataset.kind === 'cpu' ? 'CPU' : 'Memory';
+      ring.setAttribute('aria-label', `${node} ${kind} use`);
     }
-    slab.append(el);
+    card.append(el);
     const vm = bindVM(el);
     vms.set(node, vm);
     return vm;
@@ -288,20 +289,23 @@
   let timer;
 
   function tickStamp() {
-    const stamp = $('#stamp');
+    const pill = $('#stamp');
+    const label = $('#stamp-text');
+    pill.removeAttribute('data-stale');
+    pill.removeAttribute('data-down');
     if (!lastOk) {
-      stamp.textContent = lastTry ? 'No metrics yet' : 'Reading metrics…';
+      if (lastTry) pill.dataset.down = '';
+      label.textContent = lastTry ? 'No metrics yet' : 'Reading metrics…';
       return;
     }
     const age = Date.now() - lastOk;
     const secs = Math.round(age / 1000);
     const text = secs < 10 ? 'just now' : secs < 90 ? `${secs} seconds ago` : `${Math.round(secs / 60)} minutes ago`;
     if (age > STALE_MS) {
-      stamp.dataset.stale = '';
-      stamp.textContent = `Last good reading ${text}`;
+      pill.dataset.stale = '';
+      label.textContent = `Last good reading ${text}`;
     } else {
-      stamp.removeAttribute('data-stale');
-      stamp.textContent = `Updated ${text}`;
+      label.textContent = `Updated ${text}`;
     }
   }
 
@@ -334,12 +338,12 @@
 
   // The meters fill in once, staggered. After that, updates should be immediate.
   function staggerMeters() {
-    $$('.m-bar i').forEach((fill, i) => fill.style.setProperty('--i', i));
+    $$('.m-ring').forEach((ring, i) => ring.style.setProperty('--i', i));
   }
 
   function settleMotion() {
     firstRender = false;
-    setTimeout(() => $$('.m-bar i').forEach((fill) => fill.style.removeProperty('--i')), 2000);
+    setTimeout(() => $$('.m-ring').forEach((ring) => ring.style.removeProperty('--i')), 2000);
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -400,10 +404,15 @@
     none.hidden = any;
   });
 
+  const visibleLinks = () => $$('.app:not([hidden]) a');
+
   find.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      const first = $('.app:not([hidden]) a');
+      const first = visibleLinks()[0];
       if (first) first.click();
+    } else if (e.key === 'ArrowDown') {
+      const first = visibleLinks()[0];
+      if (first) { e.preventDefault(); first.focus(); }
     } else if (e.key === 'Escape') {
       find.value = '';
       find.dispatchEvent(new Event('input'));
@@ -411,10 +420,26 @@
     }
   });
 
+  // Arrow keys walk the visible buttons; going up from the first returns to the search box.
+  $('.apps-scroll').addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const links = visibleLinks();
+    const i = links.indexOf(document.activeElement);
+    if (i === -1) return;
+    e.preventDefault();
+    if (e.key === 'ArrowDown') (links[i + 1] || links[i]).focus();
+    else if (i === 0) find.focus();
+    else links[i - 1].focus();
+  });
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && document.activeElement !== find) {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName);
+    const slash = e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !typing;
+    const palette = e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey);
+    if (slash || palette) {
       e.preventDefault();
       find.focus();
+      find.select();
     }
   });
 
