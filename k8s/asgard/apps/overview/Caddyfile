@@ -50,14 +50,20 @@
 		respond "Not found" 404
 	}
 
+	# The font never changes, so it alone is cached for a week; the preload in
+	# index.html then costs nothing on repeat visits. (Two header directives
+	# for the same field do not override each other, so this is a separate
+	# handle rather than a second header line.)
+	@font path *.woff2
+	handle @font {
+		header Cache-Control "public, max-age=604800"
+		file_server
+	}
+
+	# Everything else is a handful of small files: always revalidate (cheap
+	# 304s) so a rollout is visible on the next load.
 	handle {
-		# The page is a handful of small files; always revalidate (cheap 304s)
-		# so a rollout is visible on the next load. The font never changes, so
-		# it alone is cached for a week; the preload in index.html then costs
-		# nothing on repeat visits.
 		header Cache-Control "no-cache"
-		@font path *.woff2
-		header @font Cache-Control "public, max-age=604800"
 		file_server
 	}
 }
