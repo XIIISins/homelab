@@ -2,7 +2,7 @@
 
 # Phase 10i — Pod rightsizing with VPA (recommend-only) and Gná suggestions: plan
 
-*Drafted 2026-10-04, restarted 2026-10-05 on the operator's brief: "use VPA to make the worker VMs reduce their memory usage; the VMs stay at their allocated resources in Proxmox; optimise the pods over time so Gná gives weekly, bi-weekly or monthly suggestions and optimisations". Status: 🔲 planned, nothing built. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10i. Builds on the 10d Toolbelt (read-only tools, audit log), the 10h1 forecast cards and the 10h2 PR author (change requests, dispatcher, the `k8s` class and its burst-cluster test, [`10h-k8s-burst-test.md`](10h-k8s-burst-test.md)). Motivating gotcha: [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md).*
+*Drafted 2026-10-04, restarted 2026-10-05 on the operator's brief: "use VPA to make the worker VMs reduce their memory usage; the VMs stay at their allocated resources in Proxmox; optimise the pods over time so Gná gives weekly, bi-weekly or monthly suggestions and optimisations". Status: 🟡 10i0, 10i0b and 10i1 live 2026-10-05; 10i2 onward not built (10i2 waits for about 7 days of VPA history). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10i. Builds on the 10d Toolbelt (read-only tools, audit log), the 10h1 forecast cards and the 10h2 PR author (change requests, dispatcher, the `k8s` class and its burst-cluster test, [`10h-k8s-burst-test.md`](10h-k8s-burst-test.md)). Motivating gotcha: [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md).*
 
 ---
 
