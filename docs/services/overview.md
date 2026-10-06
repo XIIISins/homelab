@@ -18,11 +18,17 @@ the overview links to it as "Bookmarks".
    Bad: a node not ready or missing, pending/failed pods, a certificate not ready or expiring within 7 days,
    a volume 95 % full. Watch: CPU or memory at 85 % or more, deployments below their replica count,
    five or more restarts in the last hour, a volume 85 % full, a certificate expiring within 14 days.
-2. **The three machines** (Urd, Verd, Skuld), each with its control-plane and worker VM and their CPU and memory.
-   A node the page does not list still appears, under "Other nodes".
+2. **The three machines** (Urd, Verd, Skuld), each with its control-plane and worker VM and their CPU (cyan)
+   and memory (magenta) as ring gauges; a ring turns yellow at 85 %. A node the page does not list still
+   appears, under "Other nodes".
 3. **Four facts:** web traffic through Traefik, restarts in the last hour, the fullest volume, certificates.
-4. **App buttons**, grouped, filterable (press `/`). Hosts with a browser-trusted certificate get a reachability
-   dot, a no-cors `fetch` from the viewer's own browser, so it answers "can I open this from here".
+4. **App launcher**, grouped and filterable: `/` or Ctrl/Cmd+K focuses the search, Enter opens the first match, the
+   arrow keys walk the results. Hosts with a browser-trusted certificate get a reachability dot, a no-cors `fetch`
+   from the viewer's own browser, so it answers "can I open this from here".
+
+**Look.** Tokyo Night (Night) by default and Tokyo Night Day when the OS asks for light (accents deepened a little
+for contrast). Blue, magenta and cyan only sort things (everyday apps, lab tools, hardware); green, yellow and red
+only ever mean status. The colour tokens are at the top of `site/style.css`.
 
 When VictoriaMetrics does not answer the page says so, blanks the figures and keeps the buttons working.
 
@@ -37,8 +43,8 @@ browser ── https ──▶ Traefik (niflheim Gateway) ──▶ Caddy :8080
 ```
 
 - **Static first.** The machines and the app buttons are in `index.html`, so the first paint is complete
-  and works without JavaScript; `app.js` only fills in numbers. The page is about 30 KB on the wire on a first
-  visit (about 11 KB once the font is cached), makes no external requests, and fires its 14 queries in
+  and works without JavaScript; `app.js` only fills in numbers. The page is about 33 KB on the wire on a first
+  visit (about 14 KB once the font is cached), makes no external requests, and fires its 14 queries in
   parallel (each answers in under 30 ms). Polling runs every 30 s (vmagent's scrape interval) and pauses while
   the tab is hidden; reachability probes start after the first metrics attempt, when the browser is idle.
 - **Why a proxy and not `metric.niflheim`.** That host sits behind Authentik ForwardAuth, and a page cannot
