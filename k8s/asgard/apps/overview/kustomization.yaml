@@ -23,6 +23,7 @@ configMapGenerator:
       - site/index.html
       - site/style.css
       - site/app.js
+      - site/theme.js
       - site/familjen-grotesk.woff2
   - name: overview-caddy
     namespace: overview

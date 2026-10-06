@@ -706,6 +706,7 @@
     }
     for (const g of $$('.group')) g.hidden = $$('.app:not([hidden])', g).length === 0;
     none.hidden = any;
+    updateRailFade();
   });
 
   // Rail first, then the everyday tiles: the order the arrow keys walk in.
@@ -808,7 +809,7 @@
   const factTiles = $$('.fact', factList);
   const wideScreen = matchMedia('(min-width: 1000px)');
 
-  function fitInsight() {
+  function trimInsight() {
     insightRegion.hidden = false;
     whereCard.hidden = false;
     factList.removeAttribute('data-wide');
@@ -837,6 +838,35 @@
       if (!overflowing()) break;
       step();
     }
+  }
+
+  // The rail ends level with the lowest card that is actually shown, not at the bottom of the
+  // window: when the bottom row is trimmed away (or does not fill the space it was given), the
+  // overview ends higher up and the rail should end with it.
+  function sizeRail() {
+    const shell = $('#shell');
+    if (!wideScreen.matches) {
+      shell.style.removeProperty('--rail-h');
+      shell.style.removeProperty('--rail-top');
+      return;
+    }
+    let bottom = $('.machines').getBoundingClientRect().bottom;
+    if (!insightRegion.hidden) {
+      for (const card of [whereCard, $('.facts')]) {
+        if (!card.hidden) bottom = Math.max(bottom, card.getBoundingClientRect().bottom);
+      }
+    }
+    // The rail starts level with the top of the headline card (below the header row), and ends
+    // level with the lowest card shown.
+    const shellTop = shell.getBoundingClientRect().top;
+    const top = $('.hero').getBoundingClientRect().top;
+    shell.style.setProperty('--rail-top', `${Math.max(0, top - shellTop).toFixed(2)}px`);
+    shell.style.setProperty('--rail-h', `${Math.max(0, bottom - top).toFixed(2)}px`);
+  }
+
+  function fitInsight() {
+    trimInsight();
+    sizeRail();
   }
 
   // Watch the whole main area, not the row itself: a row that has been dropped is display: none
@@ -873,6 +903,50 @@
   try { pinned = localStorage.getItem(PIN_KEY) === '1'; } catch { /* private mode */ }
   if (pinned) setPinned(true);
   pin.addEventListener('click', () => setPinned(!shell.hasAttribute('data-pinned')));
+
+  // ---------- Fading the cut-off end of the rail's list ----------
+  // The CSS (.rail-scroll) fades the list where it is cut off; this only says where that is: more
+  // below when it has not reached the end, more above once it has been scrolled.
+
+  const railScroll = $('.rail-scroll');
+
+  function updateRailFade() {
+    railScroll.toggleAttribute('data-more-above', railScroll.scrollTop > 1);
+    railScroll.toggleAttribute('data-more-below', railScroll.scrollTop + railScroll.clientHeight < railScroll.scrollHeight - 1);
+  }
+
+  railScroll.addEventListener('scroll', updateRailFade, { passive: true });
+  new ResizeObserver(updateRailFade).observe(railScroll);
+  updateRailFade();
+
+  // ---------- Light / dark ----------
+  // Follows the operating system until the switch is used; after that the choice is remembered in
+  // this browser. theme.js applies a saved choice before first paint; the colours themselves are
+  // light-dark() tokens in style.css, so choosing only sets data-theme on <html>.
+
+  const themeButton = $('#theme');
+  const themeLabel = $('#theme-label');
+  const osLight = matchMedia('(prefers-color-scheme: light)');
+  const currentMode = () => document.documentElement.dataset.theme || (osLight.matches ? 'light' : 'dark');
+
+  function showMode() {
+    const mode = currentMode();
+    const next = mode === 'dark' ? 'light' : 'dark';
+    themeButton.dataset.mode = mode;
+    themeButton.setAttribute('aria-label', `Switch to the ${next} theme`);
+    themeButton.title = `Switch to the ${next} theme`;
+    themeLabel.textContent = next === 'light' ? 'Light theme' : 'Dark theme';
+  }
+
+  themeButton.addEventListener('click', () => {
+    const next = currentMode() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('overview.theme', next); } catch { /* private mode */ }
+    for (const meta of $$('meta[name="theme-color"]')) meta.content = next === 'light' ? '#e1e2e7' : '#16161e';
+    showMode();
+  });
+  osLight.addEventListener('change', showMode);
+  showMode();
 
   refresh();
 })();
