@@ -9,11 +9,12 @@
     update_cache: true
     cache_valid_time: 3600
 
+# No mode/owner: on a re-run the mount point is the mounted read-only NFS root, and any attribute change would try to chmod it
+# ("Read-only file system"). It only has to exist before the first mount. Found on the second run, 2026-10-06.
 - name: Create the media mount point
   ansible.builtin.file:
     path: "{{ jellyfin_media_mount }}"
     state: directory
-    mode: "0755"
 
 - name: Mount the media share (fstab entry + mounted)
   ansible.posix.mount:
