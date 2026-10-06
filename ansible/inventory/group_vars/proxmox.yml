@@ -27,6 +27,9 @@ zabbix_agent_link_templates:
   # NVMe wear / spare / media errors / temperature for the 10h1 forecasts. Needs smartctl + sudo + the sudoers rule from
   # the proxmox-host role (smart.yml); the agent's SMART plugin runs `sudo smartctl` as the zabbix user.
   - "SMART by Zabbix agent 2"
+  # i915 GPU HANG counter (the Jellyfin LXC can run on any node): playbooks/files/zabbix/proxmox-igpu.yml, fed by the
+  # proxmox-host role (gpu.yml).
+  - "Proxmox iGPU"
 zabbix_agent_host_macros:
   - macro: "{$PVE.URL.HOST}"
     value: "{{ ansible_host }}"

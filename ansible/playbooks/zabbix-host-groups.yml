@@ -113,3 +113,35 @@
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
       tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:canary-template]
+
+    # Phase 5h - the Jellyfin template (QSV smoke test, media mount, /health) and the Proxmox iGPU-hang template. Each is
+    # imported only when its inventory group exists, and must exist BEFORE register-host links it (group_vars/media_server.yml,
+    # group_vars/proxmox.yml). Sources: playbooks/files/zabbix/{jellyfin,proxmox-igpu}.yml.
+    - name: Ensure the Jellyfin and Proxmox iGPU templates exist in Zabbix
+      when:
+        - not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
+        - item.group in groups
+      community.zabbix.zabbix_template:
+        template_yaml: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/files/zabbix/' ~ item.file) }}"
+        state: present
+      loop:
+        - {file: jellyfin.yml, group: media_server}
+        - {file: proxmox-igpu.yml, group: proxmox}
+      loop_control:
+        label: "{{ item.file }}"
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template]

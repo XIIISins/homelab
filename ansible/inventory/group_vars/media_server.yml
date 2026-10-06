@@ -15,3 +15,13 @@ vlagent_log_inputs:
     service: syslog
   - path: /var/log/jellyfin/jellyfin*.log
     service: jellyfin
+
+# -----------------------------------------------------------------------------
+# Zabbix: the stock Linux template plus the Jellyfin one (QSV smoke test, media mount, /health), imported by
+# playbooks/zabbix-host-groups.yml from playbooks/files/zabbix/jellyfin.yml.
+# -----------------------------------------------------------------------------
+zabbix_agent_host_groups:
+  - "Linux servers"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"
+  - "Jellyfin"

@@ -1,0 +1,36 @@
+# ansible/playbooks/files/zabbix/proxmox-igpu.yml
+#
+# "Proxmox iGPU": a Zabbix 7.0 template linked to the Proxmox hosts (group_vars/proxmox.yml). Imported by
+# playbooks/zabbix-host-groups.yml. The item is the UserParameter the `proxmox-host` role installs (gpu.yml) and reads
+# through a sudoers rule limited to one exact journalctl invocation (the zabbix user cannot read the kernel journal).
+#
+# `i915 ... GPU HANG` is the most common Alder Lake media failure: the engine hangs, the driver resets it, and the Jellyfin
+# LXC silently falls back to CPU transcoding or fails. The Jellyfin template's smoke test catches the symptom within the
+# hour; this catches the cause on the host the moment it happens, on all three nodes (Jellyfin can migrate to any).
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: c6a4f0a8303d49159dddeb0ce40cff7d
+      template: Proxmox iGPU
+      name: Proxmox iGPU
+      description: Intel iGPU (i915) GPU-hang counter for the Proxmox hosts that can run the Jellyfin LXC.
+      groups:
+        - name: Templates
+      items:
+        - uuid: 8c9860df75ad4c5daf4d6f2012bfa4c5
+          name: 'iGPU: i915 GPU HANG count this boot'
+          key: 'pve.igpu.hang.count'
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          description: Number of `i915 ... GPU HANG` lines in this boot's kernel journal. Resets to 0 on reboot.
+          triggers:
+            - uuid: 8885596ad3144a8a975ef5b1b457b598
+              expression: 'change(/Proxmox iGPU/pve.igpu.hang.count)>0'
+              name: 'iGPU: i915 GPU HANG on {HOST.NAME}'
+              priority: AVERAGE
+              description: The Intel iGPU hung and was reset. Hardware transcoding in the Jellyfin LXC may have failed or fallen back to the CPU (see the Jellyfin QSV smoke-test trigger). Look at `journalctl -k -b | grep -i i915` on the host.
