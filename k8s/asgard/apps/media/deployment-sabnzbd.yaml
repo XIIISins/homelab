@@ -1,0 +1,111 @@
+# SABnzbd. Same image family and volume layout as Sonarr. The init container renders sabnzbd.ini ONCE (only when the
+# file is missing): seeded API/NZB keys, the Usenet provider from Vault, the `anime` category, direct unpack and a speed
+# cap so the downloader cannot fill the 1 GbE link the workers share with iSCSI and everything else. After the first
+# start the ini on the config volume is authoritative (edit it in the UI or delete it to re-seed).
+# CPU is capped at one core (par2 repair and unrar are CPU-heavy bursts on 2 vCPU workers).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sabnzbd
+  namespace: media
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sabnzbd
+  template:
+    metadata:
+      labels:
+        app: sabnzbd
+    spec:
+      initContainers:
+        - name: seed-config
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if [ -f /config/sabnzbd.ini ]; then echo "sabnzbd.ini exists, leaving it alone"; exit 0; fi
+              umask 077
+              {
+                printf '[misc]\n'
+                printf 'api_key = %s\n' "$SAB_API_KEY"
+                printf 'nzb_key = %s\n' "$SAB_NZB_KEY"
+                printf 'host_whitelist = sabnzbd.niflheim.xiiisins.com, sabnzbd, sabnzbd.media, sabnzbd.media.svc, sabnzbd.media.svc.cluster.local\n'
+                printf 'download_dir = /data/downloads/incomplete\n'
+                printf 'complete_dir = /data/downloads/complete\n'
+                printf 'bandwidth_max = 50M\n'
+                printf 'direct_unpack = 1\n'
+                printf 'cleanup_list = .nfo, .sfv, .srr\n'
+                printf '[servers]\n[[usenet]]\n'
+                printf 'name = usenet\ndisplayname = usenet\nenable = 1\nssl = 1\n'
+                printf 'host = %s\nport = %s\nusername = %s\npassword = %s\nconnections = %s\n' \
+                  "$USENET_HOST" "$USENET_PORT" "$USENET_USERNAME" "$USENET_PASSWORD" "$USENET_CONNECTIONS"
+                printf '[categories]\n[[*]]\nname = *\ndir = ""\n[[anime]]\nname = anime\ndir = anime\n'
+              } > /config/sabnzbd.ini
+              chown 1000:1000 /config/sabnzbd.ini
+              echo "rendered sabnzbd.ini"
+          envFrom:
+            - secretRef:
+                name: sabnzbd-seed
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      containers:
+        - name: sabnzbd
+          image: lscr.io/linuxserver/sabnzbd:5.1.3-ls275
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UMASK
+              value: "002"
+            - name: TZ
+              value: Europe/Amsterdam
+          # tcpSocket, not httpGet: SABnzbd's host-header whitelist answers 403 to a probe sent to the pod IP.
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: sabnzbd-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: media-data

@@ -73,3 +73,6 @@ resources:
   # (the personal bookmarks page at home.xiiisins.com), which it does not touch.
   # AGH rewrite in terraform/adguard/rewrites.tf; VPA in vpa-config/overview.yaml.
   - overview
+  # Media automation (plan 5h M1): Sonarr + SABnzbd, internal-only, Authentik ForwardAuth. Static NFS volume of the DSM share `media`;
+  # needs terraform/vault + authentik + adguard applied, the DSM share, and k8s/media/usenet seeded in Vault BEFORE merge.
+  - media

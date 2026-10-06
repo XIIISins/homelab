@@ -1,0 +1,71 @@
+# k8s/asgard/apps/media/storage.yaml
+#
+# One static NFS volume for BOTH apps, mounted at /data: downloads/ and anime/ live in the same export, so Sonarr's
+# import is an instant rename inside one filesystem instead of a copy over the network. Jellyfin mounts the same share
+# read-only (ansible/roles/jellyfin, jellyfin_media_nfs_source). The share is a dedicated DSM shared folder `media`
+# (plan 5h M0). Its NFS rule for the workers (10.0.21.21-23) is read/write with Squash "Map all users to admin": every
+# file is created and read as the DSM admin account whatever uid the pod runs as, so there is no uid/gid to coordinate
+# with Jellyfin (DSM NFS decides by numeric uid and mode bits, see docs/known-issues/jellyfin.md).
+#
+# Config (SQLite, ini) is NOT on NFS: SQLite over NFS corrupts. It lives on local-path PVCs below.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-data
+spec:
+  capacity:
+    storage: 1Ti # nominal; NFS does not enforce it
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "" # static: never matches a dynamic class
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - noatime
+  nfs:
+    server: 10.0.254.20
+    path: /volume5/media
+  claimRef:
+    namespace: media
+    name: media-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-data
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: media-data
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarr-config
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-config
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
