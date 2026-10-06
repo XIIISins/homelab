@@ -12,7 +12,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 
 | Job | Checks | Runs when |
 |---|---|---|
-| `secrets (gitleaks)` | `gitleaks git --redact` over the commits the PR adds (full history on dispatch). Policy: [`.gitleaks.toml`](../../.gitleaks.toml) | always |
+| `secrets (gitleaks)` | `gitleaks git --redact` over the **entire repo history** (every commit on every fetched ref, ~2 s), not just the PR's commits. Policy: [`.gitleaks.toml`](../../.gitleaks.toml) | always |
 | `yamllint` | YAML parses and is unambiguous ([`.yamllint.yml`](../../.yamllint.yml) — deliberately not a style gate) | a `*.yaml` / `*.yml` / `.yamllint` file changed |
 | `actionlint` | workflow syntax + embedded shell | `.github/workflows/**` changed |
 | `terraform fmt` / `terraform validate (<module>)` | `fmt -check -recursive`; per module `init -backend=false` + `validate` (no plan, no state) | a `terraform/**` module changed |
@@ -81,7 +81,7 @@ Branches: `feat/<descriptive>`, `doc/<descriptive>` (also `fix/`, `chore/`). Con
 ```bash
 git switch -c feat/<name> origin/main
 # ...commit...
-git push -u origin feat/<name>        # pre-push gitleaks hook still runs locally
+git push -u origin feat/<name>        # pre-push gitleaks hook scans the entire repo (needs `git config core.hooksPath .githooks` once per clone)
 # open the PR; then, once CI is green, either click Merge or:
 #   PR page → "Enable auto-merge" (squash or rebase; merge commits are disabled)
 ```
@@ -109,4 +109,4 @@ Module: [`terraform/github/`](../../terraform/github/). **Order matters** — re
 ## Open follow-ups
 
 - ~~PAT in the shim~~ done 2026-10-01: 1P item UUID `mhazmcb4jfsstiuicjrowljmai` → `GITHUB_TOKEN` in `homelab-env`; `github_token` field in `secret/ansible/frigg/iac-env` → `vault-homelab-env`. Plan/apply is now `source .config/scripts/homelab.sh && vault-homelab-env >/dev/null && terraform plan` (after the one-time Vault seed + `--refresh`). Seed gotcha: the 1P field label is `token`, not `credential`; `op read` of a wrong label returns empty and a hash-compare of two empty strings still "matches" (`e3b0c44298fc1c14`) — `test -n "$GH"` before `vault kv patch`. Rotation: add a GitHub section to `credential-rotation.md` (90-day expiry — due ~2027-01-01).
-- Optional later: required `CODEOWNERS`, signed commits, a weekly full-history gitleaks run, `terraform plan` on PRs once a read-only state role exists.
+- Optional later: required `CODEOWNERS`, signed commits, `terraform plan` on PRs once a read-only state role exists.
