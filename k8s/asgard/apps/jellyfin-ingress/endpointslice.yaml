@@ -1,0 +1,27 @@
+# k8s/asgard/apps/jellyfin-ingress/endpointslice.yaml
+#
+# Binds the `jellyfin` Service to the LXC. The `kubernetes.io/service-name` label is what associates the slice with the
+# Service; a mismatch gives a Service with no endpoints and every request 503s with no hint in the Service object. If the
+# LXC ever moves IP, this file is the one thing to update.
+#
+# Note: `pct migrate 1123 <node> --restart` keeps the IP (it is the container's own), so a migration needs no change here.
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: jellyfin-lxc
+  namespace: jellyfin-ingress
+  labels:
+    kubernetes.io/service-name: jellyfin
+addressType: IPv4
+endpoints:
+  - addresses:
+      - 10.0.11.223
+    conditions:
+      ready: true
+      serving: true
+      terminating: false
+ports:
+  # Name must match the Service's port name; `port` here is the BACKEND port (Jellyfin's HTTP listener).
+  - name: http
+    port: 8096
+    protocol: TCP

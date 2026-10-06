@@ -1,0 +1,14 @@
+# k8s/asgard/apps/jellyfin-ingress/service.yaml
+#
+# Selector-less Service; the hand-written EndpointSlice points it at the Jellyfin LXC (10.0.11.223:8096).
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: jellyfin-ingress
+spec:
+  ports:
+    - name: http
+      port: 8096
+      targetPort: 8096
+      protocol: TCP
