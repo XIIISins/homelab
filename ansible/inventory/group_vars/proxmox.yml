@@ -38,3 +38,9 @@ zabbix_agent_host_macros:
   - macro: "{$PVE.TOKEN.SECRET}"
     value: "{{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/proxmox/zabbix-token').secret.secret }}"
     type: secret
+  # NVMe temperature triggers (SMART by Zabbix agent 2). Stock 50/65 sit far below the drives' own limits (warn/crit
+  # 85/85 verd, 88/90 skuld, 90/95 urd) and the hosts idle at 52-61 C, so the stock values left every node in a permanent
+  # warning and paged Hermod (Average) ~30x a week on urd's brief spikes. Host macros, because a template macro beats a
+  # global one.
+  - { macro: "{$SMART.TEMPERATURE.MAX.WARN}", value: "75" }
+  - { macro: "{$SMART.TEMPERATURE.MAX.CRIT}", value: "85" }
