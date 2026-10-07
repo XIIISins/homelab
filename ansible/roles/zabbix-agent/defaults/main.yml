@@ -120,3 +120,11 @@ zabbix_agent_link_templates:
 #     - { macro: "{$PG.USER}",     value: "zbx_monitor" }
 #     - { macro: "{$PG.PASSWORD}", value: "{{ lookup('...').secret.value }}", type: secret }
 zabbix_agent_host_macros: []
+
+# Macros applied to every host of a whole inventory class, merged into the
+# host record in addition to `zabbix_agent_host_macros`. A separate var because
+# groups like postgres/haproxy_etcd REPLACE `zabbix_agent_host_macros` outright
+# (child group wins), so a class-wide macro there would be silently dropped.
+# Same shape as `zabbix_agent_host_macros`. Set per class in group_vars
+# (e.g. group_vars/asgard_lxcs.yml).
+zabbix_agent_class_macros: []
