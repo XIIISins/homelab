@@ -70,6 +70,12 @@ compose:
 # Lets playbooks target `hosts: k3s` to mean "all K3s nodes".
 groups:
   k3s: "'ansiblek3s-cp' in tags or 'ansiblek3s-worker' in tags"
+  # Synthetic parent group `asgard_lxcs` = every asgard LXC. hosts.yml defines this group
+  # statically, but Semaphore runs `-i inventory/netbox.yml` ONLY (no hosts.yml), so any
+  # group_vars/asgard_lxcs.yml needs the group to exist here too. NetBox has no per-LXC
+  # tag (the `lxc` tag is unused), so key off the VMID custom field: 1101-1199 is the
+  # asgard LXC range (CLAUDE.md "VMID/CTID ranges"); K3s VMs are 2xxx, Frigg 2900.
+  asgard_lxcs: "1100 < (custom_fields | default({})).get('VMID', 0) | int < 1200"
 
 # Project the ansible:<group> tag namespace into Ansible groups.
 # Hosts WITHOUT any ansible:* tag won't land in any dynamic group
