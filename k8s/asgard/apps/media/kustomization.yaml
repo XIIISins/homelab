@@ -11,3 +11,5 @@ resources:
   - deployment-sabnzbd.yaml
   - middleware-authentik-forward-auth.yaml
   - httproute.yaml
+  - recyclarr-config.yaml
+  - cronjob-recyclarr.yaml

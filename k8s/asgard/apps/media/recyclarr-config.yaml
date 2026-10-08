@@ -1,0 +1,38 @@
+# Recyclarr config as code (plan 5h M3): the TRaSH Guides anime profile, quality sizes and Jellyfin-friendly naming are
+# synced into Sonarr, so a lost Sonarr config volume is restored by the next sync instead of by clicking. Format: v8
+# (schema https://schemas.recyclarr.dev/v8/config-schema.json); the profile block is the upstream `anime-remux-1080p`
+# template from github.com/recyclarr/config-templates. Custom-format groups: the defaults of that profile (nothing added or
+# skipped); to change them add `custom_format_groups: {add: [...], skip: [...]}` per https://recyclarr.dev/guide/cf-groups/.
+# The Sonarr API key comes from the sonarr-api Secret (env SONARR_API_KEY), never from this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: recyclarr-config
+  namespace: media
+data:
+  recyclarr.yml: |
+    # yaml-language-server: $schema=https://schemas.recyclarr.dev/v8/config-schema.json
+    sonarr:
+      anime:
+        base_url: http://sonarr.media.svc.cluster.local:8989
+        api_key: !env_var SONARR_API_KEY
+        delete_old_custom_formats: true
+
+        quality_definition:
+          type: anime
+
+        quality_profiles:
+          - trash_id: 20e0fc959f1f1704bed501f23bdae76f # [Anime] Remux-1080p
+            reset_unmatched_scores:
+              enabled: true
+
+        # TRaSH naming for Jellyfin: the series folder carries the TVDB id (Jellyfin matches on it), anime episodes carry
+        # the absolute number, release group and quality so re-imports are recognisable.
+        media_naming:
+          series: jellyfin-tvdb
+          season: default
+          episodes:
+            rename: true
+            standard: default
+            daily: default
+            anime: default
