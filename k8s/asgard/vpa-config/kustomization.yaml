@@ -29,6 +29,7 @@ resources:
   - netbox.yaml
   - outline.yaml
   - overview.yaml
+  - media.yaml
   - sealed-secrets.yaml
   - semaphore.yaml
   - startpage.yaml
