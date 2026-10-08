@@ -10,7 +10,7 @@
 #
 # Prerequisites: `terraform apply` in terraform/proxmox/asgard-lxcs-root (the LXC: operator, root@pam), terraform/netbox
 # (-parallelism=2) and terraform/adguard (the names), and the NFS permission rule for 10.0.11.223 on
-# volume5/media-backup in DSM (read-only, root_squash, NFSv4.1) - the role fails with a clear message if the mount is not
+# volume5/media in DSM (read-only, root_squash, NFSv4.1) - the role fails with a clear message if the mount is not
 # there. The host-side GPU check is `proxmox-host:gpu` (asgard-proxmox.yml).
 #
 # Not yet in site.yml: add it after the first successful provisioning, so the scheduled asgard-apply does not try to
