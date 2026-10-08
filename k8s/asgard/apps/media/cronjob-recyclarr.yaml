@@ -1,0 +1,62 @@
+# Daily Recyclarr sync into Sonarr (04:30, after nothing else needs Sonarr at that hour). The app data (cloned TRaSH repos,
+# cache) is an emptyDir: cheap to rebuild, needs egress to github.com. Run it by hand with
+# `kubectl -n media create job --from=cronjob/recyclarr recyclarr-manual`. Sonarr must be up and have its API key (Secret
+# sonarr-api, minted by terraform/vault); a failed run just leaves the profile as it was.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: recyclarr
+  namespace: media
+spec:
+  schedule: "30 4 * * *"
+  timeZone: Europe/Amsterdam
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: recyclarr
+              image: ghcr.io/recyclarr/recyclarr:8.7.3
+              args: ["sync", "--config", "/cfg/recyclarr.yml"]
+              env:
+                - name: RECYCLARR_APP_DATA
+                  value: /appdata
+                - name: SONARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: sonarr-api
+                      key: SONARR__AUTH__APIKEY
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: config
+                  mountPath: /cfg
+                  readOnly: true
+                - name: appdata
+                  mountPath: /appdata
+          volumes:
+            - name: config
+              configMap:
+                name: recyclarr-config
+            - name: appdata
+              emptyDir: {}
