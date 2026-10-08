@@ -28,7 +28,17 @@ spec:
             - -c
             - |
               set -eu
-              if [ -f /config/sabnzbd.ini ]; then echo "sabnzbd.ini exists, leaving it alone"; exit 0; fi
+              INI=/config/sabnzbd.ini
+              # Keys this manifest owns even after the first render (the rest of the ini is the UI's). The article cache
+              # is what OOM-killed the pod at a 1 GiB limit with 20 connections plus unpack (2026-10-08).
+              setkey() {
+                if grep -q "^$1 = " "$INI"; then sed -i "s|^$1 = .*|$1 = $2|" "$INI"; else sed -i "/^\[misc\]/a $1 = $2" "$INI"; fi
+              }
+              if [ -f "$INI" ]; then
+                setkey cache_limit 256M
+                setkey bandwidth_max 50M
+                echo "sabnzbd.ini exists: only the managed keys were enforced"; exit 0
+              fi
               umask 077
               {
                 printf '[misc]\n'
@@ -37,7 +47,7 @@ spec:
                 printf 'host_whitelist = sabnzbd.niflheim.xiiisins.com, sabnzbd, sabnzbd.media, sabnzbd.media.svc, sabnzbd.media.svc.cluster.local\n'
                 printf 'download_dir = /data/Downloads/incomplete\n'
                 printf 'complete_dir = /data/Downloads/complete\n'
-                printf 'bandwidth_max = 50M\n'
+                printf 'bandwidth_max = 50M\ncache_limit = 256M\n'
                 printf 'direct_unpack = 1\n'
                 printf 'cleanup_list = .nfo, .sfv, .srr\n'
                 printf '[servers]\n[[usenet]]\n'
@@ -94,10 +104,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 2Gi
           securityContext:
             seccompProfile:
               type: RuntimeDefault
