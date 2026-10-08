@@ -10,7 +10,7 @@ Media server with Intel QuickSync transcoding. A privileged LXC on Urd, outside 
 | Terraform | `proxmox_virtual_environment_container.jellyfin` in `terraform/proxmox/asgard-lxcs-root/` (needs `PROXMOX_VE_PASSWORD`: `device_passthrough` and `mount=nfs`) |
 | GPU | `/dev/dri/renderD128` passed with gid 2001 (`igpu`), mode 0660. The host side is asserted by the `proxmox-host` role (`tasks/gpu.yml`) on all three nodes |
 | Software | Official Jellyfin apt repo (trixie), `jellyfin-server`/`jellyfin-web` 10.11.1+deb13 and `jellyfin-ffmpeg7` 7.1.2-1-trixie, all held; bumping is a variable change in `roles/jellyfin/defaults/main.yml` |
-| Media | `10.0.254.20:/volume5/media-backup` mounted **read-only** at `/media` inside the LXC (NFSv4.1, `sec=sys`); `RequiresMountsFor=/media` on the service |
+| Media | `10.0.254.20:/volume5/media` mounted **read-only** at `/media` inside the LXC (NFSv4.1, `sec=sys`); `RequiresMountsFor=/media` on the service |
 | Playbook | `ansible/playbooks/asgard-jellyfin.yml` (baseline, jellyfin, vlagent, zabbix-agent, hardening), in `site.yml`; inventory group `media_server` |
 | Settings | `--tags jellyfin:config` converges the encoding, network and system API sections from `jellyfin_config_sections`; the API key is in Vault `secret/ansible/jellyfin/api-key`, field `key`. Skipped with a message while no key exists |
 
