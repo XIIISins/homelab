@@ -31,7 +31,7 @@ jellyfin_media_gid: 2000
 # By IP, not a name (like PBS): the mount must not depend on DNS being up. `hard` stalls reads on an NFS outage instead
 # of returning errors; Jellyfin's unit RequiresMountsFor so it never starts against an empty /media and scans the
 # library away. The share's export path must not change (it strands NFS clients): docs/known-issues/storage-iscsi-synology.md.
-jellyfin_media_nfs_source: "10.0.254.20:/volume5/media-backup"
+jellyfin_media_nfs_source: "10.0.254.20:/volume5/media"
 jellyfin_media_mount: /media
 jellyfin_media_mount_options: "ro,vers=4.1,hard,_netdev,noatime"
 

@@ -10,7 +10,7 @@ Plan and rationale: [`docs/operations/5h-jellyfin.md`](../../../docs/operations/
 |---|---|
 | preflight (`jellyfin:preflight`) | Asserts the container reports `lxc` (so the hardening role's branches apply) and that `/dev/dri/renderD128` is a character device owned by gid 2001 |
 | accounts (`jellyfin:accounts`) | Creates the `igpu` group with gid 2001 (the gid Terraform gives the passed render node; not the distro's `render` 992 / `kvm` 993, whose numbering is template-dependent) and `media` (gid 2000) |
-| media (`jellyfin:media`) | `nfs-common`; fstab + mount `10.0.254.20:/volume5/media-backup` at `/media`, **read-only**, NFSv4.1, `hard`, by IP (not DNS); asserts it is mounted `ro` |
+| media (`jellyfin:media`) | `nfs-common`; fstab + mount `10.0.254.20:/volume5/media` at `/media`, **read-only**, NFSv4.1, `hard`, by IP (not DNS); asserts it is mounted `ro` |
 | install (`jellyfin:install`) | Official apt repo with the signing key verified by checksum; `jellyfin-server`, `jellyfin-web`, `jellyfin-ffmpeg7` at **exact versions**, on `dpkg hold`; a unit drop-in `RequiresMountsFor=/media /var/cache/jellyfin` so Jellyfin never starts against an empty mount; jellyfin user in `igpu`, `video`, `media` |
 | service (`jellyfin:service`) | Enables/starts, waits for `/health` to say `Healthy` |
 | gpu (`jellyfin:gpu`) | `vainfo` as the jellyfin user must show the iHD driver and the H.264 / HEVC Main10 decode profiles (fails the play, not first playback); prints the VLD profile list the J4 decoder checkboxes come from |
@@ -19,7 +19,7 @@ Plan and rationale: [`docs/operations/5h-jellyfin.md`](../../../docs/operations/
 
 ## Operator steps this role cannot do
 
-1. NFS permission rule for `10.0.11.223` on `volume5/media-backup` in DSM (before the first full run).
+1. NFS permission rule for `10.0.11.223` on `volume5/media` in DSM (before the first full run).
 2. First-run wizard (admin account, libraries: real-time monitoring **off**, no NFO/artwork saving into the read-only mount), then an API key into Vault for `jellyfin:config`.
 3. Zabbix server side: items/triggers for the UserParameters above (J6).
 
