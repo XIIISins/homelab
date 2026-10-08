@@ -8,7 +8,11 @@ resolves on the LAN and the tailnet and nowhere else. It is **not** the Startpag
 the overview links to it as "Bookmarks".
 
 - **Manifests:** `k8s/asgard/apps/overview/` (+ `k8s/asgard/vpa-config/overview.yaml`)
-- **DNS:** `overview.niflheim.xiiisins.com → 10.0.20.10` in `terraform/adguard/rewrites.tf`
+- **DNS:** `overview.niflheim.xiiisins.com` and the short alias **`status.xiiisins.com`** both → `10.0.20.10` in
+  `terraform/adguard/rewrites.tf`. The alias is a second HTTPRoute (`overview-status`) on the midgard Gateway's
+  `websecure-apex-wildcard` listener. It is **not** public: no Cloudflare record, no cloudflared ingress rule (its
+  catch-all is 404), so it resolves on the LAN and tailnet only. Making it public would expose the unauthenticated
+  PromQL and Proxmox proxies below; add Authentik ForwardAuth first.
 - **Replicas:** 2, one per worker (required anti-affinity), Caddy `2.11.2-alpine`
 - **Auth:** none. Read-only numbers, LAN/tailnet reach only, same trust level as the smoketest endpoint.
 
