@@ -44,6 +44,10 @@ spec:
                 printf 'name = usenet\ndisplayname = usenet\nenable = 1\nssl = 1\n'
                 printf 'host = %s\nport = %s\nusername = %s\npassword = %s\nconnections = %s\n' \
                   "$USENET_HOST" "$USENET_PORT" "$USENET_USERNAME" "$USENET_PASSWORD" "$USENET_CONNECTIONS"
+                # Backup server (FrugalUsenet "bonus": same login, lower priority, 1.5 TB/month cap on their side).
+                printf '[[bonus]]\nname = bonus\ndisplayname = bonus\nenable = 1\nssl = 1\npriority = 1\n'
+                printf 'host = bonus.frugalusenet.com\nport = 563\nusername = %s\npassword = %s\nconnections = 10\n' \
+                  "$USENET_USERNAME" "$USENET_PASSWORD"
                 printf '[categories]\n[[*]]\nname = *\ndir = ""\n[[anime]]\nname = anime\ndir = anime\n'
               } > /config/sabnzbd.ini
               chown 1000:1000 /config/sabnzbd.ini
