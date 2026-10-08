@@ -31,7 +31,10 @@ spec:
               image: ghcr.io/recyclarr/recyclarr:8.7.3
               args: ["sync", "--config", "/cfg/recyclarr.yml"]
               env:
-                - name: RECYCLARR_APP_DATA
+                # Recyclarr 8: CONFIG_DIR holds recyclarr.yml (the read-only ConfigMap), DATA_DIR the ephemeral clones/cache.
+                - name: RECYCLARR_CONFIG_DIR
+                  value: /cfg
+                - name: RECYCLARR_DATA_DIR
                   value: /appdata
                 - name: SONARR_API_KEY
                   valueFrom:
