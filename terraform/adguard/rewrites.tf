@@ -190,6 +190,11 @@ locals {
     # 10.0.20.10 instead. External resolution still goes via Cloudflare
     # — this rewrite ONLY affects clients using AGH (LAN + tailnet).
     "factorio.xiiisins.com" = "10.0.11.220"
+
+    # Short alias for the overview page (k8s/asgard/apps/overview/httproute.yaml).
+    # Internal-only: no Cloudflare record and no tunnel rule, so outside the
+    # LAN/tailnet this name does not resolve.
+    "status.xiiisins.com" = "10.0.20.10"
   }
 }
 
