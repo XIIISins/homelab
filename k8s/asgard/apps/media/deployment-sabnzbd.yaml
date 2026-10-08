@@ -35,8 +35,8 @@ spec:
                 printf 'api_key = %s\n' "$SAB_API_KEY"
                 printf 'nzb_key = %s\n' "$SAB_NZB_KEY"
                 printf 'host_whitelist = sabnzbd.niflheim.xiiisins.com, sabnzbd, sabnzbd.media, sabnzbd.media.svc, sabnzbd.media.svc.cluster.local\n'
-                printf 'download_dir = /data/downloads/incomplete\n'
-                printf 'complete_dir = /data/downloads/complete\n'
+                printf 'download_dir = /data/Downloads/incomplete\n'
+                printf 'complete_dir = /data/Downloads/complete\n'
                 printf 'bandwidth_max = 50M\n'
                 printf 'direct_unpack = 1\n'
                 printf 'cleanup_list = .nfo, .sfv, .srr\n'

@@ -1,6 +1,6 @@
 # k8s/asgard/apps/media/storage.yaml
 #
-# One static NFS volume for BOTH apps, mounted at /data: downloads/ and anime/ live in the same export, so Sonarr's
+# One static NFS volume for BOTH apps, mounted at /data: Downloads/ and Anime/ (capitalised: NFS is case-sensitive, these are the folder names on the share) live in the same export, so Sonarr's
 # import is an instant rename inside one filesystem instead of a copy over the network. Jellyfin mounts the same share
 # read-only (ansible/roles/jellyfin, jellyfin_media_nfs_source). The share is a dedicated DSM shared folder `media`
 # (plan 5h M0). Its NFS rule for the workers (10.0.21.21-23) is read/write with Squash "Map all users to admin": every
