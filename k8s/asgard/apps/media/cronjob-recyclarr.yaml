@@ -1,4 +1,4 @@
-# Daily Recyclarr sync into Sonarr (04:30, after nothing else needs Sonarr at that hour). The app data (cloned TRaSH repos,
+# Daily Recyclarr sync into Sonarr (04:30). The config dir (cloned TRaSH repos,
 # cache) is an emptyDir: cheap to rebuild, needs egress to github.com. Run it by hand with
 # `kubectl -n media create job --from=cronjob/recyclarr recyclarr-manual`. Sonarr must be up and have its API key (Secret
 # sonarr-api, minted by terraform/vault); a failed run just leaves the profile as it was.
@@ -24,18 +24,18 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
+            fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
             - name: recyclarr
               image: ghcr.io/recyclarr/recyclarr:8.7.3
-              args: ["sync", "--config", "/cfg/recyclarr.yml"]
+              args: ["sync"]
               env:
-                # Recyclarr 8: CONFIG_DIR holds recyclarr.yml (the read-only ConfigMap), DATA_DIR the ephemeral clones/cache.
+                # Recyclarr 8 needs a WRITABLE config dir (it creates subdirectories and clones the TRaSH repos under it):
+                # an emptyDir at /config with just recyclarr.yml from the ConfigMap placed in it. DATA_DIR defaults to it.
                 - name: RECYCLARR_CONFIG_DIR
-                  value: /cfg
-                - name: RECYCLARR_DATA_DIR
-                  value: /appdata
+                  value: /config
                 - name: SONARR_API_KEY
                   valueFrom:
                     secretKeyRef:
@@ -52,11 +52,12 @@ spec:
                 capabilities:
                   drop: ["ALL"]
               volumeMounts:
-                - name: config
-                  mountPath: /cfg
-                  readOnly: true
                 - name: appdata
-                  mountPath: /appdata
+                  mountPath: /config
+                - name: config
+                  mountPath: /config/recyclarr.yml
+                  subPath: recyclarr.yml
+                  readOnly: true
           volumes:
             - name: config
               configMap:
