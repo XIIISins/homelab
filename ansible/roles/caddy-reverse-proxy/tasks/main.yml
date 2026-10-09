@@ -5,35 +5,36 @@
   when: caddy_sites | length == 0
   tags: [caddy, caddy:guard]
 
-- name: Install Caddy APT repository signing key
+# The Cloudsmith apt repo is retired (402); baseline removes the stale
+# source/keyring (baseline_retired_apt_files) before its `apt update`.
+- name: Read installed Caddy version
+  ansible.builtin.command: dpkg-query -W -f='${Version}' caddy
+  register: caddy_installed_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  tags: [caddy, caddy:install]
+
+- name: Download pinned Caddy .deb
   ansible.builtin.get_url:
-    url: "{{ caddy_apt_gpg_key_url }}"
-    dest: "{{ caddy_apt_keyring_path }}"
+    url: "{{ caddy_deb_url }}"
+    dest: "{{ caddy_deb_path }}"
+    checksum: "sha512:{{ caddy_deb_sha512 }}"
     mode: "0644"
     owner: root
     group: root
-    force: true
-  tags: [caddy, caddy:repo]
-  when:
-    - not ansible_check_mode
-
-- name: Add Caddy APT repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by={{ caddy_apt_keyring_path }}] {{ caddy_apt_repo_url }} any-version main"
-    filename: caddy-stable
-    state: present
-    update_cache: true
-  tags: [caddy, caddy:repo]
+  when: caddy_installed_version.stdout != caddy_version
+  tags: [caddy, caddy:install]
 
 - name: Install Caddy package (pinned)
   ansible.builtin.apt:
-    name: "caddy={{ caddy_version }}"
+    deb: "{{ caddy_deb_path }}"
     state: present
-    update_cache: false
     # allow_downgrade for the case where someone manually upgraded out-
     # of-band and the role re-runs at a lower pin. Doesn't auto-downgrade
     # at every run — only when version is explicitly lower than installed.
     allow_downgrade: true
+  when: caddy_installed_version.stdout != caddy_version
   tags: [caddy, caddy:install]
 
 - name: Ensure Caddy log directory exists

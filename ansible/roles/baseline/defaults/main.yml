@@ -16,6 +16,14 @@ rhel_subscription_password: ""
 baseline_timezone: Europe/Amsterdam
 baseline_locale: en_US.UTF-8
 
+# Apt source/keyring files to delete BEFORE the apt cache update. A dead
+# third-party repo fails the whole `apt update` and so the whole baseline.
+# Caddy's Cloudsmith repo answers 402 (2026-10-09); Caddy is now installed
+# from a pinned GitHub release .deb by the caddy-reverse-proxy role.
+baseline_retired_apt_files:
+  - /etc/apt/sources.list.d/caddy-stable.list
+  - /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
 # DNS resolution — owned by Ansible, cloud-init disabled.
 # List order is the resolver order in /etc/resolv.conf (primary first,
 # fallback after). Don't reorder casually — AdGuard VIP direct must be the

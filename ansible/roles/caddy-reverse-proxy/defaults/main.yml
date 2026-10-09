@@ -3,7 +3,7 @@
 # ============================================================================
 # caddy-reverse-proxy role defaults
 # ============================================================================
-# Installs Caddy from the official Cloudsmith APT repo and renders a single
+# Installs Caddy from the pinned upstream GitHub release .deb and renders a single
 # Caddyfile composed of N site blocks, one per entry in `caddy_sites`. Each
 # site is independently:
 #   - bound to a listener (port + optional hostname)
@@ -18,23 +18,28 @@
 # future LXC needing a thin reverse proxy with IP allowlisting.
 # ============================================================================
 
-# ---- APT repository ----
-# Cloudsmith is Caddy's official Debian/Ubuntu package source. The key is
-# served as ASCII-armored from the same host.
-caddy_apt_repo_url: "https://dl.cloudsmith.io/public/caddy/stable/deb/debian"
-caddy_apt_gpg_key_url: "https://dl.cloudsmith.io/public/caddy/stable/gpg.key"
-caddy_apt_keyring_path: "/usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+# ---- Package source ----
+# Caddy's Cloudsmith apt repo (dl.cloudsmith.io/public/caddy/stable) started
+# answering `402 Payment Required` ("Access to the repository has been
+# restricted") on 2026-10-09, which fails `apt update` on every host that
+# has it configured. The role now installs the pinned .deb from the
+# upstream GitHub release, verified against the sha512 published in the
+# release's caddy_<ver>_checksums.txt. The .deb is only fetched when the
+# installed version differs from the pin, so routine runs need no egress
+# (Gna's UCG policy blocks github.com outside its deploy window).
+caddy_deb_url: "https://github.com/caddyserver/caddy/releases/download/v{{ caddy_version }}/caddy_{{ caddy_version }}_linux_amd64.deb"
+caddy_deb_path: "/var/cache/caddy_{{ caddy_version }}_linux_amd64.deb"
+# sha512 of the .deb for `caddy_version` (amd64 only; every caddy host is amd64).
+# When bumping caddy_version, take it from the release's checksums.txt:
+#   curl -sL https://github.com/caddyserver/caddy/releases/download/v<ver>/caddy_<ver>_checksums.txt | grep linux_amd64.deb
+caddy_deb_sha512: "1c6f5404f3622e46d401d81f4af59677d46b886229c6694d60fd936b87c72d3bb5d1fcf42b55c8d555769fa75acf434ab618fc7e0df2c79cf8512ee580d38d06"
 
 # ---- Package version pin ----
-# Pin a specific apt version per the IaC pin policy. apt-list of available:
-#   apt-cache policy caddy
-# At role-write time (2026-05-25) Cloudsmith stable was at 2.11.3.
-# Cloudsmith rolls forward + drops older versions periodically — when
-# bumping, verify the target version is still in the candidate list
-# before changing this pin (apt errors out on a missing pin).
-# Bumped to 2.11.4 2026-09-17: unattended-upgrades pulled hermod past the
-# pin (drift-check would otherwise downgrade it); verified 2.11.4 is
-# still the current Cloudsmith candidate before accepting.
+# Must be a published GitHub release (https://github.com/caddyserver/caddy/releases)
+# and caddy_deb_sha512 must be updated with it. With the Cloudsmith repo gone,
+# nothing apt-side moves the package past the pin any more.
+# History: 2.11.4 since 2026-09-17 (unattended-upgrades had pulled hermod past
+# the earlier pin via Cloudsmith).
 caddy_version: "2.11.4"
 
 # ---- Sites ----

@@ -1,4 +1,10 @@
 ---
+- name: Remove retired apt sources
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ baseline_retired_apt_files }}"
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
