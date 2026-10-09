@@ -12,7 +12,7 @@ Type=simple
 User={{ aiops_toolbelt_user }}
 Group={{ aiops_toolbelt_user }}
 {% if aiops_toolbelt_rebuild_socket or aiops_toolbelt_burst_socket %}
-SupplementaryGroups={{ ([aiops_toolbelt_rebuild_group] if aiops_toolbelt_rebuild_socket else []) | union([aiops_toolbelt_burst_group] if aiops_toolbelt_burst_socket else []) | join(' ') }}
+SupplementaryGroups={{ (([aiops_toolbelt_rebuild_group] if aiops_toolbelt_rebuild_socket else []) + ([aiops_toolbelt_burst_group] if aiops_toolbelt_burst_socket else [])) | join(' ') }}
 {% endif %}
 StateDirectory=aiops-toolbelt
 StateDirectoryMode=0750
