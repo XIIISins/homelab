@@ -20,7 +20,7 @@ Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rat
 |--------|--------|
 | LXC, not K8s pod | Independent failure domain from asgard K3s — alerts about K3s being down need to fire even when K3s is down |
 | AppriseAPI, not raw webhooks per source | One source-side schema, N delivery destinations behind it. Adding a delivery channel (ntfy, email, Slack) doesn't touch source code. |
-| Tag-based routing, not severity-based | Severity drives Discord embed *color*; tag drives *which channel*. Decoupling lets `tag: media` (future Sonarr) reuse the same hub without sharing the infra alerts channel. |
+| Tag-based routing, not severity-based | Severity drives Discord embed *color*; tag drives *which channel*. Decoupling lets `tag: media` reuse the same hub without sharing the infra alerts channel. (Sonarr, the first media producer, posts to the same Discord webhook through its own Discord connection instead of through Hermod, because it cannot send Apprise's payload; see [`media-automation.md`](media-automation.md).) |
 | Routine notifications NOT routed via Hermod | vlagent already ships every host's syslog/journald to VictoriaLogs. Routine event = log line. No reason to double-route through Hermod just to write to VL. |
 | Config on root disk, Ansible-managed | Matches every other Ansible-managed service in the homelab (AdGuard, Postgres, Factorio). PBS backs up the LXC root disk = config covered. |
 
@@ -32,7 +32,7 @@ Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rat
 | `critical` | Look within minutes, even at 2am | Cluster quorum lost, environment down, service hard-unavailable, disk >90% | `#infra-critical`, `@everyone` mention |
 | `alert` | Look within hours, business-day OK | Single-node failure (cluster degraded but operational), drift detected, drift correction failed, sustained resource load 5–15 min, disk 70–80% | `#infra-alerts`, no mention |
 | `info` | FYI only; never needs a response | Non-prod / canary-pool signals (hermod_summary `nonprod-*` wrappers, Zabbix events on `canary-*` hosts) — the cap tier for anything that must NEVER wake or page anyone | `#infra-info` (operator-created channel; name it as created), no mention |
-| `media` (future) | Whenever | Sonarr/Radarr release notifications | `#media`, no mention |
+| `media` | Whenever | Sonarr release notifications (grab, import, upgrade): live since 2026-10-08, sent straight to the `#media` webhook by Sonarr's Discord connection, not through Hermod | `#media`, no mention |
 | _(no tag, but POSTed to Hermod)_ | Producer bug — should have tagged | Any source whose code POSTs without a `tag` field | **`#hermod-untagged` quarantine channel**, no mention. Creates a natural backlog of producers to fix. |
 | _(routine success, no notification)_ | n/a | Routine success, drift-check-clean, scheduled reconcile-OK | **Not routed to Hermod at all — logged to VL via vlagent, queryable post-hoc** |
 
