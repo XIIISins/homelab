@@ -1,0 +1,85 @@
+# ansible/playbooks/files/zabbix/patroni-replication.yml
+#
+# "Patroni replication": a Zabbix 7.0 template linked ONLY to the Patroni PG nodes (group_vars/postgres.yml), on top of the
+# stock "PostgreSQL by Zabbix agent 2". Imported by playbooks/zabbix-host-groups.yml.
+#
+# Why it exists (docs/incidents/2026-10-06-fulla-stale-replica.md): the stock template collects replication lag and streaming
+# status but ships NO trigger on either, so a replica that stopped replicating stayed silent for ~15 days.
+#
+# Two triggers, both Average (-> Hermod `alert`; High/Disaster would go to the diagnosis agent, which a lagging replica does
+# not warrant):
+#   lag        the replica's replay is {$PATRONI.REPL.LAG.MAX.SEC} (default 900 = 15 min) or more behind, for 3 samples.
+#   not streaming  the WAL receiver was down for most of the last {$PATRONI.REPL.DOWN.TIME} (default 15m). This one is NOT a
+#              duplicate of the lag trigger: `pgsql.replication.lag.sec` reports 0 when the receive and replay LSNs are
+#              equal, which is exactly what a replica that lost its slot looks like (nothing received, everything replayed).
+#              A dead stream therefore needs its own check.
+# Both read 0 / 2 on the leader (lag 0, status 2 = "master mode"), so they cannot fire there; a role change moves them with
+# Patroni.
+#
+# Item keys are deliberately NOT the stock template's keys: Zabbix refuses two linked templates that define the same key on
+# one host. Dropping the optional 4th (database) parameter makes the key a different string that runs the same query against
+# the same default database. {$PG.CONNSTRING.AGENT2}, {$PG.USER} and {$PG.PASSWORD} resolve from the stock template and the
+# host record (postgres.yml sets the secret password macro), so nothing is restated here.
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 81c964748111472f9ebdf4b0396fc7e7
+      template: Patroni replication
+      name: Patroni replication
+      description: Replication lag and streaming-state alerts for the Patroni PostgreSQL nodes (Fulla, Vor, Idunn). Link only to hosts that also link "PostgreSQL by Zabbix agent 2".
+      groups:
+        - name: Templates
+      items:
+        - uuid: 212220b539b240228d0a185474be3386
+          name: 'Patroni: replica replay lag'
+          key: 'pgsql.replication.lag.sec["{$PG.CONNSTRING.AGENT2}","{$PG.USER}","{$PG.PASSWORD}"]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          units: s
+          description: Seconds the replica's replay is behind the leader; 0 on the leader. Blind to a stream that is down while replay is caught up (see the not-streaming item).
+          tags:
+            - tag: component
+              value: replication
+          triggers:
+            - uuid: 073045bd8315418ba0e7cafbc9df7f5c
+              expression: 'min(/Patroni replication/pgsql.replication.lag.sec["{$PG.CONNSTRING.AGENT2}","{$PG.USER}","{$PG.PASSWORD}"],3m)>={$PATRONI.REPL.LAG.MAX.SEC}'
+              name: 'Patroni: replica lag is {$PATRONI.REPL.LAG.MAX.SEC}s or more'
+              priority: AVERAGE
+              description: This replica's replay has been at least {$PATRONI.REPL.LAG.MAX.SEC} seconds behind the leader for 3 minutes. Past maximum_lag_on_failover (1 MiB) Patroni will not promote this replica, so a leader failure now would leave no eligible candidate. On the node run `sudo -u postgres patronictl -c /etc/patroni/patroni.yml list` (Lag in MB column) and check `journalctl -u patroni` and the replica's disk and CPU. If the replica lost its replication slot (max_slot_wal_keep_size), it cannot catch up and needs `patronictl reinit`. Runbook RB-PG-HA-DEGRADED.
+              tags:
+                - tag: scope
+                  value: replication
+        - uuid: 3562abee704b482a9d02888bf6878419
+          name: 'Patroni: replication stream status'
+          key: 'pgsql.replication.status["{$PG.CONNSTRING.AGENT2}","{$PG.USER}","{$PG.PASSWORD}"]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 0 = this replica's WAL receiver is not streaming, 1 = streaming, 2 = this node is the leader.
+          tags:
+            - tag: component
+              value: replication
+          triggers:
+            - uuid: dbef22233de04fd18596823f3fb9baea
+              # avg < 0.5 tolerates a receiver that reconnects every few seconds and shows up as streaming in between (the
+              # signature of an invalidated slot); count >= 10 stops a fresh host from firing on its first samples.
+              expression: 'avg(/Patroni replication/pgsql.replication.status["{$PG.CONNSTRING.AGENT2}","{$PG.USER}","{$PG.PASSWORD}"],{$PATRONI.REPL.DOWN.TIME})<0.5 and count(/Patroni replication/pgsql.replication.status["{$PG.CONNSTRING.AGENT2}","{$PG.USER}","{$PG.PASSWORD}"],{$PATRONI.REPL.DOWN.TIME})>=10'
+              name: 'Patroni: replica not streaming for {$PATRONI.REPL.DOWN.TIME}'
+              priority: AVERAGE
+              description: This replica's WAL receiver has been down for most of the last {$PATRONI.REPL.DOWN.TIME}, so it is not replicating even if its lag reads 0. Typical cause is a lost or invalidated replication slot after a node outage (the 2026-10-06 Fulla incident). On the node run `sudo -u postgres patronictl -c /etc/patroni/patroni.yml list`; if it stays stopped or in a restart loop, `patronictl reinit niflheim-pg <member>`. Runbook RB-PG-HA-DEGRADED.
+              tags:
+                - tag: scope
+                  value: replication
+      macros:
+        - macro: '{$PATRONI.REPL.LAG.MAX.SEC}'
+          value: '900'
+          description: 'Replay lag in seconds at which a replica alerts (900 = 15 minutes).'
+        - macro: '{$PATRONI.REPL.DOWN.TIME}'
+          value: 15m
+          description: 'How long a replica may be without a streaming WAL receiver before it alerts.'

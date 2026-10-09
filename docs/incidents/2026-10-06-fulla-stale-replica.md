@@ -21,6 +21,7 @@ Found while sizing the Jellyfin LXC (the memory checks led to a look at the Post
 
 ## Follow-ups
 
-- [ ] Alert on a replica that is not streaming or whose slot is inactive/invalidated, and on replication lag above a threshold (Zabbix Patroni/PG items). Until then, a replica loss is silent.
+- [x] Alert on replication lag above a threshold and on a replica that is not streaming: **in git 2026-10-09** (Zabbix template `Patroni replication`, `ansible/playbooks/files/zabbix/patroni-replication.yml`: Average-severity triggers for replay lag of 15 min or more and for no streaming WAL receiver over 15 min, both to Hermod). Takes effect after `ansible-playbook playbooks/zabbix-agent.yml --limit postgres` (see [`open-questions.md`](../operations/open-questions.md)).
+- [ ] Alert on a replication slot that is inactive/invalidated (`pg_replication_slots.wal_status` on the leader). The not-streaming trigger catches the symptom on the replica after 15 min; a leader-side check would catch an invalidated slot before the replica is even affected.
 - [ ] Decide whether 4 GB of slot retention is enough for the longest tolerable node outage, or raise it.
 - [ ] Consider why an unhealthy replica never reached the Hermod/AIOps path at all.
