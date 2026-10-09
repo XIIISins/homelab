@@ -36,7 +36,7 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 | Observability (VM/vmagent/vmui/vlagent) | [observability.md](observability.md) | scrape RBAC, cAdvisor labels, vmui dashboards, off-cluster log shipper |
 | SFTPGo / Factorio | [sftpgo-factorio.md](sftpgo-factorio.md) | SFTPGo sqlite path, Factorio reconcile timer/ownership |
 | Zabbix (server / agent-API / SAML / S4 prober) | [zabbix.md](zabbix.md) | repo URL, default creds/lockout, community.zabbix module shapes, SAML, infra-health-check |
-| Caddy reverse-proxy role | [caddy.md](caddy.md) | log-dir ownership, Cloudsmith pin roll-forward |
+| Caddy reverse-proxy role | [caddy.md](caddy.md) | log-dir ownership, Cloudsmith apt repo 402 (now GitHub .deb), admin-off reload |
 | Semaphore (Ansible scheduler) | [semaphore.md](semaphore.md) | PG backend, collection skew/custom image, Vault config keys, inventory cache |
 | n8n AIOps agent (Gná, Phase 10d) | [n8n-aiops.md](n8n-aiops.md) | `/healthz` vs active-workflow race, env-managed owner + CLI import, publish needs restart, Node ≥ 22.22 pin, Discord forum threads, `$env` exposure, Caddy `/webhook/*` restriction |
 | Outline (wiki) | [outline.md](outline.md) | image path, Recreate strategy, OIDC callback, per-consumer Redis |
