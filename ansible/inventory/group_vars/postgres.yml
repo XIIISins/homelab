@@ -137,6 +137,9 @@ zabbix_agent_host_groups:
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
   - "PostgreSQL by Zabbix agent 2"
+  # Replica lag >= 15 min and "not streaming" alerts (the stock template has no trigger on either):
+  # playbooks/files/zabbix/patroni-replication.yml, imported by playbooks/zabbix-host-groups.yml.
+  - "Patroni replication"
 zabbix_agent_host_macros:
   # Only PASSWORD needs an override — the template's own defaults for
   # {$PG.CONNSTRING.AGENT2} (tcp://localhost:5432), {$PG.USER}
