@@ -28,6 +28,7 @@ Each entry is a hard-won fact. Incident retrospectives live in [`../incidents/`]
 | Frigg / control-node watchtower | [frigg-control-node.md](frigg-control-node.md) | hvac-fork crash, the Frigg shim, remote ansible, HA, claude remote-control |
 | Ansible / roles | [ansible-roles.md](ansible-roles.md) | group_vars precedence, ssh_args, tasks_from/include_tasks, strict-mode bools |
 | LXC / Proxmox (+ PVE host patching) | [lxc-proxmox.md](lxc-proxmox.md) | bpg provider auth, TF import drift, nesting, orphan LVs, host-patch playbook |
+| Media automation (Sonarr, SABnzbd, Recyclarr) | [media-automation.md](media-automation.md) | SABnzbd OOM and the managed ini keys, Recyclarr 8, ameNZB's loose search, season-pack grabs, the Sonarr to Jellyfin path map |
 | Jellyfin (LXC 1123, QuickSync) | [jellyfin.md](jellyfin.md) | Passed-through GPU gid, apt repo refresh, the DSM NFS permission model, the read-only media mount |
 | Tailscale | [tailscale.md](tailscale.md) | authkey TTL, DNS resources, subnet-router LAN-cut, accept-dns hijack |
 | SSH / system | [ssh-system.md](ssh-system.md) | hostkey loss, crash detection, known_hosts after rebuild |
