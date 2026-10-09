@@ -200,7 +200,7 @@ Node-level: `firewalld` is disabled on the K3s nodes (by the Ansible `k3s` prere
 
 | # | Policy | Action | Source | Destination | State |
 |---|---|---|---|---|---|
-| 1 | `Allow OS Updates` | Allow | Gná | domains `deb.debian.org`, `security.debian.org`, `repo.zabbix.com`, `dl.cloudsmith.io`; TCP 80/443 | on |
+| 1 | `Allow OS Updates` | Allow | Gná | domains `deb.debian.org`, `security.debian.org`, `repo.zabbix.com`, `dl.cloudsmith.io` (no longer needed since 2026-10-09: Caddy installs from a GitHub release, see [`caddy.md`](../known-issues/caddy.md)); TCP 80/443 | on |
 | 2 | `AIOps - Allow discord-claude` | Allow | Gná | domains `discord.com`, `api.anthropic.com`; TCP 443 (+1 port) | on |
 | 3 | `AIOps - Deploy Window` | Allow | Gná | domains `nodejs.org`, `registry.npmjs.org`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | **paused**: unpause only while re-running the n8n / vlagent roles, pause again after |
 | 4 | `AIOps - Egress Default Deny` | Block (syslog logging on) | Gná | any | on, **must be the last of these** |
