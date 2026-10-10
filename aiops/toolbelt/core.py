@@ -50,6 +50,7 @@ import forecast_store  # noqa: E402
 import capacity_draft  # noqa: E402
 import rightsizing  # noqa: E402
 import rightsizing_digest  # noqa: E402
+import rightsizing_draft  # noqa: E402
 import rightsizing_watch  # noqa: E402
 import drift  # noqa: E402
 
@@ -153,6 +154,7 @@ class Config:
     change_requests: change_requests.CRConfig | None = None  # 10h2: None = no agent-authored PR requests
     forecast_file: Path | None = None  # 10h1: the forecast job's `current findings` JSON; None = forecasts are not ingested
     forecast_poll_seconds: int = 60
+    rs_max_open_prs: int = 3           # 10i4: rightsizing change requests that may be open at once
     rs_watch_poll_seconds: int = 0     # 10i5: how often the post-merge watches read VictoriaMetrics (0 = no background loop; the server sets it)
     auto_incident_drafts: bool = False  # 10h3: file the write-up request for a resolved incident that crossed the bar (needs change requests)
     auto_draft_min_minutes: int = 30
@@ -772,6 +774,31 @@ class Toolbelt:
             except Exception as e:  # noqa: BLE001 - the loop must survive anything
                 self.audit("error", where="rightsizing_watch", error=type(e).__name__)
 
+    def rs_draft(self, fc: dict, by: object) -> dict:
+        """The Draft PR button on a digest suggestion: ONE `rightsizing` change request for the whole workload (every open finding of it), with the
+        evidence table and the spec the post-merge watch reads. It still waits for its own Approve; at most three rightsizing requests are in flight."""
+        controller = rightsizing_digest.controller_of(str(fc["target"]))
+        if not fc.get("draftable"):
+            why = ("a PR for this workload is already in flight" if fc.get("pr") else
+                   "the rightsizing class is not enabled, the workload is not on the allow-list, or the finding has no number to apply")
+            raise Rejected(409, f"this suggestion cannot be drafted: {why}")
+        with self._lock:
+            active = self.db.execute("SELECT COUNT(*) n FROM change_requests WHERE class='rightsizing' AND state IN ('pending','approved','running','pr-open')").fetchone()["n"]
+        if active >= self.cfg.rs_max_open_prs:
+            raise Rejected(429, f"{self.cfg.rs_max_open_prs} rightsizing requests are already open: merge, close or reject one first")
+        held = self.watches.held(controller) if self.watches is not None else False
+        containers = rightsizing_draft.collect(self.fc.list(kind="rightsizing"), controller, held)
+        if not containers:
+            raise Rejected(409, "no open finding of this workload has a number to apply")
+        snap = ((self._read_forecast_file() or {}).get("rightsizing") or {}).get("snapshot") or {}
+        vm = self._rs_vm()
+        nodes = rightsizing_draft.placement(vm, controller) if vm is not None else {}
+        title, body, _ = rightsizing_draft.build(controller, containers, snap.get("workers", []), nodes)
+        try:
+            return self.cr.create(source="forecast", class_="rightsizing", title=title, body=body, source_ref=f"rightsizing-{controller}", created_by=str(by))
+        except change_requests.Refused as e:
+            raise Rejected(e.status, e.message)
+
     def rs_revert(self, wid: int, by: object) -> dict:
         """POST /rightsizing/watches/<id>/revert (approver role): an operator asks for a PR that restores a watched workload's old values.
         The request still waits for its own Approve; nothing reverts by itself."""
@@ -848,6 +875,8 @@ class Toolbelt:
             raise Rejected(e.status, e.message)
         if fc.get("state") != "open":
             raise Rejected(409, "that forecast is no longer open")
+        if fc.get("kind") == "rightsizing":   # 10i4: a digest suggestion, drafted as a resources-only PR for the whole workload
+            return self.rs_draft(fc, by)
         if not capacity_draft.has_remedy(fc.get("metric", "")):
             raise Rejected(409, "no fix in the repository exists for this kind of forecast (the remedy is outside Git)")
         title, body = capacity_draft.capacity_request(fc)

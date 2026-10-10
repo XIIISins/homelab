@@ -140,6 +140,7 @@ aiops_toolbelt_source_files:
   - toolbelt/rightsizing.py
   - toolbelt/rightsizing_digest.py
   - toolbelt/rightsizing_watch.py
+  - toolbelt/rightsizing_draft.py
   - rightsizing.yml
   - toolbelt/incident_draft.py
   - toolbelt/capacity_draft.py

@@ -565,7 +565,7 @@ actions:
       pr_branch:
         type: string
         required: true
-        pattern: 'agent/k8s/[0-9]+-[a-z0-9][a-z0-9-]*'
+        pattern: 'agent/(k8s|rightsizing)/[0-9]+-[a-z0-9][a-z0-9-]*'
       pr_sha:
         type: string
         required: true
@@ -579,7 +579,7 @@ actions:
       target_policy: burst-cluster
       pr_scope:
         kind: k8s
-        classes: [k8s]
+        classes: [k8s, rightsizing]
     verify:
       self: true
       expect:
