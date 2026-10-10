@@ -80,6 +80,11 @@ class Rig:
     def agent(self, method, path, body=None, **kw):
         return self.call(method, path, body, AGENT_TOKEN, **kw)
 
+    def investigate(self, inc):
+        """One tool call for the incident (a replay incident without a recording answers NO_RECORDING, which is still
+        recorded): a diagnosis made with no recorded call is rejected, because the agent's tool path failed."""
+        return self.agent("POST", "/tool/registry.actions", {"incident_id": inc, "args": {}})
+
     def appr(self, method, path, body=None, **kw):
         return self.call(method, path, body, APPROVER_TOKEN, **kw)
 
@@ -240,6 +245,7 @@ class DiagnosisProposalTests(unittest.TestCase):
         headers = {"X-AIOPS-Replay": replay} if replay else None
         st, out = self.r.agent("POST", "/ingest/zabbix", zevent(host=host), headers=headers)
         self.assertEqual(st, 200, out)
+        self.r.investigate(out["incident_id"])
         return out["incident_id"]
 
     def diag(self, inc, actions_):

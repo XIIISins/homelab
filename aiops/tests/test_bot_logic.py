@@ -402,6 +402,7 @@ class EndToEndTests(unittest.TestCase):
     def test_replay_proposals_never_get_a_card(self):
         st, out = self.rig.agent("POST", "/ingest/zabbix", __import__("test_toolbelt_actions").zevent(), headers={"X-AIOPS-Replay": "canary-agent-down"})
         inc = out["incident_id"]
+        self.rig.investigate(inc)
         diag = {"diagnosis": {"schema_version": "aiops.diagnosis/v1", "incident_id": inc, "layer": "unknown", "confidence": "low",
                               "summary": "Not enough to say which layer; the agent looks down.", "evidence": [], "needs_human": True,
                               "proposed_actions": [{"action_id": "restart-unit", "params": RESTART, "reason": "vlagent stopped"}]}, "model": "t"}

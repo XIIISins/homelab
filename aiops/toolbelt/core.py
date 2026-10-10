@@ -828,10 +828,16 @@ class Toolbelt:
                 problems = diagnosis.grounding(
                     diag, incident_id=incident_id, served=served, known_runbooks=self.known_runbooks,
                     action_ids=self.action_ids, repo_dir=self.cfg.live.repo_dir if self.cfg.live else None)
-            if problems:
-                self.audit("diagnosis_rejected", incident=incident_id, problems=len(problems))
-                raise Rejected(422, "diagnosis failed validation", {"problems": problems[:20]})
             n_calls = self.db.execute("SELECT COUNT(*) FROM tool_calls WHERE incident_id=?", (incident_id,)).fetchone()[0]
+            if n_calls == 0:
+                # The agent tool node can fail silently (2026-10-06, incident 49: five tool calls requested, every result empty,
+                # none recorded here), and the model then honestly reports "no data". A diagnosis made with no recorded call is
+                # a tool-path failure, not "no evidence": reject it so the workflow retries once with this reason.
+                problems.append("the Toolbelt recorded no tool calls for this incident, so your tools did not work (an empty tool result "
+                                "is a failure, not evidence): call the toolbelt tool again before answering")
+            if problems:
+                self.audit("diagnosis_rejected", incident=incident_id, problems=len(problems), reason="no-tool-calls" if n_calls == 0 else "invalid")
+                raise Rejected(422, "diagnosis failed validation", {"problems": problems[:20]})
             n_alerts = self.db.execute("SELECT COUNT(*) FROM alerts WHERE incident_id=?", (incident_id,)).fetchone()[0]
             self.db.execute(
                 "INSERT INTO diagnoses(incident_id, diagnosis_json, model, created_at) VALUES (?, ?, ?, ?) "
