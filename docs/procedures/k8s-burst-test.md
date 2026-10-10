@@ -18,8 +18,11 @@ Exit 0 = passed. `~/.cache/homelab/burst/k8s-test/<sha>/summary.md` is what goes
 
 ## For agent PRs: the automatic path (slice 3, built 2026-10-04; deploy below)
 
-`/aiops draft` kind **k8s** files a change request for ONE app under `k8s/asgard/apps/<app>/` (class `k8s`, `aiops/author-classes.yml`). When its PR opens, the Toolbelt
-reads the PR from GitHub itself (`pr_test.inspect_k8s_pr`: yaml under exactly one app, added or modified only, no `hostPath`/`privileged`/`hostNetwork`/cluster-wide
+`/aiops draft` kind **k8s** files a change request for ONE app under `k8s/asgard/apps/<app>/` (class `k8s`, `aiops/author-classes.yml`). **Test before PR (since 2026-10-10):** the class has `test_before_pr`, so the dispatcher pushes the branch and the PR opens only
+afterwards: when the test has passed (the result is in the description from the start) or cannot run (the PR says "Not tested" and why). A FAILED test opens no PR: the
+request fails with the reason in its Discord thread and the branch is kept three days for inspection, then deleted. Approving the request on its card also approves ONE
+sha-pinned test of the drafted branch, so there is no second card to press. The Toolbelt
+reads the branch from GitHub itself (`pr_test.inspect_k8s_pr`: yaml under exactly one app, added or modified only, no `hostPath`/`privileged`/`hostNetwork`/cluster-wide
 objects) and **proposes `pr-burst-test`**; you approve the card; the **burst runner** (`aiops/runner/burst_runner.py`, a separate service on Frigg with its own Vault
 identity) fetches the branch, checks the head is still the approved commit, runs `scripts/burst/k8s-pr-test` **from its own clean checkout of main (never the PR's
 code)** and tears the cluster down. The runner's markdown summary replaces the PR description's `## Burst-cluster test` section. A passed test does not merge anything:

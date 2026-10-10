@@ -783,7 +783,7 @@ class Toolbelt:
                    "the rightsizing class is not enabled, the workload is not on the allow-list, or the finding has no number to apply")
             raise Rejected(409, f"this suggestion cannot be drafted: {why}")
         with self._lock:
-            active = self.db.execute("SELECT COUNT(*) n FROM change_requests WHERE class='rightsizing' AND state IN ('pending','approved','running','pr-open')").fetchone()["n"]
+            active = self.db.execute("SELECT COUNT(*) n FROM change_requests WHERE class='rightsizing' AND state IN ('pending','approved','running','testing','pr-open')").fetchone()["n"]
         if active >= self.cfg.rs_max_open_prs:
             raise Rejected(429, f"{self.cfg.rs_max_open_prs} rightsizing requests are already open: merge, close or reject one first")
         held = self.watches.held(controller) if self.watches is not None else False
@@ -827,7 +827,7 @@ class Toolbelt:
         if self.cr is None:
             return None
         with self._lock:
-            r = self.db.execute("SELECT id, state, pr_url FROM change_requests WHERE class='rightsizing' AND source_ref=? AND state IN ('pending','approved','running','pr-open') "
+            r = self.db.execute("SELECT id, state, pr_url FROM change_requests WHERE class='rightsizing' AND source_ref=? AND state IN ('pending','approved','running','testing','pr-open') "
                                 "ORDER BY id DESC LIMIT 1", (f"rightsizing-{controller}"[:120],)).fetchone()
         return {"id": r["id"], "state": r["state"], "pr_url": r["pr_url"]} if r else None
 

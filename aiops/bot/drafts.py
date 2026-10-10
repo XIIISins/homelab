@@ -16,8 +16,8 @@ import logic
 
 CUSTOM_ID = re.compile(r"^aiops:cr-(approve|reject|cancel):([0-9]+)$")
 TERMINAL = {"rejected", "expired", "cancelled", "failed", "no-change", "merged", "closed"}
-ANNOUNCE = {"pr-open", "failed", "no-change", "merged", "closed", "expired"}
-COLOUR = {"pending": 0xFEE75C, "approved": 0x57F287, "running": 0x5865F2, "pr-open": 0x57F287, "merged": 0x57F287,
+ANNOUNCE = {"testing", "pr-open", "failed", "no-change", "merged", "closed", "expired"}
+COLOUR = {"pending": 0xFEE75C, "approved": 0x57F287, "running": 0x5865F2, "testing": 0x5865F2, "pr-open": 0x57F287, "merged": 0x57F287,
           "failed": 0xED4245, "rejected": 0x99AAB5, "cancelled": 0x99AAB5, "expired": 0x99AAB5, "closed": 0x99AAB5, "no-change": 0x99AAB5}
 
 
@@ -93,7 +93,7 @@ def incident_request(incident_id: int) -> tuple[str, str]:
 
 
 def buttons(cr: dict) -> list[str]:
-    return {"pending": ["approve", "reject"], "approved": ["cancel"], "running": ["cancel"]}.get(cr["state"], [])
+    return {"pending": ["approve", "reject"], "approved": ["cancel"], "running": ["cancel"], "testing": ["cancel"]}.get(cr["state"], [])
 
 
 def card(cr: dict) -> dict:
@@ -101,6 +101,9 @@ def card(cr: dict) -> dict:
     s = logic.sanitize
     fields = [("Class", f"`{s(cr['class'], 30)}`", True), ("State", f"`{cr['state']}`", True), ("Source", f"`{s(cr['source'], 30)}`", True),
               ("May change", "\n".join(f"`{s(p, 80)}`" for p in cr["allowed_paths"][:6]) or "-", False)]
+    if cr.get("test_before_pr") and cr["state"] in ("pending", "approved", "running"):
+        fields.append(("Tested first", "Approving this also approves ONE test of the drafted branch (a throwaway cluster, pinned to that commit). The PR opens when it passes "
+                                       "or cannot run; if it fails, no PR is opened.", False))
     if cr.get("pr_url"):
         fields.append(("Pull request", cr["pr_url"], False))
     if cr.get("error"):
@@ -119,6 +122,9 @@ def card(cr: dict) -> dict:
 def announcement(cr: dict) -> str:
     s = logic.sanitize
     st = cr["state"]
+    if st == "testing":
+        return (f"Drafted on branch `{s(cr.get('branch') or '?', 80)}`. The test is running on it; the PR opens when the test passes (or if it cannot run), "
+                "and no PR is opened if it fails. Nothing was applied anywhere.")
     if st == "pr-open":
         return f"Draft ready for review: {cr['pr_url']} . The operator merges; nothing was applied anywhere."
     if st == "failed":

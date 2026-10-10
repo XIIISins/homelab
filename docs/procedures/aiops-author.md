@@ -56,6 +56,10 @@ likely cause (a **hypothesis** unless a commit or deploy explains it), the resol
 case: the 2026-10-04 06:24Z run showed `frigg changed=2` because `aiops-toolbelt` code on Frigg lagged a merged PR (#115) until
 the role was re-run. The code-changing `drift` class stays disabled; Gná filing these on a drift-check result is not built.
 
+## Test before PR (classes `k8s` and `rightsizing`, since 2026-10-10)
+
+A class with `test_before_pr` in `aiops/author-classes.yml` is proven before anyone is asked to review it. After Approve the dispatcher drafts, runs its checks, pushes the branch and reports `testing` (no PR yet). The Toolbelt proposes the class's test for that branch head and, because your Approve already said "draft this and test it", approves that one proposal on your behalf (`fold_test_approval`; sha-pinned, so it cannot be reused for another commit; refused if the kill switch is on). The dispatcher then opens the PR when the test **passed** (the test section is in the description from the first moment) or **cannot run** (not testable, rejected, expired: the PR says "Not tested" and why), and ends the request when it **failed**: no PR, the reason in the thread, the branch kept three days and then deleted. A test that has not finished in 40 minutes opens the PR saying so, and the result is synced in when it arrives. A request stuck in `testing` for two hours (the dispatcher is down) fails and keeps its branch. `drift` (canary test) can adopt the flag the same way; `docs`, `drift-note` and `capacity` have no test and open their PR at once.
+
 ## The `rightsizing` class (10i4)
 
 A digest card's **Draft PR** button files a resources-only change request for one workload; the dispatcher checks it with `ci-resources-only.py` and CI repeats the check from the base commit. See [`aiops-rightsizing.md`](aiops-rightsizing.md#rightsizing-prs-10i4).
