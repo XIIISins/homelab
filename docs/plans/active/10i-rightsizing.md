@@ -228,7 +228,7 @@ The PR carries a per-container old → new table with the evidence, the per-work
 - **Burst test inherited, with one widening:** the branch pattern of `pr-burst-test` (actions.yml, the Toolbelt's burst executor and the privileged runner) accepts `agent/(k8s|rightsizing)/...`, and all three now end the pattern with `\Z` (a `$` also matched before a trailing newline). Authentik sits under `infrastructure/`, which the burst test does not cover; its PRs say so.
 - **The check is two-sided:** the dispatcher refuses to push a failing patch, and CI re-runs the script from the base commit on the PR head.
 - The evidence block is trusted text written by the Toolbelt into the request body and copied into the PR by the dispatcher; the session's summary stays the session's.
-- **Shipped `enabled: false`**, per the plan; turning it on is its own reviewed PR.
+- **Shipped `enabled: false`**, per the plan, and turned on by its own PR the same day (after the watch was live and the burst runner redeployed with the new branch pattern).
 
 ---
 

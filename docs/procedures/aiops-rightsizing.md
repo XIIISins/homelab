@@ -32,7 +32,7 @@ What keeps the PR to resources:
 
 The PR description carries `## Evidence` (the Toolbelt's table, copied verbatim, not the session's words), the checks, the burst-test section and a rollback line (`git revert`; Flux rolls the workload back).
 
-To switch the class on or off, change `enabled` in `aiops/author-classes.yml` in a reviewed PR; the Draft button appears and disappears with it (the Toolbelt reads the file at start, so restart `aiops-toolbelt` after a deploy that changes it, which the code-deploy template does).
+The class has been enabled since 2026-10-10. To switch it on or off, change `enabled` in `aiops/author-classes.yml` in a reviewed PR; the Draft button appears and disappears with it (the Toolbelt reads the file at start, so restart `aiops-toolbelt` after a deploy that changes it, which the code-deploy template does).
 
 ## The 72-hour watch (10i5)
 
