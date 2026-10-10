@@ -75,8 +75,9 @@ def placement(vm, controller: str, window: str = "2h") -> dict:
 
 
 def totals(workers: list, nodes: dict, containers: dict) -> tuple[list, float]:
-    """Per worker memory requested before -> after (a workload's pods each give back the request cut), and the cluster-wide MiB the change frees."""
-    cut = sum(max(0.0, c["old"]["request_mib"] - c["new"]["request_mib"]) for c in containers.values() if "request_mib" in c["old"])   # per pod
+    """Per worker memory requested before -> after, and the cluster-wide MiB the change frees (negative when it adds: a request raised to fix an OOM).
+    Each pod of the workload gives back the NET request change of its containers, so a raise on one container and a cut on another offset."""
+    cut = sum(c["old"]["request_mib"] - c["new"]["request_mib"] for c in containers.values() if "request_mib" in c["old"] and "request_mib" in c["new"])   # per pod, signed
     freed = cut * (sum(nodes.values()) or 1)
     lines = []
     for w in workers:

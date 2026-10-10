@@ -309,6 +309,8 @@ class BotText(unittest.TestCase):
             self.assertLessEqual(len(line), 52, line)   # an embed code block wraps beyond about 52 characters
         self.assertIn("**held**", body["Results of earlier PRs"])
         self.assertIn("freed 512 MiB", body["Results of earlier PRs"])
+        added = {**self.digest(), "results": [{"target": "app/Deployment/web", "verdict": "held", "freed_mib": -176.0}]}
+        self.assertIn("added 176 MiB", dict((n, v) for n, v, _ in rsdigest.header(added)["fields"])["Results of earlier PRs"])
         self.assertIn("`app/Deployment/new`", body["Coverage"])
         self.assertIn("Worth a look (no proposal)", body)
         self.assertIn("nothing here changes the cluster", h["footer"])

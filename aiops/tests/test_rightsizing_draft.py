@@ -77,9 +77,9 @@ class Build(unittest.TestCase):
         ev = re.search(r"<!-- evidence -->\n(.*?)\n<!-- /evidence -->", body, re.S).group(1)
         self.assertIn("| `main` | 1792 → 1952 MiB | 2560 → 3840 MiB | 500 → 100m |", ev)
         self.assertIn("OOMKilled", ev)
-        # the request cut is 0 for main (a raise) and 448 MiB for sidecar, on two pods on urd: 896 MiB, urd 11000 -> 10104
-        self.assertIn("urd 11000 → 10104 MiB (79 % → 72 %)", ev)
-        self.assertEqual(spec["freed_mib"], 896.0 - 0.0)
+        # main is a 160 MiB raise and sidecar a 448 MiB cut: a net 288 MiB back per pod, two pods on urd: 576 MiB, urd 11000 -> 10424
+        self.assertIn("urd 11000 → 10424 MiB (79 % → 74 %)", ev)
+        self.assertEqual(spec["freed_mib"], 576.0)
         for rule in ("never a CPU limit", "never an image", "resourcesPreset"):
             self.assertIn(rule, body)
 
@@ -90,6 +90,14 @@ class Build(unittest.TestCase):
         _, body, spec = rdr.build("app/Deployment/web", c, self.workers, {"einherjar-urd": 1})
         self.assertLessEqual(len(body), 4000)
         self.assertEqual(len(spec["containers"]), 18)
+
+    def test_a_pure_raise_shows_the_workers_going_up_and_a_negative_freed_total(self):
+        rows = [row("netbox/Deployment/netbox/netbox", finding="memory-under-request", request_mib=1792.0, limit_mib=2560.0, max_working_set_mib=1632.1, proposed_request_mib=1968.0,
+                    proposed_limit_mib=None, added_bytes=176 * MIB, oomkilled=True)]
+        c = rdr.collect(rows, "netbox/Deployment/netbox", held=False)
+        _, body, spec = rdr.build("netbox/Deployment/netbox", c, [{"node": "einherjar-skuld", "memory_requested_mib": 7472.0, "memory_allocatable_mib": 13697.5}], {"einherjar-skuld": 1})
+        self.assertIn("skuld 7472 → 7648 MiB (55 % → 56 %)", body)
+        self.assertEqual(spec["freed_mib"], -176.0)
 
     def test_a_missing_worker_picture_is_not_an_error(self):
         c = rdr.collect(web_rows(), "app/Deployment/web", held=False)
