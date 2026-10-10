@@ -1,8 +1,8 @@
-<!-- docs/operations/10d-diagnosis-chatops.md -->
+<!-- docs/plans/done/10d-diagnosis-chatops.md -->
 
 # Phase 10d — Diagnosis-only chat-ops: implementation plan
 
-*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; direct monitoring→n8n path). Status: 🟡 10d0 decided; **10d1 (Gná) applied 2026-10-02**. Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](decisions.md) until the operator confirms.*
+*Drafted 2026-10-02, **revised 2026-10-02** (n8n as the agent; direct monitoring→n8n path). Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](../active/aiops-roadmap.md) §10d (Stage 1). Consumes the 10c data in [`aiops/`](../../../aiops/README.md). Everything marked **Proposed** is a default picked so work can start; none of it is in [`decisions.md`](../../operations/decisions.md) until the operator confirms.*
 
 ---
 
@@ -27,11 +27,11 @@ Out of scope here: executing actions, approval reactions, a Discord bot (10e); k
 
 | Check | Finding | Consequence |
 |---|---|---|
-| Design/decisions | Roadmap §10d is three bullets + the replay acceptance. 10c: the consumer calls `normalize()` on each Hermod POST, looks up `runbook_id` in `runbooks.yml`, hands the session alert + `preconditions` + the `source` doc + the *proposable* registry actions ([`aiops/README.md`](../../aiops/README.md)) | Builds on those; no new alert model |
-| Open 10c follow-ups ([`open-questions.md`](open-questions.md)) | **(3)** producer-side `runbook_id`, **(4)** Zabbix route regexes unverified, **(10)** `vault-status` sees one node only, **(6)** 5 runbooks are `stub`, **(5)** S4 findings never resolve | (4) and (10) are closed *by* 10d2. (3) is decided below. (5)/(6) degrade diagnosis quality but do not block |
-| Hermod ([`services/notifications.md`](../services/notifications.md)) | Single *notification* ingress; Apprise flattens every alert to `title`/`body`/`type`/`tag` | Fine for humans, lossy for analysis: no event id, trigger/item values, host groups or tags. And a Hermod outage would also blind the agent. So the analysis path **bypasses Hermod**: each monitoring system sends its own richer message to n8n (see Architecture) |
+| Design/decisions | Roadmap §10d is three bullets + the replay acceptance. 10c: the consumer calls `normalize()` on each Hermod POST, looks up `runbook_id` in `runbooks.yml`, hands the session alert + `preconditions` + the `source` doc + the *proposable* registry actions ([`aiops/README.md`](../../../aiops/README.md)) | Builds on those; no new alert model |
+| Open 10c follow-ups ([`open-questions.md`](../../operations/open-questions.md)) | **(3)** producer-side `runbook_id`, **(4)** Zabbix route regexes unverified, **(10)** `vault-status` sees one node only, **(6)** 5 runbooks are `stub`, **(5)** S4 findings never resolve | (4) and (10) are closed *by* 10d2. (3) is decided below. (5)/(6) degrade diagnosis quality but do not block |
+| Hermod ([`services/notifications.md`](../../services/notifications.md)) | Single *notification* ingress; Apprise flattens every alert to `title`/`body`/`type`/`tag` | Fine for humans, lossy for analysis: no event id, trigger/item values, host groups or tags. And a Hermod outage would also blind the agent. So the analysis path **bypasses Hermod**: each monitoring system sends its own richer message to n8n (see Architecture) |
 | n8n (the since-removed `services/n8n.md`) | The existing instance is in **asgard K3s** and exposes **public** `/webhook*` paths at `n8n.xiiisins.com`; ForwardAuth gates the editor | It is the wrong home for the agent: same failure domain as what it diagnoses, and a public webhook surface beside credentials. See "n8n placement" |
-| Frigg ([`known-issues/frigg-control-node.md`](../known-issues/frigg-control-node.md)) | Operator user `ghost` has NOPASSWD sudo + the fleet ssh-agent socket | Nothing the agent touches may run as `ghost` |
+| Frigg ([`known-issues/frigg-control-node.md`](../../known-issues/frigg-control-node.md)) | Operator user `ghost` has NOPASSWD sudo + the fleet ssh-agent socket | Nothing the agent touches may run as `ghost` |
 | Canaries (10b1) | Canary alerts are capped at `info` | `info` must reach n8n **for canary hosts only**, or there is no live test path |
 | Semaphore / Zabbix / NetBox / Proxmox | No read-only identity exists for any | 10d2 mints them |
 
@@ -111,7 +111,7 @@ Build the plumbing end to end with a **stub workflow that just echoes the normal
 - [ ] Toolbelt API skeleton on Frigg: `/ingest/<source>` (source adapter → normalize → fingerprint dedupe → correlation group), `/group/<id>`; SQLite in `/var/lib/aiops-toolbelt/`. States `received → grouped → running → posted → resolved`. Same fingerprint within a cooldown (30 min) updates the thread's last-seen/count instead of re-running; a severity escalation or *resolved* half updates/re-opens.
 - [ ] **Correlation window (important):** alerts within ~90 s are grouped into **one incident**, one execution. The 2026-09-30 Skuld freeze produced a burst across many guests; per-alert executions would give twenty contradictory "bad release" verdicts instead of one "dead host". Group key proposal: shared hypervisor (NetBox → Proxmox node), else cluster, else time.
 - [ ] **AuthN:** each source's IP (Hugin for Zabbix, Semaphore, Patroni nodes, Frigg) and n8n's IP allow-listed at the listeners; long random path token per source on the n8n webhook (TF `random_password` → Vault `secret/ansible/aiops/n8n-ingest-token/<source>`, read by that source's role); separate API token n8n→Toolbelt. AGH rewrites via `terraform/adguard/rewrites.tf` for the n8n-aiops and toolbelt names.
-- [x] **Zabbix first** — *moved to 10d2 (2026-10-02)*: the media type, sender script, `aiops.zabbix-event/v1` schema, adapter and fixtures are written (`roles/zabbix-server`, `aiops/`); apply + the independence test are in [`procedures/aiops-diagnosis.md`](../procedures/aiops-diagnosis.md) "Cut over Zabbix". Other sources follow once the agent works.
+- [x] **Zabbix first** — *moved to 10d2 (2026-10-02)*: the media type, sender script, `aiops.zabbix-event/v1` schema, adapter and fixtures are written (`roles/zabbix-server`, `aiops/`); apply + the independence test are in [`procedures/aiops-diagnosis.md`](../../procedures/aiops-diagnosis.md) "Cut over Zabbix". Other sources follow once the agent works.
 - [ ] **Independence test (gate for `critical`):** stop n8n → a Zabbix test trigger still produces the Discord alert via Hermod and the Zabbix action log shows only the n8n operation failed; restart → no backlog flood. Then the happy path: one trigger → Discord alert **and** a `#diagnoses` post; same event within cooldown → no second post; a burst of 5 → 1 thread; recovery → thread updated. Reboot-test both hosts (CLAUDE.md persistence rule).
 - [ ] **Circuit breakers:** per-execution wall-clock cap, daily execution cap (default 40), max queue depth; breach → one Discord post "diagnosis budget exhausted", never silent. Audit: structured JSON from the API → journald → vlagent → VictoriaLogs, keyed by fingerprint (roadmap principle 7); n8n execution history is the second record.
 
@@ -122,9 +122,9 @@ Each tool is an endpoint of the Toolbelt API backed by a read-only credential; n
 | Tool | Credential (all new, all write-less) | Scope / how it is enforced |
 |---|---|---|
 | `kube` | ServiceAccount `aiops-readonly` (Flux-managed manifests under `k8s/asgard/…`), **1 h token minted by the loader** | ClusterRole `get/list/watch` on workload/node/event/CRD objects incl. HelmRelease/Kustomization status and `pods/log`; **no `secrets`, no `pods/exec`, no `*/proxy`, no non-read verbs**. Proof: `kubectl auth can-i --list` + attempted `delete` / `get secret` denied |
-| `logs` / `metrics` | none (VL/VM have no auth); internal niflheim Gateway | API forms only `/select/logsql/*` and `/api/v1/query*`; **verify against [`known-issues/observability.md`](../known-issues/observability.md) that no delete/admin path is exposed on those routes** |
+| `logs` / `metrics` | none (VL/VM have no auth); internal niflheim Gateway | API forms only `/select/logsql/*` and `/api/v1/query*`; **verify against [`known-issues/observability.md`](../../known-issues/observability.md) that no delete/admin path is exposed on those routes** |
 | `zabbix` | user `aiops-ro` with a **read-only role** + API token (`secret/ansible/aiops/zabbix-token`) | API allow-lists `*.get`. First use verifies the 10c route regexes against live triggers (closes follow-up 4). Zabbix is Ansible-managed → role addition, not click-ops |
-| `netbox` | local user with **view-only permission**, token `write_enabled=false` | `GET` only (separate from the TF-provider token quirks in [`known-issues/netbox.md`](../known-issues/netbox.md)) |
+| `netbox` | local user with **view-only permission**, token `write_enabled=false` | `GET` only (separate from the TF-provider token quirks in [`known-issues/netbox.md`](../../known-issues/netbox.md)) |
 | `pve` | `aiops@pve` + API token, role **PVEAuditor** on `/` | node/guest status, `/cluster/resources`. Answers "is the hypervisor alive, which guests share it" — **the core of host-vs-workload** |
 | `semaphore` | Semaphore user in a **guest/read-only** project role + token | task history/output only; verify the role has no `task:run` |
 | `reach` | none | ICMP/TCP-connect from Frigg, bounded count/rate — substitutes for SSH |
@@ -198,3 +198,9 @@ Shadow first: for ~2 weeks `#diagnoses` is read by the operator only and each th
 ## Next
 
 After 10d: **10e** — executor endpoint (allow-listed Semaphore templates), the Discord bot, and approvals as an n8n Wait flow. Pull forward before it: the five `stub` runbooks (10c follow-up 6), the Flux-actions ServiceAccount (follow-up 9, partly delivered by `aiops-readonly` here), and the PBS capacity / restore-drill items for 10g.
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: 🟡 10d0 decided; **10d1 (Gná) applied 2026-10-02**.

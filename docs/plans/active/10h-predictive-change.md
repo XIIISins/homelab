@@ -1,8 +1,8 @@
-<!-- docs/operations/10h-predictive-change.md -->
+<!-- docs/plans/active/10h-predictive-change.md -->
 
 # Phase 10h — Predictive and agent-authored change: plan
 
-*Drafted 2026-10-03. Status (live state checked 2026-10-05, table under "Live state and exit criteria"): **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 live** (the Toolbelt files the request when an incident resolves after crossing the bar, you Approve; mechanical draft via the author, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; 7 notes since 2026-10-04, 3 open). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
+*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
 
 ---
 
@@ -79,7 +79,7 @@ The author runs on **Frigg** as a separate unix user (`aiops-author`), as a head
 
 | Has | Does not have |
 |---|---|
-| a **fine-grained PAT** (operator decision 2026-10-04: a long-lived token is accepted over a GitHub App) belonging to a dedicated machine user with *write, not admin* on the repo, scoped to this repo only with Contents + Pull requests read/write and a one-year expiry (calendar the renewal). **Held only by the dispatcher**, a process that never runs an LLM; the drafting session has no GitHub credential and hands back a patch (built 2026-10-04, [procedure](../procedures/aiops-author.md)) | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
+| a **fine-grained PAT** (operator decision 2026-10-04: a long-lived token is accepted over a GitHub App) belonging to a dedicated machine user with *write, not admin* on the repo, scoped to this repo only with Contents + Pull requests read/write and a one-year expiry (calendar the renewal). **Held only by the dispatcher**, a process that never runs an LLM; the drafting session has no GitHub credential and hands back a patch (built 2026-10-04, [procedure](../../procedures/aiops-author.md)) | Vault, Terraform state, a kubeconfig with write, the Semaphore executor token, the PVE token, any 1Password access |
 | the Toolbelt's **read-only** tools through an *author* role token (so it can look at live state) | the approver and agent-propose tokens |
 | `terraform` / `helm` / `kubeconform` / `ansible-lint` binaries, offline | the ability to apply anything, the fleet SSH key, a DigitalOcean token |
 
@@ -91,7 +91,7 @@ The author runs on **Frigg** as a separate unix user (`aiops-author`), as a head
 
    | PR touches | Tested on | How | Needs |
    |---|---|---|---|
-   | `k8s/**`, Helm values | an ephemeral **burst K3s** ([`procedures/burst-substrate.md`](../procedures/burst-substrate.md)) | `render-diff.sh` + `images-exist.sh` + `kubeconform` offline first; then applied to the burst cluster by the Toolbelt/runner and the touched workload checked (pods ready, the chart's own smoke test). One burst cluster per PR, TTL 4 h, the Frigg reaper is the cost guard | operator approval of the burst test; nothing new built |
+   | `k8s/**`, Helm values | an ephemeral **burst K3s** ([`procedures/burst-substrate.md`](../../procedures/burst-substrate.md)) | `render-diff.sh` + `images-exist.sh` + `kubeconform` offline first; then applied to the burst cluster by the Toolbelt/runner and the touched workload checked (pods ready, the chart's own smoke test). One burst cluster per PR, TTL 4 h, the Frigg reaper is the cost guard | operator approval of the burst test; nothing new built |
    | `ansible/roles/**` for LXC/VM roles | the **canary pool** (10b1, `site-nonprod.yml`), via the existing `replay-role-check` then `replay-role` shapes on a canary | `--check --diff` then a real run on a canary, then a second run for idempotence (`changed=0`); canary alerts stay capped at the Hermod `info` tier | operator approval; the executor runs it through Semaphore on the `aiops` project, the author never holds the SSH key |
    | `k3s` role / cluster-level Ansible | burst K3s | the role is the one that builds burst clusters, so a PR to it is proven by building one | operator approval |
    | `terraform/**` | not planned against prod. Pure-value changes (a size, a variable) that a rebuilt canary or burst cluster exercises are tested there; anything else (live Proxmox, Vault, NetBox, AdGuard state) carries **no plan-diff** and is limited to docs and values the reviewer can reason about | n/a | a state-read-only identity is **not** built for this; revisit only if Terraform PRs become common |
@@ -182,3 +182,9 @@ Autonomous merge of anything; agent edits to autonomy/rebuild/registry/CI/rulese
 - Create the PBS audit-only API token, the Zabbix read scope for history/trends if the current token lacks it; each is a console or `terraform apply` step.
 - Hardware/host: install `smartctl` + the agent2 SMART plugin on the PVE hosts (a `proxmox-host` role change plus an operator-run playbook), and decide whether to expose etcd metrics (K3s config change on the CPs).
 - Decisions: the ticket sink, the author's per-day budget, and which PR classes are allowed first.
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status (live state checked 2026-10-05, table under "Live state and exit criteria"): **10h2 built and live 2026-10-04** (docs, drift-note and `drift` (role change, proven on a canary: PR #149 carries its `Canary test` result) classes; the drift push is proven end to end), **10h3 live** (the Toolbelt files the request when an incident resolves after crossing the bar, you Approve; mechanical draft via the author, no grounded narrative), **10h1 live** (hourly pass over VictoriaMetrics and Zabbix, quiet cards with Useful/Noise; 7 notes since 2026-10-04, 3 open).

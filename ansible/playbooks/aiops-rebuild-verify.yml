@@ -1,7 +1,7 @@
 # ansible/playbooks/aiops-rebuild-verify.yml
 ---
 # Phase 10g step 7 `rebuild-verify` (T0, read-only) - canary class post-conditions from
-# docs/operations/10g-rebuild-loop.md ("Class post-conditions"). Registry action `rebuild-verify`.
+# docs/plans/active/10g-rebuild-loop.md ("Class post-conditions"). Registry action `rebuild-verify`.
 #
 # Checks, each reported as its own boolean field of the result line:
 #   ssh_as_ansible          the guest answers SSH as `ansible` (root is locked out by hardening)

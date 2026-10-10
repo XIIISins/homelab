@@ -2,7 +2,7 @@
 
 # Canary pool (Phase 10b1)
 
-*Three disposable 512 MB LXCs on **Urd only** that the AIOps loop (10f heal, 10g rebuild) may fault-inject. Roadmap: [`aiops-roadmap.md`](../operations/aiops-roadmap.md) 10b1 + "Blast-radius tiers" T1. Decision: [`decisions.md`](../operations/decisions.md) "Canary pool on Urd, not Skuld/Verd".*
+*Three disposable 512 MB LXCs on **Urd only** that the AIOps loop (10f heal, 10g rebuild) may fault-inject. Roadmap: [`aiops-roadmap.md`](../plans/active/aiops-roadmap.md) 10b1 + "Blast-radius tiers" T1. Decision: [`decisions.md`](../operations/decisions.md) "Canary pool on Urd, not Skuld/Verd".*
 
 ## What they are
 

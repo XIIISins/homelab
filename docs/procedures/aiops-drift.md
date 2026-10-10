@@ -1,7 +1,7 @@
 <!-- docs/procedures/aiops-drift.md -->
 # AIOps drift flow (Phase 10h2): a drift-check that would change something reaches Gná
 
-*Plan: [`operations/10h-predictive-change.md`](../operations/10h-predictive-change.md), author pipeline: [`aiops-author.md`](aiops-author.md), diagnosis: [`aiops-diagnosis.md`](aiops-diagnosis.md), actions: [`aiops-actions.md`](aiops-actions.md).*
+*Plan: [`plans/active/10h-predictive-change.md`](../plans/active/10h-predictive-change.md), author pipeline: [`aiops-author.md`](aiops-author.md), diagnosis: [`aiops-diagnosis.md`](aiops-diagnosis.md), actions: [`aiops-actions.md`](aiops-actions.md).*
 
 ## The flow
 

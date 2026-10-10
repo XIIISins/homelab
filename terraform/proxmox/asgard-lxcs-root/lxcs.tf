@@ -147,7 +147,7 @@ resource "proxmox_virtual_environment_container" "tailscale" {
 # ----------------------------------------------------------------------------
 # LXC 1123 - Jellyfin media server with Intel QuickSync (Urd) - Phase 5h
 # ----------------------------------------------------------------------------
-# Plan: docs/operations/5h-jellyfin.md (steps J0-J6). Transcodes on the Alder Lake iGPU (/dev/dri/renderD128, i915),
+# Plan: docs/plans/active/5h-jellyfin.md (steps J0-J6). Transcodes on the Alder Lake iGPU (/dev/dri/renderD128, i915),
 # never on the CPU. Lives in THIS module because `device_passthrough` (and `mount = ["nfs"]`) need root@pam ticket
 # auth, which the API-token module cannot use (docs/known-issues/lxc-proxmox.md).
 #

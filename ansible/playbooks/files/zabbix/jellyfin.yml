@@ -4,7 +4,7 @@
 # playbooks/zabbix-host-groups.yml. The items are the UserParameters the `jellyfin` role installs
 # (roles/jellyfin/templates/zabbix-jellyfin.conf.j2); their keys are deliberately not keys "Linux by Zabbix agent" defines.
 #
-# Why these four (docs/operations/5h-jellyfin.md, J6):
+# Why these four (docs/plans/active/5h-jellyfin.md, J6):
 #   QSV smoke test   the hourly hardware-transcode self-test. A broken passthrough (host kernel update, a renumbered render
 #                    node, a GPU hang) shows up here within the hour instead of as "it buffers". High after 2 failed runs.
 #   smoke age        a stalled timer is as bad as a failing one; the state file must be less than ~2 h old.

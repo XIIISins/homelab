@@ -4,7 +4,7 @@ Run by a systemd timer on Frigg (roles/aiops-toolbelt, `aiops-toolbelt-forecast`
 sync: the Toolbelt API unit has no route to the metrics endpoint by design. It reads only (a GET to the same
 `metrics-read` route the agent's read tool uses, at full resolution rather than the thinned series the model sees) and
 appends findings to a local JSONL file. There is no Discord or ticket output: this is the 14-day shadow period of
-docs/operations/10h-predictive-change.md. Detectors and targets live in forecast.py.
+docs/plans/active/10h-predictive-change.md. Detectors and targets live in forecast.py.
 """
 from __future__ import annotations
 

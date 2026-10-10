@@ -1,6 +1,6 @@
 # k8s/asgard/infrastructure/vpa/helmrelease.yaml
 #
-# Vertical Pod Autoscaler, RECOMMENDER ONLY (Phase 10i1, docs/operations/10i-rightsizing.md).
+# Vertical Pod Autoscaler, RECOMMENDER ONLY (Phase 10i1, docs/plans/active/10i-rightsizing.md).
 # It watches pod usage (metrics-server, which K3s ships) and writes a recommendation into each
 # VerticalPodAutoscaler object's status. It never changes a pod:
 #   - updater disabled            -> nothing evicts pods to apply a recommendation

@@ -1,6 +1,6 @@
 # ratatoskr
 
-The AIOps Discord bot (Phase 10e), LXC 1122 on Urd, `10.0.11.222`. Plan: [`docs/operations/10e-approval-actions.md`](../../../docs/operations/10e-approval-actions.md). Procedure: [`docs/procedures/aiops-actions.md`](../../../docs/procedures/aiops-actions.md). Code: [`aiops/bot/`](../../../aiops/bot/).
+The AIOps Discord bot (Phase 10e), LXC 1122 on Urd, `10.0.11.222`. Plan: [`docs/plans/done/10e-approval-actions.md`](../../../docs/plans/done/10e-approval-actions.md). Procedure: [`docs/procedures/aiops-actions.md`](../../../docs/procedures/aiops-actions.md). Code: [`aiops/bot/`](../../../aiops/bot/).
 
 ## What it does
 

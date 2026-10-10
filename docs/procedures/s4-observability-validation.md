@@ -2,7 +2,7 @@
 
 # Wave S4 — observability deploy + validation runbook
 
-*Companion to [`docs/operations/1.0-stabilization.md`](../operations/1.0-stabilization.md) Wave S4. This runbook is the operator-gated deploy + the synthetic-failure validation that satisfies the wave's done-criterion ("one synthetic failure per item → expected Hermod alert").*
+*Companion to [`docs/plans/done/1.0-stabilization.md`](../plans/done/1.0-stabilization.md) Wave S4. This runbook is the operator-gated deploy + the synthetic-failure validation that satisfies the wave's done-criterion ("one synthetic failure per item → expected Hermod alert").*
 
 > **✅ Deployed + validated 2026-05-31.** All steps below were executed: Vault scaffolds + CF/PBS tokens minted, `terraform/semaphore` template + every-12h schedule applied, Zabbix disk macros pushed + read back. Validation: clean baseline silent from the Semaphore pod (task 123); synthetic run from the pod (task 124) delivered **2 critical + 3 warning** to Hermod. The `community.crypto` "first-run risk" below is **resolved** — the pod has it. Three deploy-surfaced fixes are committed (`zabbix_globalmacro macro_type: text`; etcd `content | from_json`; prober `become: false`). The live disk-trigger-fire → Hermod path (§ validation matrix) was validated by the operator pre-wave, so the wave has **no remaining tests**. The deploy sequence is kept below as the rebuild-from-scratch reference.
 

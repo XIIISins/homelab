@@ -2,7 +2,7 @@
 
 # Procedure — AIOps incident drafts (Phase 10h3)
 
-*Plan: [`operations/10h-predictive-change.md`](../operations/10h-predictive-change.md) "10h3". Code: [`aiops/toolbelt/incident_draft.py`](../../aiops/toolbelt/incident_draft.py). Status 2026-10-03: **the mechanical draft is built and served by the Toolbelt (approver role); the LLM-written narrative and the pull-request delivery are NOT built** (they need the 10h2 machinery and a GitHub identity).*
+*Plan: [`plans/active/10h-predictive-change.md`](../plans/active/10h-predictive-change.md) "10h3". Code: [`aiops/toolbelt/incident_draft.py`](../../aiops/toolbelt/incident_draft.py). Status 2026-10-03: **the mechanical draft is built and served by the Toolbelt (approver role); the LLM-written narrative and the pull-request delivery are NOT built** (they need the 10h2 machinery and a GitHub identity).*
 
 ## What you get
 

@@ -1,6 +1,6 @@
 # terraform/vault/author.tf
 #
-# Phase 10h2 (docs/operations/10h-predictive-change.md): the identity of the PR author on Frigg. Three parts:
+# Phase 10h2 (docs/plans/active/10h-predictive-change.md): the identity of the PR author on Frigg. Three parts:
 #
 #   author_token        the dispatcher -> the Toolbelt's AUTHOR role (claim a change request, report its outcome)
 #   author_tools_token  the drafting session -> the Toolbelt's AUTHOR-TOOLS role (the read-only /tool/* routes ONLY)

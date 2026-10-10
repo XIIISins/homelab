@@ -1,8 +1,8 @@
-<!-- docs/operations/10i-rightsizing.md -->
+<!-- docs/plans/active/10i-rightsizing.md -->
 
 # Phase 10i — Pod rightsizing with VPA (recommend-only) and Gná suggestions: plan
 
-*Drafted 2026-10-04, restarted 2026-10-05 on the operator's brief: "use VPA to make the worker VMs reduce their memory usage; the VMs stay at their allocated resources in Proxmox; optimise the pods over time so Gná gives weekly, bi-weekly or monthly suggestions and optimisations". Status: 🟡 10i0, 10i0b and 10i1 live 2026-10-05; 10i2 onward not built (10i2 waits for about 7 days of VPA history). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10i. Builds on the 10d Toolbelt (read-only tools, audit log), the 10h1 forecast cards and the 10h2 PR author (change requests, dispatcher, the `k8s` class and its burst-cluster test, [`10h-k8s-burst-test.md`](10h-k8s-burst-test.md)). Motivating gotcha: [`known-issues/k8s-scheduling.md`](../known-issues/k8s-scheduling.md).*
+*Drafted 2026-10-04, restarted 2026-10-05 on the operator's brief: "use VPA to make the worker VMs reduce their memory usage; the VMs stay at their allocated resources in Proxmox; optimise the pods over time so Gná gives weekly, bi-weekly or monthly suggestions and optimisations". Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10i. Builds on the 10d Toolbelt (read-only tools, audit log), the 10h1 forecast cards and the 10h2 PR author (change requests, dispatcher, the `k8s` class and its burst-cluster test, [`10h-k8s-burst-test.md`](10h-k8s-burst-test.md)). Motivating gotcha: [`known-issues/k8s-scheduling.md`](../../known-issues/k8s-scheduling.md).*
 
 ---
 
@@ -31,11 +31,11 @@ What stays true:
 
 | Finding | Effect on 10i |
 |---|---|
-| Workers are at 84–90 % CPU requested ([`k8s-scheduling.md`](../known-issues/k8s-scheduling.md)) | The recommender pod needs a little room. **10i0** trims NetBox and `authentik-server` CPU by hand first. |
+| Workers are at 84–90 % CPU requested ([`k8s-scheduling.md`](../../known-issues/k8s-scheduling.md)) | The recommender pod needs a little room. **10i0** trims NetBox and `authentik-server` CPU by hand first. |
 | K3s ships `metrics-server` (the role disables only `traefik`, `servicelb`, `local-storage`) | VPA's live source exists. Confirm `kubectl top pods -A` before 10i1. |
 | vmagent scrapes cAdvisor and kube-state-metrics; VictoriaMetrics keeps 1 month | 30 days of per-container usage is available today for the Toolbelt's cross-check and the trend lines in each digest. |
 | kube-state-metrics is v2.20; KSM dropped its built-in VPA collector in 2.9 | Recommendation history in VictoriaMetrics needs a KSM `customResourceState` config + RBAC rule (10i1). |
-| CRD-dependent resources need their own Kustomization ([`flux-helm-kustomize.md`](../known-issues/flux-helm-kustomize.md)) | VPA objects go in a new **`vpa-config/`** Kustomization, `dependsOn: infrastructure`; CLAUDE.md's `<component>-config` list gets the entry at build time. |
+| CRD-dependent resources need their own Kustomization ([`flux-helm-kustomize.md`](../../known-issues/flux-helm-kustomize.md)) | VPA objects go in a new **`vpa-config/`** Kustomization, `dependsOn: infrastructure`; CLAUDE.md's `<component>-config` list gets the entry at build time. |
 | `aiops-readonly` ClusterRole has no `autoscaling.k8s.io` rule | Add get/list/watch on `verticalpodautoscalers` and `verticalpodautoscalercheckpoints` (no secrets, no configmaps). |
 | Some charts set requests through presets (NetBox worker: `resourcesPreset: medium`) | A PR may replace a preset with an explicit block (`resourcesPreset: "none"` + `resources:`). |
 | The 10h2 `k8s` author class exists and is burst-tested (one app under `k8s/asgard/apps/`) | Rightsizing PRs use a narrower `rightsizing` class that inherits the burst test: it proves the pod still **starts and becomes Ready inside the new limit**, which is the failure a too-low memory limit causes. |
@@ -70,7 +70,7 @@ Left out on purpose: the NetBox pods (trimmed in 10i0 the same day); the VPA rec
 
 **Follow-up (same day, operator's call): requests for the workloads that had none.** Same CPU rule; memory = 1.2 × the 30-day max, except the two Immich pods whose peaks sit far above their usual level (server p95 3970Mi / max 5167Mi, machine-learning p95 608Mi / max 1533Mi on model loads): those get 1.2 × p95, so the peaks run above the request instead of booking a third of a worker. No limits added. Covered: Immich (server, machine-learning, valkey), External Secrets (3), MetalLB (controller, speaker), Sealed Secrets, local-path-provisioner, the cert-manager webhook and cainjector, and Synology CSI (controller and node, through a Flux `postRenderers` patch because the chart has no resources values). About +8 GiB of worker memory requests (to about 57 % of allocatable; about 85 % on two workers after a node loss). Still without requests: Calico and the Tigera operator, which are K3s addon files moved only by `calico-upgrade.yml`. **Operator's decision (2026-10-05): leave Calico as is**; it is the cluster's core network and has had no resource problems.
 
-**Worker memory reservation (#193, same day).** Honest requests exposed a gap: allocatable equalled capacity on every worker, so the scheduler could book the 1.5–2 GiB the OS, K3s and Calico use. The workers now set `system-reserved=memory=1Gi`, `kube-reserved=memory=512Mi` and `eviction-hard=memory.available<500Mi` (disk thresholds restated) through `k3s_worker_kubelet_args` in `group_vars/k3s_worker.yml`; allocatable dropped from 16111084Ki to 14026220Ki per worker. The same PR fixed the worker config template, which notified a CP-only handler and so never restarted the agent ([`known-issues/k3s-lifecycle.md`](../known-issues/k3s-lifecycle.md)).
+**Worker memory reservation (#193, same day).** Honest requests exposed a gap: allocatable equalled capacity on every worker, so the scheduler could book the 1.5–2 GiB the OS, K3s and Calico use. The workers now set `system-reserved=memory=1Gi`, `kube-reserved=memory=512Mi` and `eviction-hard=memory.available<500Mi` (disk thresholds restated) through `k3s_worker_kubelet_args` in `group_vars/k3s_worker.yml`; allocatable dropped from 16111084Ki to 14026220Ki per worker. The same PR fixed the worker config template, which notified a CP-only handler and so never restarted the agent ([`known-issues/k3s-lifecycle.md`](../../known-issues/k3s-lifecycle.md)).
 
 **Rolled out and checked 2026-10-05:**
 
@@ -88,7 +88,7 @@ Left out on purpose: the NetBox pods (trimmed in 10i0 the same day); the VPA rec
   - recommender requests about 20m CPU / 128Mi, no CPU limit;
   - flags `--pod-recommendation-min-cpu-millicores=10` and `--pod-recommendation-min-memory-mb=32`. **The defaults (25m / 250 MiB) would floor every small pod at 250 MiB**, which is the opposite of the goal;
   - history from VPA's own checkpoints (`VerticalPodAutoscalerCheckpoint`, survives a restart). VPA's default memory histogram half-life is 24 h with an 8-day window, so its target follows recent use; the Toolbelt adds the 30-day peak on top (10i2).
-  - versions pinned at build time by the [`chart-bump`](../../.claude/agents/chart-bump.md) agent (images verified, VPA's supported Kubernetes range checked against K3s 1.36).
+  - versions pinned at build time by the [`chart-bump`](../../../.claude/agents/chart-bump.md) agent (images verified, VPA's supported Kubernetes range checked against K3s 1.36).
 - **`k8s/asgard/vpa-config/`**: one hand-written `VerticalPodAutoscaler` per controller, `updateMode: "Off"`:
 
   ```yaml
@@ -223,3 +223,9 @@ VPA updater or admission controller; autonomous apply or revert; HPA; resizing a
 - Pick the digest cadence (weekly is the default) and confirm the allow-list in `aiops/rightsizing.yml`.
 - Enable the `rightsizing` class after the 10i5 watch is live (a reviewed PR).
 - At build time: add `vpa-config` to CLAUDE.md's `<component>-config` list and a decisions row ("Workload rightsizing").
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: 🟡 10i0, 10i0b and 10i1 live 2026-10-05; 10i2 onward not built (10i2 waits for about 7 days of VPA history).

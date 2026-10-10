@@ -1,7 +1,7 @@
 # jellyfin
 
 Jellyfin media server in the **privileged** LXC 1123 on Urd, transcoding on the Intel iGPU (QuickSync) and never on the CPU.
-Plan and rationale: [`docs/operations/5h-jellyfin.md`](../../../docs/operations/5h-jellyfin.md). Playbook:
+Plan and rationale: [`docs/plans/active/5h-jellyfin.md`](../../../docs/plans/active/5h-jellyfin.md). Playbook:
 [`playbooks/asgard-jellyfin.yml`](../../playbooks/asgard-jellyfin.yml). Host side: [`proxmox-host`](../proxmox-host/) (`gpu.yml`).
 
 ## What it does

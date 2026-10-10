@@ -1,7 +1,7 @@
 # ansible/roles/aiops-burst-runner/defaults/main.yml
 #
 # The burst runner (Phase 10h) on Frigg: builds a throwaway burst cluster to test an agent-authored `k8s/` PR. Code: aiops/runner/burst_runner.py
-# (tests: aiops/tests/test_burst_runner.py). Design: docs/operations/10h-k8s-burst-test.md. Procedure + deploy order: docs/procedures/k8s-burst-test.md.
+# (tests: aiops/tests/test_burst_runner.py). Design: docs/plans/active/10h-k8s-burst-test.md. Procedure + deploy order: docs/procedures/k8s-burst-test.md.
 # Modelled on roles/aiops-rebuild-runner (same socket, same root credential loader on tmpfs); it additionally runs a PRIVATE ssh-agent for the
 # fleet key (roles/frigg-ssh-agent's loader, memory only) because the burst droplets are reached with the ansible_niflheim key.
 

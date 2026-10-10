@@ -2,7 +2,7 @@
 
 # n8n-agent
 
-n8n as the AIOps diagnosis agent on **Gná** (LXC 1121, Urd, `10.0.11.221`). Plan: [`docs/operations/10d-diagnosis-chatops.md`](../../../docs/operations/10d-diagnosis-chatops.md). Operate: [`docs/procedures/aiops-diagnosis.md`](../../../docs/procedures/aiops-diagnosis.md). Gotchas: [`docs/known-issues/n8n-aiops.md`](../../../docs/known-issues/n8n-aiops.md).
+n8n as the AIOps diagnosis agent on **Gná** (LXC 1121, Urd, `10.0.11.221`). Plan: [`docs/plans/done/10d-diagnosis-chatops.md`](../../../docs/plans/done/10d-diagnosis-chatops.md). Operate: [`docs/procedures/aiops-diagnosis.md`](../../../docs/procedures/aiops-diagnosis.md). Gotchas: [`docs/known-issues/n8n-aiops.md`](../../../docs/known-issues/n8n-aiops.md).
 
 Native systemd, no container: a pinned official Node tarball + a pinned `n8n` npm release under an unprivileged `n8n` user, loopback listener only. [`caddy-reverse-proxy`](../caddy-reverse-proxy/) is the only off-host surface (`:8081`, IP-allowlisted, `/webhook/*` only; see `group_vars/n8n_agent.yml`).
 

@@ -1,6 +1,6 @@
 # ansible/playbooks/asgard-jellyfin.yml
 ---
-# Jellyfin - media server with Intel QuickSync, privileged LXC 1123 on Urd (Phase 5h, docs/operations/5h-jellyfin.md).
+# Jellyfin - media server with Intel QuickSync, privileged LXC 1123 on Urd (Phase 5h, docs/plans/active/5h-jellyfin.md).
 #
 # Bootstrap (day 1, before the `ansible` user exists):
 #     ansible-playbook playbooks/asgard-jellyfin.yml -e 'ansible_user=root' --tags baseline

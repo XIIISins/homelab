@@ -80,13 +80,13 @@ Output is "I checked these; here's what I found", not clarifying questions. "Ski
 
 ### Post-flight — after work lands
 1. **Update docs** — each piece has one home:
-   - [`build-sequence.md`](docs/operations/build-sequence.md): tick the phase, add emergent sub-phases (one concise row per phase).
+   - [`build-sequence.md`](docs/operations/build-sequence.md): tick the phase, add emergent sub-phases (one concise row per phase); it is the only status record. Plans ([`docs/plans/`](docs/plans/README.md)) carry no status headline: finished plan → `git mv` to `done/`, update the index row.
    - [`decisions.md`](docs/operations/decisions.md): rows for new architectural decisions.
    - [`incidents/`](docs/incidents/): non-trivial work (several findings, surprises, recovery) → `YYYY-MM-DD-<slug>.md` + a row in `incidents/README.md`.
-   - [`open-questions.md`](docs/operations/open-questions.md): close done items, add new ones.
+   - [`open-questions.md`](docs/operations/open-questions.md): add new items; a closed item moves verbatim to [`open-questions-archive.md`](docs/operations/open-questions-archive.md) (the live file holds open work only).
    - [`known-issues/`](docs/known-issues/): new gotchas (rule, Why, symptom/diagnostic, recovery) in the matching subject file; a new subject needs a new file + a row in `known-issues/README.md`. **Gotcha text never goes in this file.**
    - This file: update invariants/reference only if something moved or was resized. Status never goes here (it lives in `build-sequence.md`). Narrative never goes here.
-   - **Instruction docs stay lean** (this file, `.claude/agents/*.md`): check `wc -c CLAUDE.md .claude/agents/*.md` after editing; if a file grew, compact it in the same PR. Budget: CLAUDE.md ≤ 26 KB (~190 lines), agent prompts ≤ their current size. *Move, don't delete*: push detail to the owning doc and leave a pointer; no dates, IPs or history that a linked doc already holds; tighten wording before adding bullets.
+   - **Instruction docs stay lean** (this file, `.claude/agents/*.md`): check `wc -c CLAUDE.md .claude/agents/*.md` after editing; if a file grew, compact it in the same PR. Budget: CLAUDE.md ≤ 26.5 KB (~190 lines), agent prompts ≤ their current size. *Move, don't delete*: push detail to the owning doc and leave a pointer; no dates, IPs or history that a linked doc already holds; tighten wording before adding bullets.
    - [`architecture/`](docs/architecture/), [`services/`](docs/services/), code-adjacent READMEs: update if scope shifted.
 2. **Cross-reference**: a gotcha stemming from a decision links to the `decisions.md` row and vice versa (CI checks relative links: `.github/scripts/ci-doc-links.py`).
 3. **Commit** with a conventional-commit subject (reference the phase) and no attribution trailers; docs and code in separate commits where practical.
@@ -132,6 +132,7 @@ Re-read a file before editing; the owner edits between turns. If an edit doesn't
 |---|---|
 | What something is and why | `docs/architecture/`, `docs/services/` |
 | Step-by-step operations (composable) | `docs/procedures/` |
+| Build plans (design, steps, as-built); state only in its index | `docs/plans/{active,done,deferred}/` ([`README.md`](docs/plans/README.md)) |
 | Incident retrospectives | `docs/incidents/` |
 | Gotchas | `docs/known-issues/` (one file per subject) |
 | How a role/module works and is used (brief) | its own `README.md` |
@@ -149,7 +150,7 @@ Fan out `Agent` calls in **one message** for independent work: per-source resear
 - **`terraform apply`: main checkout only** (plan and HCL edits from worktrees are fine).
 - **`kubectl apply` never**; use `flux reconcile …` to nudge. Manifests land via git.
 - **`ansible-playbook`: one at a time across all agents** (SSH MaxAuthTries, package locks, handler restarts). Ask first if another agent may be mid-playbook.
-- **Chart / platform upgrades: use the `chart-bump` agent** ([`.claude/agents/chart-bump.md`](.claude/agents/chart-bump.md), helpers in `.claude/scripts/chart-bump/`). K3s minors go through [`k3s-upgrade.yml`](ansible/playbooks/k3s-upgrade.yml) ([procedure](docs/procedures/k3s-upgrade.md)); wave status in [`chart-bumps-2026-09.md`](docs/operations/chart-bumps-2026-09.md).
+- **Chart / platform upgrades: use the `chart-bump` agent** ([`.claude/agents/chart-bump.md`](.claude/agents/chart-bump.md), helpers in `.claude/scripts/chart-bump/`). K3s minors go through [`k3s-upgrade.yml`](ansible/playbooks/k3s-upgrade.yml) ([procedure](docs/procedures/k3s-upgrade.md)); wave status in [`chart-bumps-2026-09.md`](docs/plans/active/chart-bumps-2026-09.md).
 
 ---
 
@@ -162,7 +163,7 @@ Detail: [`docs/services/asgard-k3s.md`](docs/services/asgard-k3s.md), [`k3s-life
 - ⚠️ **Workers are multi-homed**; the four landmine fixes in `roles/k3s/tasks/network.yml` (Calico CIDR pin `10.0.21.0/24`, `rp_filter=2`, `route_localnet=1`, VLAN 20 policy routing) must never be hardened away.
 
 ## Build status
-Not tracked here. Current state, what's left and what's deferred: "What's left" in [`build-sequence.md`](docs/operations/build-sequence.md); open items: [`open-questions.md`](docs/operations/open-questions.md); Phase 10: [`aiops-roadmap.md`](docs/operations/aiops-roadmap.md). Dropped/reserved: Jotunheim (invariants above).
+Not tracked here. Current state, what's left and what's deferred: "What's left" in [`build-sequence.md`](docs/operations/build-sequence.md); open items: [`open-questions.md`](docs/operations/open-questions.md); Phase 10: [`aiops-roadmap.md`](docs/plans/active/aiops-roadmap.md). Dropped/reserved: Jotunheim (invariants above).
 
 ## Known gotchas
 

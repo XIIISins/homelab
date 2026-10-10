@@ -293,7 +293,7 @@ def check_autonomy(reg: dict, rb_doc: dict) -> list[str]:
     return errs
 
 
-# 10g hard limits, pinned here so a PR cannot quietly drop one from the deny list (docs/operations/10g-rebuild-loop.md).
+# 10g hard limits, pinned here so a PR cannot quietly drop one from the deny list (docs/plans/active/10g-rebuild-loop.md).
 REBUILD_DENY_NAMES = {"saga", "fulla", "vor", "idunn", "hlin", "eir", "snotra", "hugin", "factorio", "gna", "ratatoskr", "frigg",
                       "gondul", "hlokk", "sigrun", "pbs"}
 REBUILD_DENY_VMIDS = {1101, 1102, 1110, 1120, 1121, 1122, 1130, 1131, 1132, 1133, 1134, 1135, 2001, 2002, 2003, 2900}

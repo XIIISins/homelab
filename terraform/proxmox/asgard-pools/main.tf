@@ -1,6 +1,6 @@
 # terraform/proxmox/asgard-pools/main.tf
 #
-# Phase 10g: a Proxmox-enforced boundary for the rebuild runner (docs/operations/10g-rebuild-loop.md, "PVE-side least
+# Phase 10g: a Proxmox-enforced boundary for the rebuild runner (docs/plans/active/10g-rebuild-loop.md, "PVE-side least
 # privilege"; docs/procedures/aiops-rebuild.md). The runner re-creates canary LXCs with Terraform. Whatever software
 # checks exist around it, its PVE API token must be UNABLE to touch anything else: so the token's user has write
 # privileges on ONE resource pool and nothing on `/`.

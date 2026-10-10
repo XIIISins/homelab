@@ -1,4 +1,4 @@
-"""10h burst-cluster test for `k8s/` PRs, slice 1: the pure planning logic (design: docs/operations/10h-k8s-burst-test.md).
+"""10h burst-cluster test for `k8s/` PRs, slice 1: the pure planning logic (design: docs/plans/active/10h-k8s-burst-test.md).
 
 No network, no subprocess, no Kubernetes. Given a checkout of the repo (or a tree of YAML) it answers:
 

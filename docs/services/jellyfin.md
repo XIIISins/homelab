@@ -2,7 +2,7 @@
 
 # Jellyfin (LXC 1123, built 2026-10-06)
 
-Media server with Intel QuickSync transcoding. A privileged LXC on Urd, outside K3s, because it needs `/dev/dri`. Plan and build log: [`5h-jellyfin.md`](../operations/5h-jellyfin.md). The library is fed by Sonarr and SABnzbd, see [`media-automation.md`](media-automation.md). Gotchas: [`known-issues/jellyfin.md`](../known-issues/jellyfin.md).
+Media server with Intel QuickSync transcoding. A privileged LXC on Urd, outside K3s, because it needs `/dev/dri`. Plan and build log: [`5h-jellyfin.md`](../plans/active/5h-jellyfin.md). The library is fed by Sonarr and SABnzbd, see [`media-automation.md`](media-automation.md). Gotchas: [`known-issues/jellyfin.md`](../known-issues/jellyfin.md).
 
 | Item | Value |
 |---|---|

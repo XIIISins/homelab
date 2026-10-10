@@ -9,7 +9,7 @@
 # Policy is the single read on the snapshot endpoint — it cannot read KV,
 # touch auth methods, or generate-root. (Vault 2.x note: this endpoint is
 # unaffected by the generate-root/rekey authentication change, see
-# docs/operations/vault-2x-assessment.md.)
+# docs/plans/deferred/vault-2x-assessment.md.)
 #
 # The S3 write credential the Job uploads with is NOT here: it is minted by
 # terraform/aws (IAM user homelab-backup-writer) and placed at

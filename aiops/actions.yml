@@ -123,7 +123,7 @@ soak:
   ends: '2026-10-31' # the scheduler stops after this UTC date; extending it is a reviewed PR
 
 # ---- Phase 10g: fleet rebuild loop (POLICY DATA ONLY; the engine, runner and playbooks are not built) -----------------
-# docs/operations/10g-rebuild-loop.md. Same rule as `autonomy`: this is the SCOPE a reviewed PR can widen. The pure
+# docs/plans/active/10g-rebuild-loop.md. Same rule as `autonomy`: this is the SCOPE a reviewed PR can widen. The pure
 # decisions that read it live in toolbelt/rebuild.py; nothing here runs yet, every policy is disabled and the five
 # actions below are `applied: false`. The runtime master switch `autonomy_rebuild` is separate from 10f's `autonomy`
 # and is OFF after every deploy and every Toolbelt database reset.
@@ -544,7 +544,7 @@ actions:
         changed: 0
     rollback: A canary is disposable; if the test leaves it wrong, rebuild it (10g stage A). Nothing else was touched.
 
-  # 10h: prove an agent PR that changes ONE app under k8s/asgard/apps/ on a throwaway burst cluster (docs/operations/10h-k8s-burst-test.md). The Toolbelt
+  # 10h: prove an agent PR that changes ONE app under k8s/asgard/apps/ on a throwaway burst cluster (docs/plans/active/10h-k8s-burst-test.md). The Toolbelt
   # proposes it itself for a PR it has inspected on GitHub (guard.pr_scope kind k8s), the operator approves the card, and the BURST RUNNER on Frigg
   # (aiops/runner/burst_runner.py: a root-loaded service with its own Vault identity and a socket) builds the cluster, tests the PR's manifests and tears
   # the cluster down. No Semaphore template exists or is needed (runner_only); `applied` flips to true by PR once the runner is deployed.

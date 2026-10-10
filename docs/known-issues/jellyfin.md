@@ -2,7 +2,7 @@
 
 # Jellyfin (LXC 1123) gotchas
 
-Read before touching the Jellyfin role, its LXC or its media mount. Service page: [`../services/jellyfin.md`](../services/jellyfin.md). Plan: [`../operations/5h-jellyfin.md`](../operations/5h-jellyfin.md).
+Read before touching the Jellyfin role, its LXC or its media mount. Service page: [`../services/jellyfin.md`](../services/jellyfin.md). Plan: [`plans/active/5h-jellyfin.md`](../plans/active/5h-jellyfin.md).
 
 - **A passed-through device keeps its host group id, and low gids collide with the container's own groups (found 2026-10-06).** The render node arrives in the LXC as `crw-rw---- root <gid>`. Debian 13's LXC template has `kvm`=993 and `render`=992, so a `device_passthrough { gid = 993 }` made the node group `kvm`, not `render`. Rule: give the device its own gid (2001, group `igpu`, `jellyfin_gpu_gid`) in Terraform and create the matching group in the role; the role's preflight asserts the node is a char device with that gid (`stat.gid`, not `gr_gid`). A gid change in Terraform restarts the container.
 - **`apt` needs a fresh index right after adding the Jellyfin repo (found 2026-10-06).** "No package matching jellyfin-server" on the first run. The role refreshes the index when the repo task changed or `apt-cache policy jellyfin-server` has no candidate. It also installs `curl` first, which the minimal template lacks.

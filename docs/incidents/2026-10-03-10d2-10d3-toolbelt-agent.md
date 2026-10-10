@@ -2,7 +2,7 @@
 
 # 2026-10-02/03 — Phase 10d2/10d3: Zabbix → n8n, the Toolbelt API and the diagnosis agent: findings
 
-*Not an outage: a retrospective on building and bringing live the diagnosis path (Zabbix media type → Toolbelt API on Frigg → n8n agent → `#diagnoses`). Plan: [`10d-diagnosis-chatops.md`](../operations/10d-diagnosis-chatops.md); procedure: [`procedures/aiops-diagnosis.md`](../procedures/aiops-diagnosis.md); open items: [`open-questions.md`](../operations/open-questions.md).*
+*Not an outage: a retrospective on building and bringing live the diagnosis path (Zabbix media type → Toolbelt API on Frigg → n8n agent → `#diagnoses`). Plan: [`10d-diagnosis-chatops.md`](../plans/done/10d-diagnosis-chatops.md); procedure: [`procedures/aiops-diagnosis.md`](../procedures/aiops-diagnosis.md); open items: [`open-questions.md`](../operations/open-questions.md).*
 
 ## What happened
 

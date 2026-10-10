@@ -1,8 +1,8 @@
-<!-- docs/operations/10g-rebuild-loop.md -->
+<!-- docs/plans/active/10g-rebuild-loop.md -->
 
 # Phase 10g — Fleet rebuild loop: plan
 
-*Drafted 2026-10-03. Status: **pure logic built (10g1, unit-tested), nothing deployed**: the eligibility rules, the plan checker, the worker data manifest and the registry `rebuild:` section exist as code and tests; the engine `steps`/`backend` support, flag, breaker and bot cards are built (10g2, faked in tests, see "As built"), but the rebuild runner, the Terraform pool and token, the playbooks and Semaphore templates, the runbooks and the bot cards are **not built** (see "As built so far"). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../procedures/teardown-rebuild.md) (Appendix B, single worker).*
+*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../../procedures/teardown-rebuild.md) (Appendix B, single worker).*
 
 ---
 
@@ -51,7 +51,7 @@ Pre-flight, shown on the approval card (the card is the data-loss manifest, so t
 
 - all other nodes Ready, etcd 3/3, no other drain or upgrade in flight, `maintenance` off;
 - **local-path PV manifest** for the node (`kubectl get pv` with node affinity): each PV tagged *replicated* (Vault Raft member) or *single-instance* (the only copy dies with the node). Single-instance PVs with no PBS backup of the worker `/data` disk in the last 24 h **block** the proposal;
-- iSCSI PVCs attached to the node are listed (they detach cleanly; a stale session elsewhere is the known failure, see [`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md));
+- iSCSI PVCs attached to the node are listed (they detach cleanly; a stale session elsewhere is the known failure, see [`storage-iscsi-synology.md`](../../known-issues/storage-iscsi-synology.md));
 - Vault: unsealed, 3 peers; if the target hosts the Raft leader, **step down first** (needs a narrow identity, see "What is missing").
 
 Then: cordon + drain (timeout-bounded; Vault's required anti-affinity leaves the displaced pod Pending by design, 2/3 voters for ~25 min is accepted, see decisions "Stateful worker rebuild") → backup gate re-checked → `rebuild-plan` / `rebuild-apply` on the single VM address (`reboot_after_update` is already false on workers) → `kubectl delete node <name>` (drops the stale node object and the K3s node-password secret that would otherwise reject the new agent) → `rebuild-converge` = Day-1 baseline as root, then `asgard-k3s.yml --limit <name>` (the `k3s` role joins it; `local-path-disk` formats the fresh 50 GB `/data`) → uncordon → verify: node Ready, Calico pod Running on it, Vault 3/3 voters after the Pending pod reschedules, no PVC Pending, all HelmReleases Ready, local-path-provisioner serving, the originating alert cleared. Timing reference: the manual run on 2026-05-22 took ~25 min.
@@ -131,7 +131,7 @@ The runner never receives free-form commands: only class, target and plan id. Th
 
 Assumptions about slice C's playbooks: `aiops-rebuild-converge` reads `class`, `converge` (the class's play name), `target` and the task `limit`, and ends with `AIOPS_RESULT {ok}`; `aiops-rebuild-verify` returns `checks` (one boolean per class post-condition); `aiops-rebuild-worker` takes a `phase` var (`drain` before the apply; `converge`, which deletes the node object, joins and uncordons, after it). Still not built in 10g2: the runner, drain/uncordon logic, PBS last-chance backup (a read tool and an on-demand job), the worker manifest source (`kubectl get pv` is not on the read-tool allow-list), a VRRP-master read, wiring `runner_socket` and the probe cadence in `core.py` / `server.py` (the Engine builds a `RunnerClient` and `ReaderFacts` itself when given a socket path and a reader), and flipping any `applied` or policy flag.
 
-**Slice B (runner and its infrastructure, code only, not deployed):** the rebuild runner (`aiops/runner/rebuild_runner.py`, fake-terraform tests), the PVE pool + pool-scoped token plan code (`terraform/proxmox/asgard-pools/`, canaries get `pool_id`), the runner's Vault policy + AppRole (`terraform/vault/rebuild-runner.tf`) and the Ansible role + playbook (`aiops-rebuild-runner`, `asgard-rebuild-runner.yml`). Deploy order, threat model and acceptance: [`procedures/aiops-rebuild.md`](../procedures/aiops-rebuild.md).
+**Slice B (runner and its infrastructure, code only, not deployed):** the rebuild runner (`aiops/runner/rebuild_runner.py`, fake-terraform tests), the PVE pool + pool-scoped token plan code (`terraform/proxmox/asgard-pools/`, canaries get `pool_id`), the runner's Vault policy + AppRole (`terraform/vault/rebuild-runner.tf`) and the Ansible role + playbook (`aiops-rebuild-runner`, `asgard-rebuild-runner.yml`). Deploy order, threat model and acceptance: [`procedures/aiops-rebuild.md`](../../procedures/aiops-rebuild.md).
 
 ## As built: slice C (playbooks, detection, harness; code only, nothing applied)
 
@@ -216,8 +216,8 @@ PVE-side least privilege: the token's role is the minimum Terraform needs to cre
 | Prerequisite | State on 2026-10-03 | Gates |
 |---|---|---|
 | 10f soak passed (14 days, injected-fault matrix, zero flapping) | code complete, deploy + soak pending | stage A (autonomy) |
-| Offsite-backup **restore drill** on a burst K3s ([`burst-substrate.md`](../procedures/burst-substrate.md)) | substrate live and smoke-tested 2026-10-02; **drill not run** | stage C and the 10g3 gate |
-| **PBS restore of an LXC and of a canary**, scheduled via Semaphore ([`open-questions.md`](open-questions.md)) | not built | stage B (the undo path) |
+| Offsite-backup **restore drill** on a burst K3s ([`burst-substrate.md`](../../procedures/burst-substrate.md)) | substrate live and smoke-tested 2026-10-02; **drill not run** | stage C and the 10g3 gate |
+| **PBS restore of an LXC and of a canary**, scheduled via Semaphore ([`open-questions.md`](../../operations/open-questions.md)) | not built | stage B (the undo path) |
 | ~~PBS datastore capacity~~ | dropped as a prerequisite 2026-10-10 (67 %; the large consumers aged out) | the forecast note and the Zabbix disk triggers still cover it |
 | Skuld watchdog proven or Skuld de-risked | `iTCO_wdt` canary only | not a gate for canaries (Urd); the node-health guard handles Skuld guests (`kvasir`, `einherjar-skuld`) |
 | Worker data inventory (which local-path PVs are single-instance) | not written down | stage C pre-flight |
@@ -240,7 +240,7 @@ PVE-side least privilege: the token's role is the minimum Terraform needs to cre
 
 ## Test plan (canaries first, then replicas)
 
-All fault injection stays inside the rules in [`canary-pool.md`](../procedures/canary-pool.md) ("Fault injection: stay scoped to `canary-*`"): only VMIDs 1190-1192, never a group or glob, never anything host-global.
+All fault injection stays inside the rules in [`canary-pool.md`](../../procedures/canary-pool.md) ("Fault injection: stay scoped to `canary-*`"): only VMIDs 1190-1192, never a group or glob, never anything host-global.
 
 1. **Plan only (T0).** Propose `rebuild-plan canary-2`: the card shows exactly one `replace`, identity unchanged. Then the negative set, each must be refused with its own reason: `saga`, `vor`, `gondul`, `pbs`/VMID 1101, a name not in any class. A plan with two changes, or a changed identity attribute, is proven in unit tests against recorded plan fixtures (the live runner only ever plans from `main`, so it cannot be fed a bad plan on purpose).
 2. **Approval-gated rebuild.** Approve a `rebuild-guest canary-2`; record per-step durations (estimate to confirm: LXC create ~1-2 min, converge ~4-6 min, total under ~10 min); verify passes; Zabbix and VictoriaLogs show the new guest; NetBox unchanged.
@@ -287,7 +287,7 @@ From the roadmap: a deliberately killed **canary** and a **replica LXC** are reb
 3. Mint the PVE API token and mirror new secrets to 1Password (the mint scripts keep values out of the transcript; the 1P mirror is the operator's).
 4. UCG: verify Frigg -> PVE API reach for the runner's uid (expected to exist; the Toolbelt already reads the PVE API from Frigg); add rules only if a new egress (DO API, S3) is blocked.
 5. Hardware/host: none for canaries; Skuld de-risking stays an operator item.
-6. Decisions listed in [`open-questions.md`](open-questions.md) (Tailscale root-ticket, worker auto-rebuild gate N, Zabbix maintenance windows).
+6. Decisions listed in [`open-questions.md`](../../operations/open-questions.md) (Tailscale root-ticket, worker auto-rebuild gate N, Zabbix maintenance windows).
 
 ## Integration (engine + runner + playbooks, 2026-10-03)
 
@@ -299,7 +299,7 @@ Applied from the operator's local `main` (plan reviewed first, each plan purely 
 
 **Verified live:** a `plan` for `canary-3` through the real runner (pool-scoped PVE token, narrow state identity) returns a valid single `replace` of exactly that container with its identity unchanged and no problems; nothing was applied.
 
-**Found applying it:** `pool_id` forces replacement of an LXC and is never read back by the provider, so the first plan wanted to destroy all three canaries; the existing canaries were added to the pool with `pvesh set /pools/aiops-canary --vms ...` and `pool_id` is in the resource's `lifecycle.ignore_changes` ([known-issues/lxc-proxmox.md](../known-issues/lxc-proxmox.md)).
+**Found applying it:** `pool_id` forces replacement of an LXC and is never read back by the provider, so the first plan wanted to destroy all three canaries; the existing canaries were added to the pool with `pvesh set /pools/aiops-canary --vms ...` and `pool_id` is in the resource's `lifecycle.ignore_changes` ([known-issues/lxc-proxmox.md](../../known-issues/lxc-proxmox.md)).
 
 **Next, in order:** (1) flip `start-guest`, `rebuild-guest` and `rebuild-verify` to `applied: true` (`rebuild-plan` stays planned: it runs on the runner, not Semaphore), approval-gated only; (2) kill `canary-3` with `scripts/canary/fault kill` and walk the diagnosis, the card, the approval, the rebuild and the verify; (3) a separate PR to enable the autonomous canary policy and `autonomy_rebuild`; (4) the replica stage only after the matrix and soak for stage A. The apply-path question (the runner is the one place Terraform runs unattended, on a clean `main` checkout with a pool-scoped token) is recorded as a decision below.
 
@@ -310,3 +310,9 @@ Applied from the operator's local `main` (plan reviewed first, each plan purely 
 **Test-harness notes.** (1) `pct destroy` removes the per-VMID ACL on `/vms/<vmid>`, so after a deliberate destroy the plan 403s until `terraform apply` in `terraform/proxmox/asgard-pools` recreates it (a genuinely dead guest keeps its ACL, so only the test destroy needs this). (2) Frigg's systemd-resolved, fed the fleet pair AdGuard VIP + UCG fallback, can stick to the UCG after a blip, and the UCG does not know `*.niflheim` names: the Toolbelt then fails with `semaphore unreachable: URLError`. `systemctl restart systemd-resolved` clears it; the durable fix is open (see open-questions). (3) The rate limits (class and per-target per day) count test applies; the test reset only clears `apply_started_at` on the test rows.
 
 **Still off:** the autonomous canary policy and `autonomy_rebuild` (the next PR, after the 10f soak read), the replica stage and `rebuild-worker`.
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: **pure logic built (10g1, unit-tested), nothing deployed**: the eligibility rules, the plan checker, the worker data manifest and the registry `rebuild:` section exist as code and tests; the engine `steps`/`backend` support, flag, breaker and bot cards are built (10g2, faked in tests, see "As built"), but the rebuild runner, the Terraform pool and token, the playbooks and Semaphore templates, the runbooks and the bot cards are **not built** (see "As built so far").

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The burst runner (Phase 10h): the only place a burst cluster is built unattended, to test an agent-authored `k8s/` PR.
 
-Design: docs/operations/10h-k8s-burst-test.md. Procedure: docs/procedures/k8s-burst-test.md. Tests: aiops/tests/test_burst_runner.py.
+Design: docs/plans/active/10h-k8s-burst-test.md. Procedure: docs/procedures/k8s-burst-test.md. Tests: aiops/tests/test_burst_runner.py.
 Client: aiops/toolbelt/burst_exec.py (the Toolbelt's `pr-burst-test` step). Same shape as the rebuild runner and it reuses that module's socket server.
 
 A tiny server on a unix socket. One JSON line in, one line out, and it never receives a command: only a branch, a commit and an app name (`test`).

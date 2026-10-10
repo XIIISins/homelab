@@ -21,7 +21,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 | Folder | Protocol | Purpose |
 |--------|----------|---------|
-| `media` | NFS+SMB | Movies, TV. **Live export (2026-10-05): `10.0.254.20:/volume5/media-backup`**, consumed read-only by Jellyfin (LXC 1123, [plan](../operations/5h-jellyfin.md)) |
+| `media` | NFS+SMB | Movies, TV. **Live export (2026-10-05): `10.0.254.20:/volume5/media-backup`**, consumed read-only by Jellyfin (LXC 1123, [plan](../plans/active/5h-jellyfin.md)) |
 | `manga` | NFS+SMB | Manga — Komga |
 | `downloads` | NFS | sabnzbd landing zone |
 | `immich` | NFS | Not a separate folder — Immich's library is a PVC on the existing `k8s-nfs` share/`nfs-client` StorageClass (same as MicroBin), deployed 2026-09-03. See [`services/immich.md`](immich.md). |

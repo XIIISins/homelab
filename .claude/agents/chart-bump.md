@@ -24,7 +24,7 @@ Helper scripts (read-only, in `.claude/scripts/chart-bump/`; they keep state in 
 1. `inventory.sh --live` and `platform.sh` → the candidate list. Also `flux get hr -A`, `kubectl get nodes`, pods not Running.
 2. For each candidate, before anything else:
    - Read the matching `docs/known-issues/<subject>.md` (index in CLAUDE.md) and grep `docs/operations/open-questions.md` + `decisions.md`. Treat pending tasks as prerequisites.
-   - **Read the real upstream release notes** between pinned and target — don't trust secondary summaries (including `docs/operations/chart-bumps-2026-09.md`, which was partly wrong). GitHub API (`/releases/tags/<tag>`, `/releases?per_page=100` filtered for `breaking|deprecat|removed|must`), raw `CHANGELOG.md` / `website/docs/releases/...` files. For each breaking item ask "do WE use this?" and grep the repo/cluster to prove it.
+   - **Read the real upstream release notes** between pinned and target — don't trust secondary summaries (including `docs/plans/active/chart-bumps-2026-09.md`, which was partly wrong). GitHub API (`/releases/tags/<tag>`, `/releases?per_page=100` filtered for `breaking|deprecat|removed|must`), raw `CHANGELOG.md` / `website/docs/releases/...` files. For each breaking item ask "do WE use this?" and grep the repo/cluster to prove it.
    - Compare live values to repo (`helm -n <ns> get values <rel>`): drift means the repo file isn't the truth.
 3. Capture a baseline you can compare after: pods, HR status, `terraform plan` (no changes?) for any coupled module (`-parallelism=1` for netbox), endpoint status codes.
 
@@ -53,7 +53,7 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 4. Push the `feat/` branch and open a PR (`main` rejects direct pushes and requires the `CI gate`; the pre-push hook runs gitleaks). **Merging the PR IS the K8s deploy**: merge or enable auto-merge only when the owner authorised deploys (as in a bump-wave request), otherwise leave it for the operator. `terraform/`, `ansible/`, `k8s/` PRs get a diff review first. Never force-push.
 5. After the merge, `flux reconcile kustomization <infrastructure|apps> --with-source`, then watch: `kubectl get hr`, pods, events. No `kubectl apply`. Stuck after a timeout → `flux reconcile hr <name> --force` / `--reset`; a bad bump → revert via a new PR (break-glass admin bypass only if the cluster is down), then fix any wedged StatefulSet pod.
 6. **Test what the change actually touches** (below). Write results down with numbers, not "looks fine".
-7. Docs (post-flight): progress in `docs/operations/chart-bumps-2026-09.md`-style log, gotchas into `docs/known-issues/<subject>.md`, decisions row if architectural, tick `open-questions.md`.
+7. Docs (post-flight): progress in `docs/plans/active/chart-bumps-2026-09.md`-style log, gotchas into `docs/known-issues/<subject>.md`, decisions row if architectural, tick `open-questions.md`.
 8. **CI cache check — whenever the bump touches a CI-cached pin** (`ansible/requirements.yml` collections, `.github/ci-requirements.txt` ansible-core/ansible-lint/yamllint, a Terraform provider/`required_providers` in a module, a tool `*_URL`/`*_SHA` in `ci.yml`, or a chart whose CRD schema kubeconform needs → bump `KUBECONFORM_SCHEMA_EPOCH`): follow [`docs/procedures/ci.md`](../../docs/procedures/ci.md#cache-keys--bump-checklist) — the PR's first CI run is an expected cold miss; confirm the cache was *saved*, then confirm a second run *hits* and skips the install. Record the result in the bump log.
 
 ### Targeted tests (pick what the item changes)

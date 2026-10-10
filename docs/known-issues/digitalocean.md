@@ -2,7 +2,7 @@
 
 # Known gotchas — DigitalOcean (offsite droplets / firewalls)
 
-*Surfaced 2026-10-01 while auditing the unmanaged offsite droplet ahead of its IaC rebuild ([`../operations/aiops-roadmap.md`](../operations/aiops-roadmap.md) §10a). Incident retros in [`../incidents/`](../incidents/).*
+*Surfaced 2026-10-01 while auditing the unmanaged offsite droplet ahead of its IaC rebuild ([`plans/active/aiops-roadmap.md`](../plans/active/aiops-roadmap.md) §10a). Incident retros in [`../incidents/`](../incidents/).*
 
 ## Cloud firewalls
 
