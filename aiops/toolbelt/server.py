@@ -179,6 +179,12 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("POST", re.compile(rf"^/forecasts/{_ID}/label$"), only_appr, self._h_fc_label),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/message$"), only_appr, self._h_fc_message),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/draft$"), only_appr, self._h_fc_draft),
+                ("GET", re.compile(r"^/rightsizing/status$"), only_appr, lambda m, q: tb.rs_call("status")),
+                ("POST", re.compile(r"^/rightsizing/digest/tick$"), only_appr, lambda m, q: tb.rs_call("tick")),
+                ("POST", re.compile(r"^/rightsizing/digest$"), only_appr, self._h_rs_now),
+                ("POST", re.compile(r"^/rightsizing/cadence$"), only_appr, self._h_rs_cadence),
+                ("GET", re.compile(rf"^/rightsizing/digest/{_ID}$"), only_appr, lambda m, q: tb.rs_call("get", int(m.group(1)))),
+                ("POST", re.compile(rf"^/rightsizing/digest/{_ID}/message$"), only_appr, self._h_rs_message),
                 ("POST", re.compile(r"^/change-requests/claim$"), (AUTHOR,), lambda m, q: self._cr().claim()),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/report$"), (AUTHOR,), self._h_cr_report),
                 ("POST", re.compile(rf"^/change-requests/{_ID}/pr-test$"), (AUTHOR,), lambda m, q: self._cr().retest(int(m.group(1)))),
@@ -242,6 +248,21 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
             if kind is not None and not re.fullmatch(r"[a-z-]{1,30}", kind):
                 raise core.Rejected(400, "bad kind")
             return {"forecasts": self._fc().list(tuple(s for s in raw.split(",") if s) or ("open",), kind)}
+
+        def _h_rs_now(self, m, q):
+            by = self._obj().get("by")
+            return tb.rs_call("build_now", str(by or ""), by=by)
+
+        def _h_rs_cadence(self, m, q):
+            b = self._obj()
+            return tb.rs_call("set_cadence", str(b.get("cadence") or ""), str(b.get("by") or ""), by=b.get("by"))
+
+        def _h_rs_message(self, m, q):
+            b = self._obj()
+            ref = b.get("message_ref")
+            if not isinstance(ref, str) or not ref:
+                raise core.Rejected(400, "need message_ref")
+            return tb.rs_call("set_message", int(m.group(1)), ref, str(b.get("thread_id") or ""))
 
         def _h_fc_label(self, m, q):
             b = self._obj()

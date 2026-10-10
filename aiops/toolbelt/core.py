@@ -47,6 +47,8 @@ import incident_draft  # noqa: E402
 import change_requests  # noqa: E402
 import forecast_store  # noqa: E402
 import capacity_draft  # noqa: E402
+import rightsizing  # noqa: E402
+import rightsizing_digest  # noqa: E402
 import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
@@ -202,6 +204,8 @@ class Toolbelt:
             self.engine = actions.Engine(self.db, self._lock, self.clock, self.audit, registry, cfg.actions, self._bump, self._counter)
         self.cr: change_requests.ChangeRequests | None = None
         self.fc: forecast_store.Forecasts | None = None
+        self.rs: rightsizing_digest.Digests | None = None
+        self._rs_cfg_cache: tuple[float, dict] | None = None
         self._fc_mtime = 0.0
         if self.engine is not None and cfg.change_requests is not None:
             self.cr = change_requests.ChangeRequests(self.engine, cfg.change_requests)
@@ -211,6 +215,8 @@ class Toolbelt:
             threading.Thread(target=self._incident_sweep_loop, daemon=True, name="incident-sweep").start()
         if cfg.forecast_file is not None:
             self.fc = forecast_store.Forecasts(self.db, self._lock, self.clock, self.audit, cfg.forecast)
+            self.fc.decorate = self._rs_decorate
+            self.rs = rightsizing_digest.Digests(self.db, self._lock, self.clock, self.audit, self.fc, self._read_forecast_file, self._rs_config)
             self.ingest_forecasts()
             threading.Thread(target=self._forecast_loop, daemon=True, name="forecast-ingest").start()
 
@@ -686,6 +692,65 @@ class Toolbelt:
         while True:
             time.sleep(self.cfg.forecast_poll_seconds)
             self.ingest_forecasts()
+
+    # ---- 10i3: the rightsizing digest ---------------------------------------------------------------------------------
+    def _read_forecast_file(self) -> dict | None:
+        try:
+            return json.loads(self.cfg.forecast_file.read_text()) if self.cfg.forecast_file else None
+        except (OSError, ValueError):
+            return None
+
+    def _rs_config(self) -> dict:
+        """aiops/rightsizing.yml, re-read when its mtime changes (a deploy replaces it)."""
+        p = REPO / "aiops" / "rightsizing.yml"
+        mt = p.stat().st_mtime
+        if self._rs_cfg_cache is None or self._rs_cfg_cache[0] != mt:
+            self._rs_cfg_cache = (mt, rightsizing.load_config(p))
+        return self._rs_cfg_cache[1]
+
+    def _rs_decorate(self, d: dict) -> dict:
+        """Extra fields on a rightsizing forecast row: may it be drafted as a PR (a number to apply, an allow-listed workload, the class
+        enabled, no PR already in flight for the workload), and which PR is in flight."""
+        if d.get("kind") != "rightsizing":
+            return {}
+        e = (d.get("evidence") or {}).get("evidence") or {}
+        controller = rightsizing_digest.controller_of(str(d.get("target")))
+        pr = self._rs_active_cr(controller)
+        try:
+            allowed = rightsizing.matches(self._rs_config().get("allow", []), controller)
+        except (OSError, KeyError, ValueError):
+            allowed = False
+        enabled = bool(self.cr is not None and (self.cfg.change_requests.classes.get("classes", {}).get("rightsizing") or {}).get("enabled"))
+        prop = rightsizing_digest.proposal(e)
+        return {"draftable": bool(allowed and enabled and pr is None and prop is not None and e.get("finding") != "memory-creep"), "pr": pr,
+                "finding": e.get("finding"), "summary": prop["text"] if prop else e.get("note"), "under": e.get("finding") in ("memory-under-request", "cpu-under-request")}
+
+    def _rs_active_cr(self, controller: str) -> dict | None:
+        if self.cr is None:
+            return None
+        with self._lock:
+            r = self.db.execute("SELECT id, state, pr_url FROM change_requests WHERE class='rightsizing' AND source_ref=? AND state IN ('pending','approved','running','pr-open') "
+                                "ORDER BY id DESC LIMIT 1", (f"rightsizing-{controller}"[:120],)).fetchone()
+        return {"id": r["id"], "state": r["state"], "pr_url": r["pr_url"]} if r else None
+
+    def _rs(self) -> rightsizing_digest.Digests:
+        if self.rs is None:
+            raise Rejected(501, "forecasts (and so the rightsizing digest) are not enabled on this Toolbelt")
+        return self.rs
+
+    def _rs_operator(self, by: object) -> None:
+        ops = self.cfg.actions.operators if self.cfg.actions is not None else frozenset()
+        if ops and str(by) not in ops:
+            raise Rejected(403, "only an operator may do that")
+
+    def rs_call(self, name: str, *args, by: object = None):
+        """Run one Digests method, mapping its refusals to API errors. Operator-only for the ones that change something."""
+        if name in ("build_now", "set_cadence"):
+            self._rs_operator(by)
+        try:
+            return getattr(self._rs(), name)(*args)
+        except rightsizing_digest.Refused as e:
+            raise Rejected(e.status, e.message)
 
     def label_forecast(self, fid: int, label: str, by: object) -> dict:
         """POST /forecasts/<id>/label (approver role): Useful / Noise, by an operator. These labels are the tuning evidence."""

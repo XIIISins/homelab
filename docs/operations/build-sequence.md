@@ -15,7 +15,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 - **10f autonomous healing:** the ~14-day canary soak read-out is due about 2026-10-17.
 - **10g rebuild loop:** stage A (canaries) proven; replica and worker stages not built. PBS datastore capacity is no longer a prerequisite (67% on 2026-10-10).
 - **10h predictive changes and PR author:** all three parts live; exit criteria not yet met.
-- **10i rightsizing:** 10i2 built, deploys to Frigg after merge; 10i3 (Gná digest) next, 10i5 before 10i4. VPA-based findings unlock once the recommendations are 7 days old (2026-10-12).
+- **10i rightsizing:** 10i2 live, 10i3 (Gná digest) built; 10i5 (watch) then 10i4 (PRs) next. VPA-based findings unlock once the recommendations are 7 days old (2026-10-12).
 - **10a offsite node `do1`:** cleanup done 2026-10-10; left: revoke the broad `doctl` token (kept for now, still in use).
 - **6 Frigg control node:** an ongoing hardening surface (credential-mirror sync, AppRole-expiry alerting).
 
@@ -111,7 +111,7 @@ Plan: [`aiops-roadmap.md`](../plans/active/aiops-roadmap.md) (planned 2026-10-01
 | 10f Autonomous T1 healing | 🟡 deployed 2026-10-03; soak running | Registry `autonomy:` scope (canaries only), master switch, breaker, rate limits and one enabled policy (`restart-failed-unit`). Scheduled fault injection every 8 h (added 2026-10-05) produced the first clean heal in ~5 min 48 s. Read-out ~2026-10-17. [Plan](../plans/active/10f-autonomous-healing.md), [procedure](../procedures/aiops-autonomy.md). |
 | 10g Fleet rebuild loop | 🟡 stage A proven 2026-10-04 | Approval-gated canary rebuild works (117 s on the clean run; five earlier runs failed during bring-up). Autonomous canary rebuild stays off; replica and worker stages not built. Prerequisites met: offsite restore drill, PBS off Skuld; PBS capacity dropped as a prerequisite (67% on 2026-10-10). [Plan](../plans/active/10g-rebuild-loop.md). |
 | 10h Predictive changes + agent-authored PRs | 🟡 all parts live; exit criteria unmet | 10h1 forecasts in quiet shadow mode, 10h2 PR author (classes `docs`, `drift-note`, `drift`, `k8s`, `capacity`; a canary test for infra PRs; a burst-cluster test for `k8s/` PRs), 10h3 automatic incident write-ups. By 2026-10-05: 13 change requests, 6 merged PRs. [Plan](../plans/active/10h-predictive-change.md), [burst test](../procedures/k8s-burst-test.md). |
-| 10i Pod rightsizing (VPA recommend-only) | 🟡 10i0, 10i0b, 10i1 live 2026-10-05; 10i2 built 2026-10-10 | NetBox/Authentik trimmed; every Flux-managed pod sized from 30 days of VictoriaMetrics history; 2 GiB per worker reserved for the OS and K3s; VPA recommender with `updateMode: "Off"`. 10i2: `kube.rightsizing` tool + daily findings pass as quiet forecast rows (shadow; Frigg gets it with the Toolbelt deploy). 10i3 (Gná digest) → 10i5 (72 h watch) → 10i4 (resources-only PRs) remain. [Plan](../plans/active/10i-rightsizing.md). |
+| 10i Pod rightsizing (VPA recommend-only) | 🟡 10i0, 10i0b, 10i1 live 2026-10-05; 10i2 live, 10i3 built 2026-10-10 | NetBox/Authentik trimmed; every Flux-managed pod sized from 30 days of VictoriaMetrics history; 2 GiB per worker reserved for the OS and K3s; VPA recommender with `updateMode: "Off"`. 10i2: `kube.rightsizing` tool + daily findings pass as quiet forecast rows (shadow; Frigg gets it with the Toolbelt deploy). 10i3: Gná's periodic digest (`/aiops rightsizing`), first one waits for 7-day-old VPA data. 10i5 (72 h watch) → 10i4 (resources-only PRs) remain. [Plan](../plans/active/10i-rightsizing.md). |
 
 ## Dropped and deferred
 

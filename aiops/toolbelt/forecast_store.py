@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS forecasts (
   confidence TEXT, days_to_full REAL, ratio REAL, evidence_json TEXT NOT NULL,
   first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, missing INTEGER NOT NULL DEFAULT 0,
   posted_at INTEGER, posted_days REAL,
-  label TEXT, labeled_by TEXT, labeled_at INTEGER,
+  label TEXT, labeled_by TEXT, labeled_at INTEGER, label_value REAL,
   message_ref TEXT, thread_id TEXT
 );
 CREATE TABLE IF NOT EXISTS forecast_events (
@@ -60,6 +60,9 @@ class Forecasts:
     def __init__(self, db: sqlite3.Connection, lock: threading.RLock, clock, audit, cfg: ForecastConfig | None = None):
         self.db, self.lock, self.clock, self.audit, self.cfg = db, lock, clock, audit, cfg or ForecastConfig()
         self.db.executescript(SCHEMA)
+        if "label_value" not in {r["name"] for r in self.db.execute("PRAGMA table_info(forecasts)")}:   # 10i3: databases from before the column
+            self.db.execute("ALTER TABLE forecasts ADD COLUMN label_value REAL")
+        self.decorate = None   # optional fn(view dict) -> extra fields (10i3: whether a rightsizing row can be drafted, its open PR)
 
     def now(self) -> int:
         return int(self.clock())
@@ -72,6 +75,8 @@ class Forecasts:
         d = {k: r[k] for k in r.keys() if k != "evidence_json"}
         d["evidence"] = json.loads(r["evidence_json"])
         d["eta_at"] = int(r["last_seen"] + r["days_to_full"] * 86400) if r["days_to_full"] is not None else None
+        if self.decorate is not None:
+            d.update(self.decorate(d))
         return d
 
     def list(self, states: tuple = ("open",), kind: str | None = None) -> list[dict]:
@@ -104,8 +109,12 @@ class Forecasts:
         if label not in LABELS:
             raise Refused(400, f"label must be one of {', '.join(LABELS)}")
         with self.lock:
-            self.view(fid)
-            self.db.execute("UPDATE forecasts SET label=?, labeled_by=?, labeled_at=? WHERE id=?", (label, str(by)[:40], self.now(), fid))
+            cur = self.view(fid)
+            value = None
+            if cur["kind"] in QUIET_KINDS:   # 10i3: a Noise label holds until the proposed number moves by more than 30 %
+                import rightsizing   # noqa: PLC0415 - sibling module, imported lazily (it needs nothing at import time)
+                value = rightsizing.finding_value((cur.get("evidence") or {}).get("evidence") or {})
+            self.db.execute("UPDATE forecasts SET label=?, labeled_by=?, labeled_at=?, label_value=? WHERE id=?", (label, str(by)[:40], self.now(), value, fid))
             self._event(fid, "labeled", {"label": label})
         self.audit("forecast_labeled", forecast=fid, label=label)
         return self.get(fid)
@@ -154,7 +163,7 @@ class Forecasts:
                     else:  # it came back: a new occurrence, with a clean slate for the card and the label
                         fid = row["id"]
                         self.db.execute("UPDATE forecasts SET state='open', confidence=?, days_to_full=?, ratio=?, evidence_json=?, first_seen=?, last_seen=?, missing=0, posted_at=?, posted_days=?,"
-                                        " label=NULL, labeled_by=NULL, labeled_at=NULL, message_ref=NULL, thread_id=NULL WHERE id=?", (f.get("confidence"), days, f.get("ratio"), ev, now, now, now, days, fid))
+                                        " label=NULL, labeled_by=NULL, labeled_at=NULL, label_value=NULL, message_ref=NULL, thread_id=NULL WHERE id=?", (f.get("confidence"), days, f.get("ratio"), ev, now, now, now, days, fid))
                     self._event(fid, "created", {"days_to_full": days})
                     out["quiet_created" if quiet else "created"] = out.get("quiet_created" if quiet else "created", 0) + 1
                     continue

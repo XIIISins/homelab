@@ -67,7 +67,8 @@ def buttons(fc: dict) -> list[str]:
     if fc.get("state") != "open":
         return []
     acts = [] if fc.get("label") else ["useful", "noise"]
-    return acts + (["draft"] if fc.get("metric") in REMEDY_METRICS else [])
+    can_draft = fc.get("draftable") if fc.get("kind") == "rightsizing" else fc.get("metric") in REMEDY_METRICS   # 10i4: the Toolbelt decides for rightsizing rows
+    return acts + (["draft"] if can_draft else [])
 
 
 def _pct(x) -> str:
@@ -102,7 +103,42 @@ def headline(fc: dict) -> str:
             f", {float(ev.get('recent_rate_per_hour', 0)):.3g} per hour." if ev else ".")
 
 
+FINDINGS = {"memory-under-request": "Memory request too low", "memory-over-request": "Memory request too high", "memory-over-limit": "Memory limit too high",
+            "memory-creep": "Memory creep", "cpu-under-request": "CPU request too low", "cpu-over-request": "CPU request too high"}
+
+
+def rightsizing_card(fc: dict) -> dict:
+    """A suggestion in the rightsizing digest (10i3): same buttons as a forecast, different words. Never an alert, never a page."""
+    s = logic.sanitize
+    ev = fc.get("evidence", {}).get("evidence", {}) or {}
+    f = fc.get("finding") or ev.get("finding")
+    under = bool(fc.get("under"))
+    fields = [("Finding", FINDINGS.get(f, s(str(f), 40)), True), ("Confidence", f"`{s(str(fc.get('confidence') or '?'), 12)}`", True)]
+    bits = []
+    if ev.get("max_working_set_mib") is not None:
+        bits.append(f"30-day peak {ev['max_working_set_mib']:g} MiB")
+    if ev.get("vpa_upper_mib") is not None:
+        bits.append(f"VPA upper bound {ev['vpa_upper_mib']:g} MiB")
+    if ev.get("median_daily_p95_millicores") is not None:
+        bits.append(f"CPU normal day {ev['median_daily_p95_millicores']:g}m, worst day {ev.get('worst_day_p95_millicores', '?'):g}m")
+    if ev.get("oomkilled"):
+        bits.append("**OOMKilled**")
+    if bits:
+        fields.append(("Evidence", s("; ".join(bits), 300), False))
+    pr = fc.get("pr")
+    if pr:
+        fields.append(("Draft PR", f"request #{pr['id']} ({pr['state']})" + (f": {pr['pr_url']}" if pr.get("pr_url") else ""), False))
+    if fc.get("label"):
+        fields.append(("Your label", f"`{fc['label']}`", True))
+    return {"title": f"Rightsizing: {s(str(fc.get('target')), 70)}", "description": s(str(fc.get("summary") or "No number is proposed."), 400),
+            "fields": fields, "colour": 0xE67E22 if under else 0x2ECC71 if fc.get("state") == "open" else COLOUR["quiet"],
+            "footer": f"rightsizing {fc['id']} · {'open' if fc.get('state') == 'open' else 'no longer a finding'} · proposals only, a human reviews every change",
+            "buttons": buttons(fc)}
+
+
 def card(fc: dict) -> dict:
+    if fc.get("kind") == "rightsizing":
+        return rightsizing_card(fc)
     s = logic.sanitize
     d = fc.get("days_to_full")
     colour = COLOUR["quiet"] if fc.get("state") != "open" else COLOUR["hot"] if d is not None and d < 3 else COLOUR["soon"] if d is not None and d < 7 else COLOUR["later"]

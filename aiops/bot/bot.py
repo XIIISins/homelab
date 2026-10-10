@@ -9,6 +9,7 @@ privileged intents: it hears messages that @mention it, plus button presses and 
     cards     each pending proposal in the Toolbelt's feed becomes an embed with Approve / Reject buttons in its thread,
               edited as it runs and verifies. Only an operator user id can press them (checked here AND at the Toolbelt).
     commands  /aiops status | pending | kill | resume | maintenance | draft | draft-incident | drafts | forecasts   (operator only)
+              /aiops rightsizing now | status | cadence   the periodic pod-rightsizing digest (Phase 10i3; quiet, never pages)
     drafts    /aiops draft files a request for ONE agent-authored PR (Phase 10h2); its card in AIOps-chat has Approve / Reject,
               the PR link and result are posted as replies. The operator merges; the author never applies anything.
 
@@ -30,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import drafts  # noqa: E402
 import fcast  # noqa: E402
 import logic  # noqa: E402
+import rsdigest  # noqa: E402
 
 NO_MENTIONS = discord.AllowedMentions.none()
 
@@ -138,6 +140,14 @@ class DraftButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:cr
             pass  # the feed poller edits the card anyway
         await interaction.followup.send({"approve": "Approved. The author will draft it and post the PR link here.",
                                          "reject": "Rejected. Nothing will be drafted.", "cancel": "Cancelled."}[self.act], ephemeral=True)
+
+
+def embed_of_card(c: dict) -> discord.Embed:
+    e = discord.Embed(title=c["title"][:250], description=c["description"][:4000], colour=discord.Colour(c["colour"]))
+    for name, value, inline in c["fields"][:20]:
+        e.add_field(name=name[:250], value=value[:1024] or "-", inline=inline)
+    e.set_footer(text=c["footer"][:2000])
+    return e
 
 
 def embed_of_fc(fc: dict) -> discord.Embed:
@@ -368,6 +378,48 @@ async def cmd_forecasts(interaction: discord.Interaction) -> None:
                                                       + (f" ({f['label']})" if f.get("label") else "") for f in rows) or "Nothing is forecast to fill.", ephemeral=True)
 
 
+rs_group = app_commands.Group(name="rightsizing", description="The periodic pod-rightsizing digest", parent=aiops)
+
+
+@rs_group.command(name="now", description="Post a rightsizing digest now, outside the schedule")
+async def cmd_rs_now(interaction: discord.Interaction) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    await interaction.response.defer(ephemeral=True)
+    st, body = await asyncio.to_thread(bot.rsd.now, str(interaction.user.id))
+    log("rightsizing_now", status=st, by=str(interaction.user.id)[-4:])
+    if st != 200 or not body.get("digest"):
+        await interaction.followup.send(f"Not built: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+        return
+    ok = await bot.post_digest(body["digest"])
+    await interaction.followup.send("Digest posted." if ok else "The digest is built but Discord refused the post; the next check retries it.", ephemeral=True)
+
+
+@rs_group.command(name="status", description="Cadence and timing of the rightsizing digest")
+async def cmd_rs_status(interaction: discord.Interaction) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.rsd.status)
+    last, nxt = body.get("last_digest"), body.get("next_due_at")
+    await interaction.response.send_message(
+        f"Cadence **{body.get('cadence')}**. " + (f"Last digest <t:{last['created_at']}:R>. " if last else "No digest yet. ") + (f"Next due <t:{nxt}:R>." if nxt else "")
+        if st == 200 else f"The Toolbelt answered HTTP {st}.", ephemeral=True)
+
+
+@rs_group.command(name="cadence", description="How often the digest is posted")
+@app_commands.describe(every="weekly, biweekly or monthly")
+@app_commands.choices(every=[app_commands.Choice(name=c, value=c) for c in rsdigest.CADENCES])
+async def cmd_rs_cadence(interaction: discord.Interaction, every: app_commands.Choice[str]) -> None:
+    if not await _operator_only(interaction):
+        return
+    bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+    st, body = await asyncio.to_thread(bot.rsd.set_cadence, every.value, str(interaction.user.id))
+    log("rightsizing_cadence", status=st, cadence=every.value, by=str(interaction.user.id)[-4:])
+    await interaction.response.send_message(f"Digest cadence is now **{body.get('cadence')}**." if st == 200 else f"Not changed: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+
+
 @aiops.command(name="drafts", description="Open draft requests and their PRs")
 async def cmd_drafts(interaction: discord.Interaction) -> None:
     if not await _operator_only(interaction):
@@ -392,6 +444,8 @@ class Ratatoskr(discord.Client):
         self.dstate = drafts.State.load(cfg.state_dir)
         self.forecasts = fcast.Client(cfg)
         self.fstate = fcast.State.load(cfg.state_dir)
+        self.rsd = rsdigest.Client(cfg)
+        self._rs_tick_at = 0.0
         self.tree = app_commands.CommandTree(self)
         self.locks: dict[int, asyncio.Lock] = {}
         self._last_feed_error = 0.0
@@ -558,6 +612,37 @@ class Ratatoskr(discord.Client):
         if events:
             self.fstate.save()
 
+    async def post_digest(self, d: dict) -> bool:
+        """Post one rightsizing digest: the header in the forecasts channel, a thread under it, one card per suggestion, the digest marked
+        posted as soon as the header and thread exist (so a failure later never repeats the header)."""
+        try:
+            ch = await self._channel(str(self.cfg.forecasts_channel_id or self.cfg.chat_channel_id))
+            msg = await ch.send(embed=embed_of_card(rsdigest.header(d)), allowed_mentions=NO_MENTIONS)
+            thread = await msg.create_thread(name=f"Rightsizing digest {time.strftime('%Y-%m-%d', time.gmtime(d['created_at']))}", auto_archive_duration=10080)
+            await asyncio.to_thread(self.rsd.set_message, d["id"], str(msg.id), str(thread.id))
+        except discord.HTTPException as e:
+            log("apply_error", kind="rightsizing-digest", digest=d.get("id"), error=type(e).__name__)
+            return False
+        log("rightsizing_digest_posted", digest=d["id"], suggestions=len(d.get("suggestions") or []))
+        for sug in d.get("suggestions") or []:
+            try:
+                st, fresh = await asyncio.to_thread(self.forecasts.get, sug["forecast_id"])
+                if st != 200:
+                    continue
+                card = await thread.send(embed=embed_of_fc(fresh), view=forecast_view(fresh), allowed_mentions=NO_MENTIONS)
+                await asyncio.to_thread(self.forecasts.set_message, sug["forecast_id"], str(card.id), str(thread.id))
+            except discord.HTTPException as e:
+                log("apply_error", kind="rightsizing-card", forecast=sug.get("forecast_id"), error=type(e).__name__)
+        return True
+
+    async def _poll_digest_once(self) -> None:
+        if time.monotonic() - self._rs_tick_at < rsdigest.TICK_EVERY:
+            return
+        self._rs_tick_at = time.monotonic()
+        st, body = await asyncio.to_thread(self.rsd.tick)
+        if st == 200 and body.get("digest"):
+            await self.post_digest(body["digest"])
+
     async def _poll_drafts_once(self) -> None:
         st, body = await asyncio.to_thread(self.drafts.feed, self.dstate.cursor)
         if st != 200:
@@ -579,6 +664,7 @@ class Ratatoskr(discord.Client):
                 await self._poll_once()
                 await self._poll_drafts_once()
                 await self._poll_forecasts_once()
+                await self._poll_digest_once()
             except Exception as e:  # noqa: BLE001 - the loop must survive anything
                 log("poll_exception", error=type(e).__name__)
             await asyncio.sleep(self.cfg.poll_seconds)
