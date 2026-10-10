@@ -75,6 +75,12 @@ class FakeTB:
     def open_prs(self):
         return self.prs
 
+    def testing(self):   # requests whose branch is being tested before a PR (test_before_pr classes)
+        return []
+
+    def listed(self, state):
+        return []
+
 
 class FakeGH:
     def __init__(self, admin=False, states=None, pr_status=201):

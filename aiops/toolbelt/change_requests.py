@@ -9,6 +9,12 @@ The Toolbelt never runs the author and never holds the GitHub token: the dispatc
 every cap here (kill switch, maintenance, concurrency, a daily budget, open-PR limit) enforceable in one place.
 
 States: pending -> approved -> running -> pr-open -> merged|closed   (also rejected, cancelled, expired, failed, no-change)
+
+A class marked `test_before_pr` (author-classes.yml) takes a detour: running -> testing -> pr-open. The dispatcher pushes the branch and reports
+`testing`; the Toolbelt proposes the class's test (burst cluster or canary) for the branch head and, because the operator's Approve of the request
+already said "draft this and test it", approves that ONE sha-pinned proposal on the operator's behalf. The dispatcher opens the PR when the test has
+passed (with the result already in the description) or cannot run (the PR says "Not tested" and why); a FAILED test opens no PR at all: the request
+fails with the summary and the branch is kept a few days for inspection.
 """
 from __future__ import annotations
 
@@ -45,8 +51,8 @@ CREATE TABLE IF NOT EXISTS change_request_events (
 );
 """
 
-ACTIVE = ("pending", "approved", "running", "pr-open")
-REPORT_STATES = ("pr-open", "failed", "no-change")
+ACTIVE = ("pending", "approved", "running", "testing", "pr-open")
+REPORT_STATES = ("pr-open", "failed", "no-change", "testing")
 SOURCES = ("operator", "forecast", "incident", "chat", "drift")
 _TITLE_MAX, _BODY_MAX, _SUMMARY_MAX = 120, 4000, 2000
 
@@ -60,6 +66,8 @@ class CRConfig:
     run_timeout: int = 40 * 60                          # the dispatcher's wall clock is 30 min; a longer claim is dead
     max_running: int = 2
     max_open_prs: int = 3
+    fold_test_approval: bool = True                     # the operator's Approve of a `test_before_pr` request also approves its one sha-pinned test
+    testing_timeout: int = 2 * 3600                     # a request stuck in `testing` (the dispatcher is down) fails after this; its branch stays
     max_started_per_day: int = 6                        # the author's daily budget (operator-tunable)
     max_created_per_day: int = 20
     max_pending: int = 8
@@ -122,7 +130,8 @@ class ChangeRequests:
         d["allowed_paths"] = json.loads(r["allowed_json"])
         d["tests"] = json.loads(r["tests_json"]) if r["tests_json"] else None
         d["stale_pr"] = bool(r["state"] == "pr-open" and self.now() - r["updated_at"] > self.cfg.pr_stale_days * 86400)
-        d["pr_test"] = self._pr_test(r) if r["state"] in ("pr-open", "merged", "closed") else None
+        d["pr_test"] = self._pr_test(r) if r["state"] in ("testing", "pr-open", "merged", "closed") else None
+        d["test_before_pr"] = self._test_before_pr(r["class"])
         d["blocked"] = None
         if r["state"] == "approved":  # waiting behind a cap: why, as of the last time the dispatcher asked
             ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='blocked' ORDER BY id DESC LIMIT 1", (r["id"],)).fetchone()
@@ -152,6 +161,10 @@ class ChangeRequests:
     def _tested(self, cls: str) -> bool:
         return self._test_kind(cls) is not None
 
+    def _test_before_pr(self, cls: str) -> bool:
+        """The class is tested AND wants its result before a PR exists (a class flag; an untested class has nothing to wait for)."""
+        return bool(self._tested(cls) and self.cfg.classes.get("classes", {}).get(cls, {}).get("test_before_pr"))
+
     # -- create --------------------------------------------------------------------------------------------
     def create(self, *, source: str, class_: str, title: str, body: str, allowed_paths=None, source_ref: str = "",
                created_by: str = "") -> dict:
@@ -176,7 +189,7 @@ class ChangeRequests:
                 raise Refused(400, f"allowed path {p!r} is outside class {class_!r}")
         with self.lock:
             self.sweep()
-            if source_ref and self.db.execute("SELECT 1 FROM change_requests WHERE class=? AND source_ref=? AND state IN (?,?,?,?)",
+            if source_ref and self.db.execute(f"SELECT 1 FROM change_requests WHERE class=? AND source_ref=? AND state IN ({','.join('?' * len(ACTIVE))})",
                                               (class_, source_ref[:120], *ACTIVE)).fetchone():
                 raise Refused(409, "an active change request already exists for that finding")
             if self._count("pending") >= self.cfg.max_pending:
@@ -205,7 +218,7 @@ class ChangeRequests:
             row = self._row(cid)
             st, now = row["state"], self.now()
             if decision == "cancel":
-                if st not in ("pending", "approved", "running"):
+                if st not in ("pending", "approved", "running", "testing"):
                     raise Refused(409, f"change request {cid} is {st}, nothing to cancel")
                 self._move(cid, "cancelled", "cancelled", {"by": by}, decided_by=by, decided_at=now, finished_at=now)
             else:
@@ -239,7 +252,7 @@ class ChangeRequests:
                 return self._blocked("maintenance", "maintenance mode is on")
             if self._count("running") >= self.cfg.max_running:
                 return self._blocked("max-running", f"{self.cfg.max_running} drafting sessions are already running")
-            if self._count("pr-open") >= self.cfg.max_open_prs:
+            if self._count("pr-open", "testing") >= self.cfg.max_open_prs:
                 return self._blocked("open-pr-limit", f"{self.cfg.max_open_prs} agent PRs are already open: merge or close one")
             started = self.db.execute("SELECT COUNT(*) n FROM change_requests WHERE claimed_at>=?", (self._day_start(),)).fetchone()["n"]
             if started >= self.cfg.max_started_per_day:
@@ -273,16 +286,30 @@ class ChangeRequests:
                 if cur != "pr-open":
                     raise Refused(409, f"change request {cid} is {cur}, not pr-open")
                 self._move(cid, state, state, {}, finished_at=now)
+            elif cur == "testing":   # the detour of a `test_before_pr` class: the PR opens, or the request ends (a failed test opens no PR)
+                if state not in ("pr-open", "failed"):
+                    raise Refused(409, f"change request {cid} is testing: it can only open its PR or fail")
+                if state == "pr-open" and not self._pr_rx.match(pr_url or ""):
+                    raise Refused(400, f"pr_url must be a pull request of {self.cfg.repo}")
+                self._move(cid, state, "reported", {"state": state, "after": "testing"}, finished_at=now if state != "pr-open" else None,
+                           pr_url=pr_url or row["pr_url"] or None, summary=tools.redact(str(summary))[:_SUMMARY_MAX] or row["summary"],
+                           tests_json=json.dumps(tests) if tests is not None else row["tests_json"], error=tools.redact(str(error))[:500] or None)
             else:
                 if cur != "running":
                     raise Refused(409, f"change request {cid} is {cur}, not running (cancelled or timed out?)")
+                if state == "testing" and not self._test_before_pr(row["class"]):
+                    raise Refused(409, f"class {row['class']!r} does not test before its PR")
+                if state == "testing" and not branch:
+                    raise Refused(400, "testing needs the pushed branch")
                 if state == "pr-open" and not self._pr_rx.match(pr_url or ""):
                     raise Refused(400, f"pr_url must be a pull request of {self.cfg.repo}")
-                self._move(cid, state, "reported", {"state": state}, finished_at=now if state != "pr-open" else None,
+                self._move(cid, state, "reported", {"state": state}, finished_at=now if state not in ("pr-open", "testing") else None,
                            pr_url=pr_url or None, branch=str(branch)[:120] or None, summary=tools.redact(str(summary))[:_SUMMARY_MAX] or None,
                            tests_json=json.dumps(tests) if tests is not None else None, error=tools.redact(str(error))[:500] or None)
         self.audit("change_request_reported", cr=cid, state=state)
-        if state == "pr-open":
+        if state == "testing":
+            self._start_test(cid)
+        if state == "pr-open" and not (cur == "testing" or self._test_before_pr(row["class"])):
             self._after_pr_open(cid)
         if state == "merged" and self.on_merged is not None:
             try:
@@ -298,14 +325,35 @@ class ChangeRequests:
         with self.lock:
             r = self._row(cid)
             ev = self.db.execute("SELECT ts, data_json FROM change_request_events WHERE cr_id=? AND kind='pr_test' ORDER BY id DESC LIMIT 1", (cid,)).fetchone()
-        if r["state"] != "pr-open" or not self._tested(r["class"]):
-            raise Refused(409, "only an open PR of a tested class (canary or burst) can be retested")
+        if r["state"] not in ("pr-open", "testing") or not self._tested(r["class"]):
+            raise Refused(409, "only an open PR (or a branch being tested) of a tested class (canary or burst) can be retested")
         if ev is None or not _was_transient(json.loads(ev["data_json"])) or self.eng.pr_test_view(r["branch"] or "") is not None:
             raise Refused(409, "there is nothing to retry")
         if self.now() - ev["ts"] < 120:
             raise Refused(429, "retried too recently")
         self._after_pr_open(cid)
         return self.view(cid)
+
+    def _start_test(self, cid: int) -> None:
+        """A `test_before_pr` request's branch is pushed: propose the class's test for the branch head and, as configured, approve that one proposal
+        on behalf of the operator who approved the request. Never raises: whatever happens is an event the dispatcher reads (`pr_test`), and a test that
+        cannot start means the PR opens saying why."""
+        try:
+            with self.lock:
+                r = self._row(cid)
+            kind = self._test_kind(r["class"])
+            res = (self.eng.propose_pr_burst_test if kind == "burst" else self.eng.propose_pr_test)(r["branch"] or "", r["thread_id"], cid)
+            if "proposal" in res and self.cfg.fold_test_approval and r["decided_by"]:
+                try:
+                    self.eng.decide(res["proposal"], "approve", by=r["decided_by"], ref=f"change-request-{cid}")
+                    res = {**res, "approved_with_request": True}
+                except Refused as e:   # the kill switch is engaged, the operator list changed...: the PR still opens, and says why it was not tested
+                    res = {"ineligible": f"the test could not be approved with the request: {e.message}"[:200]}
+        except Exception as e:  # noqa: BLE001
+            res = {"ineligible": f"the test could not be proposed ({type(e).__name__})"}
+        with self.lock:
+            self._event(cid, "pr_test", res)
+        self.audit("change_request_test_started", cr=cid, **{k: v for k, v in res.items() if k in ("proposal", "ineligible", "approved_with_request")})
 
     def _after_pr_open(self, cid: int) -> None:
         """10h2: a PR of a class that is proven on a canary gets a test proposal from the Toolbelt itself (the operator approves it on a
@@ -333,8 +381,11 @@ class ChangeRequests:
                     self._move(r["id"], "expired", "expired", {"was": "approved"}, finished_at=now)
                 elif r["state"] == "running" and now - (r["claimed_at"] or r["updated_at"]) > self.cfg.run_timeout:
                     self._move(r["id"], "failed", "timed-out", {}, finished_at=now, error="the author session did not report in time")
+            for r in self.db.execute("SELECT id, updated_at FROM change_requests WHERE state='testing'").fetchall():
+                if now - r["updated_at"] > self.cfg.testing_timeout:   # the dispatcher normally ends a test within an hour; the branch is left in place
+                    self._move(r["id"], "failed", "timed-out", {"was": "testing"}, finished_at=now, error="the test stage did not finish (is the dispatcher running?); the branch was left in place")
 
-    def list(self, states: tuple = ("pending", "approved", "running", "pr-open")) -> list[dict]:
+    def list(self, states: tuple = ("pending", "approved", "running", "testing", "pr-open")) -> list[dict]:
         self.sweep()
         q = ",".join("?" * len(states))
         with self.lock:

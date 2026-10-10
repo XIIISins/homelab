@@ -242,35 +242,47 @@ class Wiring(unittest.TestCase):
         self.r.close()
 
     def pr_open(self, fetch=None):
+        """The `k8s` class tests before its PR (test_before_pr): the dispatcher reports `testing` with the pushed branch."""
         self.eng.cfg.pr_fetch = fetch or gh()
         cr = self.r.approved(**{"class": "k8s", "title": "Raise outline memory"})
         self.r.call(tcr.T_AUTH, "POST", "/change-requests/claim")
         st, out = self.r.call(tcr.T_AUTH, "POST", f"/change-requests/{cr['id']}/report",
-                              {"state": "pr-open", "pr_url": tcr.PR, "branch": BRANCH, "summary": "x", "tests": {}})
+                              {"state": "testing", "branch": BRANCH, "summary": "x", "tests": {}})
         self.assertEqual(st, 200, out)
-        return cr["id"], out
+        return cr["id"], self.r.call(tcr.T_AUTH, "GET", f"/change-requests/{cr['id']}")[1]
+
+    def settle(self, cid, want="passed"):
+        """The test is approved with the request and runs on its own thread: wait for its status."""
+        import time
+        for _ in range(100):
+            got = self.r.call(tcr.T_AUTH, "GET", f"/change-requests/{cid}")[1]
+            if got["pr_test"]["status"] == want:
+                return got
+            time.sleep(0.05)
+        self.fail(f"the test never reached {want}: {got['pr_test']}")
 
     def test_the_k8s_class_is_enabled_narrowly_and_burst_tested_not_canary_tested(self):
         c = tcr.CLASSES["classes"]["k8s"]
         self.assertTrue(c["enabled"] and c["burst_test"] and not c.get("canary_test"))
         self.assertTrue(all(p.startswith("k8s/asgard/apps/") for p in c["allow"]), c["allow"])
 
-    def test_reporting_a_k8s_pr_proposes_the_burst_test(self):
+    def test_reporting_a_pushed_k8s_branch_proposes_the_burst_test_and_the_requests_approval_covers_it(self):
         cid, out = self.pr_open()
-        self.assertEqual((out["pr_test"]["kind"], out["pr_test"]["status"], out["pr_test"]["component"]), ("burst", "proposed", "outline"))
-        self.assertEqual(self.eng.pr_test_view(BRANCH)["action_id"], "pr-burst-test")
+        self.assertEqual((out["state"], out["pr_test"]["kind"], out["pr_test"]["component"]), ("testing", "burst", "outline"))
+        view = self.eng.pr_test_view(BRANCH)
+        self.assertEqual((view["action_id"], view["decided_by"]), ("pr-burst-test", tcr.OP))   # approved as the operator who approved the request: no second card to press
+        ev = [e for e in self.r.call(tcr.T_APPR, "GET", "/change-requests/feed?after=0")[1]["events"] if e["kind"] == "pr_test"][-1]["data"]
+        self.assertTrue(ev["approved_with_request"])
+        self.settle(cid)
 
     def test_an_untestable_k8s_pr_records_why_under_the_burst_heading(self):
         cid, out = self.pr_open(fetch=gh([f("k8s/asgard/apps/outline/a.yaml", patch="@@ -1 +1 @@\n+      hostNetwork: true")]))
-        self.assertEqual((out["pr_test"]["kind"], out["pr_test"]["status"]), ("burst", "not-tested"))
+        self.assertEqual((out["pr_test"]["kind"], out["pr_test"]["status"]), ("burst", "not-tested"))   # the dispatcher opens the PR saying so
         self.assertIn("hostNetwork", out["pr_test"]["reason"])
 
     def test_the_view_follows_the_proposal_to_passed_and_the_pr_section_carries_the_summary(self):
         cid, out = self.pr_open()
-        pid = self.eng.pr_test_view(BRANCH)["id"]
-        ta.approve(self.eng, pid)
-        self.assertEqual(self.eng.execute(pid)["state"], "succeeded")
-        got = self.r.call(tcr.T_AUTH, "GET", f"/change-requests/{cid}")[1]
+        got = self.settle(cid)
         self.assertEqual((got["pr_test"]["status"], got["pr_test"]["kind"]), ("passed", "burst"))
         block = dispatcher.canary_block(got["pr_test"])
         self.assertIn("## Burst-cluster test", block)

@@ -302,7 +302,7 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
 
         def _h_cr_list(self, m, q):
             raw = (q.get("state") or [""])[0]
-            states = tuple(s for s in raw.split(",") if s) or ("pending", "approved", "running", "pr-open")
+            states = tuple(s for s in raw.split(",") if s) or ("pending", "approved", "running", "testing", "pr-open")
             return {"change_requests": self._cr().list(states)}
 
         def _h_cr_decision(self, m, q):

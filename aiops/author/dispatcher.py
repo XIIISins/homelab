@@ -224,7 +224,14 @@ class ToolbeltClient:
         return http("POST", f"{self.base}/change-requests/{cid}/pr-test", self.h, {})
 
     def open_prs(self) -> list[dict]:
-        st, b = http("GET", self.base + "/change-requests?state=pr-open", self.h)
+        return self.listed("pr-open")
+
+    def testing(self) -> list[dict]:
+        """Requests whose branch is pushed and being tested (classes with `test_before_pr`): their PR is not open yet."""
+        return self.listed("testing")
+
+    def listed(self, state: str) -> list[dict]:
+        st, b = http("GET", f"{self.base}/change-requests?state={state}", self.h)
         return b.get("change_requests", []) if st == 200 and isinstance(b, dict) else []
 
 
@@ -242,6 +249,12 @@ class GitHubClient:
     def create_pr(self, head: str, base: str, title: str, body: str) -> tuple[int, dict]:
         return http("POST", f"https://api.github.com/repos/{self.repo}/pulls", self.h,
                     {"title": title, "head": head, "base": base, "body": body, "maintainer_can_modify": False})
+
+    def find_open_pr(self, head: str) -> dict | None:
+        """The open PR from this branch, if any (a retry after a crash between creating the PR and reporting it must not open a second)."""
+        owner = self.repo.split("/")[0]
+        st, rows = http("GET", f"https://api.github.com/repos/{self.repo}/pulls?state=open&head={owner}:{head}", self.h)
+        return rows[0] if st == 200 and isinstance(rows, list) and rows else None
 
     def label(self, number: int, label: str) -> None:
         http("POST", f"https://api.github.com/repos/{self.repo}/issues/{number}/labels", self.h, {"labels": [label]})
@@ -429,8 +442,18 @@ class Dispatcher:
             title = f"{kind}: {cr['title']}"[:100]
             self.git.run(["commit", "-q", "-m", f"{title}\n\nChange request #{cid} ({cr['class']}); agent-authored, operator-reviewed."], cwd=repo)
             self.git.run(["push", "origin", f"HEAD:refs/heads/{branch}"], cwd=repo, push=True)
-        body = pr_body(cr, summary, tests, files)
         cls_cfg = self.cfg.classes["classes"].get(cr["class"], {})
+        if cls_cfg.get("test_before_pr") and (cls_cfg.get("canary_test") or cls_cfg.get("burst_test")):
+            # Test first (10h/10i): the branch is pushed, the Toolbelt proposes and (with the request's approval) approves the test, and the PR opens in
+            # advance_testing() when it passed or cannot run. A failed test opens no PR.
+            rst, _ = self.tb.report(cid, state="testing", branch=branch, summary=summary,
+                                    tests={**tests, "turns": res.get("turns"), "cost_usd": res.get("cost_usd"),
+                                           "_files": [{"filename": f["filename"], "additions": f["additions"], "deletions": f["deletions"]} for f in files]})
+            if rst != 200:
+                return self._fail(cid, f"the branch was pushed but the Toolbelt refused to start its test (HTTP {rst})", res)
+            audit("testing", cr=cid, branch=branch)
+            return {"state": "testing", "branch": branch}
+        body = pr_body(cr, summary, tests, files)
         if cls_cfg.get("canary_test") or cls_cfg.get("burst_test"):   # filled in from the Toolbelt's view right after the report
             body = with_canary_block(body, canary_block({"kind": "burst", "status": "not-tested", "reason": "not evaluated yet"} if cls_cfg.get("burst_test") else None))
         st, pr = self.gh.create_pr(branch, "main", title, body)
@@ -443,6 +466,85 @@ class Dispatcher:
             self.sync_canary(pr["number"], view.get("pr_test"))
         audit("pr_opened", cr=cid, pr=pr["number"], branch=branch)
         return {"state": "pr-open", "pr": pr["html_url"]}
+
+    # -- test before PR (a class with `test_before_pr`) -------------------------------------------------------------
+    TEST_WAIT = 40 * 60        # a test that has not finished by now: the PR opens saying so, and the result is synced in when it arrives
+    RETRY_WINDOW = 20 * 60     # a test that could not start for a temporary reason is asked for again for this long
+    FAILED_BRANCH_KEEP = 3 * 86400
+
+    def drive_testing(self) -> None:
+        """Advance every request whose branch is being tested: open the PR when the test passed or cannot run, end the request when it failed."""
+        for cr in self.tb.testing():
+            try:
+                self.advance_testing(cr)
+            except Exception as e:  # noqa: BLE001 - one request must not stop the others; the next tick tries again
+                audit("error", where="advance_testing", cr=cr.get("id"), error=type(e).__name__, detail=tools.redact(str(e))[:160])
+
+    def advance_testing(self, cr: dict) -> str:
+        """What happens to one request in `testing`. Returns the decision (for the audit line and the tests)."""
+        cid, pt = cr["id"], cr.get("pr_test") or {"status": "not-tested", "reason": "the test has not been evaluated yet"}
+        st, age = pt.get("status"), time.time() - float(cr.get("updated_at") or time.time())
+        if st == "passed":
+            return self.open_tested_pr(cr, pt, "passed")
+        if st == "failed":
+            lines = (pt.get("markdown") or "").strip().splitlines()
+            why = str(pt.get("reason") or (lines[0] if lines else "see the run output in the Discord thread"))
+            self.tb.report(cid, state="failed", error=f"the {pt.get('kind', 'canary')} test failed, so no PR was opened: {why}"[:480], summary=cr.get("summary") or "")
+            audit("test_failed", cr=cid, branch=cr.get("branch"))
+            return "failed"
+        if st in ("proposed", "running"):
+            return self.open_tested_pr(cr, pt, "timeout") if age > self.TEST_WAIT else "waiting"
+        if st == "not-tested":
+            if pt.get("reason") == "the test has not been evaluated yet" and age < 180:
+                return "waiting"
+            if pt.get("retry") and age < self.RETRY_WINDOW:
+                if time.time() - self._retest_seen.get(cid, 0) > 300:
+                    self._retest_seen[cid] = time.time()
+                    self.tb.retest(cid)
+                    audit("pr_test_retry", cr=cid)
+                return "waiting"
+        return self.open_tested_pr(cr, pt, st or "not-tested")   # expired / rejected / cancelled / not testable: say so on the PR
+
+    def open_tested_pr(self, cr: dict, pt: dict, why: str) -> str:
+        """Open the PR for a request whose test is done (or cannot be): the description carries the test section from the start."""
+        cid, branch = cr["id"], cr.get("branch") or ""
+        tests = dict(cr.get("tests") or {})
+        files = tests.pop("_files", [])
+        shown = {k: v for k, v in tests.items() if k not in ("turns", "cost_usd")}
+        kind = "docs" if cr["class"] == "docs" else cr["class"]
+        title = f"{kind}: {cr['title']}"[:100]
+        body = with_canary_block(pr_body(cr, cr.get("summary") or "", shown, files), canary_block({**pt, "kind": pt.get("kind") or ("burst" if self.cfg.classes["classes"].get(cr["class"], {}).get("burst_test") else None)}))
+        st, pr = self.gh.create_pr(branch, "main", title, body)
+        if st == 422:   # a PR from this branch already exists (a crash between creating it and reporting it)
+            found = self.gh.find_open_pr(branch)
+            st, pr = (201, found) if found else (st, pr)
+        if st != 201 or not isinstance(pr, dict) or not pr.get("html_url"):
+            audit("pr_refused", cr=cid, status=st)
+            return "pr-refused"   # try again next tick
+        self.gh.label(pr["number"], "agent-authored")
+        self.tb.report(cid, state="pr-open", pr_url=pr["html_url"], branch=branch)
+        audit("pr_opened", cr=cid, pr=pr["number"], branch=branch, after_test=why)
+        return "pr-open:" + why
+
+    def delete_branch(self, branch: str) -> bool:
+        """Remove a pushed branch whose test failed (kept a few days for inspection). Only an `agent/<class>/<id>-<slug>` branch, ever."""
+        if not re.fullmatch(r"agent/[a-z0-9-]+/[0-9]+-[a-z0-9-]+", branch or ""):
+            return False
+        with tempfile.TemporaryDirectory(prefix="del-", dir=str(self.cfg.work)) as d:
+            self.git.run(["init", "-q"], cwd=d)
+            try:
+                self.git.run(["push", self.cfg.repo_url, "--delete", branch], cwd=d, push=True)
+            except RuntimeError:
+                return False   # already gone
+        return True
+
+    def cleanup_failed_branches(self) -> int:
+        n = 0
+        for cr in self.tb.listed("failed"):
+            if cr.get("branch") and "test failed, so no PR was opened" in str(cr.get("error") or "") \
+                    and self.FAILED_BRANCH_KEEP < time.time() - float(cr.get("finished_at") or time.time()) < 14 * 86400:
+                n += int(self.delete_branch(cr["branch"]))
+        return n
 
     # -- reconciling and the loop --------------------------------------------------------------------------------
     def sync_canary(self, number: int, summary: dict | None) -> None:
@@ -463,6 +565,10 @@ class Dispatcher:
             audit("canary_section", pr=number, status=summary.get("status"))
 
     def reconcile(self) -> None:
+        try:
+            self.cleanup_failed_branches()
+        except Exception as e:  # noqa: BLE001
+            audit("error", where="cleanup_failed_branches", error=type(e).__name__)
         for cr in self.tb.open_prs():
             m = re.search(r"/pull/(\d+)$", cr.get("pr_url") or "")
             if not m:
@@ -483,6 +589,7 @@ class Dispatcher:
     def tick(self, running: set) -> None:
         if not self.cfg.dry_run and not self.identity_ok():  # a dry run publishes nothing, so it needs no safe identity
             return
+        self.drive_testing()
         while len(running) < self.cfg.max_parallel:
             got = self.tb.claim()
             cr = got.get("change_request")

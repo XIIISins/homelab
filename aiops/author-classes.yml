@@ -109,6 +109,7 @@ classes:
       - "k8s/asgard/infrastructure/authentik/redis.yaml"
     tested_on: a throwaway burst cluster (the k8s class's test; it proves the pod still starts and becomes Ready inside the new limits; apps outside k8s/asgard/apps/ say why they are not tested); the 72-hour post-merge watch (10i5) proves it under real load
     burst_test: true
+    test_before_pr: true   # the branch is pushed and burst-tested first; the PR opens when the test passed (or cannot run), never when it failed
     checks:   # run by the dispatcher on the patched clone, and again by CI's agent-scope job from the PR's base commit
       - {name: resources only, script: .github/scripts/ci-resources-only.py}
   k8s:
@@ -118,4 +119,5 @@ classes:
       - "k8s/asgard/apps/*/*.yaml"
       - "k8s/asgard/apps/*/*.yml"
     tested_on: a throwaway burst cluster (Flux, a one-node Vault with random seeds, the same charts; docs/plans/active/10h-k8s-burst-test.md) - the Toolbelt proposes it, the operator approves, the runner destroys the cluster afterwards; the summary goes into the PR description
-    burst_test: true   # the Toolbelt proposes pr-burst-test when the PR opens; CI's offline gates (ci-k8s-burst.sh) also run on it
+    burst_test: true   # the Toolbelt proposes pr-burst-test for the pushed branch; CI's offline gates (ci-k8s-burst.sh) also run on the PR
+    test_before_pr: true   # the branch is pushed and burst-tested first; the PR opens when the test passed (or cannot run), never when it failed
