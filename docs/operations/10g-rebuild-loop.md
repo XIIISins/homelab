@@ -218,7 +218,7 @@ PVE-side least privilege: the token's role is the minimum Terraform needs to cre
 | 10f soak passed (14 days, injected-fault matrix, zero flapping) | code complete, deploy + soak pending | stage A (autonomy) |
 | Offsite-backup **restore drill** on a burst K3s ([`burst-substrate.md`](../procedures/burst-substrate.md)) | substrate live and smoke-tested 2026-10-02; **drill not run** | stage C and the 10g3 gate |
 | **PBS restore of an LXC and of a canary**, scheduled via Semaphore ([`open-questions.md`](open-questions.md)) | not built | stage B (the undo path) |
-| **PBS datastore capacity** (75 % on 2026-10-03, re-check after ~2026-10-10) | open | last-chance backups add data; do not enter stage B above ~80 % |
+| ~~PBS datastore capacity~~ | dropped as a prerequisite 2026-10-10 (67 %; the large consumers aged out) | the forecast note and the Zabbix disk triggers still cover it |
 | Skuld watchdog proven or Skuld de-risked | `iTCO_wdt` canary only | not a gate for canaries (Urd); the node-health guard handles Skuld guests (`kvasir`, `einherjar-skuld`) |
 | Worker data inventory (which local-path PVs are single-instance) | not written down | stage C pre-flight |
 | `do1` fast homelab-side check; TS3 DB restore automation | follow-ups open | stage B3 autonomy |
