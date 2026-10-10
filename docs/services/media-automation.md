@@ -21,7 +21,7 @@ A dedicated shared folder `media` on volume5 (the old `media-backup` share, rena
 
 ## SABnzbd configuration
 
-`sabnzbd.ini` is rendered once by an init container (only when the file is missing): the seeded keys, host whitelist, `/data/Downloads/{incomplete,complete}`, direct unpack, `cleanup_list`, the `anime` category, and the Usenet servers (FrugalUsenet primary on 563/SSL with the connection count from Vault, plus the `bonus.frugalusenet.com` backup server at priority 1 with 10 connections). After that the ini on the volume belongs to the UI, **except** two keys the init container re-asserts on every start so a manifest change takes effect: `cache_limit = 256M` and `bandwidth_max = 50M` (the link is shared with iSCSI and everything else on the workers). Delete the ini to re-seed everything.
+`sabnzbd.ini` is rendered once by an init container (only when the file is missing): the seeded keys, host whitelist, `/data/Downloads/{incomplete,complete}`, direct unpack, `cleanup_list`, the `anime` category (and the default one) with `pp = 3` so SABnzbd repairs with par2 and unpacks, and the Usenet servers (FrugalUsenet primary on 563/SSL with the connection count from Vault, plus the `bonus.frugalusenet.com` backup server at priority 1 with 10 connections). After that the ini on the volume belongs to the UI, **except** two keys the init container re-asserts on every start so a manifest change takes effect: `cache_limit = 256M` and `bandwidth_max = 50M` (the link is shared with iSCSI and everything else on the workers). Delete the ini to re-seed everything.
 
 ## Sonarr configuration
 

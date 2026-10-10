@@ -34,9 +34,20 @@ spec:
               setkey() {
                 if grep -q "^$1 = " "$INI"; then sed -i "s|^$1 = .*|$1 = $2|" "$INI"; else sed -i "/^\[misc\]/a $1 = $2" "$INI"; fi
               }
+              # Post-processing level 3 = repair (par2) + unpack + delete. The categories were first seeded without a `pp`, which
+              # SABnzbd treats as "download only": 18 of 24 imported episodes then carried zero-filled holes from missing
+              # articles that the par2 files in the same NZBs could have repaired (2026-10-10). Enforced for the default and
+              # `anime` categories, including on an existing ini.
+              setcatpp() {
+                awk '/^\[\[/ { incat = ($0 ~ /^\[\[(\*|anime)\]\]$/); print; if (incat) print "pp = 3"; next }
+                     /^\[/ { incat = 0 }
+                     incat && /^pp *=/ { next }
+                     { print }' "$INI" > "$INI.new" && cat "$INI.new" > "$INI" && rm -f "$INI.new"
+              }
               if [ -f "$INI" ]; then
                 setkey cache_limit 256M
                 setkey bandwidth_max 50M
+                setcatpp
                 echo "sabnzbd.ini exists: only the managed keys were enforced"; exit 0
               fi
               umask 077
@@ -58,7 +69,7 @@ spec:
                 printf '[[bonus]]\nname = bonus\ndisplayname = bonus\nenable = 1\nssl = 1\npriority = 1\n'
                 printf 'host = bonus.frugalusenet.com\nport = 563\nusername = %s\npassword = %s\nconnections = 10\n' \
                   "$USENET_USERNAME" "$USENET_PASSWORD"
-                printf '[categories]\n[[*]]\nname = *\ndir = ""\n[[anime]]\nname = anime\ndir = anime\n'
+                printf '[categories]\n[[*]]\nname = *\ndir = ""\npp = 3\n[[anime]]\nname = anime\ndir = anime\npp = 3\n'
               } > /config/sabnzbd.ini
               chown 1000:1000 /config/sabnzbd.ini
               echo "rendered sabnzbd.ini"
