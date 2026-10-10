@@ -42,7 +42,7 @@
 
     - name: Require a fresh backup
       ansible.builtin.assert:
-        that: rt_age_h | float <= restore_test_max_age_h
+        that: rt_age_h | float <= restore_test_max_age_h | float
         fail_msg: >-
           newest backup of {{ rt_vmid }} ({{ rt_name }}) is {{ rt_age_h | float | round(1) }} h old
           (limit {{ restore_test_max_age_h }} h): the nightly job missed it
