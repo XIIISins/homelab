@@ -224,7 +224,7 @@ def evaluate(c: Container, cfg: dict, now: float) -> tuple[list, list]:
         ev = {"request_millicores": millicores(c.req_cpu), "median_daily_p95_millicores": millicores(c.cpu_p95),
               "worst_day_p95_millicores": millicores(c.cpu_worst), "vpa_target_millicores": millicores(c.vpa_cpu.target)}
         floor = cfg["floors"]["cpu_millicores"] / 1000
-        if c.cpu_p95 > c.req_cpu:   # a normal day needs more than the request: sustained, not a spike
+        if c.cpu_p95 > c.req_cpu * cpu["under_request"].get("min_ratio", 1.0):   # a normal day needs clearly more than the request: sustained, not a spike or a rounding
             new_req = max(ceil10m(max(c.vpa_cpu.target if ok_cpu else 0.0, c.cpu_p95) * cpu["under_request"]["margin"]), ceil10m(c.cpu_worst), floor)
             if new_req > c.req_cpu:
                 out.append(_finding(c, "cpu-request", "cpu-under-request", now, conf_cpu, {**ev, "proposed_request_millicores": millicores(new_req)}))

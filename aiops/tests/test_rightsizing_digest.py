@@ -121,6 +121,19 @@ class Build(unittest.TestCase):
         self.assertTrue(d["baseline"])
         self.assertEqual(d["coverage"]["open_findings"], 7)
 
+    def test_among_hazards_an_oom_leads_then_memory_before_cpu_then_the_biggest_gap(self):
+        small = under("small", old=100.0, new=130.0, added=30 * MIB)
+        small["evidence"]["max_working_set_mib"] = 105.0                                   # 1.05x the request
+        big = under("big", old=100.0, new=400.0, added=300 * MIB)
+        big["evidence"]["max_working_set_mib"] = 300.0                                     # 3x
+        oom = under("oom", old=100.0, new=130.0, added=30 * MIB, oomkilled=True)
+        oom["evidence"]["max_working_set_mib"] = 100.0
+        cpu_gap = rs_finding("cpugap", container="c", finding="cpu-under-request", metric="cpu-request", request_millicores=50.0, proposed_request_millicores=400.0,
+                             median_daily_p95_millicores=250.0)
+        self.r.feed(small, big, cpu_gap, oom, over("saves", freed=900 * MIB))
+        names = [s["target"].split("/")[2] for s in self.r.appr("POST", "/rightsizing/digest", {"by": tcr.OP})[1]["digest"]["suggestions"]]
+        self.assertEqual(names, ["oom", "big", "small", "cpugap", "saves"])
+
     def test_creep_and_an_oom_with_no_number_are_facts_not_suggestions(self):
         self.r.feed(creep(), oom_note(), over())
         d = self.r.appr("POST", "/rightsizing/digest", {"by": tcr.OP})[1]["digest"]

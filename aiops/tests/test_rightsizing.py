@@ -198,7 +198,8 @@ class CpuRules(unittest.TestCase):
         e = by_name(ev(c)[0])["cpu-under-request"]["evidence"]
         self.assertEqual(e["proposed_request_millicores"], 300.0)        # 1.5 x max(target 150m, p95 200m)
         # a worse worst day floors it
-        c = ctr(req_cpu=0.05, cpu_p95=0.06, cpu_worst=0.5, vpa_cpu=vpa(0.05, 0.3))
+        self.assertEqual(ev(ctr(req_cpu=0.01, cpu_p95=0.011, cpu_worst=0.013, vpa_cpu=vpa(0.011, 0.02)))[0], [])   # 11m against 10m is rounding, not a shortage
+        c = ctr(req_cpu=0.05, cpu_p95=0.07, cpu_worst=0.5, vpa_cpu=vpa(0.05, 0.3))
         self.assertEqual(by_name(ev(c)[0])["cpu-under-request"]["evidence"]["proposed_request_millicores"], 500.0)
 
     def test_a_cpu_limit_is_never_proposed(self):
