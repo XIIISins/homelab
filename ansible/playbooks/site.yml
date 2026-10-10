@@ -65,6 +65,12 @@
         success_msg: >-
           Inventory has {{ groups['all'] | length }} hosts — proceeding.
 
+# Zabbix host groups + templates BEFORE any play registers a host. Every per-group play below links its templates in
+# register-host (zabbix-agent role); a template added in git (e.g. "Patroni replication", 2026-10-09) only exists in Zabbix
+# once this import has run, and asgard-zabbix (which also imports it) comes after the database and app plays. Without this,
+# the first apply after adding a template fails "Register host in Zabbix" on every host that links it (task 2591).
+# Idempotent; both zabbix-host-groups tasks skip under --check.
+- import_playbook: zabbix-host-groups.yml
 - import_playbook: asgard-k3s.yml
 # K3s + Calico versions vs git (read-only). Runs only under --check, i.e. the
 # `asgard-drift-check` Semaphore template; `asgard-apply` skips it (it cannot fix a
