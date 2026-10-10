@@ -98,7 +98,7 @@ classes:
     tested_on: a canary (the Toolbelt proposes it, the operator approves) - dry run of the PR's code, converge, second dry run for idempotence; the result is written into the PR description
     canary_test: true
   rightsizing:
-    enabled: false   # 10i4: shipped off; a separate reviewed PR turns it on once the resources-only gate has been seen refusing a probe in CI
+    enabled: true   # 10i4: on 2026-10-10, after the 10i5 post-merge watch went live; the resources-only gate is unit-tested and re-run by CI's agent-scope
     summary: Change only the resources (requests, memory limits) of ONE workload from a 10i finding (docs/plans/active/10i-rightsizing.md). Never an image, replica count or any other value.
     allow:
       - "k8s/asgard/apps/*/helmrelease.yaml"
