@@ -1,0 +1,82 @@
+# aiops/rightsizing.yml
+#
+# Phase 10i: thresholds, allow-list and digest cadence for pod rightsizing
+# (docs/plans/active/10i-rightsizing.md). Read by the `kube.rightsizing` Toolbelt tool and the daily findings pass
+# (toolbelt/rightsizing.py). Agent PRs may not edit this file: it is the policy the agent is measured against.
+# Validated against schema/rightsizing.v1.schema.json by tools/lint.py.
+version: 1
+
+digest:
+  cadence: weekly # weekly | biweekly | monthly (10i3; the bot's /aiops rightsizing cadence overrides it until a restart)
+
+# Where the history comes from: 30 days of cAdvisor / kube-state-metrics in VictoriaMetrics, joined with VPA's recommendation.
+window_days: 30
+
+# A VPA recommendation counts only when all three hold; otherwise the findings that need it are suppressed, not guessed.
+vpa:
+  min_sample_age_days: 7 # the recommendation series is at least this old
+  max_target_drift: 0.30 # the 7-day min/max of the target stay within +-30 % of today's target
+settle_hours: 24 # a controller whose newest pod is younger than this was just rolled: no findings until it settles
+
+memory:
+  under_request: # 30-day max working set above the request, or an OOMKilled container
+    margin: 1.2
+    limit_trigger: 0.8 # raise the limit when the 30-day max is above this fraction of it...
+    limit_headroom: 1.5 # ...to this multiple of the proposed request
+  over_request:
+    ratio: 1.5 # request >= ratio x max(VPA upperBound, 30-day max)
+    margin: 1.3
+    min_free_mib: 64
+    floor_mib: 32
+  over_limit:
+    enabled: false # on only after the 10i5 post-merge watch exists: a limit cut follows a request cut that held through its watch
+    ratio: 3
+    min_free_mib: 256
+  creep: # a steady rise of the daily peak: a tuning suggestion (leak, unbounded cache, missing GOMEMLIMIT), never a number
+    min_days: 14
+    min_rise_mib: 64
+    min_rise_fraction: 0.2 # of the first week's median
+    min_rising_fraction: 0.75 # of all day pairs
+    max_restarts: 2 # restarts reset the curve and are an OOM story, not a creep story
+
+cpu: # requests only. A CPU limit is never proposed: throttling on 2-vCPU workers hurts more than it protects
+  over_request:
+    ratio: 3
+    margin: 1.5
+    min_free_millicores: 50
+    floor_millicores: 10
+  under_request:
+    margin: 1.5
+
+# Floors the 10i4 resources-only check enforces on a proposed value (the VPA recommender's own floors).
+floors:
+  cpu_millicores: 10
+  memory_mib: 32
+
+# Workers, for the per-node scoreboard. The control planes are tainted and carry no workloads of this kind.
+worker_node_pattern: "^einherjar-"
+
+# Controllers in these namespaces have no VPA on purpose (K3s addons, Calico/Tigera are not Flux-managed); they are not "uncovered".
+coverage_ignore_namespaces: [kube-system, tigera-operator, calico-system, calico-apiserver]
+
+# `namespace/Kind/name` (fnmatch). Workloads with rare peaks (model loads, monthly imports) are sized from the 30-day p95 on purpose (10i0b):
+# a peak above the request is not a finding for them, their request is judged against the p95, and they never get a LIMIT cut.
+rare_peaks:
+  - immich/*
+
+# Never produce a finding for these (a controller that is sized by something else).
+ignore: []
+
+# 10i4 draft-PR button allow-list: the T1/T2 apps. Vault, Traefik, cert-manager, MetalLB, ESO, Sealed Secrets, the CSI drivers, Garage,
+# vmagent and Flux show up in the digest but get no button.
+allow:
+  - authentik/*
+  - netbox/*
+  - outline/*
+  - immich/*
+  - semaphore/*
+  - microbin/*
+  - startpage/*
+  - teamspeak/*
+  - monitoring/StatefulSet/victoriametrics-*
+  - monitoring/StatefulSet/victorialogs-*

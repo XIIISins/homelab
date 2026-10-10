@@ -86,6 +86,7 @@ SPEC: dict[str, dict[str, Arg]] = {
                  "namespace": S(False, 63, K8S_NAME), "name": S(False, 253, K8S_NAME)},
     "kube.logs": {"namespace": S(True, 63, K8S_NAME), "pod": S(True, 253, K8S_NAME), "container": S(False, 63, K8S_NAME),
                   "tail": I(1, 200), "previous": E("true", "false")},
+    "kube.rightsizing": {"namespace": S(False, 63, K8S_NAME), "kind": E("deployments", "statefulsets", "daemonsets"), "name": S(False, 253, K8S_NAME)},
     "netbox.host": {"name": S(True, 100, HOST)},
     "netbox.hypervisor_peers": {"host": S(True, 100, HOST)},
     "pve.node_status": {"node": S(True, 40, r"^[a-z0-9-]+$")},
@@ -528,6 +529,35 @@ def _kube(cfg: LiveConfig, name: str, args: dict) -> dict:
     return {"kind": kind, "count": len(out), "items": out[:100], "truncated": len(out) > 100}
 
 
+def _rightsizing(cfg: LiveConfig, args: dict) -> dict:
+    """Phase 10i2: requests and limits against VPA and 30 days of use, per container; no arguments = the whole-cluster summary.
+
+    Built entirely from VictoriaMetrics (the same metrics-read route the metrics.* tools use): no Kubernetes API call, nothing written."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import rightsizing
+
+    ns, kind, name = args.get("namespace"), args.get("kind"), args.get("name")
+    if name and not (ns and kind):
+        raise ToolError(400, "name needs namespace and kind")
+    if kind and not ns:
+        raise ToolError(400, "kind needs a namespace")
+    try:
+        rcfg = rightsizing.load_config(cfg.root / "aiops" / "rightsizing.yml")
+    except (OSError, ValueError) as e:
+        raise ToolError(501, f"rightsizing.yml is not available on this Toolbelt ({type(e).__name__})")
+    now = time.time()
+    vm = rightsizing.VM(cfg.metrics_url, lambda url: _obs_get(cfg, url, "VictoriaMetrics"))
+    fleet = rightsizing.collect(vm, rcfg, now, namespace=ns)
+    if ns:
+        out = rightsizing.detail(fleet, rcfg, now, ns, kind, name)
+        if not out["found"]:
+            raise ToolError(404, out["note"])
+        return out
+    return rightsizing.summary(fleet, rcfg, now)
+
+
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
@@ -693,6 +723,8 @@ def live(cfg: LiveConfig, name: str, args: dict) -> dict:
         return _zabbix(cfg, name, args)
     if name.startswith("netbox."):
         return _netbox(cfg, name, args)
+    if name == "kube.rightsizing":
+        return _rightsizing(cfg, args)
     if name.startswith("kube."):
         return _kube(cfg, name, args)
     if name == "semaphore.tasks":

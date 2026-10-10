@@ -106,6 +106,9 @@ aiops_toolbelt_forecast_current: /var/lib/aiops-toolbelt/forecast-current.json
 aiops_toolbelt_forecast_log: /var/lib/aiops-toolbelt/forecast-shadow.jsonl
 aiops_toolbelt_forecast_state: /var/lib/aiops-toolbelt/forecast-state.json
 aiops_toolbelt_forecast_metrics_url: https://metrics-read.niflheim.xiiisins.com
+# Pod rightsizing (10i2): the forecast job also runs the daily findings pass against VictoriaMetrics (no extra route or credential). The
+# rows are quiet (no Discord cards); 10i3's digest is their reader. `false` drops the flag and the job is exactly the 10h1 one.
+aiops_toolbelt_rightsizing_enabled: true
 aiops_toolbelt_replay_dir: "{{ aiops_toolbelt_home }}/aiops/replays"
 
 # Token: minted by terraform/vault (random_password.toolbelt_token), read by the root loader.
@@ -134,6 +137,8 @@ aiops_toolbelt_source_files:
   - toolbelt/forecast_run.py
   - toolbelt/forecast_zabbix.py
   - toolbelt/forecast_store.py
+  - toolbelt/rightsizing.py
+  - rightsizing.yml
   - toolbelt/incident_draft.py
   - toolbelt/capacity_draft.py
   - toolbelt/change_requests.py

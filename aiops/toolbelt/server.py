@@ -238,7 +238,10 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
 
         def _h_fc_list(self, m, q):
             raw = (q.get("state") or [""])[0]
-            return {"forecasts": self._fc().list(tuple(s for s in raw.split(",") if s) or ("open",))}
+            kind = (q.get("kind") or [""])[0] or None
+            if kind is not None and not re.fullmatch(r"[a-z-]{1,30}", kind):
+                raise core.Rejected(400, "bad kind")
+            return {"forecasts": self._fc().list(tuple(s for s in raw.split(",") if s) or ("open",), kind)}
 
         def _h_fc_label(self, m, q):
             b = self._obj()

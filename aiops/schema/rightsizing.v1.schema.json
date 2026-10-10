@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rightsizing.v1.schema.json",
+  "title": "aiops/rightsizing.yml (Phase 10i)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "digest", "window_days", "vpa", "settle_hours", "memory", "cpu", "floors", "worker_node_pattern", "coverage_ignore_namespaces", "rare_peaks", "ignore", "allow"],
+  "$defs": {
+    "ratio": {"type": "number", "exclusiveMinimum": 1, "maximum": 20},
+    "fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+    "pos": {"type": "number", "minimum": 0, "maximum": 100000},
+    "pattern": {"type": "string", "pattern": "^[a-z0-9*?-]+(/[A-Za-z*?-]+(/[a-z0-9*?.-]+)?)?$"},
+    "patterns": {"type": "array", "items": {"$ref": "#/$defs/pattern"}, "uniqueItems": true}
+  },
+  "properties": {
+    "version": {"const": 1},
+    "digest": {
+      "type": "object", "additionalProperties": false, "required": ["cadence"],
+      "properties": {"cadence": {"enum": ["weekly", "biweekly", "monthly"]}}
+    },
+    "window_days": {"type": "integer", "minimum": 7, "maximum": 90},
+    "vpa": {
+      "type": "object", "additionalProperties": false, "required": ["min_sample_age_days", "max_target_drift"],
+      "properties": {"min_sample_age_days": {"type": "integer", "minimum": 1, "maximum": 30}, "max_target_drift": {"$ref": "#/$defs/fraction"}}
+    },
+    "settle_hours": {"type": "integer", "minimum": 1, "maximum": 168},
+    "memory": {
+      "type": "object", "additionalProperties": false, "required": ["under_request", "over_request", "over_limit", "creep"],
+      "properties": {
+        "under_request": {
+          "type": "object", "additionalProperties": false, "required": ["margin", "limit_trigger", "limit_headroom"],
+          "properties": {"margin": {"$ref": "#/$defs/ratio"}, "limit_trigger": {"$ref": "#/$defs/fraction"}, "limit_headroom": {"$ref": "#/$defs/ratio"}}
+        },
+        "over_request": {
+          "type": "object", "additionalProperties": false, "required": ["ratio", "margin", "min_free_mib", "floor_mib"],
+          "properties": {"ratio": {"$ref": "#/$defs/ratio"}, "margin": {"$ref": "#/$defs/ratio"}, "min_free_mib": {"$ref": "#/$defs/pos"}, "floor_mib": {"$ref": "#/$defs/pos"}}
+        },
+        "over_limit": {
+          "type": "object", "additionalProperties": false, "required": ["enabled", "ratio", "min_free_mib"],
+          "properties": {"enabled": {"type": "boolean"}, "ratio": {"$ref": "#/$defs/ratio"}, "min_free_mib": {"$ref": "#/$defs/pos"}}
+        },
+        "creep": {
+          "type": "object", "additionalProperties": false,
+          "required": ["min_days", "min_rise_mib", "min_rise_fraction", "min_rising_fraction", "max_restarts"],
+          "properties": {
+            "min_days": {"type": "integer", "minimum": 7, "maximum": 90}, "min_rise_mib": {"$ref": "#/$defs/pos"},
+            "min_rise_fraction": {"type": "number", "minimum": 0, "maximum": 10}, "min_rising_fraction": {"$ref": "#/$defs/fraction"},
+            "max_restarts": {"type": "integer", "minimum": 0, "maximum": 100}
+          }
+        }
+      }
+    },
+    "cpu": {
+      "type": "object", "additionalProperties": false, "required": ["over_request", "under_request"],
+      "properties": {
+        "over_request": {
+          "type": "object", "additionalProperties": false, "required": ["ratio", "margin", "min_free_millicores", "floor_millicores"],
+          "properties": {"ratio": {"$ref": "#/$defs/ratio"}, "margin": {"$ref": "#/$defs/ratio"}, "min_free_millicores": {"$ref": "#/$defs/pos"}, "floor_millicores": {"$ref": "#/$defs/pos"}}
+        },
+        "under_request": {"type": "object", "additionalProperties": false, "required": ["margin"], "properties": {"margin": {"$ref": "#/$defs/ratio"}}}
+      }
+    },
+    "floors": {
+      "type": "object", "additionalProperties": false, "required": ["cpu_millicores", "memory_mib"],
+      "properties": {"cpu_millicores": {"$ref": "#/$defs/pos"}, "memory_mib": {"$ref": "#/$defs/pos"}}
+    },
+    "worker_node_pattern": {"type": "string", "minLength": 1, "maxLength": 100},
+    "coverage_ignore_namespaces": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9-]+$"}, "uniqueItems": true},
+    "rare_peaks": {"$ref": "#/$defs/patterns"},
+    "ignore": {"$ref": "#/$defs/patterns"},
+    "allow": {"$ref": "#/$defs/patterns"}
+  }
+}

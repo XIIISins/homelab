@@ -64,6 +64,10 @@ Zabbix keeps 31 days of raw history and 365 days of hourly trends (verified 2026
 systemctl list-timers aiops-toolbelt-forecast.timer; journalctl -u aiops-toolbelt-forecast -n 12 -o cat   # one line per target: series=N points=M, or error=...
 ```
 
+## Rightsizing rows (Phase 10i2)
+
+The same job also runs the daily pod-rightsizing findings (`--rightsizing aiops/rightsizing.yml`, Ansible `aiops_toolbelt_rightsizing_enabled`). They are `kind = rightsizing` rows in the same current-findings file and `forecasts` table, but the store keeps them **quiet**: no Discord card, not in `/aiops forecasts`, no share of the new-finding budget. Read them with `GET /forecasts?kind=rightsizing` (approver role) or the `kube.rightsizing` tool; the 10i3 digest is their reader. The job logs one `rightsizing: ...` line (containers, findings, suppressed reasons, errors). Thresholds, floors, the allow-list and the digest cadence are in `aiops/rightsizing.yml` ([plan](../plans/active/10i-rightsizing.md)).
+
 ## Not built
 
 - A **Draft fix PR** for `pve-storage-used`, Kubernetes volumes and VictoriaLogs: their fix is not a value in the paths the `capacity` class may touch (PBS retention and the NAS share live outside Git; PVC and retention values are under `k8s/`). The button exists for `fleet-fs-used` and `memory-used` ([`aiops-author.md`](aiops-author.md) "The `capacity` class").

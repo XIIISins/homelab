@@ -26,6 +26,7 @@ Checks, in order:
              zabbix-event.v1, zabbix_event.from_zabbix_event(event) == expected, the
              expected alerts validate; and the keys the n8n-webhook.js sender emits
              equal the schema's properties (script and contract cannot drift)
+  rightsizing (10i) aiops/rightsizing.yml validates against its schema; floors and limit headroom are consistent
   n8n        (10d) every aiops/n8n/workflows/*.json: valid JSON with a fixed id, only
              allow-listed node types (no Code / Execute-Command / SSH), no inline
              secrets (the repo is public), credentials are id+name references,
@@ -838,6 +839,21 @@ def check_replays(root: Path) -> list[str]:
     return errs
 
 
+def check_rightsizing(doc: dict) -> list[str]:
+    """(10i) rightsizing.yml: the schema, plus the cross-field rules it cannot say: no proposed floor below the global floor, and a raised
+    limit keeps real headroom over the request."""
+    errs = [f"rightsizing: {e}" for e in schema_errors(doc, load_schema("rightsizing.v1.schema.json"))]
+    if errs:
+        return errs
+    if doc["memory"]["over_request"]["floor_mib"] < doc["floors"]["memory_mib"]:
+        errs.append("rightsizing: memory.over_request.floor_mib is below floors.memory_mib")
+    if doc["cpu"]["over_request"]["floor_millicores"] < doc["floors"]["cpu_millicores"]:
+        errs.append("rightsizing: cpu.over_request.floor_millicores is below floors.cpu_millicores")
+    if doc["memory"]["under_request"]["limit_headroom"] < 1.2:
+        errs.append("rightsizing: memory.under_request.limit_headroom below 1.2 leaves a raised limit with no room")
+    return errs
+
+
 def run(root: Path = ROOT) -> list[str]:
     errs: list[str] = []
     docs = {
@@ -863,6 +879,7 @@ def run(root: Path = ROOT) -> list[str]:
     errs += check_zabbix_native(root, rt["routes"], {r["id"] for r in rb["runbooks"]})
     errs += check_n8n_workflows(root)
     errs += check_replays(root)
+    errs += check_rightsizing(load_yaml(AIOPS / "rightsizing.yml"))
     return errs
 
 

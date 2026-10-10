@@ -10,7 +10,9 @@ Rules (docs/plans/active/10h-predictive-change.md):
   * `created` on first sight (and again when a resolved one comes back); `escalated` when the ETA is at most half of what was last
     announced; `reposted` once a week while it stays open and unlabelled-noise; `resolved` after two passes without it;
   * a stale file (the job died) never resolves anything: absence is only evidence when the job is alive;
-  * at most `max_new_per_sync` new findings are announced per sync, so a first run cannot flood the channel.
+  * at most `max_new_per_sync` new findings are announced per sync, so a first run cannot flood the channel;
+  * QUIET kinds (Phase 10i2 `rightsizing`) share the table and the lifecycle but are never in the card feed, the default list, the summary or
+    the new-finding budget: they reach people through the periodic digest (10i3), read with `list(kind=...)`.
 """
 from __future__ import annotations
 
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS forecast_events (
 );
 """
 LABELS = ("useful", "noise")
+QUIET_KINDS = ("rightsizing",)
+_NOT_QUIET = " AND kind NOT IN (" + ",".join("?" * len(QUIET_KINDS)) + ")"
 REPOST_AFTER = 7 * 86400
 
 
@@ -70,10 +74,12 @@ class Forecasts:
         d["eta_at"] = int(r["last_seen"] + r["days_to_full"] * 86400) if r["days_to_full"] is not None else None
         return d
 
-    def list(self, states: tuple = ("open",)) -> list[dict]:
+    def list(self, states: tuple = ("open",), kind: str | None = None) -> list[dict]:
+        """Forecasts in `states`, soonest-to-fill first. Without `kind`, quiet kinds (rightsizing) are left out; with it, only that kind."""
         q = ",".join("?" * len(states))
+        where, args = (" AND kind=?", (kind,)) if kind else (_NOT_QUIET, QUIET_KINDS)
         with self.lock:
-            ids = [r["id"] for r in self.db.execute(f"SELECT id FROM forecasts WHERE state IN ({q}) ORDER BY COALESCE(days_to_full, 9999), id", states).fetchall()]
+            ids = [r["id"] for r in self.db.execute(f"SELECT id FROM forecasts WHERE state IN ({q}){where} ORDER BY COALESCE(days_to_full, 9999), id", (*states, *args)).fetchall()]
             return [self.view(i) for i in ids]
 
     def get(self, fid: int) -> dict:
@@ -82,14 +88,15 @@ class Forecasts:
 
     def feed(self, after: int = 0, limit: int = 50) -> dict:
         with self.lock:
-            rows = self.db.execute("SELECT * FROM forecast_events WHERE id>? ORDER BY id LIMIT ?", (int(after), min(int(limit), 200))).fetchall()
+            rows = self.db.execute("SELECT e.* FROM forecast_events e JOIN forecasts f ON f.id=e.forecast_id WHERE e.id>?" + _NOT_QUIET.replace("kind", "f.kind") + " ORDER BY e.id LIMIT ?",
+                                   (int(after), *QUIET_KINDS, min(int(limit), 200))).fetchall()
             events = [{"id": r["id"], "kind": r["kind"], "ts": r["ts"], "data": json.loads(r["data_json"]), "forecast": self.view(r["forecast_id"])} for r in rows]
         return {"events": events, "next": events[-1]["id"] if events else int(after)}
 
     def summary(self) -> dict:
         with self.lock:
-            rows = self.db.execute("SELECT state, COUNT(*) n FROM forecasts GROUP BY state").fetchall()
-            lab = self.db.execute("SELECT label, COUNT(*) n FROM forecasts WHERE label IS NOT NULL GROUP BY label").fetchall()
+            rows = self.db.execute("SELECT state, COUNT(*) n FROM forecasts WHERE 1=1" + _NOT_QUIET + " GROUP BY state", QUIET_KINDS).fetchall()
+            lab = self.db.execute("SELECT label, COUNT(*) n FROM forecasts WHERE label IS NOT NULL" + _NOT_QUIET + " GROUP BY label", QUIET_KINDS).fetchall()
         return {"by_state": {r["state"]: r["n"] for r in rows}, "labels": {r["label"]: r["n"] for r in lab}}
 
     # -- the bot's writes ---------------------------------------------------------------------------------------------
@@ -132,11 +139,12 @@ class Forecasts:
                 row = self.db.execute("SELECT * FROM forecasts WHERE fingerprint=?", (fp,)).fetchone()
                 days = f.get("days_to_full")
                 ev = json.dumps({"evidence": f.get("evidence", {}), "ratio": f.get("ratio")}, sort_keys=True, default=str)
+                quiet = f.get("kind") in QUIET_KINDS
                 if row is None or row["state"] == "resolved":
-                    if new_budget <= 0:
+                    if new_budget <= 0 and not quiet:
                         out["deferred"] += 1  # announced on a later sync
                         continue
-                    new_budget -= 1
+                    new_budget -= 0 if quiet else 1
                     if row is None:
                         cur = self.db.execute(
                             "INSERT INTO forecasts(fingerprint, kind, metric, target, state, confidence, days_to_full, ratio, evidence_json, first_seen, last_seen, posted_at, posted_days)"
@@ -148,7 +156,7 @@ class Forecasts:
                         self.db.execute("UPDATE forecasts SET state='open', confidence=?, days_to_full=?, ratio=?, evidence_json=?, first_seen=?, last_seen=?, missing=0, posted_at=?, posted_days=?,"
                                         " label=NULL, labeled_by=NULL, labeled_at=NULL, message_ref=NULL, thread_id=NULL WHERE id=?", (f.get("confidence"), days, f.get("ratio"), ev, now, now, now, days, fid))
                     self._event(fid, "created", {"days_to_full": days})
-                    out["created"] += 1
+                    out["quiet_created" if quiet else "created"] = out.get("quiet_created" if quiet else "created", 0) + 1
                     continue
                 fid = row["id"]
                 self.db.execute("UPDATE forecasts SET confidence=?, days_to_full=?, ratio=?, evidence_json=?, last_seen=?, missing=0 WHERE id=?", (f.get("confidence"), days, f.get("ratio"), ev, now, fid))
