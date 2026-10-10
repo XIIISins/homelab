@@ -2,7 +2,7 @@
 
 # Procedure — AIOps actions: approving, chatting, deploying and verifying (Phase 10e)
 
-*Design: [`operations/10e-approval-actions.md`](../operations/10e-approval-actions.md). Roles: Gná (n8n, the brain), Ratatoskr (the Discord bot, the mouth and the only approver), the Toolbelt on Frigg (the authority). Related: [`aiops-diagnosis.md`](aiops-diagnosis.md) (the read-only half), [`aiops/README.md`](../../aiops/README.md).*
+*Design: [`plans/done/10e-approval-actions.md`](../plans/done/10e-approval-actions.md). Roles: Gná (n8n, the brain), Ratatoskr (the Discord bot, the mouth and the only approver), the Toolbelt on Frigg (the authority). Related: [`aiops-diagnosis.md`](aiops-diagnosis.md) (the read-only half), [`aiops/README.md`](../../aiops/README.md).*
 
 ## Using it (day to day)
 

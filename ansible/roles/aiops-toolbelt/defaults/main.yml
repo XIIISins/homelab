@@ -3,8 +3,8 @@
 #
 # The Toolbelt API (Phase 10d2) on Frigg: the AIOps agent's only door into the homelab.
 # Code lives in the repo (aiops/toolbelt/); this role installs it, a hardened unit, and a
-# root loader that puts the n8n -> API bearer token on tmpfs. Design: docs/operations/
-# 10d-diagnosis-chatops.md ("The trust boundary"). Gotchas: docs/known-issues/n8n-aiops.md.
+# root loader that puts the n8n -> API bearer token on tmpfs. Design:
+# docs/plans/done/10d-diagnosis-chatops.md ("The trust boundary"). Gotchas: docs/known-issues/n8n-aiops.md.
 
 aiops_toolbelt_user: aiops-toolbelt
 aiops_toolbelt_home: /opt/aiops-toolbelt
@@ -40,7 +40,7 @@ aiops_toolbelt_approver_token_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/
 aiops_toolbelt_operators_vault_path: secret/data/ansible/ratatoskr/discord-bot
 aiops_toolbelt_operators_field: operator_user_id
 aiops_toolbelt_operators_file: "/run/{{ aiops_toolbelt_runtime_dir_name }}/operators"
-# ---- Phase 10h2: change requests and the PR author (docs/operations/10h-predictive-change.md) ---------------------------------
+# ---- Phase 10h2: change requests and the PR author (docs/plans/active/10h-predictive-change.md) ---------------------------------
 # Enabled, the API also keeps change requests and exposes two more roles to the Frigg dispatcher (author: claim/report) and the
 # drafting session (author-tools: the read-only /tool/* routes only). Both call from Frigg itself.
 aiops_toolbelt_change_requests_enabled: true

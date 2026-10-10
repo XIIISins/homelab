@@ -1,8 +1,8 @@
-<!-- docs/operations/10f-autonomous-healing.md -->
+<!-- docs/plans/active/10f-autonomous-healing.md -->
 
 # Phase 10f — Autonomous T1 healing: plan and as-built
 
-*Built 2026-10-03. Status: 🟡 **code complete and tested; deploy, then the ~14-day canary soak** (the soak is the exit criterion, so 10f is not "done" until it passes). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10f. Procedure: [`procedures/aiops-autonomy.md`](../procedures/aiops-autonomy.md). Predecessor: [`10e-approval-actions.md`](10e-approval-actions.md).*
+*Built 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10f. Procedure: [`procedures/aiops-autonomy.md`](../../procedures/aiops-autonomy.md). Predecessor: [`10e-approval-actions.md`](../done/10e-approval-actions.md).*
 
 ---
 
@@ -72,14 +72,20 @@ The 14-day soak clock started 2026-10-03: the pass criteria (zero flapping, ever
 
 ## Scheduled fault injection (added 2026-10-05)
 
-The live check on 2026-10-05 showed the soak had little evidence beyond the fault matrix (last autonomous action 2026-10-03 18:02): nothing injected faults on a schedule. `aiops/toolbelt/soak.py` now does: one `zabbix-agent2` stop on a canary every 8 hours, restored by the scheduler if autonomy does not heal it within 25 minutes, recorded in `/aiops report`. It is gated by the same flags as autonomy and by a reviewed `soak:` scope with an end date; see [the procedure](../procedures/aiops-autonomy.md#scheduled-fault-injection-the-soak-driver-built-2026-10-05). The soak clock for the read-out should count from the day the injector starts, not from 2026-10-03.
+The live check on 2026-10-05 showed the soak had little evidence beyond the fault matrix (last autonomous action 2026-10-03 18:02): nothing injected faults on a schedule. `aiops/toolbelt/soak.py` now does: one `zabbix-agent2` stop on a canary every 8 hours, restored by the scheduler if autonomy does not heal it within 25 minutes, recorded in `/aiops report`. It is gated by the same flags as autonomy and by a reviewed `soak:` scope with an end date; see [the procedure](../../procedures/aiops-autonomy.md#scheduled-fault-injection-the-soak-driver-built-2026-10-05). The soak clock for the read-out should count from the day the injector starts, not from 2026-10-03.
 
 ## Exit criteria (from the roadmap)
 
-The injected-fault matrix on the canaries passes ([procedure](../procedures/aiops-autonomy.md#soak-on-the-canaries-10f3-about-14-days)), **zero flapping**, every autonomous action audited (`proposal_auto_approved` in the Toolbelt journal and VictoriaLogs). Rollback for anything here: `/aiops autonomy off`.
+The injected-fault matrix on the canaries passes ([procedure](../../procedures/aiops-autonomy.md#soak-on-the-canaries-10f3-about-14-days)), **zero flapping**, every autonomous action audited (`proposal_auto_approved` in the Toolbelt journal and VictoriaLogs). Rollback for anything here: `/aiops autonomy off`.
 
 ## Deploy (operator-free; Claude runs these)
 
 1. Merge the PR (CI gate).
 2. Frigg `asgard-control.yml --tags aiops-toolbelt`; Ratatoskr `asgard-ratatoskr.yml --tags ratatoskr`; Gná `asgard-gna.yml --tags n8n`.
 3. `/aiops status` shows `Autonomy: off`; run the matrix with `/aiops autonomy on`.
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: 🟡 **code complete and tested; deploy, then the ~14-day canary soak** (the soak is the exit criterion, so 10f is not "done" until it passes).

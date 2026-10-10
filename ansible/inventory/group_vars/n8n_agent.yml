@@ -1,7 +1,7 @@
 # ansible/inventory/group_vars/n8n_agent.yml
 ---
 # Gna - AIOps agent host (n8n), LXC 1121 on Urd, 10.0.11.221 (Phase 10d1).
-# Plan: docs/operations/10d-diagnosis-chatops.md. Procedure:
+# Plan: docs/plans/done/10d-diagnosis-chatops.md. Procedure:
 # docs/procedures/aiops-diagnosis.md.
 
 # resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/

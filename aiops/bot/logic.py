@@ -1,6 +1,6 @@
 """Ratatoskr: the Discord transport and approver (Phase 10e). Pure logic; bot.py is the thin discord.py shell.
 
-Three roles in the design (docs/operations/10e-approval-actions.md):
+Three roles in the design (docs/plans/done/10e-approval-actions.md):
 
   the brain      n8n ("Gna"): answers questions, drafts diagnoses and proposals. An LLM reading untrusted text, so it holds
                  no authority. This bot forwards a human's @mention to it and posts its answer; nothing more.

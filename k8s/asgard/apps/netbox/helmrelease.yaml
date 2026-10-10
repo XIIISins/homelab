@@ -37,7 +37,7 @@ spec:
     # NetBox 4.7 (6.0.0-rc tops out at 4.6.10), and 4.7's migration is
     # irreversible. Move to 4.7.x once the provider does (+ `ltree` extension
     # in postgres_databases[netbox].extensions first). See
-    # docs/operations/chart-bumps-2026-09.md §8.
+    # docs/plans/active/chart-bumps-2026-09.md §8.
     image:
       tag: v4.6.10
 
@@ -213,7 +213,7 @@ spec:
       # Was the bitnami `medium` preset (500m/1Gi requests, 750m/1536Mi
       # limits, ephemeral 50Mi/2Gi). Live 2026-10-05: 1m CPU, 251Mi.
       # Phase 10i0 trims the requests only; limits stay as they were
-      # until VPA has a week of data (docs/operations/10i-rightsizing.md).
+      # until VPA has a week of data (docs/plans/active/10i-rightsizing.md).
       resourcesPreset: "none"
       resources:
         requests:

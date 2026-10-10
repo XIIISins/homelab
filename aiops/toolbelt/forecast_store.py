@@ -5,7 +5,7 @@ reads that file (`sync`) and keeps the history the bot needs: which findings are
 gone, and what the operator thought of them. It posts nothing itself and can never page: the bot turns `forecast_events` into
 quiet cards (Useful / Noise buttons); a forecast is a heads-up, never an alert.
 
-Rules (docs/operations/10h-predictive-change.md):
+Rules (docs/plans/active/10h-predictive-change.md):
   * a finding is identified by its fingerprint (`forecast:<kind>:<metric>:<target>`); one row per fingerprint, `open` or `resolved`;
   * `created` on first sight (and again when a resolved one comes back); `escalated` when the ETA is at most half of what was last
     announced; `reposted` once a week while it stays open and unlabelled-noise; `resolved` after two passes without it;

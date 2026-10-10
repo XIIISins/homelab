@@ -1,6 +1,6 @@
 """Rebuild loop execution support for the action engine (Phase 10g2).
 
-Plan: docs/operations/10g-rebuild-loop.md. `actions.Engine` stays small: an action that declares `steps:` in the registry
+Plan: docs/plans/active/10g-rebuild-loop.md. `actions.Engine` stays small: an action that declares `steps:` in the registry
 (aiops/actions.yml) is handed to this module, which implements the multi-step flow
 
     plan (runner) -> apply (runner, bound to the plan) -> converge (Semaphore) -> verify (checklist)

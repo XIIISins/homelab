@@ -106,7 +106,7 @@ Five Semaphore task templates: three cover the drift loop, plus a daily fleet-wi
 
 Per-service drift-check variants (e.g. `asgard-postgres-drift-check`) added later when a service needs a different cadence or has a known noisy-but-OK diff class that needs filtering before the alert fires.
 
-The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality, the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Deployed + validated in Wave S4 — see [`docs/operations/1.0-stabilization.md`](../operations/1.0-stabilization.md) + [`docs/procedures/s4-observability-validation.md`](../procedures/s4-observability-validation.md).
+The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality, the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Deployed + validated in Wave S4 — see [`docs/plans/done/1.0-stabilization.md`](../plans/done/1.0-stabilization.md) + [`docs/procedures/s4-observability-validation.md`](../procedures/s4-observability-validation.md).
 
 ## Inventory — NetBox dynamic + static fallback
 

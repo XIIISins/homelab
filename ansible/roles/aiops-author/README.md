@@ -1,6 +1,6 @@
 # aiops-author
 
-Phase 10h2: the PR author on Frigg. Design: [`docs/operations/10h-predictive-change.md`](../../../docs/operations/10h-predictive-change.md).
+Phase 10h2: the PR author on Frigg. Design: [`docs/plans/active/10h-predictive-change.md`](../../../docs/plans/active/10h-predictive-change.md).
 Operations and threat model: [`docs/procedures/aiops-author.md`](../../../docs/procedures/aiops-author.md).
 
 Three unprivileged-by-design parts and two small root helpers:

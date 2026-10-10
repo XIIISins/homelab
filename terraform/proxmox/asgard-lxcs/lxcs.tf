@@ -814,7 +814,7 @@ resource "proxmox_virtual_environment_container" "hermod" {
 # LXC 1121 — Gná — AIOps agent host (n8n), Urd — Phase 10d1
 # ----------------------------------------------------------------------------
 # Dedicated n8n instance that acts as the AIOps diagnosis agent (see
-# docs/operations/10d-diagnosis-chatops.md). Gná is Frigg's messenger: she
+# docs/plans/done/10d-diagnosis-chatops.md). Gná is Frigg's messenger: she
 # carries an alert to whoever can act on it.
 #
 # Why a NEW instance and not the asgard-K3s n8n: the agent must keep working
@@ -835,7 +835,7 @@ resource "proxmox_virtual_environment_container" "hermod" {
 # an agent run; the Node tarball + n8n's node_modules are ~1.5 GB on disk.
 # Urd headroom was ~7.7 GB on 2026-10-01 (aiops-roadmap.md 10b1).
 #
-# See: docs/operations/10d-diagnosis-chatops.md, ansible/roles/n8n-agent/,
+# See: docs/plans/done/10d-diagnosis-chatops.md, ansible/roles/n8n-agent/,
 #      ansible/playbooks/asgard-gna.yml
 # ----------------------------------------------------------------------------
 
@@ -927,7 +927,7 @@ resource "proxmox_virtual_environment_container" "gna" {
 # ----------------------------------------------------------------------------
 # LXC 1122 - Ratatoskr - the AIOps Discord bot (Urd) - Phase 10e
 # ----------------------------------------------------------------------------
-# The bot is the mouth, the ears and the ONLY approver of the AIOps loop (docs/operations/10e-approval-actions.md): it
+# The bot is the mouth, the ears and the ONLY approver of the AIOps loop (docs/plans/done/10e-approval-actions.md): it
 # forwards an @mention to Gna, posts the answer, renders proposal cards from the Toolbelt's feed, and turns a button press
 # by the operator's Discord user id into a decision at the Toolbelt. It lives on its own host, NOT on Gna, because Gna
 # reads attacker-influenced text through an LLM: the party that can approve an action must not share a machine, a user

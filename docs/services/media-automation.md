@@ -2,7 +2,7 @@
 
 # Media automation: Sonarr + SABnzbd + Recyclarr (built 2026-10-08)
 
-Anime only, Usenet only, no Radarr. Sonarr watches for episodes, SABnzbd downloads and unpacks them, and Sonarr imports the result into the library that Jellyfin ([`jellyfin.md`](jellyfin.md)) reads. Lives in asgard K3s as an ordinary app (`k8s/asgard/apps/media/`, namespace `media`, decision D-4 in [`5h-jellyfin.md`](../operations/5h-jellyfin.md)). Gotchas: [`known-issues/media-automation.md`](../known-issues/media-automation.md).
+Anime only, Usenet only, no Radarr. Sonarr watches for episodes, SABnzbd downloads and unpacks them, and Sonarr imports the result into the library that Jellyfin ([`jellyfin.md`](jellyfin.md)) reads. Lives in asgard K3s as an ordinary app (`k8s/asgard/apps/media/`, namespace `media`, decision D-4 in [`5h-jellyfin.md`](../plans/active/5h-jellyfin.md)). Gotchas: [`known-issues/media-automation.md`](../known-issues/media-automation.md).
 
 | Item | Value |
 |---|---|

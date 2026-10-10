@@ -2,7 +2,7 @@
 
 # Procedure — the outside watcher (Gatus on `do1`): deploy, verify, operate
 
-*Phase 10b3 ([`aiops-roadmap.md`](../operations/aiops-roadmap.md) §10b3, decision D1). Code: `ansible/roles/gatus/`, `ansible/roles/gatus-heartbeat/` (Frigg side), `ansible/playbooks/do1.yml` (`gatus` role), `ansible/playbooks/gatus-heartbeat.yml`, `ansible/playbooks/infra-health-check.yml` (check #9), probe lists in `ansible/inventory/group_vars/offsite.yml`. Gotchas: [`digitalocean.md`](../known-issues/digitalocean.md), [`observability.md`](../known-issues/observability.md), [`tailscale.md`](../known-issues/tailscale.md).*
+*Phase 10b3 ([`aiops-roadmap.md`](../plans/active/aiops-roadmap.md) §10b3, decision D1). Code: `ansible/roles/gatus/`, `ansible/roles/gatus-heartbeat/` (Frigg side), `ansible/playbooks/do1.yml` (`gatus` role), `ansible/playbooks/gatus-heartbeat.yml`, `ansible/playbooks/infra-health-check.yml` (check #9), probe lists in `ansible/inventory/group_vars/offsite.yml`. Gotchas: [`digitalocean.md`](../known-issues/digitalocean.md), [`observability.md`](../known-issues/observability.md), [`tailscale.md`](../known-issues/tailscale.md).*
 
 ## What it is
 

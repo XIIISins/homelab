@@ -2,7 +2,7 @@
 
 # Procedure — the PR author (Phase 10h2)
 
-*Plan and decisions: [`10h-predictive-change.md`](../operations/10h-predictive-change.md) ("10h2"). Code: `aiops/author/` (`scope.py`, `dispatcher.py`, `session.py`, `toolcli.py`), `aiops/author-classes.yml`, `aiops/toolbelt/change_requests.py`, `aiops/bot/drafts.py`, `.claude/agents/aiops-author.md`; roles `aiops-author`, `aiops-toolbelt`, `ratatoskr`; `terraform/vault/author.tf`. Tests: `aiops/tests/test_author_scope.py`, `test_author_dispatcher.py`, `test_change_requests.py`, `test_bot_drafts.py`.*
+*Plan and decisions: [`10h-predictive-change.md`](../plans/active/10h-predictive-change.md) ("10h2"). Code: `aiops/author/` (`scope.py`, `dispatcher.py`, `session.py`, `toolcli.py`), `aiops/author-classes.yml`, `aiops/toolbelt/change_requests.py`, `aiops/bot/drafts.py`, `.claude/agents/aiops-author.md`; roles `aiops-author`, `aiops-toolbelt`, `ratatoskr`; `terraform/vault/author.tf`. Tests: `aiops/tests/test_author_scope.py`, `test_author_dispatcher.py`, `test_change_requests.py`, `test_bot_drafts.py`.*
 
 An operator-approved **change request** becomes **one pull request** that the operator reviews and merges. The author never applies, deploys or merges anything.
 

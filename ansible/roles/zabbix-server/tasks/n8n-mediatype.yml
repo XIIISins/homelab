@@ -5,7 +5,7 @@
 # the human-notification path): Zabbix runs each media of the Admin user as its
 # own alert, so a failure here fails only this media's alert and never delays or
 # drops the Discord notification. That independence is the point of the design
-# (docs/operations/10d-diagnosis-chatops.md) and is proven by the independence
+# (docs/plans/done/10d-diagnosis-chatops.md) and is proven by the independence
 # test in docs/procedures/aiops-diagnosis.md.
 #
 # This task creates the MEDIA TYPE only. Attaching it to the Admin user (so the

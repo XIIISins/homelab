@@ -1,8 +1,8 @@
-<!-- docs/operations/10h-k8s-burst-test.md -->
+<!-- docs/plans/active/10h-k8s-burst-test.md -->
 
 # 10h — burst-cluster tests for `k8s/` pull requests
 
-*Drafted 2026-10-04 at the operator's request ("throwaway Vault, and otherwise as close to our env as possible"). Parent plan: [`10h-predictive-change.md`](10h-predictive-change.md) (the "Tested on" table, row `k8s/**`). Substrate: [`procedures/burst-substrate.md`](../procedures/burst-substrate.md). Status: **slices 1-2 built and run live (2026-10-04)**: the baseline on unchanged `main` passes in about 2.5 minutes on a cluster built from Terraform + Ansible; the broken-branch cases fail for the right reasons (results in [`procedures/k8s-burst-test.md`](../procedures/k8s-burst-test.md)). Slices 3-4 are open.*
+*Drafted 2026-10-04 at the operator's request ("throwaway Vault, and otherwise as close to our env as possible"). Parent plan: [`10h-predictive-change.md`](10h-predictive-change.md) (the "Tested on" table, row `k8s/**`). Substrate: [`procedures/burst-substrate.md`](../../procedures/burst-substrate.md). Status: see [`plans/README.md`](../README.md).*
 
 ## What it proves, and what it cannot
 
@@ -33,3 +33,9 @@ A PR that edits `k8s/` is applied to a throwaway K3s that looks like asgard and 
 ## Guardrails (unchanged from the parent plan)
 
 One burst cluster per PR, TTL 4 h, at most one test running fleet-wide, the kill switch and maintenance flag apply, burst has no route to prod (`tag:burst` is not a source of any grant), the author never holds cloud credentials, and a human merges (merging `k8s/` IS the deploy).
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: **slices 1-2 built and run live (2026-10-04)**: the baseline on unchanged `main` passes in about 2.5 minutes on a cluster built from Terraform + Ansible; the broken-branch cases fail for the right reasons (results in [`procedures/k8s-burst-test.md`](../../procedures/k8s-burst-test.md)). Slices 3-4 are open.

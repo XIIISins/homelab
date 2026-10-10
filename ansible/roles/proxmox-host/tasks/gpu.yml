@@ -1,6 +1,6 @@
 # ansible/roles/proxmox-host/tasks/gpu.yml
 ---
-# Intel iGPU (QuickSync) on the hypervisors, for the Jellyfin LXC (Phase 5h, docs/operations/5h-jellyfin.md).
+# Intel iGPU (QuickSync) on the hypervisors, for the Jellyfin LXC (Phase 5h, docs/plans/active/5h-jellyfin.md).
 # Applied to ALL three nodes because Jellyfin may be `pct migrate`d to any of them (identical MSI Cubi 5 12M).
 #
 # - intel-gpu-tools: `intel_gpu_top` for live engine use during a transcode. It must run on the host: a container

@@ -48,8 +48,7 @@ A ground-up homelab rebuild demonstrating senior-level infrastructure design.
 - [`operations/build-sequence.md`](operations/build-sequence.md) — roadmap: a "what's left" block, then phase status tables grouped by area (Phases 1-10) with ✅/🟡/🔲/✖ ticks. Verbatim closing narratives: [`build-sequence-history.md`](operations/build-sequence-history.md).
 - [`operations/decisions.md`](operations/decisions.md) — Key decisions log, ~250 rows grouped by topic (platform, network, identity/secrets, storage, data, services, observability, IaC/CI, DR, AIOps, naming, superseded), each with reason + date. Verbatim original wording: [`decisions-archive.md`](operations/decisions-archive.md).
 - [`operations/open-questions.md`](operations/open-questions.md) — pending tasks + open architectural questions.
-- [`operations/1.0-stabilization.md`](operations/1.0-stabilization.md) — 1.0 stabilization plan: pre-build-on-top hardening waves (validation / recovery / role debt / observability / pins / cleanup / fragility audit). Drafted 2026-05-27.
-- [`operations/aiops-roadmap.md`](operations/aiops-roadmap.md) — Phase 10 AIOps & self-healing roadmap: tiered autonomy stages (diagnosis → approval-gated → autonomous T1 → fleet rebuild), blast-radius tiers, action registry, offsite DO node + test substrate. Drafted 2026-10-01.
+- [`plans/README.md`](plans/README.md) — build plans index (`active/`, `done/`, `deferred/`): the Phase 10 AIOps roadmap and its sub-plans (10d–10i), the Jellyfin plan, chart-bump wave, 1.0 stabilization, the Vault 2.x assessment. Plan state is recorded only in that index and in `operations/build-sequence.md`.
 
 ### Incidents — what broke and what we learned
 - [`incidents/`](incidents/) — per-incident retrospectives. See [`incidents/README.md`](incidents/README.md) for the date-indexed table.

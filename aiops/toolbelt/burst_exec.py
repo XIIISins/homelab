@@ -1,4 +1,4 @@
-"""10h burst-cluster test of a `k8s/` PR: the Toolbelt's side (design: docs/operations/10h-k8s-burst-test.md, procedure: docs/procedures/k8s-burst-test.md).
+"""10h burst-cluster test of a `k8s/` PR: the Toolbelt's side (design: docs/plans/active/10h-k8s-burst-test.md, procedure: docs/procedures/k8s-burst-test.md).
 
 The Toolbelt never builds a cluster and holds no cloud credential. It proposes `pr-burst-test` for an agent PR it has itself inspected on GitHub,
 the operator approves the card, and `execute` asks the BURST RUNNER (aiops/runner/burst_runner.py, a separate root-loaded service on Frigg, same

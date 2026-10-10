@@ -44,7 +44,7 @@ spec:
       # routine chart bump would silently be a Vault MAJOR upgrade. Chart is
       # now 0.34.1 (default image 2.0.4) — this pin is what keeps the server on
       # 1.21.2. Bump this deliberately, on its own (Vault 2.0 = separate plan,
-      # see docs/operations/chart-bumps-2026-09.md §3).
+      # see docs/plans/active/chart-bumps-2026-09.md §3).
       image:
         repository: hashicorp/vault
         tag: "1.21.2"

@@ -3,7 +3,7 @@
 # jellyfin.midgard.xiiisins.com on the midgard Gateway ONLY. Deliberately NOT attached to the apex listener
 # (websecure-apex-wildcard) and NOT behind the Cloudflare tunnel: Cloudflare's terms only allow serving video through their
 # paid video products, tunnel traffic is CDN traffic, and a suspension would hit the whole xiiisins.com zone (Authentik,
-# OIDC, MicroBin). Remote access is Tailscale (decision D-1: docs/operations/5h-jellyfin.md).
+# OIDC, MicroBin). Remote access is Tailscale (decision D-1: docs/plans/active/5h-jellyfin.md).
 #
 # No Authentik ForwardAuth middleware: Jellyfin keeps local accounts, and the TV/phone apps cannot follow a browser SSO
 # redirect. TLS terminates here with the midgard wildcard certificate; Jellyfin itself speaks plain HTTP on 8096.

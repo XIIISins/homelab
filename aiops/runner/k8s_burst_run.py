@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """10h burst-cluster test for `k8s/` PRs, slice 2: apply the burst copy of the tree to a burst K3s and check it.
 
-Design + fidelity rules: docs/operations/10h-k8s-burst-test.md. Planning/rendering logic: k8s_burst_plan.py (unit-tested, no network).
+Design + fidelity rules: docs/plans/active/10h-k8s-burst-test.md. Planning/rendering logic: k8s_burst_plan.py (unit-tested, no network).
 Procedure: docs/procedures/k8s-burst-test.md. Entry point for humans and the runner: scripts/burst/k8s-pr-test (which also builds and
 ALWAYS tears down the cluster); this module only talks to the cluster named by --kubeconfig.
 
