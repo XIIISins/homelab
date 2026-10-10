@@ -39,7 +39,7 @@ spec:
     # in postgres_databases[netbox].extensions first). See
     # docs/plans/active/chart-bumps-2026-09.md §8.
     image:
-      tag: v4.6.10
+      tag: v4.6.11
 
     # ── External Postgres via HAProxy VIP ─────────────────────────────
     postgresql:
