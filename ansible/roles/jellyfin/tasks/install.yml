@@ -105,3 +105,16 @@
   loop:
     - "{{ jellyfin_cache_dir }}"
     - "{{ jellyfin_transcode_dir }}"
+
+- name: Re-own the cache volume at every boot
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/jellyfin-cache.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      # The cache mount point is excluded from PBS backups, so a restored container gets an empty root-owned volume and
+      # Jellyfin aborts on its first write. systemd-tmpfiles runs before jellyfin.service and fixes the owner.
+      d {{ jellyfin_cache_dir }} 0755 {{ jellyfin_user }} {{ jellyfin_user }} -
+      d {{ jellyfin_transcode_dir }} 0755 {{ jellyfin_user }} {{ jellyfin_user }} -
