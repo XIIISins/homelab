@@ -57,7 +57,7 @@
           "type": "object", "additionalProperties": false, "required": ["ratio", "margin", "min_free_millicores", "floor_millicores"],
           "properties": {"ratio": {"$ref": "#/$defs/ratio"}, "margin": {"$ref": "#/$defs/ratio"}, "min_free_millicores": {"$ref": "#/$defs/pos"}, "floor_millicores": {"$ref": "#/$defs/pos"}}
         },
-        "under_request": {"type": "object", "additionalProperties": false, "required": ["margin"], "properties": {"margin": {"$ref": "#/$defs/ratio"}}}
+        "under_request": {"type": "object", "additionalProperties": false, "required": ["margin", "min_ratio"], "properties": {"margin": {"$ref": "#/$defs/ratio"}, "min_ratio": {"type": "number", "minimum": 1, "maximum": 20}}}
       }
     },
     "floors": {

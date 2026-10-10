@@ -42,7 +42,7 @@ def _deltas(row: dict) -> str:
     out = []
     for key, label in (("vs_last", "last"), ("vs_baseline", "start")):
         d = row.get(key)
-        if d and d.get("memory_requested_mib") is not None:
+        if d and d.get("memory_requested_mib"):   # nothing for "no change": a row of "+0" is noise
             out.append(f"{d['memory_requested_mib']:+.0f} vs {label}")
     return f" ({', '.join(out)})" if out else ""
 

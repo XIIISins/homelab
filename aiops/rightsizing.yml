@@ -47,6 +47,7 @@ cpu: # requests only. A CPU limit is never proposed: throttling on 2-vCPU worker
     floor_millicores: 10
   under_request:
     margin: 1.5
+    min_ratio: 1.25 # a normal day must be 25 % above the request (11m against 10m is rounding, not a shortage)
 
 # Floors the 10i4 resources-only check enforces on a proposed value (the VPA recommender's own floors).
 floors:

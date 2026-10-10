@@ -143,12 +143,18 @@ class Digests:
                 if now_v is not None and then_v and abs(now_v - then_v) / then_v <= NOISE_MOVE:
                     continue
             under = e["finding"] in ("memory-under-request", "cpu-under-request")
-            out.append({"forecast_id": r["id"], "target": r["target"], "finding": e["finding"], "confidence": r.get("confidence"), "summary": p["text"],
+            ratio = ((e.get("max_working_set_mib") or 0) / e["request_mib"]) if e["finding"] == "memory-under-request" and e.get("request_mib") else \
+                ((e.get("median_daily_p95_millicores") or 0) / e["request_millicores"]) if e["finding"] == "cpu-under-request" and e.get("request_millicores") else 0.0
+            out.append({"severity": (0 if e.get("oomkilled") else 1, 0 if e["finding"] == "memory-under-request" else 1, -round(ratio, 3)),
+                        "forecast_id": r["id"], "target": r["target"], "finding": e["finding"], "confidence": r.get("confidence"), "summary": p["text"],
                         "score_mib": p["score_mib"], "under": under, "oomkilled": bool(e.get("oomkilled")), "draftable": bool(r.get("draftable")),
                         "pr": r.get("pr"), "label": r.get("label"),
                         "evidence": {k: v for k, v in e.items() if k != "finding"}})
-        # under-requests first (a hazard before a saving), then by what the change frees, then by name for a stable order
-        out.sort(key=lambda s: (0 if s["under"] else 1, -s["score_mib"], s["target"]))
+        # Under-requests first (a hazard before a saving): an OOMKilled container, then memory before CPU, then the biggest gap between use and request.
+        # Savings after, by what they free. The name settles ties so the order is stable.
+        out.sort(key=lambda s: ((0, *s["severity"], 0.0, s["target"]) if s["under"] else (1, 0, 0, 0.0, -s["score_mib"], s["target"])))
+        for s in out:
+            s.pop("severity", None)
         return out[:MAX_SUGGESTIONS]
 
     def _tuning(self, rows: list) -> list:

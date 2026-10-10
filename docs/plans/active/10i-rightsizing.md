@@ -133,7 +133,7 @@ A recommendation counts only when VPA reports `RecommendationProvided=True`, the
 | **Memory over-limit** | limit ≥ 3 × 30-day max and frees ≥ 256Mi, no OOMKilled; only after this workload's request cut held through its watch | `ceil16Mi(max(2 × max, upperBound × 1.5, request))` |
 | **Memory creep** | 30-day working-set trend rising (Theil-Sen, the 10h1 detector) with no matching rise in traffic/restarts | no number: a tuning suggestion (leak, cache without bound, missing `GOMEMLIMIT`) |
 | **CPU over-request** | request ≥ 3 × max(target, worst-day p95) and frees ≥ 50m | `ceil10m(1.5 × max(target, median daily p95))`, never below the worst-day p95, floor 10m |
-| **CPU under-request** | median daily p95 > request | `ceil10m(1.5 × max(target, median daily p95))`, never below the worst-day p95 |
+| **CPU under-request** | median daily p95 > 1.25 × request (`cpu.under_request.min_ratio`: 11m against 10m is rounding) | `ceil10m(1.5 × max(target, median daily p95))`, never below the worst-day p95 |
 
 Never proposed: a CPU limit (throttling on 2-vCPU workers hurts more than it protects). Workloads with rare peaks (monthly imports, Immich jobs) can be marked in `aiops/rightsizing.yml` to skip limit cuts. That file holds the thresholds, the allow-list and the digest cadence; agent PRs may not edit it.
 
@@ -177,7 +177,7 @@ Each suggestion carries **Useful / Noise** labels like the 10h1 cards; a suggest
 
 - The digest is built from the forecast job's daily pass, not from a live query: the job now also stores a **snapshot** (per-worker numbers, coverage) beside the findings, so the API unit needs no new metrics access and a digest is a database read.
 - A suggestion is the forecast row behind it, so Useful / Noise and the Draft button are the existing forecast buttons; `forecasts.label_value` (new column, migrated) holds the proposed number at label time for the 30 % rule.
-- CPU suggestions rank below memory ones (1m counts as 1 MiB); under-requests always lead.
+- Ranking: under-requests always lead, an OOMKilled container first, memory before CPU, then the biggest gap between use and request (found on the first live digest, where ten tiny CSI/CPU rounding cases had crowded out netbox's OOM); savings follow by what they free, CPU below memory (1m counts as 1 MiB).
 - **Not built:** the LLM-written tuning text. The digest shows creep facts and OOM notes; the chart-level reading is a chat question to Gná.
 
 
