@@ -22,7 +22,7 @@ Every guest also needs a backup **newer than 36 h**: a missed nightly job fails 
 - The scratch CT is always **id 1199** (reserved for this; canaries are 1190-1192), hostname `restore-test-<name>`. A leftover from a crashed run is destroyed on the next run, but only if it carries that hostname prefix; anything else on 1199 aborts the run.
 - Restored with `--unique` (new MAC) and `--onboot 0`. Every `net*`, `dev*` and bind `mp*` entry is **deleted before the CT can start**, so a restored copy can never answer on the production IP or touch a host path.
 - Destroyed in an `always` block, then confirmed gone; a failed cleanup fails the run.
-- Not Terraform- or NetBox-managed: it lives for minutes. The Proxmox Zabbix template may discover it during that window; if a stopped-CT problem ever opens for `restore-test-*`, that is this test, not an incident.
+- Not Terraform- or NetBox-managed: it lives for minutes. The Proxmox Zabbix template may discover it during that window; expect Information-level "LXC [...] has been restarted (uptime < 10m)" problems for `CT1199` / `restore-test-*` (not routed anywhere, they clear on their own; [`zabbix.md`](../known-issues/zabbix.md)).
 
 ## Results
 
