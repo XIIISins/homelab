@@ -1,0 +1,204 @@
+# ansible/playbooks/pbs-restore-test.yml
+---
+# Scheduled PBS restore test (Phase 10g prerequisite, stage B undo path).
+#
+# A backup nobody restores is a hope. Once a week this restores the newest PBS
+# backup of two guests into a SCRATCH container, checks it, and destroys it:
+#
+#   - canary-1 (1190), every run: restored, mounted, booted with no network, and
+#     its sentinel file (written by the previous run, see below) compared with
+#     the live one. Proves content integrity end to end.
+#   - one rotating production LXC (restore_test_guests, picked by ISO week):
+#     restored and its rootfs checked. Over restore_test_guests|length weeks
+#     every listed LXC has been restored once.
+#
+# The restore node also rotates (urd -> verd -> skuld by ISO week), so each
+# node's PBS client path is exercised.
+#
+# Safety:
+#   - the scratch CT is ALWAYS id restore_test_scratch_id (1199, reserved for
+#     this) with hostname restore-test-<name>; a leftover from a crashed run is
+#     destroyed on the next run, but ONLY if it carries that hostname prefix
+#   - restored with --unique (new MAC), --onboot 0, and every net*/dev*/bind
+#     mp* entry deleted BEFORE it is ever started, so a restored copy can never
+#     answer on the production IP or touch a host path
+#   - the CT is destroyed in an `always` block, then confirmed gone
+#   - never touches PBS 1101 (restoring the backup server onto itself is the one
+#     thing this must not do) or Jellyfin 1123 (device passthrough needs root@pam
+#     ticket auth; its restore is part of the 5h J5 acceptance)
+#
+# Sentinel: after the comparison the run writes /var/lib/restore-test/sentinel on
+# canary-1 ("<epoch> <run id>"); the next backup captures it; the next run must
+# find it in the restored copy unless the sentinel is newer than the backup.
+#
+# Results are posted to Hermod: a failure is `alert` (Discord #infra-alerts), a
+# clean run is one `info` line (the weekly heartbeat, so silence means the
+# schedule stopped, not that everything is fine). The Semaphore task also fails.
+#
+# Manual run, e.g. from Frigg:
+#   ansible-playbook playbooks/pbs-restore-test.yml
+#   ansible-playbook playbooks/pbs-restore-test.yml -e restore_test_vmid=1133 -e restore_test_node=verd
+# Procedure: docs/procedures/pbs-restore-test.md.
+
+- name: Pick the restore node and the rotating guest
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    restore_test_nodes: [urd, verd, skuld]
+    # Production LXCs only, ids of the guests listed in docs/architecture/hardware.md. Excluded on purpose: 1101 (PBS
+    # itself), 1123 (Jellyfin, device passthrough) and the canaries (restored every run).
+    restore_test_guests:
+      - 1102 # hugin
+      - 1103 # hermod
+      - 1110 # saga
+      - 1111 # mimir
+      - 1112 # kvasir
+      - 1113 # bifrost
+      - 1114 # heimdall
+      - 1115 # gjallarbru
+      - 1120 # factorio
+      - 1121 # gna
+      - 1122 # ratatoskr
+      - 1130 # fulla
+      - 1131 # vor
+      - 1132 # idunn
+      - 1133 # hlin
+      - 1134 # eir
+      - 1135 # snotra
+    restore_test_week: "{{ '%V' | strftime | int }}"
+
+  tasks:
+    - name: Choose the node and the rotating guest
+      ansible.builtin.set_fact:
+        restore_test_node_chosen: "{{ restore_test_node | default(restore_test_nodes[(restore_test_week | int) % (restore_test_nodes | length)]) }}"
+        restore_test_vmid_chosen: "{{ restore_test_vmid | default(restore_test_guests[(restore_test_week | int) % (restore_test_guests | length)]) }}"
+        restore_test_run_id: "{{ '%Y%m%dT%H%M%S' | strftime }}"
+
+    - name: Show the plan
+      ansible.builtin.debug:
+        msg: >-
+          Restore on {{ restore_test_node_chosen }}: canary-1 (1190) and
+          {{ restore_test_vmid_chosen }} (ISO week {{ restore_test_week }}).
+
+    - name: Put the node in the target group
+      ansible.builtin.add_host:
+        name: "{{ restore_test_node_chosen }}"
+        groups: restore_test_target
+
+- name: Restore, verify and destroy on the chosen node
+  hosts: restore_test_target
+  gather_facts: false
+  # Run as root on the PVE host (group_vars/proxmox.yml sets ansible_user: root); nothing needs escalation.
+  become: false
+
+  vars:
+    restore_test_scratch_id: 1199
+    restore_test_storage: local-lvm
+    restore_test_pbs_storage: pbs-backup
+    restore_test_max_age_h: 36 # the nightly job runs 03:00, so a newer backup than this must exist
+    restore_test_timeout_s: 3600
+    restore_test_canary_id: 1190
+    restore_test_items:
+      - { vmid: "{{ restore_test_canary_id }}", kind: canary }
+      - { vmid: "{{ hostvars['localhost'].restore_test_vmid_chosen }}", kind: rotating }
+
+  tasks:
+    - name: Read the cluster guest list
+      ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+      register: restore_test_resources
+      changed_when: false
+
+    - name: Index guests by id
+      ansible.builtin.set_fact:
+        restore_test_guest_index: "{{ dict(restore_test_resources.stdout | from_json | map(attribute='vmid') | map('string') | zip(restore_test_resources.stdout | from_json)) }}"
+
+    - name: Refuse to run with the scratch id taken by something that is not a leftover
+      ansible.builtin.assert:
+        that:
+          - (restore_test_scratch_id | string) not in restore_test_guest_index or (restore_test_guest_index[restore_test_scratch_id | string].name | default('')).startswith('restore-test-')
+        fail_msg: >-
+          CT {{ restore_test_scratch_id }} exists and is not a restore-test leftover
+          (name '{{ (restore_test_guest_index[restore_test_scratch_id | string] | default({})).name | default('') }}'). Not touching it.
+
+    - name: Destroy a leftover scratch CT from a crashed run
+      ansible.builtin.shell: |
+        pct stop {{ restore_test_scratch_id }} --skiplock 1 >/dev/null 2>&1 || true
+        pct destroy {{ restore_test_scratch_id }} --purge 1 --destroy-unreferenced-disks 1
+      args:
+        executable: /bin/bash
+      delegate_to: "{{ (restore_test_guest_index[restore_test_scratch_id | string] | default({})).node | default(inventory_hostname) }}"
+      when: (restore_test_scratch_id | string) in restore_test_guest_index
+      changed_when: true
+
+    - name: Restore and verify each guest
+      ansible.builtin.include_tasks: tasks/pbs-restore-test-one.yml
+      loop: "{{ restore_test_items }}"
+      loop_control:
+        loop_var: restore_item
+
+    - name: Write the new sentinel on canary-1 (on the node that runs it)
+      ansible.builtin.shell: >-
+        pct exec {{ restore_test_canary_id }} -- sh -c
+        "mkdir -p /var/lib/restore-test && echo $(date +%s) {{ hostvars['localhost'].restore_test_run_id }} > /var/lib/restore-test/sentinel"
+      delegate_to: "{{ (restore_test_guest_index[restore_test_canary_id | string] | default({})).node | default(inventory_hostname) }}"
+      changed_when: true
+      failed_when: false # a stopped or rebuilt canary must not fail the restore test itself
+
+- name: Report to Hermod
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    hermod_url: "{{ lookup('env', 'HERMOD_URL') }}"
+    restore_test_node_name: "{{ hostvars['localhost'].restore_test_node_chosen }}"
+    restore_test_results: "{{ hostvars[restore_test_node_name].restore_test_results | default([]) if restore_test_node_name in hostvars else [] }}"
+    restore_test_failed: "{{ restore_test_results | rejectattr('ok') | list }}"
+    # Semaphore provides HERMOD_URL; a manual run without it only prints the summary.
+    restore_test_notify: "{{ hermod_url | length > 0 }}"
+
+  tasks:
+    - name: Summarise
+      ansible.builtin.debug:
+        msg: "{{ restore_test_results | map(attribute='summary') | list if restore_test_results else ['no results: the restore play did not complete on ' ~ restore_test_node_name] }}"
+
+    - name: Post the failure to Hermod
+      ansible.builtin.uri:
+        url: "{{ hermod_url }}"
+        method: POST
+        body_format: json
+        body:
+          title: "PBS restore test FAILED ({{ restore_test_node_name }})"
+          body: >-
+            {{ (['**PBS restore test failed**', '']
+                + (restore_test_failed | map(attribute='summary') | map('regex_replace', '^', '- ') | list
+                   if restore_test_failed else ['- the restore play did not produce results (node unreachable or the play errored)']))
+               | join('\n') }}
+          tag: alert
+          format: markdown
+        status_code: [200]
+      when: restore_test_notify | bool and (restore_test_failed | length > 0 or restore_test_results | length == 0)
+      no_log: true # HERMOD_URL embeds the config-key
+
+    - name: Post the weekly heartbeat to Hermod
+      ansible.builtin.uri:
+        url: "{{ hermod_url }}"
+        method: POST
+        body_format: json
+        body:
+          title: "PBS restore test passed ({{ restore_test_node_name }})"
+          body: "{{ (['PBS restore test passed', ''] + (restore_test_results | map(attribute='summary') | map('regex_replace', '^', '- ') | list)) | join('\n') }}"
+          tag: info
+          format: markdown
+        status_code: [200]
+      when: restore_test_notify | bool and restore_test_failed | length == 0 and restore_test_results | length > 0
+      no_log: true
+
+    - name: Fail the run so Semaphore marks it failed
+      ansible.builtin.fail:
+        msg: "PBS restore test failed: {{ restore_test_failed | map(attribute='summary') | list }}"
+      when: restore_test_failed | length > 0 or restore_test_results | length == 0

@@ -293,6 +293,36 @@ resource "semaphoreui_project_template" "infra_health_check" {
   suppress_success_alerts = true
 }
 
+# === pbs-restore-test (Phase 10g prerequisite) ===
+#
+# Weekly proof that the nightly PBS backups restore: canary-1 plus one rotating
+# production LXC are restored into scratch CT 1199 on a rotating PVE node,
+# verified and destroyed (playbook header and docs/procedures/pbs-restore-test.md).
+# The playbook posts its own result to Hermod (alert on failure, one info line
+# on success as the heartbeat), so Semaphore's own success alert is redundant.
+resource "semaphoreui_project_template" "pbs_restore_test" {
+  project_id     = semaphoreui_project.asgard.id
+  name           = "pbs-restore-test"
+  description    = "Restore the newest PBS backup of canary-1 and a rotating LXC into a scratch CT, verify, destroy. Alerts to Hermod on failure."
+  app            = "ansible"
+  playbook       = "ansible/playbooks/pbs-restore-test.yml"
+  repository_id  = semaphoreui_project_repository.homelab.id
+  inventory_id   = semaphoreui_project_inventory.netbox.id
+  environment_id = semaphoreui_project_environment.default.id
+
+  # Same vaults shape as the other ansible templates.
+  vaults = [
+    {
+      name = "default"
+      password = {
+        vault_key_id = semaphoreui_project_key.ansible_vault.id
+      }
+    },
+  ]
+
+  suppress_success_alerts = true
+}
+
 # === AIOps action templates (Phase 10c3) ===
 #
 # One template per entry in aiops/actions.yml (the action registry); that file
@@ -692,5 +722,15 @@ resource "semaphoreui_project_schedule" "infra_health_check" {
   # cron cluster. Cert expiry + token validity don't need finer than 12h
   # (cert_warn_days=14 gives ~28 chances to alert before expiry).
   cron_format = "45 6,18 * * *"
+  enabled     = true
+}
+
+resource "semaphoreui_project_schedule" "pbs_restore_test" {
+  project_id  = semaphoreui_project.asgard.id
+  template_id = semaphoreui_project_template.pbs_restore_test.id
+  name        = "weekly"
+  # Wednesdays 07:22 UTC: hours after the 01:00 UTC nightly backups have finished, off the minute-0/15/30/45 cluster.
+  # The restore node and the rotating guest advance with the ISO week.
+  cron_format = "22 7 * * 3"
   enabled     = true
 }
