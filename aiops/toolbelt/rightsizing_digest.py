@@ -88,9 +88,9 @@ def controller_of(target: str) -> str:
 class Digests:
     def __init__(self, db: sqlite3.Connection, lock: threading.RLock, clock: Callable[[], float], audit: Callable[..., None],
                  fc: forecast_store.Forecasts, read_current: Callable[[], dict | None], load_cfg: Callable[[], dict],
-                 results: Callable[[], list] | None = None):
+                 results: Callable[[], list] | None = None, held: Callable[[str], bool] | None = None):
         self.db, self.lock, self.clock, self.audit, self.fc = db, lock, clock, audit, fc
-        self.read_current, self.load_cfg, self.results = read_current, load_cfg, results
+        self.read_current, self.load_cfg, self.results, self.held = read_current, load_cfg, results, held
         self.db.executescript(SCHEMA)
 
     def now(self) -> int:
@@ -136,6 +136,8 @@ class Digests:
             p = proposal(e)
             if p is None:
                 continue
+            if e["finding"] == "memory-over-limit" and not (self.held and self.held(controller_of(r["target"]))):
+                continue   # a limit is cut only after this workload's request cut held through its 72-hour watch (10i5)
             if r.get("label") == "noise":
                 now_v, then_v = rightsizing.finding_value(e), r.get("label_value")
                 if now_v is not None and then_v and abs(now_v - then_v) / then_v <= NOISE_MOVE:

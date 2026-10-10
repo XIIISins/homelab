@@ -31,6 +31,9 @@ class Client:
     def set_cadence(self, cadence: str, by: str) -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/rightsizing/cadence", self.h, {"cadence": cadence, "by": by})
 
+    def revert(self, wid: int, by: str) -> tuple[int, dict]:
+        return logic._call("POST", f"{self.base}/rightsizing/watches/{int(wid)}/revert", self.h, {"by": by})
+
     def set_message(self, did: int, message_ref: str, thread_id: str = "") -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/rightsizing/digest/{int(did)}/message", self.h, {"message_ref": message_ref, "thread_id": thread_id})
 

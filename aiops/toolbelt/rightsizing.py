@@ -310,6 +310,25 @@ def _ns_sel(ns: str | None, extra: str = "") -> str:
     return "{" + ",".join(parts) + "}" if parts else ""
 
 
+def pod_controllers(q, namespace: str | None, window: str) -> dict:
+    """(namespace, pod) -> (namespace, Kind, name) over the window, so a pod that a rollout replaced still maps to its Deployment.
+    `q(name, promql)` is the tolerant instant query of the caller (a failing query returns [])."""
+    owner_sel = _ns_sel(namespace, "owner_is_controller='true'")
+    rs_sel = _ns_sel(namespace, "owner_kind='Deployment'")
+    rs_owner = {(m.get("namespace"), m.get("replicaset")): m.get("owner_name") for m, _ in q(
+        "replicaset-owner", f"max by (namespace,replicaset,owner_name)(max_over_time(kube_replicaset_owner{rs_sel}[{window}]))")}
+    pod_ctl: dict = {}
+    for m, _ in q("pod-owner", f"max by (namespace,pod,owner_kind,owner_name)(max_over_time(kube_pod_owner{owner_sel}[{window}]))"):
+        k, n, ns = m.get("owner_kind"), m.get("owner_name"), m.get("namespace")
+        if k == "ReplicaSet":
+            d = rs_owner.get((ns, n))
+            if d:
+                pod_ctl[(ns, m["pod"])] = (ns, "Deployment", d)
+        elif k in ("StatefulSet", "DaemonSet"):
+            pod_ctl[(ns, m["pod"])] = (ns, k, n)
+    return pod_ctl
+
+
 def collect(vm: VM, cfg: dict, now: float, namespace: str | None = None) -> Fleet:
     """Run the queries and fold them into Container facts. `namespace` narrows every query (the tool's detail view).
 
@@ -326,19 +345,7 @@ def collect(vm: VM, cfg: dict, now: float, namespace: str | None = None) -> Flee
             return []
 
     sel = "{" + (f'namespace="{namespace}",' if namespace else "") + 'container!="",container!="POD"}'
-    owner_sel = _ns_sel(namespace, "owner_is_controller='true'")
-    rs_sel = _ns_sel(namespace, "owner_kind='Deployment'")
-    rs_owner = {(m.get("namespace"), m.get("replicaset")): m.get("owner_name") for m, _ in q(
-        "replicaset-owner", f"max by (namespace,replicaset,owner_name)(max_over_time(kube_replicaset_owner{rs_sel}[{w}]))")}
-    pod_ctl: dict = {}
-    for m, _ in q("pod-owner", f"max by (namespace,pod,owner_kind,owner_name)(max_over_time(kube_pod_owner{owner_sel}[{w}]))"):
-        k, n, ns = m.get("owner_kind"), m.get("owner_name"), m.get("namespace")
-        if k == "ReplicaSet":
-            d = rs_owner.get((ns, n))
-            if d:
-                pod_ctl[(ns, m["pod"])] = (ns, "Deployment", d)
-        elif k in ("StatefulSet", "DaemonSet"):
-            pod_ctl[(ns, m["pod"])] = (ns, k, n)
+    pod_ctl = pod_controllers(q, namespace, w)
     age = {(m.get("namespace"), m.get("pod")): v for m, v in q("pod-age", f"max by (namespace,pod)(time() - kube_pod_start_time{_ns_sel(namespace)})")}
 
     # requests / limits per pod+container (the youngest pod's are the current template's)

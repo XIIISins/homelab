@@ -179,6 +179,8 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
                 ("POST", re.compile(rf"^/forecasts/{_ID}/label$"), only_appr, self._h_fc_label),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/message$"), only_appr, self._h_fc_message),
                 ("POST", re.compile(rf"^/forecasts/{_ID}/draft$"), only_appr, self._h_fc_draft),
+                ("GET", re.compile(r"^/rightsizing/watches$"), only_appr, self._h_rs_watches),
+                ("POST", re.compile(rf"^/rightsizing/watches/{_ID}/revert$"), only_appr, self._h_rs_revert),
                 ("GET", re.compile(r"^/rightsizing/status$"), only_appr, lambda m, q: tb.rs_call("status")),
                 ("POST", re.compile(r"^/rightsizing/digest/tick$"), only_appr, lambda m, q: tb.rs_call("tick")),
                 ("POST", re.compile(r"^/rightsizing/digest$"), only_appr, self._h_rs_now),
@@ -248,6 +250,15 @@ def make_handler(tb: core.Toolbelt, token: str, allow: list, approver_token: str
             if kind is not None and not re.fullmatch(r"[a-z-]{1,30}", kind):
                 raise core.Rejected(400, "bad kind")
             return {"forecasts": self._fc().list(tuple(s for s in raw.split(",") if s) or ("open",), kind)}
+
+        def _h_rs_watches(self, m, q):
+            if tb.watches is None:
+                raise core.Rejected(501, "the rightsizing watch is not enabled on this Toolbelt")
+            raw = (q.get("state") or [""])[0]
+            return {"watches": tb.watches.list(tuple(s for s in raw.split(",") if s in ("waiting", "watching", "held", "regressed", "inconclusive")) or ("waiting", "watching"))}
+
+        def _h_rs_revert(self, m, q):
+            return tb.rs_revert(int(m.group(1)), self._obj().get("by"))
 
         def _h_rs_now(self, m, q):
             by = self._obj().get("by")
@@ -472,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.forecast_current:
         cfg.forecast_file = Path(args.forecast_current)
     cfg.auto_incident_drafts = bool(args.auto_incident_drafts and args.change_requests)
+    cfg.rs_watch_poll_seconds = 600   # 10i5: read VictoriaMetrics for the post-merge watches every ten minutes
     cfg.incident_sweep_seconds = 600  # close incidents nothing can resolve (replays, drift reports, long-silent problems)
     import normalize  # noqa: E402 (path set up by core)
 

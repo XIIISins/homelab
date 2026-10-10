@@ -21,6 +21,29 @@ COLOUR = {"pending": 0xFEE75C, "approved": 0x57F287, "running": 0x5865F2, "pr-op
           "failed": 0xED4245, "rejected": 0x99AAB5, "cancelled": 0x99AAB5, "expired": 0x99AAB5, "closed": 0x99AAB5, "no-change": 0x99AAB5}
 
 
+REVERT_ID = re.compile(r"^aiops:rs-revert:([0-9]+)$")
+
+
+def revert_custom_id(wid: int) -> str:
+    return f"aiops:rs-revert:{int(wid)}"
+
+
+def watch_text(data: dict, pr_url: str = "") -> str:
+    """The reply under a rightsizing change request when its 72-hour post-merge watch ends (10i5)."""
+    s = logic.sanitize
+    st = data.get("state")
+    ref = f" ({pr_url})" if pr_url else ""
+    if st == "held":
+        w = f" Warnings: {s('; '.join(data.get('warnings') or []), 300)}." if data.get("warnings") else ""
+        return f"Rightsizing change{ref} **held** for 72 hours: no OOM kill, restart storm, availability loss or alert.{w}"
+    if st == "regressed":
+        return (f"Rightsizing change{ref} **regressed**: {s('; '.join(data.get('reasons') or ['no reason recorded']), 600)}. "
+                "Nothing was reverted. Press the button to have a revert PR drafted (it still waits for its own Approve).")
+    if st == "inconclusive":
+        return f"Rightsizing change{ref} could not be judged: {s('; '.join(data.get('reasons') or []), 300)}"
+    return f"Rightsizing watch update: {s(str(st), 40)}."
+
+
 def custom_id(act: str, cid: int) -> str:
     return f"aiops:cr-{act}:{cid}"
 
@@ -113,9 +136,10 @@ def announcement(cr: dict) -> str:
 
 @dataclass
 class Action:
-    kind: str  # post_card | edit_card | announce | notice
+    kind: str  # post_card | edit_card | announce | notice | watch
     cr: dict
     text: str = ""
+    data: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -144,11 +168,18 @@ def plan(events: list[dict], state: State) -> list[Action]:
     """One plan per request touched by this batch, from its CURRENT state (events are hints, the request is truth)."""
     seen: dict[int, dict] = {}
     blocked: dict[int, dict] = {}
+    verdicts: list[tuple[dict, dict]] = []
     for e in events:
         seen[e["change_request"]["id"]] = e["change_request"]
         if e.get("kind") == "blocked":
             blocked[e["change_request"]["id"]] = e.get("data") or {}
+        if e.get("kind") == "watch" and (e.get("data") or {}).get("state") in ("held", "regressed", "inconclusive"):
+            verdicts.append((e["change_request"], e["data"]))
     out: list[Action] = []
+    for cr, data in verdicts:   # a verdict is announced once, wherever the request's card lives
+        key = f"{cr['id']}:watch:{data.get('watch')}:{data.get('state')}"
+        if key not in state.announced:
+            out.append(Action("watch", cr, key, data))
     for cid, cr in seen.items():
         if not cr.get("message_ref"):
             if cr["state"] == "pending":

@@ -24,6 +24,7 @@ A step may only move forward, except running -> posted/resolved and posted -> re
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import threading
@@ -49,6 +50,7 @@ import forecast_store  # noqa: E402
 import capacity_draft  # noqa: E402
 import rightsizing  # noqa: E402
 import rightsizing_digest  # noqa: E402
+import rightsizing_watch  # noqa: E402
 import drift  # noqa: E402
 
 SEV_RANK = {"info": 0, "alert": 1, "critical": 2}
@@ -151,6 +153,7 @@ class Config:
     change_requests: change_requests.CRConfig | None = None  # 10h2: None = no agent-authored PR requests
     forecast_file: Path | None = None  # 10h1: the forecast job's `current findings` JSON; None = forecasts are not ingested
     forecast_poll_seconds: int = 60
+    rs_watch_poll_seconds: int = 0     # 10i5: how often the post-merge watches read VictoriaMetrics (0 = no background loop; the server sets it)
     auto_incident_drafts: bool = False  # 10h3: file the write-up request for a resolved incident that crossed the bar (needs change requests)
     auto_draft_min_minutes: int = 30
     auto_draft_min_alerts: int = 3
@@ -205,6 +208,7 @@ class Toolbelt:
         self.cr: change_requests.ChangeRequests | None = None
         self.fc: forecast_store.Forecasts | None = None
         self.rs: rightsizing_digest.Digests | None = None
+        self.watches: rightsizing_watch.Watches | None = None
         self._rs_cfg_cache: tuple[float, dict] | None = None
         self._fc_mtime = 0.0
         if self.engine is not None and cfg.change_requests is not None:
@@ -219,6 +223,12 @@ class Toolbelt:
             self.rs = rightsizing_digest.Digests(self.db, self._lock, self.clock, self.audit, self.fc, self._read_forecast_file, self._rs_config)
             self.ingest_forecasts()
             threading.Thread(target=self._forecast_loop, daemon=True, name="forecast-ingest").start()
+            if self.cr is not None:   # 10i5: the 72-hour watch of merged rightsizing PRs
+                self.watches = rightsizing_watch.Watches(self.db, self._lock, self.clock, self.audit, self._rs_vm, self.cr.note, self._alerts_naming)
+                self.cr.on_merged = self._rs_on_merged
+                self.rs.results, self.rs.held = self.watches.results, self.watches.held
+                if cfg.rs_watch_poll_seconds > 0:
+                    threading.Thread(target=self._rs_watch_loop, daemon=True, name="rightsizing-watch").start()
 
     def _migrate(self) -> None:
         """Additive schema changes for databases created by an older version (CREATE TABLE IF NOT EXISTS never alters)."""
@@ -722,8 +732,69 @@ class Toolbelt:
             allowed = False
         enabled = bool(self.cr is not None and (self.cfg.change_requests.classes.get("classes", {}).get("rightsizing") or {}).get("enabled"))
         prop = rightsizing_digest.proposal(e)
-        return {"draftable": bool(allowed and enabled and pr is None and prop is not None and e.get("finding") != "memory-creep"), "pr": pr,
+        limit_ok = e.get("finding") != "memory-over-limit" or bool(self.watches is not None and self.watches.held(controller))   # a limit cut waits for a held request cut
+        return {"draftable": bool(allowed and enabled and pr is None and prop is not None and e.get("finding") != "memory-creep" and limit_ok), "pr": pr,
                 "finding": e.get("finding"), "summary": prop["text"] if prop else e.get("note"), "under": e.get("finding") in ("memory-under-request", "cpu-under-request")}
+
+    def _rs_vm(self):
+        live = self.cfg.live
+        if live is None:
+            return None
+        return rightsizing.VM(live.metrics_url, lambda url: tools._obs_get(live, url, "VictoriaMetrics"))
+
+    def _alerts_naming(self, name: str, since: int) -> list[str]:
+        """Alerts first seen since `since` whose text names the workload (whole word), for the post-merge watch."""
+        if len(name) < 4:
+            return []
+        rx = re.compile(r"(?<![A-Za-z0-9-])" + re.escape(name) + r"(?![A-Za-z0-9-])")
+        with self._lock:
+            rows = self.db.execute("SELECT alert_json FROM alerts WHERE first_seen>=? AND severity IN ('alert','critical')", (since,)).fetchall()
+        out = []
+        for r in rows:
+            try:
+                a = json.loads(r["alert_json"])
+            except ValueError:
+                continue
+            text = " ".join(str(a.get(k, "")) for k in ("host", "service", "check", "summary", "message", "description"))
+            if rx.search(text):
+                out.append(f"{a.get('severity', '?')}: {str(a.get('summary') or a.get('message') or a.get('check') or '')[:100]}")
+        return out
+
+    def _rs_on_merged(self, cr: dict) -> None:
+        if cr.get("class") == "rightsizing":
+            self.watches.start(cr)
+
+    def _rs_watch_loop(self) -> None:
+        while True:
+            time.sleep(self.cfg.rs_watch_poll_seconds)
+            try:
+                self.watches.poll()
+            except Exception as e:  # noqa: BLE001 - the loop must survive anything
+                self.audit("error", where="rightsizing_watch", error=type(e).__name__)
+
+    def rs_revert(self, wid: int, by: object) -> dict:
+        """POST /rightsizing/watches/<id>/revert (approver role): an operator asks for a PR that restores a watched workload's old values.
+        The request still waits for its own Approve; nothing reverts by itself."""
+        if self.cr is None or self.watches is None:
+            raise Rejected(501, "change requests are not enabled")
+        self._rs_operator(by)
+        try:
+            w = self.watches.get(wid)
+        except rightsizing_watch.Refused as e:
+            raise Rejected(e.status, e.message)
+        if w["state"] not in ("regressed", "held", "watching", "inconclusive"):
+            raise Rejected(409, f"watch {wid} is {w['state']}: nothing has changed yet")
+        if w["spec"].get("kind") == "revert":
+            raise Rejected(409, "that watch is itself a revert")
+        if w.get("reverted_by"):
+            raise Rejected(409, f"change request {w['reverted_by']} already restores it")
+        title, body = rightsizing_watch.revert_request(w)
+        try:
+            cr = self.cr.create(source="operator", class_="rightsizing", title=title, body=body, source_ref=f"rightsizing-{w['controller']}", created_by=str(by))
+        except change_requests.Refused as e:
+            raise Rejected(e.status, e.message)
+        self.watches.mark_reverted(wid, cr["id"])
+        return cr
 
     def _rs_active_cr(self, controller: str) -> dict | None:
         if self.cr is None:
