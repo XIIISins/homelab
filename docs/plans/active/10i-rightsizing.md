@@ -116,7 +116,7 @@ A new read tool, **`kube.rightsizing`** (namespace, kind, name; or a whole-clust
 | requests and limits | controller pod template (existing RBAC) |
 | VPA lowerBound / target / upperBound, sample age | VPA status + checkpoint (new RBAC rule) |
 | recommendation stability | KSM VPA series, last 7 days |
-| memory working set p50 / p95 / max and CPU p95 / p99 over 30 days | cAdvisor in VictoriaMetrics |
+| memory working set p50 / p95 / max over 30 days; CPU as the median of the daily p95 and the worst day's p95 | cAdvisor in VictoriaMetrics |
 | OOMKilled and restarts, 30 days | pod `lastState` + events |
 | per worker: memory requested, memory limits, memory used | KSM + node metrics |
 
@@ -132,10 +132,28 @@ A recommendation counts only when VPA reports `RecommendationProvided=True`, the
 | **Memory over-request** | request ≥ 1.5 × max(upperBound, 30-day max) and frees ≥ 64Mi, no OOMKilled | `ceil16Mi(max(upperBound, max) × 1.3)`, floor 32Mi |
 | **Memory over-limit** | limit ≥ 3 × 30-day max and frees ≥ 256Mi, no OOMKilled; only after this workload's request cut held through its watch | `ceil16Mi(max(2 × max, upperBound × 1.5, request))` |
 | **Memory creep** | 30-day working-set trend rising (Theil-Sen, the 10h1 detector) with no matching rise in traffic/restarts | no number: a tuning suggestion (leak, cache without bound, missing `GOMEMLIMIT`) |
-| **CPU over-request** | request ≥ 3 × max(target, p99) and frees ≥ 50m | `ceil10m(max(target, p99) × 1.5)`, floor 10m |
-| **CPU under-request** | p95 > request | `ceil10m(max(target, p95) × 1.5)` |
+| **CPU over-request** | request ≥ 3 × max(target, worst-day p95) and frees ≥ 50m | `ceil10m(1.5 × max(target, median daily p95))`, never below the worst-day p95, floor 10m |
+| **CPU under-request** | median daily p95 > request | `ceil10m(1.5 × max(target, median daily p95))`, never below the worst-day p95 |
 
 Never proposed: a CPU limit (throttling on 2-vCPU workers hurts more than it protects). Workloads with rare peaks (monthly imports, Immich jobs) can be marked in `aiops/rightsizing.yml` to skip limit cuts. That file holds the thresholds, the allow-list and the digest cadence; agent PRs may not edit it.
+
+### As built (2026-10-10)
+
+Code: [`aiops/toolbelt/rightsizing.py`](../../../aiops/toolbelt/rightsizing.py) (rules, collection, answers), the tool in `tools.py`, the daily pass in `forecast_run.py`, quiet rows in `forecast_store.py`, policy in [`aiops/rightsizing.yml`](../../../aiops/rightsizing.yml) (schema + lint). Tests: `aiops/tests/test_rightsizing.py`. Everything is read from VictoriaMetrics through the metrics-read route: no Kubernetes API call, no new route, credential or RBAC (the `aiops-readonly` VPA rule from 10i1 stays unused by the tool and is kept for `kube.get`-style reads later).
+
+Where it differs from the table above, and why:
+
+- **CPU basis = the median of the daily p95, with the worst day's p95 as a floor**, the rule 10i0b used by hand, because a raw 30-day p99 is inflated by rollouts and startups. Evidence fields are `median_daily_p95_millicores` and `worst_day_p95_millicores`.
+- **A memory under-request does not wait for a mature recommendation.** It is a hazard, so it is reported from the 30-day max alone (confidence `low` until VPA is valid, `medium` once valid, `high` once the series is two weeks old). Every finding that *lowers* something still needs a valid VPA: series at least `vpa.min_sample_age_days` old and a 7-day target drift of at most ±30 %; otherwise it is counted under `suppressed` (`vpa-immature`, `vpa-unstable`, `no-vpa-recommendation`).
+- **History survives rollouts.** Usage, OOM and restarts are read over the whole window per pod and mapped to the controller (pod → ReplicaSet → Deployment, also over the window), so a replaced pod's peak still counts. Requests, limits and age come from the pods that run now (the youngest pod's template). A controller whose newest pod is under `settle_hours` (24 h) old gets no findings (`recently-rolled`).
+- **An OOMKilled container whose 30-day peak sits far below its limit is reported with a note and no number** (the kill happened under an older limit, or page cache counted against the cgroup). Seen live on 2026-10-10 with `media/sabnzbd`.
+- **Rare-peak workloads** (`rare_peaks`, currently `immich/*`) are judged on the 30-day p95, as 10i0b sized them, so Immich's deliberate "request below the peak" is not a finding.
+- **The memory limit cut (over-limit) ships `enabled: false`.** The plan's condition ("only after this workload's request cut held through its watch") needs the 10i5 verdicts; the switch is on in the config PR that lands 10i5.
+- **Memory creep** uses a Theil-Sen slope over the daily peak (the 10h1 detectors are least-squares, not Theil-Sen): at least 14 days, 75 % of day pairs rising, a rise of at least 64 MiB and 20 % of the first week's median, and no more than 2 restarts. Traffic is not measured; Gná reads the chart and traffic when it writes the tuning suggestion.
+- **Fingerprints** are `rightsizing:<ns>/<Kind>/<name>/<container>/<metric>` with `metric` one of `memory-request`, `memory-limit`, `memory-creep`, `cpu-request` (an under- and an over-request on one metric cannot both hold).
+- **Rows are quiet.** They live in the `forecasts` table (`kind = rightsizing`) but the store keeps them out of the card feed, the default list, the summary and the new-finding budget; the digest reads them with `GET /forecasts?kind=rightsizing`. The pass runs inside the hourly forecast job at most once a day, carries the previous rows between runs, and a pass with query errors keeps the old rows (a metrics outage cannot resolve a finding).
+
+First live read (2026-10-10, VPA 4.7 days old, so every VPA-dependent finding is still suppressed as `vpa-immature`): 23 under-request findings, among them the real signals `netbox` (OOMKilled at the 2560Mi limit; a higher limit is proposed), `sabnzbd` (OOMKilled with a tiny peak), `immich` (silenced by `rare_peaks`) and several Flux/CSI containers whose requests are below their peak.
 
 ---
 
