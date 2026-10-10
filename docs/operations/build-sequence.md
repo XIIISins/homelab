@@ -16,7 +16,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 - **10g rebuild loop:** stage A (canaries) proven; replica and worker stages not built. PBS datastore capacity is no longer a prerequisite (67% on 2026-10-10).
 - **10h predictive changes and PR author:** all three parts live; exit criteria not yet met.
 - **10i rightsizing:** 10i2 (Toolbelt data + findings) onward; needs about 7 days of VPA history.
-- **10a offsite node `do1`:** cleanup done 2026-10-10; left: delete the stale Tailscale machine records and revoke the broad `doctl` token.
+- **10a offsite node `do1`:** cleanup done 2026-10-10; left: revoke the broad `doctl` token (kept for now, still in use).
 - **6 Frigg control node:** an ongoing hardening surface (credential-mirror sync, AppRole-expiry alerting).
 
 **Not started or deferred**
@@ -103,7 +103,7 @@ Plan: [`aiops-roadmap.md`](../plans/active/aiops-roadmap.md) (planned 2026-10-01
 
 | Phase | Status | Outcome |
 |-------|--------|---------|
-| 10a Offsite node `do1` | ✅ built and cut over 2026-10-01; legacy resources destroyed 2026-10-10 | Unmanaged droplet rebuilt from Terraform + Ansible (TS3 failover, HeyLeaf PlantNet proxy, Gatus watcher), reserved IP, scoped Tailscale grants. After the soak the legacy droplet, `do-tailscale-p01`, stale firewalls/keys/registry and the pre-hardening snapshot were destroyed and `do1-next` retired; do1 serves and is probed on `do1.xiiisins.com`. Left: stale Tailscale machine records, revoke the broad `doctl` token. [Procedure](../procedures/offsite-do1.md). |
+| 10a Offsite node `do1` | ✅ built and cut over 2026-10-01; legacy resources destroyed 2026-10-10 | Unmanaged droplet rebuilt from Terraform + Ansible (TS3 failover, HeyLeaf PlantNet proxy, Gatus watcher), reserved IP, scoped Tailscale grants. After the soak the legacy droplet, `do-tailscale-p01`, stale firewalls/keys/registry and the pre-hardening snapshot were destroyed and `do1-next` retired; do1 serves and is probed on `do1.xiiisins.com`. Left: revoke the broad `doctl` token (kept for now, still in use). [Procedure](../procedures/offsite-do1.md). |
 | 10b Test substrate + outside watcher | ✅ 2026-10-01/02 | **10b1** canary pool (LXCs 1190–1192, `site-nonprod.yml`, alerts capped at the `info` tier). **10b2** burst substrate on DigitalOcean (`terraform/digitalocean-burst/`, reaper on Frigg; smoke-tested for ~$0.11). **10b3** Gatus on `do1` with a Frigg heartbeat and an independent Discord channel. Procedures: [canary-pool](../procedures/canary-pool.md), [burst-substrate](../procedures/burst-substrate.md), [offsite-watcher](../procedures/offsite-watcher.md). |
 | 10c Machine-readable ops | ✅ 2026-10-01 | Alert schema + normalizer, 20 runbooks with stable `runbook_id`s, an action registry (4 T0 + 4 T1 actions, every mutator approval-capped) and 8 playbooks + 7 Semaphore templates; linted in CI. [`aiops/README.md`](../../aiops/README.md). |
 | 10d Diagnosis chat-ops | ✅ live 2026-10-02/03 | n8n on Gná (LXC 1121) receives context-rich Zabbix events beside Hermod; a write-less Toolbelt API on Frigg (19 read-only tools) grounds the agent's `diagnosis.v1` before a Discord thread is posted; replay acceptance incl. the Skuld freeze and an injection control. [Plan](../plans/done/10d-diagnosis-chatops.md), [retro](../incidents/2026-10-03-10d2-10d3-toolbelt-agent.md). |
