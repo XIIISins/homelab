@@ -84,7 +84,19 @@ class Proxy(unittest.TestCase):
     def test_every_class_that_gets_a_pr_test_is_forwarded(self):
         # The proxy is the Toolbelt's only way to GitHub: a class missing here fails its PR test with an HTTP 404 (found live with the k8s class).
         with Serving() as s:
-            for cls in ("drift", "capacity", "k8s"):
+            for cls in ("drift", "capacity", "k8s", "rightsizing"):
+                self.assertEqual(s.req(f"/repos/XIIISins/homelab/git/ref/heads/agent/{cls}/11-label-it")[0], 200, cls)
+
+    def test_it_forwards_every_enabled_class_that_is_tested_from_the_class_file(self):
+        """The same hole opened twice (k8s, then rightsizing, 2026-10-10: change request 24's burst test said HTTP 404 and the PR was merged untested):
+        the class list above is hand-kept, so tie it to author-classes.yml."""
+        import yaml
+
+        classes = yaml.safe_load((Path(__file__).resolve().parents[2] / "aiops" / "author-classes.yml").read_text())["classes"]
+        tested = [n for n, c in classes.items() if c.get("canary_test") or c.get("burst_test")]
+        self.assertTrue(tested)
+        with Serving() as s:
+            for cls in tested:
                 self.assertEqual(s.req(f"/repos/XIIISins/homelab/git/ref/heads/agent/{cls}/11-label-it")[0], 200, cls)
 
     def test_it_is_read_only(self):
