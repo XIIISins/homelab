@@ -30,7 +30,7 @@ The directional intent is already on record: drift converges automatically, and 
 | Notification | Hermod (Apprise) — response-time severity tags (`critical` = look within minutes) → Discord |
 | Agent host | Frigg (HA VM 2900, Vault-backed shim, `claude remote-control` as systemd, remote-host Ansible); `frigg-reauth-listener` self-heals RC login invalidation |
 | Upgrade agent | `chart-bump` (investigate → worktree → render-diff → commit → Flux → tests → docs) — the model for agent-authored change |
-| Known weak spots | Skuld hard-freezes (watchdog unproven); PBS co-located on Skuld and its datastore at 85% (75% on 2026-10-03; large consumers aging out); no offsite copy of Calico datastore / etcd snapshots; RAM-tight Proxmox hosts |
+| Known weak spots | Skuld hard-freezes (watchdog unproven); PBS datastore capacity no longer a concern (85% on 2026-10-01, 67% on 2026-10-10 once large consumers aged out); no offsite copy of Calico datastore / etcd snapshots; RAM-tight Proxmox hosts |
 
 ---
 
@@ -154,7 +154,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 *Detailed plan (drafted 2026-10-03): [`10g-rebuild-loop.md`](10g-rebuild-loop.md): ladder of targets, exact sequence, registry shape, the Frigg rebuild-runner proposal for unattended `terraform apply`, hard limits, canary test plan.*
 
-- **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); **PBS off Skuld done 2026-10-01**; still open: its datastore capacity (81 % on 2026-10-05); **restore drills passing (done 2026-10-03: etcd, Calico, Vault Raft, PBS canary + replica)** (the offsite-backup restore onto a scratch cluster in 10b2 ✅; PBS restore of a canary and an LXC ✅); Skuld watchdog proven or Skuld de-risked.
+- **10g1 — Prerequisites (pull-forward, not backlog):** ~~offsite export of the Calico datastore + etcd snapshots~~ **done 2026-10-01** — etcd, Vault Raft and Calico objects now land in S3 ([`procedures/offsite-backups.md`](../procedures/offsite-backups.md)); **PBS off Skuld done 2026-10-01**; its datastore capacity is dropped as a prerequisite (67 % on 2026-10-10); **restore drills passing (done 2026-10-03: etcd, Calico, Vault Raft, PBS canary + replica)** (the offsite-backup restore onto a scratch cluster in 10b2 ✅; PBS restore of a canary and an LXC ✅); Skuld watchdog proven or Skuld de-risked.
 - **10g2 — Rebuild loop.** cordon/drain → destroy → Terraform → Ansible → rejoin, proven in order on: canaries → redundant replicas (Mimir/Kvasir, a Tailscale LXC, `do1`) → workers (approval-gated). Quorum members are **leader-aware and never autonomous** (T3).
 - **10g3 — Gate for worker auto-rebuild.** Only after N consecutive successful approval-gated worker rebuilds and a passing restore drill.
 - **Exit:** a deliberately killed canary and a replica LXC are rebuilt from the repo without operator input; a worker rebuild is approval-gated and verified.
