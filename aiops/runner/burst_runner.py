@@ -7,14 +7,14 @@ Client: aiops/toolbelt/burst_exec.py (the Toolbelt's `pr-burst-test` step). Same
 A tiny server on a unix socket. One JSON line in, one line out, and it never receives a command: only a branch, a commit and an app name (`test`).
 
 Protocol (v1)
-  {"v":1,"request_id":"<uuid>","op":"test","branch":"agent/k8s/<n>-<slug>","sha":"<40 hex>","component":"<app>"}
+  {"v":1,"request_id":"<uuid>","op":"test","branch":"agent/(k8s|rightsizing)/<n>-<slug>","sha":"<40 hex>","component":"<app>"}
     -> {"v":1,"request_id":...,"ok":true,"result":{"passed":bool,"seconds":int,"summary_md":"...","commit":"<sha>"}}
        or {"ok":false,"error":"<code>: <text>"}   codes: bad-request, denied, busy, checkout-failed, sha-moved, runner-failed
   {"v":1,"op":"status"} -> {"ok":true,"busy":bool,"last":{...}}
 
 Defence in depth, each layer independent of the Toolbelt that calls us:
   1. the socket is group-readable only by `aiops-burst-clients` and every connection's uid is checked (SO_PEERCRED) against an allow-list;
-  2. the branch must match agent/k8s/<n>-<slug>, the commit 40 hex and the app a plain name: nothing else reaches a subprocess;
+  2. the branch must match agent/(k8s|rightsizing)/<n>-<slug>, the commit 40 hex and the app a plain name: nothing else reaches a subprocess;
   3. THE CODE THAT RUNS IS NEVER THE PR'S: the harness (scripts/burst/k8s-pr-test, aiops/runner/k8s_burst_*.py) comes from this runner's own clean
      checkout of origin/main, reset on every request. The PR's commit is only ever the TREE UNDER TEST: it is rendered into YAML and applied to a
      throwaway cluster that has no route to prod;
@@ -43,7 +43,7 @@ from pathlib import Path
 
 PROTOCOL = 1
 MAX_LINE = 4096
-BRANCH = re.compile(r"^agent/k8s/[0-9]+-[a-z0-9][a-z0-9-]*$")
+BRANCH = re.compile(r"^agent/(?:k8s|rightsizing)/[0-9]+-[a-z0-9][a-z0-9-]*\Z")   # \Z, not $: `$` also matches before a trailing newline
 SHA = re.compile(r"^[0-9a-f]{40}$")
 COMPONENT = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_SUMMARY = 2800

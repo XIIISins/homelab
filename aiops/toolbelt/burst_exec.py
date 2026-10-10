@@ -6,7 +6,7 @@ shape as the rebuild runner) to run the test. The runner answers with `passed` a
 value); that summary is what the PR description carries.
 
 Protocol (v1), one JSON line each way over a unix socket:
-  {"v":1,"request_id":"<uuid>","op":"test","branch":"agent/k8s/<n>-<slug>","sha":"<40 hex>","component":"<app>"}
+  {"v":1,"request_id":"<uuid>","op":"test","branch":"agent/(k8s|rightsizing)/<n>-<slug>","sha":"<40 hex>","component":"<app>"}
     -> {"v":1,"request_id":...,"ok":true,"result":{"passed":bool,"seconds":int,"summary_md":"...","commit":"<sha>"}}
        or {"ok":false,"error":"<code>: <text>"}   codes: bad-request, denied, busy, checkout-failed, sha-moved, runner-failed
   {"v":1,"op":"status"} -> {"ok":true,"busy":bool,"last":{...}}
@@ -21,7 +21,7 @@ from typing import Callable
 
 PROTOCOL_V = 1
 DEFAULT_SOCKET = "/run/aiops-burst/runner.sock"
-BRANCH = re.compile(r"^agent/k8s/[0-9]+-[a-z0-9][a-z0-9-]*$")
+BRANCH = re.compile(r"^agent/(?:k8s|rightsizing)/[0-9]+-[a-z0-9][a-z0-9-]*\Z")   # \Z, not $: `$` also matches before a trailing newline
 SHA = re.compile(r"^[0-9a-f]{40}$")
 COMPONENT = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_SUMMARY = 2800   # characters of markdown that may enter a PR description

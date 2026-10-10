@@ -97,6 +97,20 @@ classes:
       - "ansible/roles/zabbix-agent/**"
     tested_on: a canary (the Toolbelt proposes it, the operator approves) - dry run of the PR's code, converge, second dry run for idempotence; the result is written into the PR description
     canary_test: true
+  rightsizing:
+    enabled: false   # 10i4: shipped off; a separate reviewed PR turns it on once the resources-only gate has been seen refusing a probe in CI
+    summary: Change only the resources (requests, memory limits) of ONE workload from a 10i finding (docs/plans/active/10i-rightsizing.md). Never an image, replica count or any other value.
+    allow:
+      - "k8s/asgard/apps/*/helmrelease.yaml"
+      - "k8s/asgard/apps/*/deployment*.yaml"
+      - "k8s/asgard/apps/*/statefulset*.yaml"
+      - "k8s/asgard/apps/*/redis.yaml"
+      - "k8s/asgard/infrastructure/authentik/helmrelease.yaml"
+      - "k8s/asgard/infrastructure/authentik/redis.yaml"
+    tested_on: a throwaway burst cluster (the k8s class's test; it proves the pod still starts and becomes Ready inside the new limits; apps outside k8s/asgard/apps/ say why they are not tested); the 72-hour post-merge watch (10i5) proves it under real load
+    burst_test: true
+    checks:   # run by the dispatcher on the patched clone, and again by CI's agent-scope job from the PR's base commit
+      - {name: resources only, script: .github/scripts/ci-resources-only.py}
   k8s:
     enabled: true   # 2026-10-04: one app under k8s/asgard/apps/ per PR; proven on a burst cluster once the burst runner is deployed (until then the PR says why it is not tested)
     summary: A change to ONE app's manifests under k8s/asgard/apps/<app>/ (no infrastructure/, no flux-system/, no cluster-wide objects). Merging it IS the deploy (Flux), so a human reviews it.

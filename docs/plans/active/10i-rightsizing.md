@@ -218,6 +218,18 @@ The allow-list is the T1/T2 apps (NetBox, Outline, Immich, Semaphore, MicroBin, 
 
 The PR carries a per-container old → new table with the evidence, the per-worker memory-requested totals before and after, the burst-test summary, and a rollback line (`git revert`; Flux rolls back).
 
+
+### 10i4 as built (2026-10-10)
+
+[`rightsizing_draft.py`](../../../aiops/toolbelt/rightsizing_draft.py) (the request, its evidence and spec), the `rs_draft` route in `core.py` (the existing forecast Draft button), the class in [`author-classes.yml`](../../../aiops/author-classes.yml), [`ci-resources-only.py`](../../../.github/scripts/ci-resources-only.py) with the `agent-scope` step in `ci.yml`, the evidence block in the dispatcher's PR body; tests `test_rightsizing_draft.py`, `test_resources_only.py`. Operator view: [`aiops-rightsizing.md`](../../procedures/aiops-rightsizing.md#rightsizing-prs-10i4).
+
+- **One request per workload**, not per finding: all open findings of the workload form one table and one PR (the plan's rule); at most three rightsizing requests in flight (`rs_max_open_prs`).
+- **The class also allows plain manifests.** The plan's list was HelmReleases only, but Outline, Semaphore, MicroBin, Startpage and TeamSpeak are raw Deployments/StatefulSets: `deployment*.yaml`, `statefulset*.yaml` and `redis.yaml` are in, `externalsecret`, `httproute`, services and everything cluster-wide stay out. The resources-only check understands both shapes.
+- **Burst test inherited, with one widening:** the branch pattern of `pr-burst-test` (actions.yml, the Toolbelt's burst executor and the privileged runner) accepts `agent/(k8s|rightsizing)/...`, and all three now end the pattern with `\Z` (a `$` also matched before a trailing newline). Authentik sits under `infrastructure/`, which the burst test does not cover; its PRs say so.
+- **The check is two-sided:** the dispatcher refuses to push a failing patch, and CI re-runs the script from the base commit on the PR head.
+- The evidence block is trusted text written by the Toolbelt into the request body and copied into the PR by the dispatcher; the session's summary stays the session's.
+- **Shipped `enabled: false`**, per the plan; turning it on is its own reviewed PR.
+
 ---
 
 ## 10i5 — Post-merge watch

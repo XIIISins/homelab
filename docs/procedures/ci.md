@@ -22,7 +22,7 @@ Workflow: [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). Triggers
 | `aiops (schemas + consistency + tests)` | `python3 aiops/tools/lint.py` (schemas, runbook markers in the docs, action registry vs `terraform/semaphore/templates.tf` + playbooks, routing, fixtures) + `unittest` ([`aiops/README.md`](../../aiops/README.md)) | `aiops/`, `ansible/playbooks/aiops-*`, `terraform/semaphore/`, or a docs change adds/removes a `<!-- runbook: RB-… -->` marker or deletes (or renames) a doc file |
 | **`CI gate`** | aggregator: fails if any job above failed/cancelled; *skipped* counts as pass | always — **the only required check** |
 
-A Markdown-only PR therefore runs `changes`, `secrets (gitleaks)`, `docs links`, `agent-scope` (a security gate, kept on every PR) and `CI gate`; prose edits to docs never start `yamllint` or `aiops`.
+A Markdown-only PR therefore runs `changes`, `secrets (gitleaks)`, `docs links`, `agent-scope` (a security gate, kept on every PR; for an `agent/rightsizing/*` PR it also runs `ci-resources-only.py` from the base commit) and `CI gate`; prose edits to docs never start `yamllint` or `aiops`.
 
 Changes to `.github/**`, `.yamllint.yml`, `.gitleaks.toml`, `ansible/.ansible-lint` or `ansible/requirements.yml` run everything.
 

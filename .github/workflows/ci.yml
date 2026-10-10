@@ -310,6 +310,17 @@ jobs:
           gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[]' | jq -s '.' > "$RUNNER_TEMP/files.json"
           python3 aiops/author/scope.py --classes aiops/author-classes.yml --branch "$BRANCH" \
             --author "$AUTHOR" --files-json "$RUNNER_TEMP/files.json"
+      # 10i4: a rightsizing PR changes container resources and nothing else. The script runs from the BASE commit (checked out above), so the PR
+      # cannot loosen it; the PR's own head is fetched only to be read.
+      - name: a rightsizing PR changes resources only
+        if: startsWith(github.event.pull_request.head.ref, 'agent/rightsizing/')
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ ! -f .github/scripts/ci-resources-only.py ]; then echo "ci-resources-only.py is not on the base commit yet; skipping"; exit 0; fi
+          git fetch --quiet --depth=1 origin "$HEAD_SHA"
+          python3 .github/scripts/ci-resources-only.py --base "$BASE_SHA" --head "$HEAD_SHA"
 
   # The single required status check. Always runs; fails if any needed job
   # failed or was cancelled. "skipped" (path-filtered out) counts as passing.

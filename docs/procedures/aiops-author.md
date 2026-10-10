@@ -56,6 +56,10 @@ likely cause (a **hypothesis** unless a commit or deploy explains it), the resol
 case: the 2026-10-04 06:24Z run showed `frigg changed=2` because `aiops-toolbelt` code on Frigg lagged a merged PR (#115) until
 the role was re-run. The code-changing `drift` class stays disabled; Gná filing these on a drift-check result is not built.
 
+## The `rightsizing` class (10i4)
+
+A digest card's **Draft PR** button files a resources-only change request for one workload; the dispatcher checks it with `ci-resources-only.py` and CI repeats the check from the base commit. See [`aiops-rightsizing.md`](aiops-rightsizing.md#rightsizing-prs-10i4).
+
 ## The `capacity` class (enabled 2026-10-04)
 
 A forecast card for a filesystem fill (`fleet-fs-used`) or memory creep (`memory-used`) carries a **Draft fix PR** button. It files a `capacity` change request

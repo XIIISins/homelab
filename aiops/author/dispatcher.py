@@ -169,13 +169,22 @@ def with_canary_block(body: str, block: str) -> str:
     return (body[:k] + block + "\n\n" + body[k:]) if k >= 0 else (body.rstrip("\n") + "\n\n" + block + "\n")
 
 
+EVIDENCE = re.compile(r"<!-- evidence -->(.*?)<!-- /evidence -->", re.S)
+
+
 def pr_body(cr: dict, summary: str, tests: dict | None, files: list[dict]) -> str:
+    """The PR description. A request may carry an `<!-- evidence -->` block written by the Toolbelt itself (10i4: the old -> new table and the
+    per-worker totals); it is copied verbatim, never taken from the session's summary."""
+    ev = EVIDENCE.search(cr.get("body") or "")
+    evidence = f"## Evidence\n{ev.group(1).strip()}\n\n" if ev else ""
+    rollback = ("Revert this PR (`git revert`): Flux rolls the workload back to its old values." if cr["class"] == "rightsizing"
+                else "Revert this PR; it only touches the files above.")
     rows = "\n".join(f"- `{f['filename']}` (+{f['additions']} -{f['deletions']})" for f in files)
     t = "\n".join(f"- {k}: {v}" for k, v in (tests or {}).items()) or "- repo CI (links, yamllint, gitleaks) runs on this PR"
     body = (f"Agent-authored draft for change request **#{cr['id']}** (class `{cr['class']}`, source `{cr['source']}`"
             f"{', ref ' + cr['source_ref'] if cr.get('source_ref') else ''}), approved by Discord user `{cr.get('decided_by')}`.\n\n"
-            f"## Summary\n{summary or '(the session wrote no summary)'}\n\n## Files\n{rows}\n\n## Checks\n{t}\n\n"
-            f"## Rollback\nRevert this PR; it only touches the files above.\n\n"
+            f"## Summary\n{summary or '(the session wrote no summary)'}\n\n{evidence}## Files\n{rows}\n\n## Checks\n{t}\n\n"
+            f"## Rollback\n{rollback}\n\n"
             f"---\n*Written by an AI session with read-only access to live state; the operator reviews and merges. "
             f"The branch `{branch_for(cr)}` was created by the dispatcher, which applied the session's patch after the scope rules and a secret scan.*")
     return tools.redact(body)[:60000]
