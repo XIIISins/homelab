@@ -177,6 +177,35 @@ class Grounding(unittest.TestCase):
             self.tb.diagnose(inc, {"diagnosis": d})
         self.assertIn("served no such call", cm.exception.detail["problems"][0])
 
+    def test_a_diagnosis_with_no_recorded_tool_call_is_rejected_for_a_retry(self):
+        # incident 49 (2026-10-06): the agent's tool node returned empty results and the Toolbelt saw no calls, yet the model
+        # produced a valid "unknown / low" diagnosis from them. Nothing is stored; the reason goes back to the model on the retry.
+        self.tb.clock.t += 200  # past the window left open by setUp, so this alert leads its own incident
+        inc = self.tb.ingest_zabbix(base.ev(host="silent-tools"))["incident_id"]
+        d = good(inc)
+        d.update(layer="unknown", confidence="low", evidence=[], needs_human=True)
+        d.pop("proposed_actions", None)
+        self.assertEqual(diagnosis.structure(d), [])
+        self.audit.clear()
+        with self.assertRaises(core.Rejected) as cm:
+            self.tb.diagnose(inc, {"diagnosis": d})
+        self.assertEqual(cm.exception.status, 422)
+        self.assertIn("recorded no tool calls", cm.exception.detail["problems"][0])
+        self.assertIsNone(self.tb.db.execute("SELECT 1 FROM diagnoses WHERE incident_id=?", (inc,)).fetchone())
+        rej = [e for e in self.audit if e.get("event") == "diagnosis_rejected"]
+        self.assertEqual([(e["incident"], e["reason"]) for e in rej], [(inc, "no-tool-calls")])
+        # the retry makes a call, so the same answer shape now passes
+        self.tb.call_tool("registry.runbook", {"id": "RB-ZBX-TRIAGE"}, inc)
+        self.assertTrue(self.tb.diagnose(inc, {"diagnosis": d})["ok"])
+
+    def test_an_invalid_diagnosis_with_calls_is_not_labelled_no_tool_calls(self):
+        bad = good(self.inc)
+        bad["layer"] = "cloud"
+        self.audit.clear()
+        self.problems(bad)
+        rej = [e for e in self.audit if e.get("event") == "diagnosis_rejected"]
+        self.assertEqual([e["reason"] for e in rej], ["invalid"])
+
     def test_wrong_incident_id_inside_the_document(self):
         self.assertIn("does not match", self.problems(good(999))[0])
 
