@@ -81,7 +81,10 @@ jellyfin_config_sections:
     EnableIntelLowPowerHevcHwEncoder: true
     AllowHevcEncoding: true
     AllowAv1Encoding: false
-    EnableTonemapping: true
+    # OpenCL tone mapping is OFF: it needs the Intel OpenCL runtime, which Debian 13 does not ship, and Jellyfin prefers it over
+    # VPP whenever both are on, so every HDR transcode failed to create its OpenCL device (J5 matrix, 2026-10-10). The iGPU's
+    # VPP engine tone-maps HDR10 in hardware with no OpenCL.
+    EnableTonemapping: false
     EnableVppTonemapping: true
     TonemappingAlgorithm: bt2390
     EnableDecodingColorDepth10Hevc: true
