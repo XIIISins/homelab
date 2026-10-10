@@ -1,7 +1,7 @@
 """The 72-hour post-merge watch of a rightsizing PR (Phase 10i5).
 
 When a `rightsizing` change request is reported merged, a watch starts. It first WAITS until the new values are really live (every pod
-of the workload started after the merge, carries the new requests/limits, is Ready and the controller is available); that is the data-driven
+of the workload carries the changed requests/limits, is Ready and the controller is available; by the values, not by pod age, because Flux can roll it before the Toolbelt hears of the merge); that is the data-driven
 version of "the HelmRelease is Ready at the new revision", and it cannot be fooled by a Flux that applied nothing. Then it WATCHES for 72 hours,
 reading VictoriaMetrics once an interval:
 
@@ -284,21 +284,23 @@ class Watches:
 
     # -- judging ---------------------------------------------------------------------------------------------------------------------------
     @staticmethod
-    def _expected(c: dict) -> dict:
-        n = c["new"]
+    def _expected(c: dict, only: set | None = None) -> dict:
+        n = {k: v for k, v in c["new"].items() if only is None or k in only}
         return {("req", "memory"): n["request_mib"] * MIB if "request_mib" in n else None, ("lim", "memory"): n["limit_mib"] * MIB if "limit_mib" in n else None,
                 ("req", "cpu"): n["request_millicores"] / 1000 if "request_millicores" in n else None}
 
     def _live(self, obs: dict, spec: dict, merged_at: int, now: int) -> bool:
+        """Every pod carries the CHANGED values, is Ready, and the controller is fully available. Judged by the values and never by pod age: Flux
+        can roll the workload minutes before the Toolbelt hears of the merge (change request 24: four minutes), and a pod that started "before the
+        merge" may already be the new one. A key that did not change cannot tell old from new, so only the changed keys are compared."""
         if not obs["pods"] or obs["desired"] in (None, 0) or obs["available"] is None or obs["available"] < obs["desired"]:
-            return False
-        if any(a > now - merged_at for a in obs["age"].values()):          # a pod that started before the merge still runs the old template
             return False
         if any(not obs["ready"].get(p) for p in obs["pods"]):
             return False
         for cname, c in spec["containers"].items():
+            changed = {k for k, v in c["new"].items() if c.get("old", {}).get(k) != v}
             for p in obs["pods"]:
-                for (side, res), want in self._expected(c).items():
+                for (side, res), want in self._expected(c, changed).items():
                     if want is None:
                         continue
                     got = obs["spec"].get((p, cname, side, res))

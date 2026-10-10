@@ -36,7 +36,7 @@ The class has been enabled since 2026-10-10. To switch it on or off, change `ena
 
 ## The 72-hour watch (10i5)
 
-When a `rightsizing` change request is reported **merged**, the Toolbelt starts a watch on the workload (the request's body carries a `<!-- rightsizing-spec ... -->` block the Toolbelt wrote: workload, and the old and new values per container). It first **waits** until the new values are really live: every pod of the workload started after the merge, carries the new requests and limits, is Ready, and the controller is fully available. That is the data-driven reading of "the HelmRelease is Ready at the new revision"; values that never show up within 24 h end as **inconclusive** (look at Flux and the HelmRelease). Then it **watches for 72 h**, reading VictoriaMetrics every ten minutes:
+When a `rightsizing` change request is reported **merged**, the Toolbelt starts a watch on the workload (the request's body carries a `<!-- rightsizing-spec ... -->` block the Toolbelt wrote: workload, and the old and new values per container). It first **waits** until the new values are really live: every pod of the workload carries the changed requests and limits, is Ready, and the controller is fully available (judged by the values, never by pod age: Flux may roll the workload minutes before the Toolbelt hears of the merge). That is the data-driven reading of "the HelmRelease is Ready at the new revision"; values that never show up within 24 h end as **inconclusive** (look at Flux and the HelmRelease). Then it **watches for 72 h**, reading VictoriaMetrics every ten minutes:
 
 | Signal since the values went live | Result |
 |---|---|
