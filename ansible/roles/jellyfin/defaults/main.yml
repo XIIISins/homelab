@@ -9,6 +9,31 @@
 # The `jellyfin` metapackage is not installed: it only depends on these three, unversioned.
 jellyfin_version: "10.11.1+deb13"
 jellyfin_ffmpeg_version: "7.1.2-1-trixie"
+
+# Intel's OpenCL runtime (NEO) for Jellyfin's OpenCL HDR tone mapping. Debian 13 does not ship it (bookworm and unstable do), so
+# the role installs Intel's upstream .debs: pinned, sha256-verified, held. Intel builds and validates them on Ubuntu only; this
+# set (compute-runtime 26.22 built on Ubuntu 24.04, IGC 2.36.3, gmmlib 22.10.0) was run on Debian 13 in LXC 1123 on 2026-10-10:
+# clinfo sees the iGPU and HDR10/AV1/Dolby Vision tone-mapped transcodes run at 2.6-3.3x real time. compute-runtime, IGC and
+# gmmlib versions are coupled: change them together (the compute-runtime release notes name the IGC and gmmlib versions) and
+# keep each built on a distro whose glibc is not newer than trixie's.
+jellyfin_opencl_dir: /opt/jellyfin-opencl
+jellyfin_opencl_packages: # install order matters: each depends on the ones before it
+  - name: libigdgmm12
+    file: libigdgmm12_22.10.0_amd64.deb
+    url: https://github.com/intel/compute-runtime/releases/download/26.22.38646.4/libigdgmm12_22.10.0_amd64.deb
+    sha256: 6031a63d6e8a12ce61c14efc15f2c8e727061286e3820b8594e6d00615e04d54
+  - name: intel-igc-core-2
+    file: intel-igc-core-2_2.36.3+21719_amd64.deb
+    url: https://github.com/intel/intel-graphics-compiler/releases/download/v2.36.3/intel-igc-core-2_2.36.3%2B21719_amd64.deb
+    sha256: 9e0975ac75015b431ebb2da81a802b9fd1e28a3c270313a97569cd1e6a6c6048
+  - name: intel-igc-opencl-2
+    file: intel-igc-opencl-2_2.36.3+21719_amd64.deb
+    url: https://github.com/intel/intel-graphics-compiler/releases/download/v2.36.3/intel-igc-opencl-2_2.36.3%2B21719_amd64.deb
+    sha256: 350a52331e784bb7fb9ed42e993b5c44b7e6562fc74d2cf3102b29b6a576fa85
+  - name: intel-opencl-icd
+    file: intel-opencl-icd_26.22.38646.4-0_amd64.deb
+    url: https://github.com/intel/compute-runtime/releases/download/26.22.38646.4/intel-opencl-icd_26.22.38646.4-0_amd64.deb
+    sha256: 6fdac2e8a2aacf844ebfd90521bf7102b3ebb44f69c1bced1a9785a7ce96a3c2
 jellyfin_apt_uri: https://repo.jellyfin.org/debian
 jellyfin_apt_key_url: https://repo.jellyfin.org/jellyfin_team.gpg.key
 # sha256 of the ASCII-armoured signing file above (fetched 2026-10-06; a public checksum, not a secret). Verified, not trusted on first use.
