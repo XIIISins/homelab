@@ -47,9 +47,9 @@ The `Anime` library (`/media/Anime`) is filled by Sonarr; Sonarr tells Jellyfin 
 
 **2026-10-08, real library.** A transcode requested through Jellyfin's own API (`main.m3u8`, H.264 720p 2.5 Mbps) on an imported episode returned its first segment in 1.2 s; the ffmpeg log shows `-hwaccel vaapi` decode and `h264_qsv` encode.
 
-## Still open (J5)
+## Not covered by J5 (accepted 2026-10-10)
 
-PGS-subtitle burn-in, VC-1, Dolby Vision profile 5 / 8.4 and HLG playback: these need real files (no safe download source; the Kodi samples are anonymous Google Drive/Mega shares). A Urd reboot is not required (the host side is Ansible-managed).
+PGS-subtitle burn-in, VC-1, Dolby Vision profile 5 / 8.4 and HLG playback were not tested: they need real files and there is no safe download source (the Kodi samples are anonymous Google Drive/Mega shares). They use the hardware paths proven below, so test a real file if one ever misbehaves. A Urd reboot is not required (the host side is Ansible-managed).
 
 ## Proven 2026-10-10 (J5)
 

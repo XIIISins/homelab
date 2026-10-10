@@ -11,7 +11,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 ## What's left (2026-10-09)
 
 **Built, still open**
-- **5h Jellyfin + media automation:** J5 acceptance (PGS burn-in, VC-1 and Dolby Vision P5/HLG playback need real files; migrate, PBS restore, smoke failure path, the 4K playback matrix and 4K capacity done 2026-10-10), the Sonarr config-loss recovery test, household accounts and the Tailscale ACL.
+- **5h Jellyfin + media automation:** the Sonarr config-loss recovery test, household accounts and the Tailscale ACL.
 - **10f autonomous healing:** the ~14-day canary soak read-out is due about 2026-10-17.
 - **10g rebuild loop:** stage A (canaries) proven; replica and worker stages not built. PBS datastore capacity is no longer a prerequisite (67% on 2026-10-10).
 - **10h predictive changes and PR author:** all three parts live; exit criteria not yet met.
@@ -78,7 +78,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 | n8n (asgard) | ✅ → 🗑 removed 2026-10-03 | Built 2026-06-01, removed when it proved unused; the AIOps agent runs a separate n8n on Gná (10d). |
 | Immich | ✅ 2026-09-03 | NFS library, Patroni with pgvector, Authentik OIDC; secondary copy only. [Service doc](../services/immich.md). |
 | Overview page | ✅ 2026-10-06 | Internal status page and app launcher at `overview.niflheim.xiiisins.com` (also `status.xiiisins.com`), with a read-only same-origin query path to VictoriaMetrics. [Service doc](../services/overview.md). |
-| 5h Jellyfin + media automation | 🟡 | Jellyfin LXC 1123 on Urd (QuickSync) built 2026-10-06; Sonarr + SABnzbd + Recyclarr in K3s built 2026-10-08 (23 of 24 episodes of the first series imported). Open items are listed under "What's left". [Jellyfin](../services/jellyfin.md), [media automation](../services/media-automation.md), [plan](../plans/active/5h-jellyfin.md). |
+| 5h Jellyfin + media automation | 🟡 | Jellyfin LXC 1123 on Urd (QuickSync) built 2026-10-06 and accepted (J5) 2026-10-10; Sonarr + SABnzbd + Recyclarr in K3s built 2026-10-08 (23 of 24 episodes of the first series imported). Open items are listed under "What's left". [Jellyfin](../services/jellyfin.md), [media automation](../services/media-automation.md), [plan](../plans/active/5h-jellyfin.md). |
 
 ## Observability
 
