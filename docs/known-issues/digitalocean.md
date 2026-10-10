@@ -14,7 +14,7 @@
 ## Billing / lifecycle
 
 - **A powered-off droplet is still billed**, and any firewall bound to it stays live. Destroy, don't just power off. Droplet snapshots are billed by size — take one before risky changes (`doctl compute droplet-action snapshot <id> --snapshot-name <n> --wait`) and delete it after the soak.
-- **A passing `doctl` call does not prove the token is least-privilege.** The `doctl` token on the operator workstation was broad. Terraform gets its own scoped token from Vault; revoke the broad one once the IaC rebuild lands.
+- **A passing `doctl` call does not prove the token is least-privilege.** The `doctl` token on the operator workstation was broad. Terraform gets its own scoped token from Vault (narrowed 2026-10-03); the broad workstation token is to be revoked (open item in `open-questions.md`, Phase 10a follow-ups).
 
 ## Placement constraints
 
@@ -29,7 +29,7 @@
 - **Don't tag the new droplet.** Legacy tags (`portainer`, `ots`, `tailscale`) bind the legacy firewalls (see above); `terraform/digitalocean` leaves `tags` empty and binds its single firewall by droplet ID.
 - **DO has no API to mint API tokens**, so the least-privilege Terraform token is a manual console step (scope list in `terraform/digitalocean/provider.tf`), stored at `secret/ansible/frigg/iac-env` field `digitalocean_token`. The scope list was derived from the resources used, **not exercised against a real token** at write time — widen by exactly the scope a 403 names.
 - **`doctl compute droplet list --format` uses different column names than the API** (`Size` is rejected; use `Memory`), and `doctl compute project list` is `doctl projects list`.
-- **The name `do1.xiiisins.com` already exists** (A → the legacy droplet). `terraform/cloudflare/ts3.tf` adopts it unchanged; the new node is reached pre-cutover as `do1-next.xiiisins.com`. Ansible's `do1.yml` asserts the target hostname is `do1` so a wrong `ansible_host` can never harden the legacy droplet.
+- **The name `do1.xiiisins.com` used to point at the legacy droplet** (destroyed 2026-10-10); it now resolves to the reserved IP, and `terraform/cloudflare/ts3.tf` owns it. A workstation `known_hosts` entry from that era holds the legacy droplet's keys and triggers a host-key-changed warning: verify the fingerprint against Frigg's before replacing it. Ansible's `do1.yml` asserts the target hostname is `do1` so a wrong `ansible_host` can never harden the legacy droplet.
 
 ## Burst substrate (10b2)
 

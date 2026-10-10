@@ -252,4 +252,4 @@ AWS EC2 for the same always-on footprint would be ~$19–23/mo (public IPv4 now 
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
 
-> Status: 🟡 in progress — **10a-10e done and live; 10f deployed 2026-10-03, canary soak running (read-out about 2026-10-17); 10g stage A proven 2026-10-04; 10h live in all three parts, exit criteria not yet met** (live state checked 2026-10-05, see [Live state](#live-state-checked-2026-10-05)); the restore drill passed 2026-10-03; the 10a soak ends 2026-10-08.
+> Status: 🟡 in progress — **10a-10e done and live; 10f deployed 2026-10-03, canary soak running (read-out about 2026-10-17); 10g stage A proven 2026-10-04; 10h live in all three parts, exit criteria not yet met** (live state checked 2026-10-05, see [Live state](#live-state-checked-2026-10-05)); the restore drill passed 2026-10-03; the 10a soak ended 2026-10-08 and its cleanup was done 2026-10-10.
