@@ -87,6 +87,8 @@ The Semaphore prober (`infra-health-check`, cron */12 h, **after the PR is merge
 2. Run the `infra-health-check` template from the Semaphore UI. Expect "do1 (offsite node) UNHEALTHY" in `#infra-alerts`.
 3. `sudo systemctl start caddy`; re-run; the finding is gone.
 
+*Run 2026-10-10 against `do1.xiiisins.com`: passed (alert arrived in Discord; the re-run posted nothing).*
+
 **Known limit:** the prober cadence makes this the slow path (<= 12 h). While `do1` is dead nothing homelab-side pages faster; Frigg's own heartbeat failures are only journal lines (`journalctl -u gatus-heartbeat`, shipped to VictoriaLogs). The fast path is an open follow-up ([`open-questions.md`](../operations/open-questions.md)).
 
 ## Operate
