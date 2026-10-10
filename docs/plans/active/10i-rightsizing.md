@@ -171,6 +171,15 @@ One post per period in the forecasts channel, threaded:
 
 Each suggestion carries **Useful / Noise** labels like the 10h1 cards; a suggestion marked Noise is not repeated until its numbers move by more than 30 %. Nothing in the digest pages; it is a quiet post.
 
+### 10i3 as built (2026-10-10)
+
+[`rightsizing_digest.py`](../../../aiops/toolbelt/rightsizing_digest.py) (Toolbelt: build, cadence, unposted-retry), [`bot/rsdigest.py`](../../../aiops/bot/rsdigest.py) + `bot.py` (post, thread, cards, `/aiops rightsizing now|status|cadence`), routes `/rightsizing/*` (approver role), tests `test_rightsizing_digest.py`. Operator procedure: [`aiops-rightsizing.md`](../../procedures/aiops-rightsizing.md).
+
+- The digest is built from the forecast job's daily pass, not from a live query: the job now also stores a **snapshot** (per-worker numbers, coverage) beside the findings, so the API unit needs no new metrics access and a digest is a database read.
+- A suggestion is the forecast row behind it, so Useful / Noise and the Draft button are the existing forecast buttons; `forecasts.label_value` (new column, migrated) holds the proposed number at label time for the 30 % rule.
+- CPU suggestions rank below memory ones (1m counts as 1 MiB); under-requests always lead.
+- **Not built:** the LLM-written tuning text. The digest shows creep facts and OOM notes; the chart-level reading is a chat question to Gná.
+
 ---
 
 ## 10i4 — Rightsizing PRs (author class `rightsizing`)
