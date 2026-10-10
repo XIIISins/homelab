@@ -17,7 +17,7 @@ User={{ aiops_toolbelt_user }}
 Group={{ aiops_toolbelt_user }}
 StateDirectory=aiops-toolbelt
 StateDirectoryMode=0750
-ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/forecast_run.py --log {{ aiops_toolbelt_forecast_log }} --state {{ aiops_toolbelt_forecast_state }} --current {{ aiops_toolbelt_forecast_current }} --url {{ aiops_toolbelt_forecast_metrics_url }} --zabbix-creds {{ aiops_toolbelt_creds_dir }} --root {{ aiops_toolbelt_home }}{% if aiops_toolbelt_rightsizing_enabled %} --rightsizing {{ aiops_toolbelt_home }}/aiops/rightsizing.yml{% endif %}
+ExecStart=/usr/bin/python3 {{ aiops_toolbelt_home }}/aiops/toolbelt/forecast_run.py --log {{ aiops_toolbelt_forecast_log }} --state {{ aiops_toolbelt_forecast_state }} --current {{ aiops_toolbelt_forecast_current }} --url {{ aiops_toolbelt_forecast_metrics_url }} --zabbix-creds {{ aiops_toolbelt_creds_dir }} --root {{ aiops_toolbelt_home }}{{ (' --rightsizing ' ~ aiops_toolbelt_home ~ '/aiops/rightsizing.yml') if aiops_toolbelt_rightsizing_enabled else '' }}
 TimeoutStartSec=300
 Environment=PYTHONDONTWRITEBYTECODE=1
 
