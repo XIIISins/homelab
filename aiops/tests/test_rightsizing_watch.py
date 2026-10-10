@@ -164,6 +164,29 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(w["state"], "watching")
         self.assertEqual(w["until_at"], w["live_at"] + 72 * H)
 
+    def test_a_rollout_that_finished_before_the_merge_was_reported_is_still_seen_as_live(self):
+        """Change request 24: Flux rolled NetBox four minutes before the Toolbelt learned of the merge, so the pod was older than the watch."""
+        self.e.world.t += 600
+        self.e.world.roll()                       # the new pod is already running when the merge is reported
+        self.e.world.t += 240
+        self.e.w.start(cr_view())
+        self.e.world.t += 60
+        self.e.w.poll()
+        self.assertEqual(self.e.w.get(1)["state"], "watching")
+
+    def test_an_unchanged_value_cannot_make_an_old_pod_look_new(self):
+        spec = copy.deepcopy(SPEC)
+        spec["containers"]["main"]["new"]["limit_mib"] = spec["containers"]["main"]["old"]["limit_mib"]   # only the requests change
+        self.e.w.start(cr_view(spec))
+        self.e.world.t += 300
+        self.e.w.poll()                           # the old pod still has the old requests (and the unchanged limit): not live
+        self.assertEqual(self.e.w.get(1)["state"], "waiting")
+        self.e.world.roll()
+        self.e.world.pods[0]["lim"] = 2048        # the unchanged limit, as before
+        self.e.world.t += 300
+        self.e.w.poll()
+        self.assertEqual(self.e.w.get(1)["state"], "watching")
+
     def test_a_pod_that_is_not_ready_or_a_short_controller_is_not_live(self):
         self.e.w.start(cr_view())
         self.e.world.roll()

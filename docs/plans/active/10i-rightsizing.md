@@ -185,6 +185,7 @@ Each suggestion carries **Useful / Noise** labels like the 10h1 cards; a suggest
 
 [`rightsizing_watch.py`](../../../aiops/toolbelt/rightsizing_watch.py) (the watch, the spec block, the revert request), the hook in `change_requests.py` (`on_merged`, `note`), routes `/rightsizing/watches*`, the bot's verdict reply and `RevertButton`; tests `test_rightsizing_watch.py`. Operator view: [`aiops-rightsizing.md`](../../procedures/aiops-rightsizing.md#the-72-hour-watch-10i5).
 
+- **Going live is judged by the values, not by timing** (changed 2026-10-10 after change request 24: Flux rolled NetBox four minutes before the Toolbelt learned of the merge, so a "pods started after the merge" rule would have waited 24 h and called a good rollout inconclusive; only the keys that changed are compared, so an unchanged key cannot make an old pod look new).
 - **Going live is observed, not assumed:** the 72 h starts when every pod of the workload runs the new numbers and the controller is available, instead of when Flux says Ready (a HelmRelease can be Ready having applied nothing).
 - **The change request carries the spec.** A machine-readable `rightsizing-spec` block (workload, old and new per container) is written by the Toolbelt when it files the request (10i4); the watch trusts only that block, and an operator-written request without it starts no watch.
 - **Limit cuts are gated here:** `memory-over-limit` suggestions and the Draft button need the workload's latest request cut to have `held`; `over_limit.enabled` is therefore on in the config.
