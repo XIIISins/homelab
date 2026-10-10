@@ -1,8 +1,8 @@
-<!-- docs/operations/10e-approval-actions.md -->
+<!-- docs/plans/done/10e-approval-actions.md -->
 
 # Phase 10e — Approval-gated actions and a conversational agent: plan and as-built
 
-*Decided and built 2026-10-03. Status: 🟡 **code complete and tested; not yet deployed** (the operator steps at the end make it live). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10e. Procedure: [`procedures/aiops-actions.md`](../procedures/aiops-actions.md). Predecessor: [`10d-diagnosis-chatops.md`](10d-diagnosis-chatops.md).*
+*Decided and built 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](../active/aiops-roadmap.md) §10e. Procedure: [`procedures/aiops-actions.md`](../../procedures/aiops-actions.md). Predecessor: [`10d-diagnosis-chatops.md`](10d-diagnosis-chatops.md).*
 
 ---
 
@@ -77,7 +77,7 @@ Nothing here lets the agent act on its own. T0/T1 autonomy is 10f. The Discord n
 
 ## Acceptance and exit
 
-Automated (CI): 342 tests, including the full propose → approve → execute → verify → announce lifecycle across a real socket, the role matrix, every refusal path, and the reach proof's leak detection. Live (operator, after deployment): [`procedures/aiops-actions.md`](../procedures/aiops-actions.md) "Acceptance on the canaries": a fault on a canary is diagnosed, a `restart-unit` proposal appears as a card, approving it fixes the canary and the card says *verified*; a stranger's press, an expired card, the kill switch and a replay each fail closed. Exit criterion (roadmap): ≥ N real incidents handled via propose → approve → verified with a complete audit trail; none has been handled yet.
+Automated (CI): 342 tests, including the full propose → approve → execute → verify → announce lifecycle across a real socket, the role matrix, every refusal path, and the reach proof's leak detection. Live (operator, after deployment): [`procedures/aiops-actions.md`](../../procedures/aiops-actions.md) "Acceptance on the canaries": a fault on a canary is diagnosed, a `restart-unit` proposal appears as a card, approving it fixes the canary and the card says *verified*; a stranger's press, an expired card, the kill switch and a replay each fail closed. Exit criterion (roadmap): ≥ N real incidents handled via propose → approve → verified with a complete audit trail; none has been handled yet.
 
 ## Risks
 
@@ -91,10 +91,16 @@ Automated (CI): 342 tests, including the full propose → approve → execute �
 
 1. `terraform apply` in `terraform/vault`, `terraform/semaphore`, `terraform/proxmox/asgard-lxcs`, `terraform/netbox` (`-parallelism=2`), `terraform/adguard`.
 2. `python3 aiops/tools/mint_semaphore_exec.py --prove-run` *.
-3. UCG egress for `10.0.11.222` (see [`network.md`](../architecture/network.md)).
+3. UCG egress for `10.0.11.222` (see [`network.md`](../../architecture/network.md)).
 4. `playbooks/asgard-ratatoskr.yml`, then `asgard-control.yml --tags aiops-toolbelt`, then `asgard-gna.yml --tags n8n`.
 5. The live acceptance on the canaries.
 
 ## Next
 
 10f (autonomous T1 healing): guards first (kill switch ✅ here, per-target rate limit, circuit breaker, maintenance flag, check-mode/diff-scope gate), then the first classes, then a ~14-day soak on the canaries.
+
+## Header status history
+
+*The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
+
+> Status: 🟡 **code complete and tested; not yet deployed** (the operator steps at the end make it live).

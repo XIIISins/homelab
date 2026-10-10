@@ -1,6 +1,6 @@
 """Forecasting detectors (Phase 10h1): slow-fill and fast-rise, as pure functions, plus a thin shadow-mode runner.
 
-Four detectors, because homelab series are not smooth (docs/operations/10h-predictive-change.md):
+Four detectors, because homelab series are not smooth (docs/plans/active/10h-predictive-change.md):
   slow_fill  a least-squares line over a window projects the days until a series crosses its capacity/threshold.
   fast_rise  the recent rate against the prior baseline rate, for step changes a 14-day line cannot see (a log flood).
   creep      this week's p95 against last week's, for a latency that drifts upward (an NVMe getting slower).

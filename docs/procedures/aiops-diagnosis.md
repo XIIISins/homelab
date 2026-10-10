@@ -2,7 +2,7 @@
 
 # AIOps diagnosis agent (Gná / n8n) — deploy, operate, verify
 
-*Phase 10d. Design and rationale: [`operations/10d-diagnosis-chatops.md`](../operations/10d-diagnosis-chatops.md). Role: [`ansible/roles/n8n-agent`](../../ansible/roles/n8n-agent/README.md). Gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md).*
+*Phase 10d. Design and rationale: [`plans/done/10d-diagnosis-chatops.md`](../plans/done/10d-diagnosis-chatops.md). Role: [`ansible/roles/n8n-agent`](../../ansible/roles/n8n-agent/README.md). Gotchas: [`known-issues/n8n-aiops.md`](../known-issues/n8n-aiops.md).*
 
 **State of play (10d1, 2026-10-02):** applied and reboot-tested (first play `ok=92 changed=52`; both re-runs `changed=0` with n8n/Caddy not restarted; sandbox exposure 1.5 OK; Caddy matrix verified from Hugin). 10d2 since: the Zabbix media type, the independence test, the Toolbelt API on Frigg and the ingest workflow that calls it are all applied and tested. The host, the ingest listener and a **stub** workflow exist: an authenticated POST becomes a `#diagnoses` forum thread that says "no analysis yet" and echoes the alert. The Zabbix media type, the Toolbelt API and the LLM agent come in the next 10d steps. Nothing here can act on the fleet.
 

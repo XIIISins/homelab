@@ -1,6 +1,6 @@
 # ansible/roles/jellyfin/defaults/main.yml
 ---
-# Jellyfin in a privileged LXC (1123) with the Intel iGPU passed through. Plan: docs/operations/5h-jellyfin.md.
+# Jellyfin in a privileged LXC (1123) with the Intel iGPU passed through. Plan: docs/plans/active/5h-jellyfin.md.
 
 # ---- Packages: official Jellyfin apt repo, EXACT versions, held ------------------------------------------------
 # No package mirror yet and third-party repos have died on us (SFTPGo), so the three packages are pinned and put on
@@ -58,7 +58,7 @@ jellyfin_smoke_calendar: hourly
 jellyfin_zabbix_userparameter_file: /etc/zabbix/zabbix_agent2.d/jellyfin.conf
 
 # ---- J4: Jellyfin settings through its own API (optional, inert until an API key exists) -----------------------------
-# The first-run wizard and the API key are operator steps (docs/operations/5h-jellyfin.md). Once the key is seeded in
+# The first-run wizard and the API key are operator steps (docs/plans/active/5h-jellyfin.md). Once the key is seeded in
 # Vault at the path below, `--tags jellyfin:config` converges the transcoding / network / server settings below; without
 # it the step is skipped with a message. Each section is read, compared and POSTed only when it differs, and every key
 # must already exist in the section Jellyfin returns, so a misspelt or version-dependent name fails loudly instead of

@@ -2,7 +2,7 @@
 
 # 2026-10-01/02 — Phase 10 build (10a/10b/10c, PBS move, Frigg ssh-agent): findings
 
-*Not an outage: a retrospective on a one-day build that surfaced a lot of small, mostly-first-run problems. Plan: [`aiops-roadmap.md`](../operations/aiops-roadmap.md). One separate security event has its own file: [`2026-10-01-discord-webhook-transcript-leak.md`](2026-10-01-discord-webhook-transcript-leak.md).*
+*Not an outage: a retrospective on a one-day build that surfaced a lot of small, mostly-first-run problems. Plan: [`aiops-roadmap.md`](../plans/active/aiops-roadmap.md). One separate security event has its own file: [`2026-10-01-discord-webhook-transcript-leak.md`](2026-10-01-discord-webhook-transcript-leak.md).*
 
 ## What happened
 

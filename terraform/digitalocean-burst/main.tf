@@ -1,7 +1,7 @@
 # terraform/digitalocean-burst/main.tf
 #
 # Phase 10b2 — ephemeral burst droplets for destructive/expensive tests (offsite-backup restore
-# drill, K3s heal/rebuild, fault injection). Plan: docs/operations/aiops-roadmap.md §10b2;
+# drill, K3s heal/rebuild, fault injection). Plan: docs/plans/active/aiops-roadmap.md §10b2;
 # procedure: docs/procedures/burst-substrate.md.
 #
 # Everything is gated on burst_count > 0, so a plain `terraform apply` (count 0) is a no-op.

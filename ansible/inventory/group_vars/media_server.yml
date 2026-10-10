@@ -1,6 +1,6 @@
 ---
 # Jellyfin - media server with Intel QuickSync, privileged LXC 1123 on Urd, 10.0.11.223 (Phase 5h).
-# Plan: docs/operations/5h-jellyfin.md. Composes with the role defaults (roles/jellyfin) and baseline / hardening / vlagent.
+# Plan: docs/plans/active/5h-jellyfin.md. Composes with the role defaults (roles/jellyfin) and baseline / hardening / vlagent.
 
 # resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/asgard-lxcs-root/lxcs.tf writes the AdGuard VIP
 # + UCG fallback at every container start). Ansible stops managing it so the two don't fight on reboot.

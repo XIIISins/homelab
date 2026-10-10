@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The rebuild runner (Phase 10g, slice B): the only place Terraform may run unattended.
 
-Design: docs/operations/10g-rebuild-loop.md ("Running `terraform apply` from an automated path", option 2).
+Design: docs/plans/active/10g-rebuild-loop.md ("Running `terraform apply` from an automated path", option 2).
 Procedure: docs/procedures/aiops-rebuild.md. Tests: aiops/tests/test_rebuild_runner.py.
 
 A tiny server on a unix socket. One JSON object per line in, one per line out. It never receives a command: only a

@@ -3,7 +3,7 @@
 # Phase 10a1 — offsite node `do1`. Built BESIDE the unmanaged legacy droplet
 # (docker-ubuntu-s-1vcpu-1gb-ams3-01); nothing here touches it. Duties: TS3
 # failover, HeyLeaf PlantNet proxy (fixed IPv4 for the PlantNet allowlist),
-# and later the Gatus outside watcher (10b3). Plan: docs/operations/aiops-roadmap.md.
+# and later the Gatus outside watcher (10b3). Plan: docs/plans/active/aiops-roadmap.md.
 
 resource "digitalocean_project" "offsite" {
   name        = "homelab-offsite"

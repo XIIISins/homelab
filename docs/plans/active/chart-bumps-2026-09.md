@@ -1,4 +1,4 @@
-<!-- docs/operations/chart-bumps-2026-09.md -->
+<!-- docs/plans/active/chart-bumps-2026-09.md -->
 
 # Helm chart bump review — 2026-09-30
 
@@ -33,18 +33,18 @@ Authentik (2 hops) → **K3s** → Flux 2.9 (its minimum K8s is 1.34.1, so K3s g
 | MetalLB (§5) | ✅ 0.16.1 with `frrk8s.enabled: false` + `speaker.frr.enabled: false` — 0.16 defaults to the bundled frr-k8s subchart (extra DaemonSet), we are L2-only. Speakers 4/4 → 1/1 containers. VIP probe during the roll: 126/126 OK |
 | External Secrets (§9) | ✅ 2.11.0 (via 1.3.2). The "unknown breaking changes" were benign for us: 2.0.0 removed Alibaba/Device42, 2.0.1 sprig `htpasswd` rename, 2.2.0 OCIRepository layerSelector. Works on K3s 1.33. 2.x `kubectl get externalsecret` columns changed (LAST SYNC is now last) |
 | Authentik (§7) | ✅ server 2026.8.3 (via 2026.5.6) + Terraform provider 2026.8.0. Default trusted-proxy CIDRs already include 10.0.0.0/8, so **no `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS` override needed** (setting it would replace the default). 2026.5 renamed SAML `issuer` → `issuer_override` (auto-generated issuer); provider bump + 13× `redirect_uri_type = "authorization"` were needed to keep `terraform plan` clean |
-| K3s 1.33.1 → 1.36.4 (§11) + Calico 3.32.2 | ✅ **DONE 2026-10-01.** K3s v1.36.4 on all 6 nodes (3 hops via `k3s-upgrade.yml`, 0 failures; CP OS disks 20 GB + ssd, images pruned, syslog flood fixed). Calico **v3.32.2** (operator v1.42.6): the 3.29 → 3.30 hop caused the [2026-10-01 datastore-prune incident](../incidents/2026-10-01-calico-datastore-prune.md) (recovered); 3.30.7 → 3.31.7 → 3.32.2 then went through the hardened `calico-upgrade.yml` (datastore export, per-file CRD-prune guard, CRDs first) with **datastore counts unchanged and 0 probe failures on both hops**. `platform-version-drift.yml` is green (git == running). K8s 1.36.4 + Calico 3.32 = supported pair |
+| K3s 1.33.1 → 1.36.4 (§11) + Calico 3.32.2 | ✅ **DONE 2026-10-01.** K3s v1.36.4 on all 6 nodes (3 hops via `k3s-upgrade.yml`, 0 failures; CP OS disks 20 GB + ssd, images pruned, syslog flood fixed). Calico **v3.32.2** (operator v1.42.6): the 3.29 → 3.30 hop caused the [2026-10-01 datastore-prune incident](../../incidents/2026-10-01-calico-datastore-prune.md) (recovered); 3.30.7 → 3.31.7 → 3.32.2 then went through the hardened `calico-upgrade.yml` (datastore export, per-file CRD-prune guard, CRDs first) with **datastore counts unchanged and 0 probe failures on both hops**. `platform-version-drift.yml` is green (git == running). K8s 1.36.4 + Calico 3.32 = supported pair |
 | Flux v2.8.7 → v2.9.5 (§10) | ✅ **v2.9.5 live** (2026-09-30) on K3s 1.34.11 (2.9 needs ≥ 1.34.1). Regenerated `gotk-components.yaml` with `flux install --export` (non-CRD diff: version labels, images, one additive NetworkPolicy port). After the controllers rolled, 15 HelmReleases showed `HelmChart … does not have an artifact` for a few minutes while source-controller re-fetched indexes/rebuilt charts — self-healed, no action needed |
 | Vault 2.x (§3c) | 🔲 **Not started — needs operator decision + snapshot.** Latest is **2.1.1** (2.0.4 is the chart default); go 1.21.2 → 2.0.4 → 2.1.1, standbys first, active last. Findings: `sys/generate-root` + `sys/rekey` are authenticated by default (decide whether to set `enable_unauthenticated_access = ["generate-root"]` to keep the break-glass path, or rewrite the runbook); non-canonical paths rejected (repo audit: none); JWT/OIDC auth plugin updated (re-test Vault OIDC login). `terraform/vault` pins `hashicorp/vault` provider **4.8.0**; 5.x (latest 5.12.0) is a major (needs Terraform ≥ 1.11) — bump separately. A Raft snapshot needs a root-capable token (1P), so take it by hand first (`vault operator raft snapshot save`); PBS also backs up worker `/data` daily |
 
 **Capacity finding:** workers are at 84–90 % CPU *requests* (2 vCPU each) while
 real usage is ~5–10 %. A surge pod needing ≥ ~300m can't schedule, so rolling
 updates of NetBox (500m) deadlock until the old pod is deleted. See
-[k8s-scheduling.md](../known-issues/k8s-scheduling.md).
+[k8s-scheduling.md](../../known-issues/k8s-scheduling.md).
 
 ## Calico 3.30.7 → 3.31.7 → 3.32.2 — pre-flight research (2026-10-01)
 
-Researched after the [datastore-prune incident](../incidents/2026-10-01-calico-datastore-prune.md); sources: Calico release notes (latest + 3.31 versioned), the operator upgrade guide, the real `tigera-operator.yaml` / `operator-crds.yaml` of each release, our live Installation. Nothing applied.
+Researched after the [datastore-prune incident](../../incidents/2026-10-01-calico-datastore-prune.md); sources: Calico release notes (latest + 3.31 versioned), the operator upgrade guide, the real `tigera-operator.yaml` / `operator-crds.yaml` of each release, our live Installation. Nothing applied.
 
 **Target is 3.32.2.** Kubernetes **1.36 support was added in 3.32** (3.32.1/3.32.2 also carry 1.36-specific fixes: IPReservation CRD warning, MutatingAdmissionPolicy). We run K8s 1.36.4 on Calico 3.30.7, i.e. outside Calico's tested range today. Go **3.30.7 → 3.31.7 → 3.32.2** (one minor per run; Calico documents no minor-skipping rule and no downgrade path, so don't skip).
 
@@ -150,7 +150,7 @@ vault-k8s tags don't matter here. CSI provider likewise off.
 
 ## 3. Vault chart 0.32.0 → 0.34.1 (and Vault 1.21 → 2.0) — do separately
 
-> **Vault 2.x:** the investigation is done — see [vault-2x-assessment.md](vault-2x-assessment.md) (what actually changes, what affects us, decisions needed). The generate-root/`rekey` change below is the only one that hits our usage; the "unauthenticated" and path claims in this older section are superseded by that doc.
+> **Vault 2.x:** the investigation is done — see [vault-2x-assessment.md](../deferred/vault-2x-assessment.md) (what actually changes, what affects us, decisions needed). The generate-root/`rekey` change below is the only one that hits our usage; the "unauthenticated" and path claims in this older section are superseded by that doc.
 
 Do the **chart** bump while keeping the image at 1.21.2; treat Vault 2.0 as its
 own upgrade afterwards. Chart 0.33/0.34 changelog (read): default versions bump
@@ -166,7 +166,7 @@ fine).
    `enable_unauthenticated_access` including `"generate-root"` / `"rekey"`.
    This directly affects the **recovery path**: the open item "write a
    `vault operator generate-root` runbook"
-   ([open-questions.md](open-questions.md)) must be written against the 2.0
+   ([open-questions.md](../../operations/open-questions.md)) must be written against the 2.0
    behaviour, and the root-token recovery procedure needs re-validating on 2.0
    before it's relied on. With AWS KMS auto-unseal the *rekey* here is the
    recovery-key rekey — same caveat.

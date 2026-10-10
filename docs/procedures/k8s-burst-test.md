@@ -2,7 +2,7 @@
 
 # Procedure — test a `k8s/` change on a burst cluster
 
-*Phase 10h ([design](../operations/10h-k8s-burst-test.md)). Code: `scripts/burst/k8s-pr-test`, `aiops/runner/k8s_burst_run.py`, `aiops/runner/k8s_burst_plan.py`; the cluster itself is the existing [burst substrate](burst-substrate.md) (`scripts/burst/burst-up` / `burst-down`, Terraform + the `burst-k3s.yml` playbook). Run it on **Frigg** (tailnet reach to the burst API, Vault env, the DO token).*
+*Phase 10h ([design](../plans/active/10h-k8s-burst-test.md)). Code: `scripts/burst/k8s-pr-test`, `aiops/runner/k8s_burst_run.py`, `aiops/runner/k8s_burst_plan.py`; the cluster itself is the existing [burst substrate](burst-substrate.md) (`scripts/burst/burst-up` / `burst-down`, Terraform + the `burst-k3s.yml` playbook). Run it on **Frigg** (tailnet reach to the burst API, Vault env, the DO token).*
 
 ## Run it
 

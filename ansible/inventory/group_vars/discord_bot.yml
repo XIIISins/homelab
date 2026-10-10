@@ -1,7 +1,7 @@
 # ansible/inventory/group_vars/ratatoskr.yml
 ---
 # Ratatoskr - AIOps Discord bot, LXC 1122 on Urd, 10.0.11.222 (Phase 10e).
-# Plan: docs/operations/10e-approval-actions.md. Procedure: docs/procedures/aiops-actions.md.
+# Plan: docs/plans/done/10e-approval-actions.md. Procedure: docs/procedures/aiops-actions.md.
 
 # resolv.conf is owned by PVE (the LXC `dns {}` block in terraform/proxmox/asgard-lxcs/lxcs.tf writes the AdGuard VIP +
 # UCG fallback at every container start). Ansible stops managing it so the two don't fight on reboot.

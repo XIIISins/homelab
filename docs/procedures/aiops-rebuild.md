@@ -2,7 +2,7 @@
 
 # Procedure — AIOps rebuild runner: Terraform from a clean checkout, scoped to the canary pool (Phase 10g, slice B)
 
-*Design: [`operations/10g-rebuild-loop.md`](../operations/10g-rebuild-loop.md) ("Running `terraform apply` from an automated path", option 2). Code: [`aiops/runner/rebuild_runner.py`](../../aiops/runner/rebuild_runner.py), pool and token in [`terraform/proxmox/asgard-pools/`](../../terraform/proxmox/asgard-pools/), Vault role in [`terraform/vault/rebuild-runner.tf`](../../terraform/vault/rebuild-runner.tf), Ansible role [`roles/aiops-rebuild-runner`](../../ansible/roles/aiops-rebuild-runner/README.md). Predecessors: [`aiops-actions.md`](aiops-actions.md), [`aiops-autonomy.md`](aiops-autonomy.md). The manual rebuild this automates: [`canary-pool.md`](canary-pool.md) ("Destroy / recreate").*
+*Design: [`plans/active/10g-rebuild-loop.md`](../plans/active/10g-rebuild-loop.md) ("Running `terraform apply` from an automated path", option 2). Code: [`aiops/runner/rebuild_runner.py`](../../aiops/runner/rebuild_runner.py), pool and token in [`terraform/proxmox/asgard-pools/`](../../terraform/proxmox/asgard-pools/), Vault role in [`terraform/vault/rebuild-runner.tf`](../../terraform/vault/rebuild-runner.tf), Ansible role [`roles/aiops-rebuild-runner`](../../ansible/roles/aiops-rebuild-runner/README.md). Predecessors: [`aiops-actions.md`](aiops-actions.md), [`aiops-autonomy.md`](aiops-autonomy.md). The manual rebuild this automates: [`canary-pool.md`](canary-pool.md) ("Destroy / recreate").*
 
 **State when written: code only.** Nothing here has been applied or deployed. The engine side (the Toolbelt client of the socket, the `rebuild-guest` action) is slice A; the converge/verify playbooks are slice C.
 

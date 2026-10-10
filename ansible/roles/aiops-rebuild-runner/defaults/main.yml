@@ -2,7 +2,7 @@
 # ansible/roles/aiops-rebuild-runner/defaults/main.yml
 #
 # The rebuild runner (Phase 10g) on Frigg: the only place Terraform runs unattended. Code: aiops/runner/rebuild_runner.py
-# (tests: aiops/tests/test_rebuild_runner.py). Design: docs/operations/10g-rebuild-loop.md. Operations + threat model:
+# (tests: aiops/tests/test_rebuild_runner.py). Design: docs/plans/active/10g-rebuild-loop.md. Operations + threat model:
 # docs/procedures/aiops-rebuild.md.
 
 aiops_rebuild_runner_user: aiops-rebuild

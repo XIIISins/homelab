@@ -1,7 +1,7 @@
 # terraform/digitalocean/provider.tf
 #
 # DIGITALOCEAN_TOKEN comes from env — the least-privilege token (D4 in
-# docs/operations/aiops-roadmap.md) kept in Vault at
+# docs/plans/active/aiops-roadmap.md) kept in Vault at
 # secret/ansible/frigg/iac-env field `digitalocean_token` and exported by
 # `vault-homelab-env` (same path as GITHUB_TOKEN). It is NOT the broad
 # operator `doctl` token; that one is revoked at 10a3 cleanup.

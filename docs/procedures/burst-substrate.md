@@ -2,7 +2,7 @@
 
 # Procedure — burst substrate (ephemeral DigitalOcean K3s) and the offsite-backup restore drill
 
-*Phase 10b2 ([`aiops-roadmap.md`](../operations/aiops-roadmap.md) §10b2). Code: `terraform/digitalocean-burst/`, `terraform/tailscale/` (`tag:burst`), `ansible/playbooks/burst-k3s.yml`, `ansible/inventory-burst/`, `ansible/roles/burst-reaper/`, `scripts/burst/`. Gotchas: [`digitalocean.md`](../known-issues/digitalocean.md), [`tailscale.md`](../known-issues/tailscale.md). Decision row: [`decisions.md`](../operations/decisions.md) ("Burst/test substrate").*
+*Phase 10b2 ([`aiops-roadmap.md`](../plans/active/aiops-roadmap.md) §10b2). Code: `terraform/digitalocean-burst/`, `terraform/tailscale/` (`tag:burst`), `ansible/playbooks/burst-k3s.yml`, `ansible/inventory-burst/`, `ansible/roles/burst-reaper/`, `scripts/burst/`. Gotchas: [`digitalocean.md`](../known-issues/digitalocean.md), [`tailscale.md`](../known-issues/tailscale.md). Decision row: [`decisions.md`](../operations/decisions.md) ("Burst/test substrate").*
 
 A throwaway 3-node K3s cluster on plain DigitalOcean droplets, built with the **existing `k3s` role** (not DOKS: DOKS is not K3s and its node auto-repair would confound heal/rebuild tests). It exists for tests that must not touch prod: the offsite-backup restore drill, K3s heal/rebuild, fault injection, firewall probes from an independent vantage. Default shape: 3 × `s-2vcpu-4gb`, ams3, Debian 13, 1 control plane + 2 workers, TTL 4 h.
 

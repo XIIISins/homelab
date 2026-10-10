@@ -1,7 +1,7 @@
 # ansible/roles/n8n-agent/defaults/main.yml
 ---
 # n8n as the AIOps diagnosis agent (Phase 10d1; plan:
-# docs/operations/10d-diagnosis-chatops.md). Native systemd, NOT a container
+# docs/plans/done/10d-diagnosis-chatops.md). Native systemd, NOT a container
 # (Hermod lesson: the all-native-systemd LXC pattern). One pinned Node
 # tarball + one pinned n8n npm release, an unprivileged service user, a
 # loopback-only listener (Caddy is the only thing that exposes anything, and

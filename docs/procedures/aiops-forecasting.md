@@ -2,7 +2,7 @@
 
 # Procedure — AIOps forecasting detectors (Phase 10h1)
 
-*Plan: [`operations/10h-predictive-change.md`](../operations/10h-predictive-change.md). Code: [`aiops/toolbelt/forecast.py`](../../aiops/toolbelt/forecast.py), tests: [`aiops/tests/test_forecast.py`](../../aiops/tests/test_forecast.py). Status 2026-10-04: **live**. An hourly pass reads VictoriaMetrics and Zabbix; findings land in the Toolbelt's `forecasts` table and the bot posts one quiet card per finding with Useful / Noise buttons. Nothing here pages, ever. Code: [`forecast_zabbix.py`](../../aiops/toolbelt/forecast_zabbix.py), [`forecast_store.py`](../../aiops/toolbelt/forecast_store.py), [`aiops/bot/fcast.py`](../../aiops/bot/fcast.py).*
+*Plan: [`plans/active/10h-predictive-change.md`](../plans/active/10h-predictive-change.md). Code: [`aiops/toolbelt/forecast.py`](../../aiops/toolbelt/forecast.py), tests: [`aiops/tests/test_forecast.py`](../../aiops/tests/test_forecast.py). Status 2026-10-04: **live**. An hourly pass reads VictoriaMetrics and Zabbix; findings land in the Toolbelt's `forecasts` table and the bot posts one quiet card per finding with Useful / Noise buttons. Nothing here pages, ever. Code: [`forecast_zabbix.py`](../../aiops/toolbelt/forecast_zabbix.py), [`forecast_store.py`](../../aiops/toolbelt/forecast_store.py), [`aiops/bot/fcast.py`](../../aiops/bot/fcast.py).*
 
 ## What the detectors do
 

@@ -1,6 +1,6 @@
 # ansible/roles/aiops-author/defaults/main.yml
 #
-# The 10h2 PR author (docs/operations/10h-predictive-change.md; procedure docs/procedures/aiops-author.md). Code:
+# The 10h2 PR author (docs/plans/active/10h-predictive-change.md; procedure docs/procedures/aiops-author.md). Code:
 # aiops/author/{dispatcher,session,toolcli,scope}.py (tests: aiops/tests/test_author_dispatcher.py, test_change_requests.py).
 # The code tree is installed by the aiops-toolbelt role (same /opt/aiops-toolbelt/aiops layout); this role only adds the
 # identities, units and credentials around it, so run aiops-toolbelt first.

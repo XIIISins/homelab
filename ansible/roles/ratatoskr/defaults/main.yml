@@ -3,7 +3,7 @@
 # Ratatoskr: the AIOps Discord bot (Phase 10e) - chat transport for Gna and the ONLY approver of actions.
 # Code lives in the repo (aiops/bot/); this role installs it from the Debian discord.py package (no pip, no PyPI egress),
 # writes its three secrets from Vault, and runs it as a hardened systemd unit. Outbound only: nothing listens.
-# Design: docs/operations/10e-approval-actions.md. Procedure: docs/procedures/aiops-actions.md.
+# Design: docs/plans/done/10e-approval-actions.md. Procedure: docs/procedures/aiops-actions.md.
 
 ratatoskr_user: ratatoskr
 ratatoskr_group: ratatoskr

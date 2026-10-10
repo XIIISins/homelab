@@ -2,7 +2,7 @@
 
 # Procedure — AIOps autonomy: self-healing T1 faults, the guards, the soak (Phase 10f)
 
-*Design: [`operations/10f-autonomous-healing.md`](../operations/10f-autonomous-healing.md). Builds on [`aiops-actions.md`](aiops-actions.md) (proposals, approval, the bot). Registry scope: the `autonomy:` section of [`aiops/actions.yml`](../../aiops/actions.yml).*
+*Design: [`plans/active/10f-autonomous-healing.md`](../plans/active/10f-autonomous-healing.md). Builds on [`aiops-actions.md`](aiops-actions.md) (proposals, approval, the bot). Registry scope: the `autonomy:` section of [`aiops/actions.yml`](../../aiops/actions.yml).*
 
 ## What "autonomous" means here
 
@@ -59,7 +59,7 @@ Goal: prove the loop heals real faults, never flaps, and never acts when it shou
 | `/aiops kill`, then a fault | same |
 | a fault on a **non-canary** T1 host, or an unlisted unit | not autonomous (outside scope / not allow-listed); at most a human-approved card |
 
-   *All rows were run live on 2026-10-03 and passed; see [`10f-autonomous-healing.md`](../operations/10f-autonomous-healing.md) "Live results" for the evidence, what the run found, and the test-design lessons (one open incident per hypervisor group, 30-minute reopen window per host and check).*
+   *All rows were run live on 2026-10-03 and passed; see [`10f-autonomous-healing.md`](../plans/active/10f-autonomous-healing.md) "Live results" for the evidence, what the run found, and the test-design lessons (one open incident per hypervisor group, 30-minute reopen window per host and check).*
 
 4. **Check the report** every few days: `/aiops report 14`. **Pass criteria:** every injected fault in the matrix behaved as above; **zero flapping** (no target acted on ≥ 3 times in 6 hours without a reason); **zero breaker trips** except the one you provoked on purpose; every autonomous action has an audit trail (`journalctl -u aiops-toolbelt | grep proposal_` joins by proposal id, and the same lines are in VictoriaLogs).
 5. **Then, and only then**, open a PR that adds real replicas to `autonomy.hosts` (start with one), and later enables the next policy. Rollback for any of it is `/aiops autonomy off`.

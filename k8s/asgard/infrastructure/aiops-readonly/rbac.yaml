@@ -5,7 +5,7 @@
 # and Proxmox ones): `aiops/tools/mint_kube_ro.py` copies it to Vault once and the Frigg loader hands it to the Toolbelt.
 # The plan said "1 h tokens minted by the loader", but minting needs admin rights, which would put cluster-admin in a
 # boot-time root process for no gain over a read-only static token. Revoke by deleting the Secret.
-# See docs/operations/10d-diagnosis-chatops.md ("Read-only toolbelt").
+# See docs/plans/done/10d-diagnosis-chatops.md ("Read-only toolbelt").
 #
 # DELIBERATELY ABSENT, because each would turn "read the cluster's state" into "read or act on its secrets":
 #   - `secrets` (any verb)                          - `configmaps` (they routinely carry credentials)

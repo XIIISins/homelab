@@ -1,6 +1,6 @@
 """Fleet rebuild loop logic (Phase 10g1): the pure decisions, no I/O.
 
-Plan: docs/operations/10g-rebuild-loop.md. Three stateless pieces live here, each a pure function over plain data, so
+Plan: docs/plans/active/10g-rebuild-loop.md. Three stateless pieces live here, each a pure function over plain data, so
 the rules can be tested exhaustively before any runner, Terraform or Semaphore piece exists:
 
   eligible(facts, policy)            may THIS target be rebuilt right now? verdict go|skip|stop + a machine-readable reason
