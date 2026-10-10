@@ -201,8 +201,8 @@ spec:
     resourcesPreset: "none"
     resources:
       requests:
-        cpu: 100m
-        memory: 1792Mi
+        cpu: 360m
+        memory: 1968Mi
       limits:
         cpu: 1500m
         memory: 2560Mi
