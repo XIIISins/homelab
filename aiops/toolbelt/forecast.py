@@ -242,10 +242,17 @@ DEFAULT_TARGETS = (
     # Zabbix template defaults are 90 % (warn) for filesystems, the rest are the plan's values. Tune through a reviewed PR.
     Target("fleet-fs-used", "vfs.fs.dependent.size[*,pused]", zabbix=("fs",), capacity=0.90, floor_per_hour=0.01, daily="max",
            note="Every monitored filesystem (/, /boot, /data, LXC rootfs on the PVE hosts). The daily maximum removes log-rotation sawtooth."),
-    Target("pve-storage-used", "proxmox.node.disk/maxdisk", zabbix=("pve", ("local-lvm", "pbs-backup", "munin-nfs", "local")), capacity=0.85,
+    Target("pve-storage-used", "proxmox.node.disk/maxdisk", zabbix=("pve", ("local-lvm", "local")), capacity=0.85,
            floor_per_hour=0.01, daily="max",
-           note="local-lvm is the thin pool; pbs-backup is the PBS datastore as PVE sees it (the plan's PBS-capacity signal); munin-nfs the NAS share. "
-                "The pool fills while every guest still looks fine, which is why it is its own series."),
+           note="The node-local pools: local-lvm is the thin pool. It fills while every guest still looks fine, which is why it is its own series; "
+                "a fast rise here (a runaway guest disk) is worth a note."),
+    # Split from the above on 2026-10-10: the operator called the PBS datastore's fast-rise note noise (three copies of one event, one per node, "
+    # during the nightly backup), so the shared storages get ONE series each and the slow-fill detector only. A backup writing a night's worth of
+    # chunks is how a datastore is supposed to behave; a datastore that is steadily filling is the signal.
+    Target("pve-shared-storage-used", "proxmox.node.disk/maxdisk", zabbix=("pve", ("pbs-backup", "munin-nfs")), detectors=("slow-fill",), capacity=0.85,
+           daily="max",
+           note="pbs-backup is the PBS datastore as PVE sees it (the plan's PBS-capacity signal), munin-nfs the NAS share; every node reports the same one, so "
+                "the series is labelled shared/<storage>. Slow-fill only: the nightly backup is a legitimate fast rise."),
     # Disk health on the hypervisors (10h1 leftovers, 2026-10-04). Await items exist on every host (hourly trends for 365 days); the SMART items
     # come from the "SMART by Zabbix agent 2" template linked on the PVE hosts, so their series start the day it was linked.
     Target("nvme-latency-creep", "vfs.dev.await", zabbix=("await", "nvme"), detectors=("creep",), creep_ratio=1.5, creep_floor=1.0,

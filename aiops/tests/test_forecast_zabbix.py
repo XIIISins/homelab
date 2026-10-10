@@ -108,9 +108,24 @@ class Source(unittest.TestCase):
 
     def test_pve_storage_is_used_over_total_deduplicated_and_limited_to_the_named_storages(self):
         rows = dict(self.src.pve_storage(("local-lvm", "pbs-backup"), NOW - 15 * DAY, NOW))
-        self.assertEqual(sorted(rows), ["urd/local-lvm", "urd/pbs-backup"])  # `local` has no maxdisk item; the duplicate copy is one series
-        self.assertAlmostEqual(rows["urd/pbs-backup"][0][1], 205e9 / 257.7e9, places=4)
+        self.assertEqual(sorted(rows), ["shared/pbs-backup", "urd/local-lvm"])  # `local` has no maxdisk item; the duplicate copy is one series; a shared storage has no node
+        self.assertAlmostEqual(rows["shared/pbs-backup"][0][1], 205e9 / 257.7e9, places=4)
         self.assertEqual(dict(self.src.pve_storage(("munin-nfs",), NOW - 15 * DAY, NOW)), {})
+
+    def test_a_storage_every_node_mounts_is_one_series_however_many_nodes_report_it(self):
+        orig = self.z.__call__   # the fake serves urd's copy; add verd's copy of the same datastore
+
+        def with_copies(method, params):
+            out = orig(method, params)
+            if method == "item.get" and params["search"]["key_"] in ("proxmox.node.disk[", "proxmox.node.maxdisk["):
+                extra = []
+                for i in out:
+                    if "pbs-backup" in i["key_"]:
+                        extra.append({**i, "itemid": i["itemid"], "key_": i["key_"].replace("[urd,", "[verd,")})
+                out = out + extra
+            return out
+        rows = fz.ZabbixSource(with_copies).pve_storage(("pbs-backup",), NOW - 15 * DAY, NOW)
+        self.assertEqual([label for label, _ in rows], ["shared/pbs-backup"])   # a list, not a dict: two series with one label would hide the bug
 
     def test_memory_is_the_daily_low_water_mark_as_used_fraction(self):
         rows = dict(self.src.memory_used(NOW - 15 * DAY, NOW))
@@ -169,13 +184,14 @@ class Run(unittest.TestCase):
             self.assertEqual(stats["fleet-fs-used"]["series"], 2)
             cur = json.loads((Path(tmp) / "current.json").read_text())
             self.assertTrue(any(f["target"] == "hugin:/" for f in cur["findings"]))
-            self.assertEqual(cur["stats"]["pve-storage-used"]["series"], 2)
+            self.assertEqual(cur["stats"]["pve-storage-used"]["series"], 1)          # urd/local-lvm
+            self.assertEqual(cur["stats"]["pve-shared-storage-used"]["series"], 1)   # shared/pbs-backup
 
     def test_a_flat_estate_is_silent_and_says_what_it_looked_at(self):
         with tempfile.TemporaryDirectory() as tmp:
             found, stats = self.run_pass(FakeZabbix(root_rate=0.0), tmp)
-            self.assertEqual([f for f in found if f.target in ("hugin:/", "hugin:/data", "urd/pbs-backup")], [])
-            self.assertTrue(all(s.get("series", 0) >= 1 for n, s in stats.items() if n in ("fleet-fs-used", "pve-storage-used", "memory-used")), stats)
+            self.assertEqual([f for f in found if f.target in ("hugin:/", "hugin:/data", "shared/pbs-backup")], [])
+            self.assertTrue(all(s.get("series", 0) >= 1 for n, s in stats.items() if n in ("fleet-fs-used", "pve-storage-used", "pve-shared-storage-used", "memory-used")), stats)
             self.assertEqual(json.loads((Path(tmp) / "current.json").read_text())["ts"], NOW)
 
     def test_memory_creep_is_a_slow_fill_on_the_daily_high(self):

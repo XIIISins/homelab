@@ -21,6 +21,9 @@ HOUR = 3600.0
 _BATCH = 20  # items per trend.get call
 
 
+SHARED_STORAGES = ("pbs-backup", "munin-nfs")   # storages every PVE node mounts: one series, not one per node
+
+
 class ZabbixSource:
     def __init__(self, call):
         self.call = call
@@ -75,18 +78,25 @@ class ZabbixSource:
         return out
 
     def pve_storage(self, storages: tuple, start: float, end: float) -> list:
-        """One series per `<node>/<storage>`. The Proxmox template puts a copy of each node's items on every PVE host, so items are
-        de-duplicated by key; the ratio is used / total at the same hour."""
+        """One series per `<node>/<storage>` for a node-local storage (a thin pool), and ONE `shared/<storage>` series for a storage every node
+        mounts (the PBS datastore, the NAS share): each node reports the same datastore, which made a single rise produce three notes (2026-10-10).
+        The Proxmox template puts a copy of each node's items on every PVE host, so items are de-duplicated by key; the ratio is used / total at
+        the same hour."""
         used, total = {}, {}
         for i in self._items("proxmox.node.disk["):
             used.setdefault(i["key_"], i)
         for i in self._items("proxmox.node.maxdisk["):
             total.setdefault(i["key_"], i)
         out = []
+        seen_shared: set = set()
         for key, ui in sorted(used.items()):
             m = re.match(r"proxmox\.node\.disk\[([^,\]]+),([^\]]+)\]$", key)
             if not m or m.group(2) not in storages:
                 continue
+            if m.group(2) in SHARED_STORAGES:
+                if m.group(2) in seen_shared:
+                    continue   # another node's view of the same datastore
+                seen_shared.add(m.group(2))
             ti = total.get(f"proxmox.node.maxdisk[{m.group(1)},{m.group(2)}]")
             if ti is None:
                 continue
@@ -94,7 +104,7 @@ class ZabbixSource:
             cap = dict(tr[ti["itemid"]])
             pts = [(t, v / cap[t]) for t, v in tr[ui["itemid"]] if t <= end and cap.get(t)]
             if pts:
-                out.append((f"{m.group(1)}/{m.group(2)}", pts))
+                out.append((f"shared/{m.group(2)}" if m.group(2) in SHARED_STORAGES else f"{m.group(1)}/{m.group(2)}", pts))
         return out
 
     def await_ms(self, start: float, end: float, dev_prefix: str = "") -> list:
