@@ -2,7 +2,7 @@
 #
 # Read by aiops/author/scope.py from BOTH the dispatcher on Frigg (before it pushes) and the CI job
 # `agent-scope` (from the PR's BASE commit, so a PR cannot loosen its own rules). An agent cannot edit this
-# file: it is under `deny` below. Plan: docs/operations/10h-predictive-change.md ("The PR gate").
+# file: it is under `deny` below. Plan: docs/plans/active/10h-predictive-change.md ("The PR gate").
 version: 1
 
 # A PR is agent-authored when its head branch is `agent/<class>/<change-request-id>-<slug>`. The dispatcher (not
@@ -49,6 +49,7 @@ deny:
   - "ansible/inventory/group_vars/all/vault.yml"
   - "docs/operations/decisions.md"
   - "docs/operations/open-questions.md"
+  - "docs/operations/open-questions-archive.md"
   - "docs/operations/build-sequence.md"
   - "scripts/**"
   - "**/*.pem"
@@ -102,5 +103,5 @@ classes:
     allow:
       - "k8s/asgard/apps/*/*.yaml"
       - "k8s/asgard/apps/*/*.yml"
-    tested_on: a throwaway burst cluster (Flux, a one-node Vault with random seeds, the same charts; docs/operations/10h-k8s-burst-test.md) - the Toolbelt proposes it, the operator approves, the runner destroys the cluster afterwards; the summary goes into the PR description
+    tested_on: a throwaway burst cluster (Flux, a one-node Vault with random seeds, the same charts; docs/plans/active/10h-k8s-burst-test.md) - the Toolbelt proposes it, the operator approves, the runner destroys the cluster afterwards; the summary goes into the PR description
     burst_test: true   # the Toolbelt proposes pr-burst-test when the PR opens; CI's offline gates (ci-k8s-burst.sh) also run on it
