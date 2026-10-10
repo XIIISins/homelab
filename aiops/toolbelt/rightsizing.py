@@ -166,7 +166,7 @@ def evaluate(c: Container, cfg: dict, now: float) -> tuple[list, list]:
         if peak > c.req_mem or c.oom:
             # the one finding that does not wait for a mature recommendation: a hazard is worth saying early, from the 30-day max alone
             prop = {"request_bytes": max(ceil16mi(base * under["margin"]), int(c.req_mem))}   # an under-request finding never lowers anything
-            if c.lim_mem and (c.oom or peak > under["limit_trigger"] * c.lim_mem):
+            if c.lim_mem and peak > under["limit_trigger"] * c.lim_mem:   # an OOM far below its limit is not a limit problem: no number, a note
                 new_lim = ceil16mi(max(prop["request_bytes"], c.lim_mem if c.oom else 0) * under["limit_headroom"])
                 if new_lim > c.lim_mem:
                     prop["limit_bytes"] = new_lim
@@ -528,7 +528,9 @@ def detail(fleet: Fleet, cfg: dict, now: float, namespace: str, kind: str | None
 def snapshot(fleet: Fleet, cfg: dict, now: float, suppressed: dict) -> dict:
     """What the 10i3 digest needs besides the findings: the per-worker scoreboard and the coverage numbers, as of this pass."""
     ages = [c.vpa_mem.age_s for c in fleet.containers.values() if c.vpa_mem.age_s]
-    return {"as_of": now, "workers": fleet.nodes, "controllers": len(fleet.controllers), "controllers_with_vpa": len(fleet.covered & fleet.controllers),
+    skip = set(cfg["coverage_ignore_namespaces"])
+    considered = {c for c in fleet.controllers if c.split("/")[0] not in skip}   # the K3s addons and Calico have no VPA on purpose
+    return {"as_of": now, "workers": fleet.nodes, "controllers": len(considered), "controllers_with_vpa": len(fleet.covered & considered),
             "controllers_without_vpa": uncovered(fleet, cfg), "oldest_vpa_sample_days": round(max(ages) / DAY, 1) if ages else None,
             "vpa_min_sample_age_days": cfg["vpa"]["min_sample_age_days"], "suppressed": suppressed}
 

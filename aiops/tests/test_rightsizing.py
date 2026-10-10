@@ -112,6 +112,12 @@ class MemoryRules(unittest.TestCase):
         self.assertIsNone(f["evidence"]["proposed_request_mib"])
         self.assertIn("no number is proposed", f["evidence"]["note"])
 
+    def test_an_oom_far_below_a_big_limit_does_not_raise_the_limit(self):
+        f = by_name(ev(ctr(oom=True, mem_max=361 * MIB, req_mem=512 * MIB, lim_mem=2048 * MIB))[0])["memory-under-request"]   # the real sabnzbd of 2026-10-10
+        self.assertIsNone(f["evidence"]["proposed_limit_mib"])
+        self.assertIsNone(f["evidence"]["proposed_request_mib"])
+        self.assertIn("no number is proposed", f["evidence"]["note"])
+
     def test_an_oom_with_a_limit_proposes_a_higher_limit_and_never_lowers_the_request(self):
         f = by_name(ev(ctr(oom=True, mem_max=500 * MIB))[0])["memory-under-request"]
         e = f["evidence"]
@@ -129,7 +135,7 @@ class MemoryRules(unittest.TestCase):
         self.assertEqual(why, ["vpa-immature"])
 
     def test_over_request_that_frees_little_is_not_a_finding(self):
-        found, _ = ev(ctr(req_mem=100 * MIB, mem_max=30 * MIB, vpa_mem=vpa(28 * MIB, 30 * MIB)))
+        found, _ = ev(ctr(req_mem=100 * MIB, mem_max=30 * MIB, lim_mem=None, vpa_mem=vpa(28 * MIB, 30 * MIB)))
         self.assertEqual(found, [])   # 3x over, but 100 -> 48 frees 52 Mi (< 64)
 
     def test_over_request_is_floored_at_32mi(self):
@@ -152,10 +158,11 @@ class MemoryRules(unittest.TestCase):
         self.assertEqual(ev(c, cfg)[0], [])                      # the peak above the request is the design, not a finding
         self.assertIn("memory-under-request", by_name(ev(c)[0]))  # without the marker the same numbers are one
 
-    def test_the_limit_cut_is_off_by_default_and_never_touches_rare_peaks(self):
+    def test_the_limit_cut_has_a_switch_and_never_touches_rare_peaks(self):
         c = ctr(req_mem=200 * MIB, lim_mem=4096 * MIB, mem_max=190 * MIB)
-        self.assertNotIn("memory-over-limit", by_name(ev(c)[0]))
         cfg = copy.deepcopy(CFG)
+        cfg["memory"]["over_limit"]["enabled"] = False
+        self.assertNotIn("memory-over-limit", by_name(ev(c, cfg)[0]))
         cfg["memory"]["over_limit"]["enabled"] = True
         f = by_name(ev(c, cfg)[0])["memory-over-limit"]
         self.assertEqual(f["evidence"]["proposed_limit_mib"], 384.0)   # max(2 x max 190, 1.5 x upper 210, request 200) = 380 -> 384

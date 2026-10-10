@@ -29,7 +29,7 @@ memory:
     min_free_mib: 64
     floor_mib: 32
   over_limit:
-    enabled: false # on only after the 10i5 post-merge watch exists: a limit cut follows a request cut that held through its watch
+    enabled: true # the Toolbelt suggests a limit cut (and the Draft button) only for a workload whose latest request cut HELD through its 72-hour watch (10i5)
     ratio: 3
     min_free_mib: 256
   creep: # a steady rise of the daily peak: a tuning suggestion (leak, unbounded cache, missing GOMEMLIMIT), never a number

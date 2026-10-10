@@ -290,8 +290,10 @@ class BotText(unittest.TestCase):
         self.assertEqual(h["title"], "Rightsizing digest")
         self.assertIn("baseline", h["description"])
         body = {n: v for n, v, _ in h["fields"]}
-        self.assertIn("einherjar-urd", body["Workers (memory requested vs scheduler capacity)"])
+        self.assertIn("urd ", body["Workers (memory requested vs scheduler capacity)"])
         self.assertIn("-1500 vs last", body["Workers (memory requested vs scheduler capacity)"])
+        for line in body["Workers (memory requested vs scheduler capacity)"].splitlines():
+            self.assertLessEqual(len(line), 52, line)   # an embed code block wraps beyond about 52 characters
         self.assertIn("**held**", body["Results of earlier PRs"])
         self.assertIn("freed 512 MiB", body["Results of earlier PRs"])
         self.assertIn("`app/Deployment/new`", body["Coverage"])
