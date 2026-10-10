@@ -66,7 +66,7 @@ def results_text(d: dict) -> str:
         return "None yet: no rightsizing PR has merged."
     out = []
     for r in rows[:8]:
-        out.append(f"- `{logic.sanitize(str(r.get('target')), 60)}`: **{r.get('verdict', '?')}**" + (f", freed {r['freed_mib']:g} MiB" if r.get("freed_mib") else "")
+        out.append(f"- `{logic.sanitize(str(r.get('target')), 60)}`: **{r.get('verdict', '?')}**" + (f", {'freed' if r['freed_mib'] > 0 else 'added'} {abs(r['freed_mib']):g} MiB" if r.get("freed_mib") else "")
                    + (f" ([PR]({r['pr_url']}))" if r.get("pr_url") else ""))
     return "\n".join(out)
 
