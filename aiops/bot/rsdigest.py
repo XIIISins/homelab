@@ -31,12 +31,11 @@ class Client:
     def set_cadence(self, cadence: str, by: str) -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/rightsizing/cadence", self.h, {"cadence": cadence, "by": by})
 
+    def revert(self, wid: int, by: str) -> tuple[int, dict]:
+        return logic._call("POST", f"{self.base}/rightsizing/watches/{int(wid)}/revert", self.h, {"by": by})
+
     def set_message(self, did: int, message_ref: str, thread_id: str = "") -> tuple[int, dict]:
         return logic._call("POST", f"{self.base}/rightsizing/digest/{int(did)}/message", self.h, {"message_ref": message_ref, "thread_id": thread_id})
-
-
-def _signed(x, unit: str) -> str:
-    return "" if x is None else f"{x:+g}{unit}"
 
 
 def _deltas(row: dict) -> str:
@@ -44,16 +43,20 @@ def _deltas(row: dict) -> str:
     for key, label in (("vs_last", "last"), ("vs_baseline", "start")):
         d = row.get(key)
         if d and d.get("memory_requested_mib") is not None:
-            out.append(f"{_signed(d['memory_requested_mib'], '')} vs {label}")
+            out.append(f"{d['memory_requested_mib']:+.0f} vs {label}")
     return f" ({', '.join(out)})" if out else ""
 
 
 def scoreboard(d: dict) -> str:
     """The per-worker lines, as a code block (monospaced, one worker per line)."""
+    def n(x, unit: str = "") -> str:
+        return "?" if x is None else f"{x:.0f}{unit}"
+
     lines = []
     for w in d.get("scoreboard", []):
-        lines.append(f"{logic.sanitize(w['node'], 20):<16} mem req {w.get('memory_requested_mib', '?'):>7} MiB ({w.get('memory_requested_pct', '?')}%){_deltas(w)}")
-        lines.append(f"{'':<16} limits {w.get('memory_limits_mib', '?')} MiB, used {w.get('memory_used_mib', '?')} MiB | cpu req {w.get('cpu_requested_millicores', '?')}m ({w.get('cpu_requested_pct', '?')}%)")
+        node = logic.sanitize(w["node"], 20).removeprefix("einherjar-")
+        lines.append(f"{node:<6} req {n(w.get('memory_requested_mib'), ' MiB')} ({n(w.get('memory_requested_pct'), '%')}){_deltas(w)}")
+        lines.append(f"       lim {n(w.get('memory_limits_mib'))} · used {n(w.get('memory_used_mib'))} · cpu {n(w.get('cpu_requested_millicores'), 'm')} ({n(w.get('cpu_requested_pct'), '%')})")
     return "```\n" + ("\n".join(lines) or "no worker data") + "\n```"
 
 

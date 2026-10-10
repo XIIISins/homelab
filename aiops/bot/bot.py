@@ -212,6 +212,33 @@ def forecast_view(fc: dict) -> discord.ui.View | None:
     return v
 
 
+class RevertButton(discord.ui.DynamicItem[discord.ui.Button], template=r"aiops:rs-revert:(?P<wid>[0-9]+)"):
+    """Draft revert PR, under a regressed rightsizing change (Phase 10i5). It only files a change request; that waits for its own Approve."""
+
+    def __init__(self, wid: int):
+        super().__init__(discord.ui.Button(label="Draft revert PR", style=discord.ButtonStyle.primary, custom_id=drafts.revert_custom_id(wid)))
+        self.wid = wid
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /):
+        return cls(int(match["wid"]))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        if bot.cfg.is_operator(interaction.user.id):
+            return True
+        await interaction.response.send_message("Only the operator can ask for a revert.", ephemeral=True)
+        return False
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot: Ratatoskr = interaction.client  # type: ignore[assignment]
+        await interaction.response.defer(ephemeral=True)
+        st, body = await asyncio.to_thread(bot.rsd.revert, self.wid, str(interaction.user.id))
+        log("rightsizing_revert", watch=self.wid, status=st, by=str(interaction.user.id)[-4:])
+        await interaction.followup.send(f"Filed change request #{body.get('id')}: approve its card to have the author draft the revert PR." if st == 200
+                                        else f"Not done: {body.get('error', 'unknown error')} (HTTP {st}).", ephemeral=True)
+
+
 def draft_view(cr: dict) -> discord.ui.View | None:
     acts = drafts.buttons(cr)
     if not acts:
@@ -451,7 +478,7 @@ class Ratatoskr(discord.Client):
         self._last_feed_error = 0.0
 
     async def setup_hook(self) -> None:
-        self.add_dynamic_items(DecisionButton, DraftButton, ForecastButton)
+        self.add_dynamic_items(DecisionButton, DraftButton, ForecastButton, RevertButton)
         guild = discord.Object(id=self.cfg.guild_id)
         self.tree.add_command(aiops, guild=guild)
         await self.tree.sync(guild=guild)
@@ -555,6 +582,15 @@ class Ratatoskr(discord.Client):
             msg = await ch.send(embed=embed_of_cr(fresh), view=draft_view(fresh), allowed_mentions=NO_MENTIONS)
             await asyncio.to_thread(self.drafts.set_message, cr["id"], str(msg.id), str(ch.id))
             log("draft_card_posted", change_request=cr["id"])
+        elif act.kind == "watch":   # 10i5: the 72-hour verdict of a merged rightsizing PR, with a revert button when it regressed
+            ch = await self._channel(str(cid))
+            view = None
+            if act.data.get("state") == "regressed" and act.data.get("watch"):
+                view = discord.ui.View(timeout=None)
+                view.add_item(RevertButton(int(act.data["watch"])))
+            await ch.send(drafts.watch_text(act.data, cr.get("pr_url") or "")[:1900], view=view, allowed_mentions=NO_MENTIONS)
+            self.dstate.announced.add(act.text)
+            log("rightsizing_verdict_posted", change_request=cr["id"], state=act.data.get("state"))
         elif act.kind == "edit_card":
             ch = await self._channel(str(cid))
             await ch.get_partial_message(int(cr["message_ref"])).edit(embed=embed_of_cr(cr), view=draft_view(cr))

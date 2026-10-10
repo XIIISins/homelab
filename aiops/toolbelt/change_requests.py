@@ -75,6 +75,7 @@ def _was_transient(data: dict) -> bool:
 class ChangeRequests:
     def __init__(self, engine: "actions.Engine", cfg: CRConfig):
         self.eng, self.cfg = engine, cfg
+        self.on_merged = None   # optional fn(view dict): a request's PR was reported merged (10i5 starts the post-merge watch for rightsizing)
         self.db, self.lock, self.audit = engine.db, engine.lock, engine.audit
         self.db.executescript(SCHEMA)
         self._pr_rx = re.compile(rf"^https://github\.com/{re.escape(cfg.repo)}/pull/\d+$")
@@ -86,6 +87,12 @@ class ChangeRequests:
     def _event(self, cid: int, kind: str, data: dict | None = None) -> None:
         self.db.execute("INSERT INTO change_request_events(cr_id, ts, kind, data_json) VALUES (?,?,?,?)",
                         (cid, self.now(), kind, json.dumps(data or {}, sort_keys=True)))
+
+    def note(self, cid: int, kind: str, data: dict | None = None) -> None:
+        """Record a free-form event on a request (10i5: the post-merge watch's verdict). It reaches the bot through the feed like any event."""
+        with self.lock:
+            self._row(cid)
+            self._event(cid, kind, data)
 
     def _row(self, cid: int):
         r = self.db.execute("SELECT * FROM change_requests WHERE id=?", (cid,)).fetchone()
@@ -277,6 +284,11 @@ class ChangeRequests:
         self.audit("change_request_reported", cr=cid, state=state)
         if state == "pr-open":
             self._after_pr_open(cid)
+        if state == "merged" and self.on_merged is not None:
+            try:
+                self.on_merged(self.view(cid))
+            except Exception as e:  # noqa: BLE001 - the merge is recorded either way
+                self.audit("error", where="on_merged", error=type(e).__name__)
         return self.view(cid)
 
     def retest(self, cid: int) -> dict:

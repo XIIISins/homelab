@@ -20,6 +20,22 @@ Mechanics: the bot asks the Toolbelt `POST /rightsizing/digest/tick` every ten m
 
 Not built: the **LLM-written** tuning text of the plan ("Gná's read of memory-creep and high-baseline workloads against the chart's values"). The digest lists the creep facts and the OOM notes; ask Gná in the chat (`kube.rightsizing`) for the chart-level reading until that workflow exists.
 
+## The 72-hour watch (10i5)
+
+When a `rightsizing` change request is reported **merged**, the Toolbelt starts a watch on the workload (the request's body carries a `<!-- rightsizing-spec ... -->` block the Toolbelt wrote: workload, and the old and new values per container). It first **waits** until the new values are really live: every pod of the workload started after the merge, carries the new requests and limits, is Ready, and the controller is fully available. That is the data-driven reading of "the HelmRelease is Ready at the new revision"; values that never show up within 24 h end as **inconclusive** (look at Flux and the HelmRelease). Then it **watches for 72 h**, reading VictoriaMetrics every ten minutes:
+
+| Signal since the values went live | Result |
+|---|---|
+| a container OOMKilled · CrashLoopBackOff · working set above 90 % of the new limit · two or more restarts · the controller not fully available on two checks in a row · an alert (severity alert/critical) that names the workload | **regressed** at once |
+| one restart | a warning in the verdict |
+| none of the above for 72 h | **held** |
+
+The verdict is a `watch` event on the change request: Ratatoskr replies under the request's card (held, regressed with the reasons, inconclusive), the next digest lists it under "Results of earlier PRs", and a regression carries a **Draft revert PR** button. The button files a `rightsizing` change request that restores the old values (it waits for its own Approve and is watched like any other change); nothing reverts by itself. `GET /rightsizing/watches?state=watching,held,regressed,inconclusive,waiting` (approver role) lists them.
+
+A **limit cut** (`memory-over-limit`) is only suggested for a workload whose latest request cut **held**, and `memory.over_limit.enabled` in `rightsizing.yml` is now `true` because that gate lives in the Toolbelt.
+
+Not covered: a Zabbix problem that does not name the workload is not correlated to it (the alert check reads the Toolbelt's own alert table, matching the workload's name as a whole word).
+
 ## Checks
 
 ```bash

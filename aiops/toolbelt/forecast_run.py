@@ -79,7 +79,7 @@ def rightsizing_pass(config: str, url: str, now: float, every: float, prev: dict
     Not due -> the previous block as it was. Failed or partial (query errors) -> the previous findings, the new stats and the OLD ts, so the
     next hourly run retries; a first pass that fails stores no findings at all."""
     prev = prev or {}
-    if prev.get("ts") and now - float(prev["ts"]) < every:
+    if prev.get("ts") and prev.get("snapshot") and now - float(prev["ts"]) < every:   # a block from before the snapshot existed (10i2) is always due
         return prev
     try:
         cfg = rightsizing.load_config(config)

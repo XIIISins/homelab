@@ -148,7 +148,7 @@ Where it differs from the table above, and why:
 - **History survives rollouts.** Usage, OOM and restarts are read over the whole window per pod and mapped to the controller (pod → ReplicaSet → Deployment, also over the window), so a replaced pod's peak still counts. Requests, limits and age come from the pods that run now (the youngest pod's template). A controller whose newest pod is under `settle_hours` (24 h) old gets no findings (`recently-rolled`).
 - **An OOMKilled container whose 30-day peak sits far below its limit is reported with a note and no number** (the kill happened under an older limit, or page cache counted against the cgroup). Seen live on 2026-10-10 with `media/sabnzbd`.
 - **Rare-peak workloads** (`rare_peaks`, currently `immich/*`) are judged on the 30-day p95, as 10i0b sized them, so Immich's deliberate "request below the peak" is not a finding.
-- **The memory limit cut (over-limit) ships `enabled: false`.** The plan's condition ("only after this workload's request cut held through its watch") needs the 10i5 verdicts; the switch is on in the config PR that lands 10i5.
+- **The memory limit cut (over-limit)** waits for the plan's condition ("only after this workload's request cut held through its watch"): it shipped `enabled: false` and 10i5 turns it on, with the condition enforced in the Toolbelt (see 10i5 as built).
 - **Memory creep** uses a Theil-Sen slope over the daily peak (the 10h1 detectors are least-squares, not Theil-Sen): at least 14 days, 75 % of day pairs rising, a rise of at least 64 MiB and 20 % of the first week's median, and no more than 2 restarts. Traffic is not measured; Gná reads the chart and traffic when it writes the tuning suggestion.
 - **Fingerprints** are `rightsizing:<ns>/<Kind>/<name>/<container>/<metric>` with `metric` one of `memory-request`, `memory-limit`, `memory-creep`, `cpu-request` (an under- and an over-request on one metric cannot both hold).
 - **Rows are quiet.** They live in the `forecasts` table (`kind = rightsizing`) but the store keeps them out of the card feed, the default list, the summary and the new-finding budget; the digest reads them with `GET /forecasts?kind=rightsizing`. The pass runs inside the hourly forecast job at most once a day, carries the previous rows between runs, and a pass with query errors keeps the old rows (a metrics outage cannot resolve a finding).
@@ -179,6 +179,17 @@ Each suggestion carries **Useful / Noise** labels like the 10h1 cards; a suggest
 - A suggestion is the forecast row behind it, so Useful / Noise and the Draft button are the existing forecast buttons; `forecasts.label_value` (new column, migrated) holds the proposed number at label time for the 30 % rule.
 - CPU suggestions rank below memory ones (1m counts as 1 MiB); under-requests always lead.
 - **Not built:** the LLM-written tuning text. The digest shows creep facts and OOM notes; the chart-level reading is a chat question to Gná.
+
+
+### 10i5 as built (2026-10-10)
+
+[`rightsizing_watch.py`](../../../aiops/toolbelt/rightsizing_watch.py) (the watch, the spec block, the revert request), the hook in `change_requests.py` (`on_merged`, `note`), routes `/rightsizing/watches*`, the bot's verdict reply and `RevertButton`; tests `test_rightsizing_watch.py`. Operator view: [`aiops-rightsizing.md`](../../procedures/aiops-rightsizing.md#the-72-hour-watch-10i5).
+
+- **Going live is observed, not assumed:** the 72 h starts when every pod of the workload runs the new numbers and the controller is available, instead of when Flux says Ready (a HelmRelease can be Ready having applied nothing).
+- **The change request carries the spec.** A machine-readable `rightsizing-spec` block (workload, old and new per container) is written by the Toolbelt when it files the request (10i4); the watch trusts only that block, and an operator-written request without it starts no watch.
+- **Limit cuts are gated here:** `memory-over-limit` suggestions and the Draft button need the workload's latest request cut to have `held`; `over_limit.enabled` is therefore on in the config.
+- **A regression never reverts anything.** It offers **Draft revert PR**: a `rightsizing` change request with the old values and `kind: revert` (watched too).
+- An alert counts when it names the workload as a whole word and has severity alert or critical.
 
 ---
 
