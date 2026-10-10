@@ -52,7 +52,7 @@ The single listener (UI + `/metrics` + push API) binds **only** `100.102.131.126
 
 ## Verify the deployment
 
-On `do1` (`ssh ansible@do1-next.xiiisins.com`):
+On `do1` (`ssh ansible@do1.xiiisins.com`):
 ```
 systemctl is-active gatus gatus-container-guard          # active active
 ps -o user= -C gatus                                      # gatus (never root)
@@ -82,8 +82,8 @@ Every endpoint `success: true`, including `homelab_frigg-heartbeat`. From an ind
 
 ## Exit criterion 2 — `do1`'s own death is alerted from the homelab side
 
-The Semaphore prober (`infra-health-check`, cron */12 h, **after the PR is merged**) probes `https://do1-next.xiiisins.com/health` (3 tries) and posts an `alert` (Hermod `#infra-alerts`) if it fails.
-1. `ssh ansible@do1-next.xiiisins.com 'sudo systemctl stop caddy'` (reversible; takes the proxy and `/health` down without touching the box otherwise).
+The Semaphore prober (`infra-health-check`, cron */12 h, **after the PR is merged**) probes `https://do1.xiiisins.com/health` (3 tries) and posts an `alert` (Hermod `#infra-alerts`) if it fails.
+1. `ssh ansible@do1.xiiisins.com 'sudo systemctl stop caddy'` (reversible; takes the proxy and `/health` down without touching the box otherwise).
 2. Run the `infra-health-check` template from the Semaphore UI. Expect "do1 (offsite node) UNHEALTHY" in `#infra-alerts`.
 3. `sudo systemctl start caddy`; re-run; the finding is gone.
 

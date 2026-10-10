@@ -23,8 +23,8 @@
 # checked out on the control node at offsite_plantnet_local_repo; Vault env
 # loaded (`vault-homelab-env`).
 #
-# Connect via the RESERVED IP (inventory ansible_host = do1-next.xiiisins.com
-# once do1_next_ip is set, or `-e ansible_host=<reserved ip>`): the egress
+# Connect via the RESERVED IP (inventory ansible_host = do1.xiiisins.com, which
+# resolves to it, or `-e ansible_host=<reserved ip>`): the egress
 # route change moves replies for the droplet's own public IP off-path.
 #
 # Day-1 (fresh droplet, only root + the injected keys):
