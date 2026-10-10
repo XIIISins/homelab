@@ -137,18 +137,18 @@ At least 3 agent-authored PRs merged with evidence and a burst/canary test summa
 
 ---
 
-## Live state and exit criteria (checked 2026-10-05)
+## Live state and exit criteria (checked 2026-10-10)
 
 | Exit criterion | Where it stands |
 |---|---|
-| **10h1:** shadow ran 14 days, then >= 3 real notes >= 24 h ahead, <= 2 false per week | Detectors have run since 2026-10-03 and notes since 2026-10-04, so the 14 days end about 2026-10-17. 7 notes so far, 3 of them the same PBS datastore reported once per node; 1 labelled (useful), none labelled noise, so the false-note budget cannot be judged yet |
-| **10h1:** backtest on the CP syslog flood passes | A backtest PR (#162) is merged; its result was not re-run for this check |
-| **10h1:** NVMe latency baseline for Urd/Verd/Skuld | Latency creep notes exist for Urd's `nvme0n1` (read and write, medium confidence); SMART collection is merged (#164) |
-| **10h2:** >= 3 human-merged agent PRs with a burst/canary summary | 6 agent PRs merged (#131, #137, #143, #149, #152, #166); only #149 carries a test summary (canary). The burst-tested k8s PRs (#174 passed in 458 s, #177 failed at the offline gate in 5 s) were closed unmerged. **#254** (an `app.kubernetes.io/name` label on `apex-static`, change request 21) passed the burst test in 416 s and was merged 2026-10-10: the second merged PR with a test summary, one more to go (a `drift` or `capacity` PR) |
-| **10h2:** forbidden-path probe fails CI; the agent never merges | Probe-verified 2026-10-04 |
-| **10h3:** the next three incidents start from a draft, no invented facts | 2 so far (#166 merged, #167 open); no kept/rewritten rating recorded |
+| **10h1:** shadow ran 14 days, then >= 3 real notes >= 24 h ahead, <= 2 false per week | Detectors have run since 2026-10-03 and notes since 2026-10-04, so the 14 days end about 2026-10-17. 15 notes so far, all resolved: 5 labelled useful (memory headroom on Verd, fast rises on Vör, an `einherjar-skuld` and Factorio filesystem, Skuld's NVMe latency), 3 labelled noise (the PBS datastore's nightly-backup rise, reported once per node: one event), 7 unlabelled. The noise class is fixed 2026-10-10 (the shared storages are one series, slow-fill only), so the false-note budget reads one event for the period so far |
+| **10h1:** backtest on the CP syslog flood passes | `test_forecast_backtest.py` passes in the suite (re-run 2026-10-10): a flat 40 % root filesystem that starts filling is noted ~9.7 h before 80 %, a 1.5-point-an-hour leak ~26 h before |
+| **10h1:** NVMe latency baseline for Urd/Verd/Skuld | Latency creep notes exist for Urd's `nvme0n1` (read and write) and Skuld's read; SMART collection is merged (#164) |
+| **10h2:** >= 3 human-merged agent PRs with a burst/canary summary | 8 agent PRs merged (#131, #137, #143, #149, #152, #166, #186, #254); two carry a test summary: **#149** (canary) and **#254** (burst, passed in 416 s). One more to go. The new `rightsizing` class (10i) is the intended third: its PRs are burst-tested too; the first can be drafted once the VPA data is 7 days old (2026-10-12), or earlier from a memory under-request |
+| **10h2:** forbidden-path probe fails CI; the agent never merges | Probe-verified 2026-10-04; the rightsizing resources-only probe failed CI the same way on 2026-10-10 |
+| **10h3:** the next three incidents start from a draft, no invented facts | 2 so far (#166 merged, #167 open); #186 and #216 are `drift-note` PRs; no kept/rewritten rating recorded |
 
-Burst runner: deployed 2026-10-05; the Frigg reboot test passed 2026-10-10 (the runner's AppRole SecretID expires about 2027-01-03; the operator will notice). The author class set is `docs`, `drift-note`, `drift`, `k8s`; the capacity class exists but has produced no PR.
+Burst runner: deployed 2026-10-05; the Frigg reboot test passed 2026-10-10 (the runner's AppRole SecretID expires about 2027-01-03; the operator will notice). The author class set is `docs`, `drift-note`, `drift`, `k8s`, `rightsizing` (10i); the capacity class exists but has produced no PR.
 
 ---
 
