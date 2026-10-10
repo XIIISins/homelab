@@ -84,7 +84,7 @@ The dispatcher writes the outcome into the PR description under **Canary test** 
 full run output stays in the private Discord thread because a PR comment on a public repo is public) and keeps it current until the PR
 closes. The test is bound to the commit the Toolbelt read: if the branch head moves after you approve, or the PR is no longer testable,
 the run is refused (`guard refused at execution time`) and nothing runs. The test is three Semaphore tasks that each check the branch out afresh, so the PR is re-read before every step and a head that moves mid-test stops the next step (`the PR changed under the test`). A small window remains between that read and Semaphore's own clone (seconds); closing it needs a sha checkout Semaphore does not offer. A PR that cannot be tested says `Not tested: <reason>` instead
-(burst-cluster tests for `k8s/` and Terraform changes are not built, so those classes stay disabled). The Toolbelt's own unit cannot reach the internet (`IPAddressDeny=any`, by design), so it reads GitHub through
+(`k8s/` PRs get a burst-cluster test, see [`k8s-burst-test.md`](k8s-burst-test.md); Terraform changes have no such test, so that class stays disabled). The Toolbelt's own unit cannot reach the internet (`IPAddressDeny=any`, by design), so it reads GitHub through
 `aiops-toolbelt-ghread`, a loopback-only proxy in its own unit that serves exactly two GET paths for this repo (an agent branch's head
 and its compare against `main`), holds no credential and may reach the internet but nothing private. A GitHub outage, a rate limit or the
 proxy being down is classed as **temporary** (the PR says "Not tested ... will ask again shortly"); the dispatcher asks the Toolbelt to
