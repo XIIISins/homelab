@@ -1,0 +1,224 @@
+# ansible/playbooks/tasks/pbs-restore-test-one.yml
+---
+# Restore ONE guest's newest PBS backup into the scratch CT, verify it, destroy
+# it. Included per item (loop_var restore_item) from playbooks/pbs-restore-test.yml, which
+# documents the safety rules. Appends one entry to restore_test_results
+# ({vmid, name, ok, summary}) whether it passed or not.
+
+- name: Start this item
+  ansible.builtin.set_fact:
+    rt_vmid: "{{ restore_item.vmid | int }}"
+    rt_kind: "{{ restore_item.kind }}"
+    rt_started: "{{ now().timestamp() | int }}"
+    rt_ok: false
+    rt_name: "{{ (restore_test_guest_index[restore_item.vmid | string] | default({})).name | default('unknown') }}"
+    rt_summary: ""
+
+- name: Restore, verify and clean up
+  block:
+    - name: Require the guest to exist
+      ansible.builtin.assert:
+        that: (rt_vmid | string) in restore_test_guest_index
+        fail_msg: "guest {{ rt_vmid }} is not in the cluster"
+        quiet: true
+
+    - name: List its PBS backups
+      ansible.builtin.command: >-
+        pvesh get /nodes/{{ inventory_hostname }}/storage/{{ restore_test_pbs_storage }}/content
+        --vmid {{ rt_vmid }} --content backup --output-format json
+      register: rt_backups
+      changed_when: false
+
+    - name: Require at least one backup
+      ansible.builtin.assert:
+        that: (rt_backups.stdout | from_json | length) > 0
+        fail_msg: "no PBS backup exists for {{ rt_vmid }} ({{ rt_name }})"
+        quiet: true
+
+    - name: Pick the newest backup and its age
+      ansible.builtin.set_fact:
+        rt_backup: "{{ rt_backups.stdout | from_json | sort(attribute='ctime') | last }}"
+        rt_age_h: "{{ ((now().timestamp() | int) - ((rt_backups.stdout | from_json | sort(attribute='ctime') | last).ctime | int)) / 3600 }}"
+
+    - name: Require a fresh backup
+      ansible.builtin.assert:
+        that: rt_age_h | float <= restore_test_max_age_h
+        fail_msg: >-
+          newest backup of {{ rt_vmid }} ({{ rt_name }}) is {{ rt_age_h | float | round(1) }} h old
+          (limit {{ restore_test_max_age_h }} h): the nightly job missed it
+        quiet: true
+
+    - name: Restore it into the scratch CT, detached from the network
+      ansible.builtin.command:
+        argv:
+          - pct
+          - restore
+          - "{{ restore_test_scratch_id }}"
+          - "{{ rt_backup.volid }}"
+          - --storage
+          - "{{ restore_test_storage }}"
+          - --unique
+          - "1"
+          - --onboot
+          - "0"
+          - --protection
+          - "0"
+          - --hostname
+          - "restore-test-{{ rt_name }}"
+      async: "{{ restore_test_timeout_s }}"
+      poll: 15
+      changed_when: true
+
+    - name: Read the restored config
+      ansible.builtin.command: pct config {{ restore_test_scratch_id }}
+      register: rt_conf
+      changed_when: false
+
+    - name: Work out the host-coupled settings to drop (network, devices, bind mounts)
+      ansible.builtin.set_fact:
+        rt_strip: >-
+          {{ (rt_conf.stdout_lines | select('match', '^(net|dev)[0-9]+:') | map('regex_replace', ':.*$', '') | list)
+             + (rt_conf.stdout_lines | select('match', '^mp[0-9]+: /') | map('regex_replace', ':.*$', '') | list) }}
+
+    - name: Drop them before the CT can ever start
+      ansible.builtin.command: pct set {{ restore_test_scratch_id }} --delete {{ rt_strip | join(',') }}
+      when: rt_strip | length > 0
+      changed_when: true
+
+    - name: Mount the rootfs and read what it holds
+      ansible.builtin.shell: |
+        set -e
+        id={{ restore_test_scratch_id }}
+        pct mount $id >/dev/null
+        trap 'pct unmount $id >/dev/null 2>&1 || true' EXIT
+        r=/var/lib/lxc/$id/rootfs
+        test -s $r/etc/os-release
+        test -s $r/etc/hostname
+        test -s $r/var/lib/dpkg/status
+        echo "os=$(. $r/etc/os-release; echo "$PRETTY_NAME")"
+        echo "used_mb=$(du -sxm $r | cut -f1)"
+        if [ -r $r/etc/ssh/ssh_host_ed25519_key.pub ]; then echo "hostkey=$(cut -d' ' -f2 $r/etc/ssh/ssh_host_ed25519_key.pub)"; fi
+        if [ -r $r/var/lib/restore-test/sentinel ]; then echo "sentinel=$(cat $r/var/lib/restore-test/sentinel)"; fi
+      args:
+        executable: /bin/bash
+      register: rt_mount
+      changed_when: false
+
+    - name: Parse it
+      ansible.builtin.set_fact:
+        rt_facts: >-
+          {{ dict(rt_mount.stdout_lines | select('search', '=') | map('regex_replace', '^([a-z_]+)=(.*)$', '\1|\2') | map('split', '|', 1) | list) }}
+
+    - name: Require a plausible rootfs
+      ansible.builtin.assert:
+        that: (rt_facts.used_mb | int) >= 100
+        fail_msg: "restored rootfs holds only {{ rt_facts.used_mb | default('?') }} MB"
+        quiet: true
+
+    - name: Read the live host key from the guest's own node
+      ansible.builtin.command: pct exec {{ rt_vmid }} -- cat /etc/ssh/ssh_host_ed25519_key.pub
+      delegate_to: "{{ restore_test_guest_index[rt_vmid | string].node }}"
+      register: rt_live_key
+      changed_when: false
+      failed_when: false
+
+    - name: Compare the host key (a mismatch only warns, the guest may have been rebuilt since the backup)
+      ansible.builtin.set_fact:
+        rt_hostkey_note: >-
+          {{ 'host key matches the live guest' if (rt_live_key.rc == 0 and rt_facts.hostkey is defined and rt_live_key.stdout.split()[1] == rt_facts.hostkey)
+             else 'WARNING host key differs from (or could not be read on) the live guest' }}
+
+    - name: Canary checks
+      when: rt_kind == 'canary'
+      block:
+        - name: Read the live sentinel
+          ansible.builtin.command: pct exec {{ rt_vmid }} -- cat /var/lib/restore-test/sentinel
+          delegate_to: "{{ restore_test_guest_index[rt_vmid | string].node }}"
+          register: rt_live_sentinel
+          changed_when: false
+          failed_when: false
+
+        - name: Normalise the two sentinels
+          ansible.builtin.set_fact:
+            rt_live_text: "{{ rt_live_sentinel.stdout | trim if rt_live_sentinel.rc == 0 else '' }}"
+            rt_restored_text: "{{ rt_facts.sentinel | default('') | trim }}"
+
+        - name: Judge the sentinel
+          ansible.builtin.set_fact:
+            rt_sentinel_note: >-
+              {{ 'no live sentinel yet (first run or rebuilt guest): nothing to compare' if rt_live_text == ''
+                 else 'live sentinel is newer than the backup: not compared' if (rt_live_text.split()[0] | int) >= (rt_backup.ctime | int)
+                 else 'sentinel from the previous run found in the restored copy' if rt_restored_text == rt_live_text
+                 else 'SENTINEL MISSING from the restored copy' }}
+
+        - name: Require the sentinel to survive the backup
+          ansible.builtin.assert:
+            that: "'MISSING' not in rt_sentinel_note"
+            fail_msg: "{{ rt_sentinel_note }} (the previous run's sentinel should be in a later backup)"
+            quiet: true
+
+        - name: Boot the restored canary with no network
+          ansible.builtin.command: pct start {{ restore_test_scratch_id }}
+          changed_when: true
+
+        - name: Wait for it to answer
+          ansible.builtin.command: pct exec {{ restore_test_scratch_id }} -- true
+          register: rt_boot
+          retries: 12
+          delay: 5
+          until: rt_boot.rc == 0
+          changed_when: false
+
+        - name: Wait for systemd to settle
+          ansible.builtin.command: timeout 120 pct exec {{ restore_test_scratch_id }} -- systemctl is-system-running --wait
+          register: rt_systemd
+          failed_when: rt_systemd.stdout | trim not in ['running', 'degraded']
+          changed_when: false
+
+    - name: Write the summary
+      ansible.builtin.set_fact:
+        rt_ok: true
+        rt_summary: >-
+          {{ '✅' }} {{ rt_name }} ({{ rt_vmid }}): restored the backup of
+          {{ rt_backup.ctime | int | strftime('%Y-%m-%d %H:%MZ', utc=true) }} ({{ rt_age_h | float | round(1) }} h old,
+          {{ (rt_backup.size | int / 1073741824) | round(1) }} GiB) on {{ inventory_hostname }};
+          {{ rt_facts.os | default('?') }}, {{ rt_facts.used_mb | default('?') }} MB used; {{ rt_hostkey_note }}
+          {{ ('; boots with no network (' ~ rt_systemd.stdout | trim ~ '); ' ~ rt_sentinel_note) if rt_kind == 'canary' else '' }}
+
+  rescue:
+    - name: Record the failure
+      ansible.builtin.set_fact:
+        rt_ok: false
+        rt_summary: >-
+          ❌ {{ rt_name }} ({{ rt_vmid }}): {{ ansible_failed_result.msg | default('failed') }}
+          {{ (ansible_failed_result.stderr | default('') | truncate(300)) if ansible_failed_result.stderr | default('') else '' }}
+
+  always:
+    - name: Destroy the scratch CT and confirm it is gone
+      ansible.builtin.shell: |
+        id={{ restore_test_scratch_id }}
+        if pct config $id >/dev/null 2>&1; then
+          # Only ever destroy our own scratch CT.
+          pct config $id | grep -q '^hostname: restore-test-' || { echo "CT $id is not a restore-test CT, leaving it"; exit 1; }
+          pct stop $id --skiplock 1 >/dev/null 2>&1 || true
+          pct unmount $id >/dev/null 2>&1 || true
+          pct destroy $id --purge 1 --destroy-unreferenced-disks 1 >/dev/null
+        fi
+        if pct config $id >/dev/null 2>&1; then echo "CT $id still exists"; exit 1; fi
+        echo cleaned
+      args:
+        executable: /bin/bash
+      register: rt_cleanup
+      changed_when: "'cleaned' in rt_cleanup.stdout"
+      failed_when: false
+
+    - name: Record the result
+      ansible.builtin.set_fact:
+        restore_test_results: >-
+          {{ (restore_test_results | default([])) + [{
+               'vmid': rt_vmid | int,
+               'name': rt_name,
+               'ok': (rt_ok | bool) and rt_cleanup.rc == 0,
+               'summary': rt_summary | trim ~ ((' (' ~ ((now().timestamp() | int) - (rt_started | int)) ~ ' s)') if rt_ok | bool else '')
+                          ~ ('' if rt_cleanup.rc == 0 else ' CLEANUP FAILED: ' ~ rt_cleanup.stdout)
+             }] }}
