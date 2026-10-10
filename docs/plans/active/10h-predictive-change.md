@@ -148,7 +148,7 @@ At least 3 agent-authored PRs merged with evidence and a burst/canary test summa
 | **10h2:** forbidden-path probe fails CI; the agent never merges | Probe-verified 2026-10-04 |
 | **10h3:** the next three incidents start from a draft, no invented facts | 2 so far (#166 merged, #167 open); no kept/rewritten rating recorded |
 
-Not yet done: the burst runner's Frigg reboot test and the SecretID calendar entry (operator). The author class set is `docs`, `drift-note`, `drift`, `k8s`; the capacity class exists but has produced no PR.
+Burst runner: deployed 2026-10-05; the Frigg reboot test passed 2026-10-10 (the runner's AppRole SecretID expires about 2027-01-03; the operator will notice). The author class set is `docs`, `drift-note`, `drift`, `k8s`; the capacity class exists but has produced no PR.
 
 ---
 
