@@ -10,9 +10,8 @@
 # Why the IPs are variables (terraform.tfvars, gitignored), not literals:
 #   - hel_ts3_ip is the home KPN public IP — never committed to this public
 #     repo (known-issues/digitalocean.md).
-#   - offsite_ip is the CUTOVER LEVER. Today it is the legacy droplet's IP
-#     (so apply is a no-op); at 10a3 cutover the operator changes it to the
-#     new reserved IP and applies — that single edit moves do-ts3 + do1.
+#   - offsite_ip is the reserved IP of the offsite node (do1), behind do-ts3 +
+#     do1. It was the CUTOVER LEVER at 10a3: changing it moved both names.
 #
 # SRV ring (`_ts3._udp.ts3.xiiisins.com`): priority 1 = homelab (hel-ts3),
 # priority 99 = offsite failover (do-ts3). Clients fall through to 99 only
@@ -24,14 +23,8 @@ variable "hel_ts3_ip" {
 }
 
 variable "offsite_ip" {
-  description = "IPv4 behind do-ts3 + do1. Legacy droplet IP until the 10a3 cutover, then the new reserved IP (terraform/digitalocean output reserved_ip)."
+  description = "IPv4 behind do-ts3 + do1: the reserved IP (terraform/digitalocean output reserved_ip)."
   type        = string
-}
-
-variable "do1_next_ip" {
-  description = "Optional: new do1 reserved IP, published as do1-next.xiiisins.com BEFORE cutover so Caddy can obtain a Let's Encrypt cert and the stack can be validated. null = record not created."
-  type        = string
-  default     = null
 }
 
 locals {
@@ -99,17 +92,4 @@ import {
   for_each = local.ts3_srv
   to       = cloudflare_dns_record.ts3_srv[each.key]
   id       = "${local.ts3_zone_id}/${each.value.import_id}"
-}
-
-# Pre-cutover validation name for the new node. Created only once
-# `do1_next_ip` is set; deleted at cleanup after cutover.
-resource "cloudflare_dns_record" "do1_next" {
-  count = var.do1_next_ip == null ? 0 : 1
-
-  zone_id = local.ts3_zone_id
-  name    = "do1-next.xiiisins.com"
-  type    = "A"
-  content = var.do1_next_ip
-  proxied = false
-  ttl     = 1
 }

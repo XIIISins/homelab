@@ -144,9 +144,8 @@
     approle_expiry_warn_days: 14
 
     # do1 liveness (check #9). Public endpoint, reachable from the pod over the
-    # internet; flip to do1.xiiisins.com with do1_validation_host after the
-    # 10a3 cleanup (keep in step with group_vars/offsite.yml).
-    do1_health_url: "https://do1-next.xiiisins.com/health"
+    # internet (keep in step with do1_validation_host in group_vars/offsite.yml).
+    do1_health_url: "https://do1.xiiisins.com/health"
 
     # One representative served endpoint per cert-manager wildcard zone.
     # Each FQDN has a CoreDNS rewrite -> Traefik ClusterIP so the pod can

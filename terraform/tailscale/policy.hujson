@@ -71,8 +71,6 @@
     // granted explicitly below. Any NEW tag (e.g. tag:burst, 10b2) is
     // likewise default-deny until it gets a grant here.
     //
-    // While the legacy droplet still carries the interim manual tag:server it
-    // keeps the old wide reach; that ends when it is destroyed (10a3 cleanup).
     "grants": [
         {
             // dst `*` also lets these reach tag:offsite (operator SSH,

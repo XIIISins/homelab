@@ -36,12 +36,13 @@ docker_user_drop_dst:
 # which makes `reload` impossible (see roles/caddy-reverse-proxy defaults).
 caddy_reload_method: restarted
 
-# Pre-cutover the proxy answers only on the validation name; the production
-# hostname is added at the 10a3 cutover (flip this to true in the cutover PR) —
-# a cert request for a name that still resolves to the legacy droplet would
-# just fail ACME validation and burn rate limit.
-do1_serve_heyleaf: true # flipped at the 10a3 cutover, AFTER plantnet.heyleaf.app resolves to do1
-do1_validation_host: do1-next.xiiisins.com
+# The proxy answers on do1's own name (also the Gatus/prober health URL) and,
+# once do1_serve_heyleaf is true, on the HeyLeaf production hostname. The
+# production name was flipped at the 10a3 cutover, AFTER plantnet.heyleaf.app
+# resolved to do1 (a cert request for a name that still resolves elsewhere just
+# fails ACME validation and burns rate limit).
+do1_serve_heyleaf: true
+do1_validation_host: do1.xiiisins.com
 do1_production_host: plantnet.heyleaf.app
 
 # The proxy is intentionally world-reachable (guest-mode HeyLeaf users); abuse
@@ -77,8 +78,7 @@ gatus_heartbeat_failure_threshold: 3
 gatus_frigg_tailnet_ip: 100.120.118.45
 
 # Public endpoints, from terraform/cloudflare (apex WebFinger skip-rule, home. =
-# Startpage, paste. = MicroBin) + do1's own validation name (flip do1-next ->
-# do1 after the 10a3 cleanup). The apex WebFinger body check proves the apex
+# Startpage, paste. = MicroBin) + do1's own name. The apex WebFinger body check proves the apex
 # static pod answers, not just that Cloudflare does.
 gatus_public_endpoints:
   - name: apex-webfinger
