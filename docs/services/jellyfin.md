@@ -49,4 +49,10 @@ The `Anime` library (`/media/Anime`) is filled by Sonarr; Sonarr tells Jellyfin 
 
 ## Still open (J5)
 
-Reboot of Urd, `pct migrate` to Verd and back, PBS backup and restore of 1123, the smoke failure path, playback of real 4K HDR, AV1 and PGS-subtitle files (the library so far is 8-bit 1080p H.264 anime), and `intel_gpu_top` on Urd during a transcode.
+Playback of real 4K HDR, AV1 and PGS-subtitle files (the library so far is 8-bit 1080p H.264 anime), the capacity measurement for 4K tone-mapped streams, and `intel_gpu_top` on Urd during a transcode. A Urd reboot is not required (the host side is Ansible-managed).
+
+## Proven 2026-10-10 (J5)
+
+- **`pct migrate 1123 verd --restart` and back:** about 9 minutes each way (the 40 GB cache volume is copied whole; the rootfs is 16 GB). On Verd: `/health` Healthy, the render node arrived as `root:igpu` mode 0660, NFS still `ro`, the QSV smoke test passed on Verd's iGPU (iHD, HEVC Main10 profiles listed). Back on Urd the config is identical (same MAC, `dev0`, `mp0`, `net0`).
+- **PBS backup and restore:** a backup takes 7 s and is 1.46 GB (the cache mount point is excluded). Restored into a scratch CT in 27 s: `jellyfin.db` integrity ok, 55 items and 1 user, the same as live, and the restored service starts and reports the same server id and version. Two things the test surfaced: the restored cache volume is empty and `root:root`, which made Jellyfin abort (now fixed by a boot-time tmpfiles rule), and `jellyfin.service` refuses to start without `/media` (by design, see [`known-issues/jellyfin.md`](../known-issues/jellyfin.md)).
+- **Smoke failure path:** removing `jellyfin` from `igpu` made the smoke test fail and Zabbix opened "QuickSync transcode self-test failing" (High); re-running the Ansible play restored the group and the next run passed. The test also exposed a wrong trigger expression, fixed the same day (same known-issues file).
