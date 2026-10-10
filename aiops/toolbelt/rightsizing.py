@@ -241,6 +241,14 @@ def evaluate(c: Container, cfg: dict, now: float) -> tuple[list, list]:
     return out, sorted(set(why))
 
 
+def finding_value(e: dict) -> float | None:
+    """The one number a suggestion is about, to tell whether it moved since an operator called it noise (10i3)."""
+    for k in ("proposed_request_mib", "proposed_limit_mib", "proposed_request_millicores", "rise_mib"):
+        if isinstance(e.get(k), (int, float)):
+            return float(e[k])
+    return None
+
+
 def freed_bytes(f: dict) -> int:
     """Memory a finding frees (negative for an under-request that adds): the ranking key for the digest."""
     e = f["evidence"]
@@ -510,12 +518,21 @@ def detail(fleet: Fleet, cfg: dict, now: float, namespace: str, kind: str | None
             "controllers": [{"controller": k, "has_vpa": k in fleet.covered, "containers": v} for k, v in groups.items()]}
 
 
-def findings(vm: VM, cfg: dict, now: float) -> tuple[list, dict]:
-    """The daily pass: every finding that holds now plus a stats dict (for the job's log line). Findings are not posted anywhere by this code."""
+def snapshot(fleet: Fleet, cfg: dict, now: float, suppressed: dict) -> dict:
+    """What the 10i3 digest needs besides the findings: the per-worker scoreboard and the coverage numbers, as of this pass."""
+    ages = [c.vpa_mem.age_s for c in fleet.containers.values() if c.vpa_mem.age_s]
+    return {"as_of": now, "workers": fleet.nodes, "controllers": len(fleet.controllers), "controllers_with_vpa": len(fleet.covered & fleet.controllers),
+            "controllers_without_vpa": uncovered(fleet, cfg), "oldest_vpa_sample_days": round(max(ages) / DAY, 1) if ages else None,
+            "vpa_min_sample_age_days": cfg["vpa"]["min_sample_age_days"], "suppressed": suppressed}
+
+
+def findings(vm: VM, cfg: dict, now: float, with_snapshot: bool = False):
+    """The daily pass: every finding that holds now plus a stats dict (for the job's log line); with `with_snapshot` also the digest's
+    snapshot as a third value. Findings are not posted anywhere by this code."""
     fleet = collect(vm, cfg, now)
     found, suppressed = analyse(fleet, cfg, now)
     stats = {"containers": len(fleet.containers), "controllers_with_vpa": len(fleet.covered & fleet.controllers), "findings": len(found),
              "without_vpa": len(uncovered(fleet, cfg)), "errors": len(fleet.errors), **{f"suppressed_{k}": v for k, v in sorted(suppressed.items())}}
     if fleet.errors:
         stats["error_detail"] = "; ".join(fleet.errors)[:300]
-    return found, stats
+    return (found, stats, snapshot(fleet, cfg, now, suppressed)) if with_snapshot else (found, stats)

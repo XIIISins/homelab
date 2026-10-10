@@ -32,6 +32,7 @@ ratatoskr_source_files:
   - bot/logic.py
   - bot/drafts.py
   - bot/fcast.py
+  - bot/rsdigest.py
   - bot/bot.py
 
 # The unit's own egress filter (defence in depth; the UCG policy is the real boundary, see docs/architecture/network.md).

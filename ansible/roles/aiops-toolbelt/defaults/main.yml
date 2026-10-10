@@ -138,6 +138,7 @@ aiops_toolbelt_source_files:
   - toolbelt/forecast_zabbix.py
   - toolbelt/forecast_store.py
   - toolbelt/rightsizing.py
+  - toolbelt/rightsizing_digest.py
   - rightsizing.yml
   - toolbelt/incident_draft.py
   - toolbelt/capacity_draft.py

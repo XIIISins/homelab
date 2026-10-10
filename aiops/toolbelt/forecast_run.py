@@ -83,12 +83,12 @@ def rightsizing_pass(config: str, url: str, now: float, every: float, prev: dict
         return prev
     try:
         cfg = rightsizing.load_config(config)
-        found, stats = rightsizing.findings(rightsizing.VM(url, fetch or fetch_text()), cfg, now)
+        found, stats, snap = rightsizing.findings(rightsizing.VM(url, fetch or fetch_text()), cfg, now, with_snapshot=True)
     except Exception as e:  # noqa: BLE001 - the forecasts must still be written
         return {**prev, "stats": {"error": f"{type(e).__name__}: {str(e)[:120]}"}}
     if stats.get("errors"):
         return {**prev, "stats": stats}
-    return {"ts": now, "findings": found, "stats": stats}
+    return {"ts": now, "findings": found, "stats": stats, "snapshot": snap}
 
 
 def main(argv: list | None = None, query=None, now: float | None = None, fetch=None) -> int:
