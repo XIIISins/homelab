@@ -180,7 +180,7 @@
         rt_ok: true
         rt_summary: >-
           {{ '✅' }} {{ rt_name }} ({{ rt_vmid }}): restored the backup of
-          {{ rt_backup.ctime | int | strftime('%Y-%m-%d %H:%MZ', utc=true) }} ({{ rt_age_h | float | round(1) }} h old,
+          {{ '%Y-%m-%d %H:%MZ' | strftime(rt_backup.ctime | int, utc=true) }} ({{ rt_age_h | float | round(1) }} h old,
           {{ (rt_backup.size | int / 1073741824) | round(1) }} GiB) on {{ inventory_hostname }};
           {{ rt_facts.os | default('?') }}, {{ rt_facts.used_mb | default('?') }} MB used; {{ rt_hostkey_note }}
           {{ ('; boots with no network (' ~ rt_systemd.stdout | trim ~ '); ' ~ rt_sentinel_note) if rt_kind == 'canary' else '' }}
