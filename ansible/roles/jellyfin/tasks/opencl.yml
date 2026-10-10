@@ -1,0 +1,54 @@
+# ansible/roles/jellyfin/tasks/opencl.yml
+---
+# Intel's OpenCL runtime for hardware HDR tone mapping (tonemap_opencl). Debian 13 has no intel-opencl-icd package, so the pinned
+# upstream .debs are downloaded, checked against their published sha256 and installed in dependency order. Held, like the
+# Jellyfin packages: a bump is a reviewed change to jellyfin_opencl_packages, not an unattended upgrade. Without this runtime
+# every HDR transcode fails creating its OpenCL device while EnableTonemapping is on.
+- name: Create the package directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_opencl_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Look for the package directory (it does not exist in check mode on a fresh container)
+  ansible.builtin.stat:
+    path: "{{ jellyfin_opencl_dir }}"
+  register: jellyfin_opencl_dir_stat
+
+- name: Download Intel's OpenCL runtime packages (pinned, sha256-verified)
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ jellyfin_opencl_dir }}/{{ item.file }}"
+    checksum: "sha256:{{ item.sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ jellyfin_opencl_packages }}"
+  loop_control:
+    label: "{{ item.file }}"
+  when: not ansible_check_mode or jellyfin_opencl_dir_stat.stat.exists
+
+- name: Install them in dependency order
+  ansible.builtin.apt:
+    deb: "{{ jellyfin_opencl_dir }}/{{ item.file }}"
+    state: present
+  loop: "{{ jellyfin_opencl_packages }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode or jellyfin_opencl_dir_stat.stat.exists
+  notify: Restart jellyfin
+
+- name: Hold them
+  ansible.builtin.dpkg_selections:
+    name: "{{ item.name }}"
+    selection: hold
+  loop: "{{ jellyfin_opencl_packages }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install clinfo (the self-check probe)
+  ansible.builtin.apt:
+    name: clinfo
+    state: present

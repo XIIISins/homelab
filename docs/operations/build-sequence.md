@@ -11,7 +11,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 ## What's left (2026-10-09)
 
 **Built, still open**
-- **5h Jellyfin + media automation:** J5 acceptance (real 4K/AV1/PGS playback and the 4K tone-mapping capacity; `pct migrate`, PBS restore and the smoke failure path were done 2026-10-10), the Sonarr config-loss recovery test, household accounts and the Tailscale ACL.
+- **5h Jellyfin + media automation:** J5 acceptance (PGS burn-in, VC-1 and Dolby Vision P5/HLG playback need real files; migrate, PBS restore, smoke failure path, the 4K playback matrix and 4K capacity done 2026-10-10), the Sonarr config-loss recovery test, household accounts and the Tailscale ACL.
 - **10f autonomous healing:** the ~14-day canary soak read-out is due about 2026-10-17.
 - **10g rebuild loop:** stage A (canaries) proven; replica and worker stages not built. PBS datastore capacity is no longer a prerequisite (67% on 2026-10-10).
 - **10h predictive changes and PR author:** all three parts live; exit criteria not yet met.

@@ -34,6 +34,26 @@
       of {{ jellyfin_user }}, and `intel_gpu_top` on the host; if only the driver was not found, set jellyfin_libva_env.
   when: not ansible_check_mode
 
+- name: Probe OpenCL (Intel NEO) as the jellyfin user
+  ansible.builtin.command:
+    argv: [runuser, -u, "{{ jellyfin_user }}", --, clinfo, -l]
+  register: jellyfin_clinfo
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Assert OpenCL sees the Intel iGPU
+  ansible.builtin.assert:
+    that:
+      - jellyfin_clinfo.rc == 0
+      - "'Intel' in jellyfin_clinfo.stdout"
+    fail_msg: >-
+      clinfo as {{ jellyfin_user }} found no Intel OpenCL device (rc {{ jellyfin_clinfo.rc | default('n/a') }}):
+      {{ (jellyfin_clinfo.stdout + jellyfin_clinfo.stderr | default('')) | trim | truncate(300) }}. HDR tone mapping will fail
+      until the OpenCL runtime works; see tasks/opencl.yml.
+  when: not ansible_check_mode
+
 # J4 ticks the hardware-decoding checkboxes from exactly this list.
 - name: Show the decode (VLD) profiles the iGPU reports
   ansible.builtin.debug:

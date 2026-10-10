@@ -16,6 +16,10 @@
   ansible.builtin.import_tasks: install.yml
   tags: [jellyfin, jellyfin:install]
 
+- name: OpenCL - Intel's runtime for hardware HDR tone mapping
+  ansible.builtin.import_tasks: opencl.yml
+  tags: [jellyfin, jellyfin:opencl]
+
 - name: Service - enable, start, wait for /health
   ansible.builtin.import_tasks: service.yml
   tags: [jellyfin, jellyfin:service]
