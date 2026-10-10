@@ -129,7 +129,7 @@
         pct destroy {{ restore_test_scratch_id }} --purge 1 --destroy-unreferenced-disks 1
       args:
         executable: /bin/bash
-      delegate_to: "{{ restore_test_guest_index[restore_test_scratch_id | string].node }}"
+      delegate_to: "{{ (restore_test_guest_index[restore_test_scratch_id | string] | default({})).node | default(inventory_hostname) }}"
       when: (restore_test_scratch_id | string) in restore_test_guest_index
       changed_when: true
 
@@ -143,7 +143,7 @@
       ansible.builtin.shell: >-
         pct exec {{ restore_test_canary_id }} -- sh -c
         "mkdir -p /var/lib/restore-test && echo $(date +%s) {{ hostvars['localhost'].restore_test_run_id }} > /var/lib/restore-test/sentinel"
-      delegate_to: "{{ restore_test_guest_index[restore_test_canary_id | string].node }}"
+      delegate_to: "{{ (restore_test_guest_index[restore_test_canary_id | string] | default({})).node | default(inventory_hostname) }}"
       changed_when: true
       failed_when: false # a stopped or rebuilt canary must not fail the restore test itself
 

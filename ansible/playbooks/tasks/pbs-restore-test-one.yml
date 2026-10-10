@@ -117,7 +117,7 @@
 
     - name: Read the live host key from the guest's own node
       ansible.builtin.command: pct exec {{ rt_vmid }} -- cat /etc/ssh/ssh_host_ed25519_key.pub
-      delegate_to: "{{ restore_test_guest_index[rt_vmid | string].node }}"
+      delegate_to: "{{ (restore_test_guest_index[rt_vmid | string] | default({})).node | default(inventory_hostname) }}"
       register: rt_live_key
       changed_when: false
       failed_when: false
@@ -133,7 +133,7 @@
       block:
         - name: Read the live sentinel
           ansible.builtin.command: pct exec {{ rt_vmid }} -- cat /var/lib/restore-test/sentinel
-          delegate_to: "{{ restore_test_guest_index[rt_vmid | string].node }}"
+          delegate_to: "{{ (restore_test_guest_index[rt_vmid | string] | default({})).node | default(inventory_hostname) }}"
           register: rt_live_sentinel
           changed_when: false
           failed_when: false
