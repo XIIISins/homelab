@@ -12,6 +12,11 @@
     group: root
     mode: "0755"
 
+- name: Look for the package directory (it does not exist in check mode on a fresh container)
+  ansible.builtin.stat:
+    path: "{{ jellyfin_opencl_dir }}"
+  register: jellyfin_opencl_dir_stat
+
 - name: Download Intel's OpenCL runtime packages (pinned, sha256-verified)
   ansible.builtin.get_url:
     url: "{{ item.url }}"
@@ -23,6 +28,7 @@
   loop: "{{ jellyfin_opencl_packages }}"
   loop_control:
     label: "{{ item.file }}"
+  when: not ansible_check_mode or jellyfin_opencl_dir_stat.stat.exists
 
 - name: Install them in dependency order
   ansible.builtin.apt:
@@ -31,6 +37,7 @@
   loop: "{{ jellyfin_opencl_packages }}"
   loop_control:
     label: "{{ item.name }}"
+  when: not ansible_check_mode or jellyfin_opencl_dir_stat.stat.exists
   notify: Restart jellyfin
 
 - name: Hold them
