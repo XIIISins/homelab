@@ -4,6 +4,8 @@ kind: Deployment
 metadata:
   name: apex-static
   namespace: apex-static
+  labels:
+    app.kubernetes.io/name: apex-static
 spec:
   # 2 replicas — stateless, low-traffic, but Traefik posture says avoid
   # single-pod for cluster-edge services. Anti-affinity spreads across
