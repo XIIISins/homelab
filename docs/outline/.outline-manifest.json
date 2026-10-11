@@ -39,6 +39,16 @@
     "sha": "1b54379753c65b3865b2432e1da291f318c20c3780f2b11ff057fa17e9a7cf78",
     "title": "Storage & data"
   },
+  "diagrams.md": {
+    "id": "ef9a1660-5790-480c-b32f-28e80d55ddee",
+    "sha": "6f05e34f832084cc31ffb91679404f03e10d49e65f2d92a6c2b8beefb5c455cb",
+    "title": "Diagrams"
+  },
+  "diagrams/overview.md": {
+    "id": "57a4195f-c51e-4ddf-8a2c-2ab039fe2e6e",
+    "sha": "c5789635baa1f4bb7640b31530a30b233f700e6a3ae2a3f60c2525dc0f361529",
+    "title": "Overview diagram"
+  },
   "hardware.md": {
     "id": "724c0516-21f0-45f3-b2f7-600a7048c482",
     "sha": "f5e60ba44abc607bcb88281cd995a91aeac80d59229b552df020cab564ffd098",
