@@ -30,6 +30,8 @@ Consumer pod (e.g. outline)
 Reply path is the inverse — all in pod network, never touches MetalLB.
 ```
 
+**Browser-facing S3 (Outline only):** the S3 API is also reachable as `s3.xiiisins.com` for Outline's browser uploads and image reads: read/write from the LAN/tailnet via Traefik, read-only (GET/HEAD of `/outline/*`) from the internet via a Caddy proxy behind the Cloudflare tunnel. Manifests in `k8s/asgard/apps/garage-ingress/`; rationale in [decisions.md](../operations/decisions.md) "Outline S3".
+
 The admin API (3903) is ClusterIP-only by design. Operator workflows hit it via `kubectl port-forward` — never exposed externally, never tunnelled.
 
 ## Single-node design tradeoffs

@@ -1,0 +1,84 @@
+# k8s/asgard/apps/garage-ingress/deployment.yaml
+#
+# Read-only S3 proxy for the Cloudflare tunnel (see Caddyfile). Same shape as
+# apps/overview: Caddy, non-root, read-only root filesystem, two replicas on
+# different workers so one node loss leaves a path for outside readers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage-s3-ro
+  namespace: garage
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: garage-s3-ro
+  template:
+    metadata:
+      labels:
+        app: garage-s3-ro
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - garage-s3-ro
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: caddy:2.11.2-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: caddy
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+      volumes:
+        - name: caddy
+          configMap:
+            name: garage-s3-ro-caddy
+        - name: caddy-data
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: caddy-config
+          emptyDir:
+            sizeLimit: 16Mi

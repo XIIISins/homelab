@@ -1,0 +1,18 @@
+# k8s/asgard/apps/garage-ingress/service.yaml
+#
+# Target of the cloudflared ingress rule for s3.xiiisins.com (ClusterIP DNS,
+# never a MetalLB IP: known-issues/cloudflare.md).
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage-s3-ro
+  namespace: garage
+spec:
+  type: ClusterIP
+  selector:
+    app: garage-s3-ro
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

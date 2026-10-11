@@ -12,3 +12,16 @@ spec:
     name: garage
   updatePolicy:
     updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: garage-s3-ro
+  namespace: garage
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: garage-s3-ro
+  updatePolicy:
+    updateMode: "Off"

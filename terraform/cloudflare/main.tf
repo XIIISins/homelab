@@ -82,6 +82,20 @@ resource "cloudflare_dns_record" "immich" {
   ttl     = 1
 }
 
+# Garage S3 (Outline images) — public apex hostname tunnelled through cloudflared,
+# READ-ONLY: the cloudflared rule targets the Caddy proxy in apps/garage-ingress
+# (GET/HEAD of /outline/* only), not Traefik. Uploads happen only from the LAN/tailnet,
+# where an AGH rewrite (terraform/adguard/) sends the same name to Traefik's read/write
+# route. Cloudflared ingress rule: k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+resource "cloudflare_dns_record" "s3" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "s3.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+}
+
 # Zabbix (Hugin) — public apex hostname tunnelled through cloudflared.
 # Phase 8c.5 (WAN ingress). Cloudflared ingress rule lives in
 # k8s/asgard/infrastructure/cloudflared/configmap.yaml — pattern mirrors
