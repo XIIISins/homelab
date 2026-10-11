@@ -29,14 +29,18 @@
 - **Proxmox cluster:** `niflheim`
 - **Hypervisor nodes:** Urd (eldest/primary, 32GB), Verd, Skuld — the three Norns
 - **NAS:** Munin — Odin's raven of memory
-- **DNS zones:** `midgard.xiiisins.com` (public) + `niflheim.xiiisins.com` (internal)
+- **DNS zones:** `xiiisins.com` (apex, external) · `midgard.xiiisins.com` (internal alias of publicly reachable services) · `niflheim.xiiisins.com` (internal-only)
 - **Asgard K3s CP:** Göndul, Hlökk, Sigrún (Valkyries)
 - **Asgard K3s workers:** Einherjar-urd/verd/skuld (army of the Norns)
-- **Jotunheim K3s CP:** Rota, Hildr, Kára (Valkyries)
-- **Jotunheim K3s workers:** Drengr-urd/verd/skuld (heroes of the Norns)
+- **Jotunheim K3s (reserved; dropped 2026-10-05):** CPs Rota, Hildr, Kára (Valkyries); workers Drengr-urd/verd/skuld (heroes of the Norns)
 - **AdGuard Home:** Saga (primary), Mimir (replica), Kvasir (replica)
 - **Asgard PostgreSQL:** Fulla (primary), Vör (replica), Idunn (replica) — Frigg's handmaidens / keeper goddesses
 - **Asgard PG HAProxy/etcd trio:** Hlin, Eir, Snotra — Frigg's handmaidens fronting the PG cluster. Hlin (protection — HAProxy traffic gate), Eir (healing/recovery — failover restoration), Snotra (wisdom/decision — etcd consensus).
+- **Tailscale LXCs:** Bifrost, Heimdall, Gjallarbru (the Norse bridges and their watchman; subnet routers)
+- **Zabbix:** Hugin — Odin's raven of thought, pairs with Munin (memory): one observes, one remembers
+- **Notifications:** Hermod — the messenger god; its Discord channels' display names are Valkyries (Hrist critical, Mist alert, Randgrid info, Ölrún media, Hel untagged)
+- **AIOps:** Gná (Frigg's messenger; the agent host, "`n8n`" in conversation means this agent) and Ratatoskr (the squirrel that carries messages; the Discord bot)
+- **Control node:** Frigg, the watchtower VM (Terraform/Ansible/Flux cycle, `claude remote-control`)
 
 **Cluster naming meta-principle.** The primary node defines the theme; replicas are a logical expansion within it. Postgres is the *library* — Fulla guards the treasure chest, Vör knows what is in it, Idunn preserves what must not be lost. The HAProxy/etcd trio continues the same theme by function: Hlin shields the cluster's edge, Eir mends after a node falls, Snotra arbitrates which node leads. New service clusters follow the same shape: pick the primary by archetype, the replicas (and the surrounding service trio if any) by the natural cohort that surrounds that archetype.
 

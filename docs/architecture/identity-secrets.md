@@ -3,12 +3,12 @@
 # Identity and access management
 
 - **Personal user** — Authentik LDAP + SSSD. SSH key only.
-- **`ansible` user** — local, AWX service account. Passwordless sudo. SSH key `~/.ssh/ansible_niflheim`.
+- **`ansible` user** — local, Ansible service account (the SSH user for playbook runs, including Semaphore's). Passwordless sudo. SSH key `~/.ssh/ansible_niflheim`.
 - **`recovery` / break-glass user** — created by the `baseline` role on all nodes: SSH-key-only, NOPASSWD sudo. SSH key in 1Password.
 - **`kubernetes` user** — Synology admin for CSI driver.
 - **Proxmox API token** — scoped for Terraform only.
 
-Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) as Authentik break-glass fallback. Stored in 1Password.
+Local admin accounts on all web services (Vault, Semaphore, NetBox, Outline, Zabbix) as Authentik break-glass fallback. Stored in 1Password.
 
 ---
 
@@ -24,7 +24,7 @@ Local admin accounts on all web services (Vault, AWX, Grafana, Netbox, Outline) 
 | Machine-consumed (runtime) | **HashiCorp Vault (asgard K3s)** | K8s workloads via ESO, Ansible via AppRole, automation | Authentik signing key, DB passwords pulled by apps, K8s workload secrets, Ansible-pulled service passwords (e.g. `secret/ansible/sftpgo/admin-password`) |
 | Machine-consumed (bootstrap) | **Ansible Vault** (`group_vars/all/vault.yml`) | Ansible, on a fresh node before HashiCorp Vault is reachable | `k3s_token`, `rhel_activation_key`, `rhel_org_id`, `ansible_user_ssh_public_key`, `breakglass_ssh_public_key`. Plus `aws_access_key_id` / `aws_secret_access_key` / `aws_kms_key_id` as a re-seal recovery copy (not pulled by Ansible — used manually with `kubeseal` to regenerate the vault-unseal SealedSecret; see "Bootstrap-of-bootstrap" row for the runtime path). Narrow scope: only what's needed to make a node usable up to the point HashiCorp Vault can take over. |
 | Failure-independent | **1Password — other vaults** | You, when homelab is down | Break-glass user SSH key, AWS KMS unseal token, Vault root token, Proxmox/Synology/UCG-Ultra/KPN admin |
-| Bootstrap-of-bootstrap | **SealedSecret + Ansible Vault recovery copy** | Cluster controller (sealed-secrets controller decrypts and mounts as K8s Secret; Vault pod reads as env vars) | `vault-unseal` SealedSecret in `k8s/asgard/infrastructure/vault/vault-unseal-secret.yaml` holds the AWS KMS credentials Vault uses for auto-unseal. Runtime path = SealedSecret → K8s Secret → Vault pod env. Recovery path: if the SealedSecret blob is lost (cluster rebuild, sealed-secrets key rotation), the plaintext AWS values in `group_vars/all/vault.yml` are the source to re-run `kubeseal` against. |
+| Bootstrap-of-bootstrap | **SealedSecret + Ansible Vault recovery copy** | Cluster controller (sealed-secrets controller decrypts and mounts as K8s Secret; Vault pod reads as env vars) | `vault-unseal` SealedSecret in `k8s/asgard/vault-config/vault-unseal-secret.yaml` holds the AWS KMS credentials Vault uses for auto-unseal. Runtime path = SealedSecret → K8s Secret → Vault pod env. Recovery path: if the SealedSecret blob is lost (cluster rebuild, sealed-secrets key rotation), the plaintext AWS values in `group_vars/all/vault.yml` are the source to re-run `kubeseal` against. |
 
 ## Scope rule
 
@@ -55,7 +55,7 @@ The implementation is ESO sync-and-cache for K8s secrets (Vault → ESO → K8s 
 ## Vault current state
 
 - 3-node Raft HA, AWS KMS auto-unseal (eu-west-1, single-key AWS account, `vault-unseal` IAM user is scoped to that one key (`kms:Encrypt`, `kms:Decrypt`, `kms:DescribeKey`, checked 2026-10-03))
-  - **KMS key recovery pointer** (what to point a rebuilt Vault's `seal "awskms"` at): region `eu-west-1`. The key-id is `VAULT_AWSKMS_SEAL_KEY_ID` in the `vault-unseal` secret (SealedSecret at `k8s/asgard/infrastructure/vault/vault-unseal-secret.yaml`, runtime path SealedSecret → K8s Secret → Vault pod env) with a recovery copy as `aws_kms_key_id` in `group_vars/all/vault.yml`. The **full key ARN + the `vault-unseal` IAM access key/secret** live in the 1P bootstrap item (outside the Homelab sub-vault per the failure-independent scope rule). The ARN is deliberately **not** committed — it's an identifier, not a credential, but it embeds the AWS account ID; keeping it in 1P preserves "pointers in git, account-specifics in 1P".
+  - **KMS key recovery pointer** (what to point a rebuilt Vault's `seal "awskms"` at): region `eu-west-1`. The key-id is `VAULT_AWSKMS_SEAL_KEY_ID` in the `vault-unseal` secret (SealedSecret at `k8s/asgard/vault-config/vault-unseal-secret.yaml`, runtime path SealedSecret → K8s Secret → Vault pod env) with a recovery copy as `aws_kms_key_id` in `group_vars/all/vault.yml`. The **full key ARN + the `vault-unseal` IAM access key/secret** live in the 1P bootstrap item (outside the Homelab sub-vault per the failure-independent scope rule). The ARN is deliberately **not** committed — it's an identifier, not a credential, but it embeds the AWS account ID; keeping it in 1P preserves "pointers in git, account-specifics in 1P".
 - Storage: 3-node Raft on `local-path` (node-local NVMe, one PV per pod pinned to urd/skuld/verd) — migrated off iSCSI in the 2026-05-30 storage redesign (Class L). HA is app-level (Raft quorum), not storage-level; PBS backs up each worker's `/data`.
 - Listener serves TLS via the cert-manager internal CA `homelab-internal-ca` (flipped from `tls_disable=1` 2026-06-20; trust-manager distributes the CA, Traefik re-encrypts via `BackendTLSPolicy`, ESO trusts via `caProvider`). See [`../procedures/vault-tls-migration.md`](../procedures/vault-tls-migration.md)
 - KV-v2 engine at `secret/`
@@ -77,7 +77,7 @@ Setting up a fresh control node (or re-bootstrapping after credential loss). Use
 - Setting up Ansible on a new MacBook / control node
 - Rotating SecretID at the 90-day cadence
 - Recovering from a lost SecretID
-- Deploying AWX (same steps, against the `ansible-awx` role)
+- Rotating or re-seeding Semaphore's `ansible-awx` AppRole (use `rotate-semaphore-approle`; see the role notes above)
 
 **Checklist:**
 
@@ -87,7 +87,7 @@ Setting up a fresh control node (or re-bootstrapping after credential loss). Use
 4. Stash in 1Password Homelab vault as a Login item (one per role; for `ansible-local` the item name is `Ansible - Vault - k3s`) with fields `url`, `method`, `username` (= RoleID), `password` (= SecretID), `secret_id_accessor`, `expires_at` (today + 90 days). Map role name → 1P item name in `$__homelab_approle_items` inside `homelab.fish`.
 5. Load via `homelab-env` (control-node fish tooling — see sub-section below). No env file on disk.
 6. Install `community.hashi_vault` Galaxy collection + `hvac` Python lib in the Ansible venv.
-7. Test the lookup with `playbooks/test-vault-lookup.yml`.
+7. Test the lookup with the ad-hoc check in "Verify end-to-end" below.
 
 **Detailed steps — MacBook → `ansible-local` role:**
 
@@ -161,10 +161,10 @@ homelab-env
 set-vault-token root
 vault kv put secret/ansible/test/hello value=world
 
-# Switch to AppRole and run the test play
+# Switch to AppRole and look the value up (the value is a non-secret test string)
 set-vault-token approle
-ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/test-vault-lookup.yml
-# Expected: "Got value from Vault: world"
+ansible localhost -m ansible.builtin.debug -a "msg={{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/test/hello').secret.value }}"
+# Expected: "msg": "world"
 
 # Cleanup
 set-vault-token root
@@ -172,7 +172,7 @@ vault kv delete secret/ansible/test/hello
 set -e VAULT_TOKEN
 ```
 
-**For AWX (when deployed):** same steps against `ansible-awx` role. SecretID goes into AWX's credential store rather than a local env file. After deploy, restrict via `token_bound_cidrs` in `terraform/vault/main.tf` once the asgard K3s pod CIDR is known.
+**For Semaphore:** the `ansible-awx` role; the SecretID lives in Vault KV and is pushed to Semaphore's environment by `terraform apply` in `terraform/semaphore/` (never in state). The roles carry no `token_bound_cidrs`, because callers' source addresses change (the MacBook) or are SNAT'd (Frigg via the Traefik VIP).
 
 **Rotation (every 90 days):**
 

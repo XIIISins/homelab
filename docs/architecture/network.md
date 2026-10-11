@@ -13,8 +13,8 @@
 | 11 | `10.0.11.0/24` | HL-ASG-SVC | Asgard LXCs |
 | 20 | `10.0.20.0/24` | HL-ASG-K3S-VIP | Asgard K3s MetalLB pool |
 | 21 | `10.0.21.0/24` | HL-ASG-K3S-NODE | Asgard K3s nodes (CPs + workers; renamed from `-WRK` 2026-05-23 — both CP and worker nodes share this VLAN) |
-| 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP | Jotunheim K3s MetalLB pool |
-| 31 | `10.0.31.0/24` | HL-JOT-K3S-NODE | Jotunheim K3s nodes (CPs + workers; renamed from `-WRK` 2026-05-23 for symmetry with VLAN 21) |
+| 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP | Jotunheim K3s MetalLB pool (reserved; Jotunheim dropped 2026-10-05) |
+| 31 | `10.0.31.0/24` | HL-JOT-K3S-NODE | Jotunheim K3s nodes (reserved; renamed from `-WRK` 2026-05-23 for symmetry with VLAN 21) |
 | 60 | `10.0.60.0/24` | HL-CLIENT | Personal devices |
 | 100 | `10.0.100.0/24` | HL-STOR | Storage / NFS — stable |
 | 222 | `10.0.222.0/24` | Untrusted | Quarantine |
@@ -41,12 +41,13 @@
 | `10.0.10.203` | AdGuard eth1 — Kvasir (Skuld) |
 | `10.0.10.210` | HAProxy VIP — PostgreSQL frontend |
 
-**Asgard LXC VLAN 11 (10.0.11.0/24):**
+**Asgard LXC and VM VLAN 11 (10.0.11.0/24):**
 
 | Address | LXC ID | Node | Role |
 |---------|--------|------|------|
 | `10.0.11.20` | 1101 | Urd | PBS ✅ (moved from Skuld 2026-10-01) |
 | `10.0.11.21` | 1102 | Urd | Zabbix — Hugin ✅ |
+| `10.0.11.22` | 1103 | Verd | Hermod — notifications (AppriseAPI → Discord) ✅ |
 | `10.0.11.201` | 1110 | Urd | AdGuard Home — Saga ✅ |
 | `10.0.11.202` | 1111 | Verd | AdGuard Home — Mimir ✅ |
 | `10.0.11.203` | 1112 | Skuld | AdGuard Home — Kvasir ✅ |
@@ -63,9 +64,10 @@
 | `10.0.11.230` | 1130 | Skuld | Fulla (PostgreSQL 1) ✅ |
 | `10.0.11.231` | 1131 | Urd | Vör (PostgreSQL 2) |
 | `10.0.11.232` | 1132 | Verd | Idunn (PostgreSQL 3) |
-| `10.0.11.233` | 1133 | Urd | HAProxy 1 |
-| `10.0.11.234` | 1134 | Verd | HAProxy 2 |
-| `10.0.11.235` | 1135 | Skuld | HAProxy 3 |
+| `10.0.11.233` | 1133 | Urd | HAProxy + etcd — Hlin |
+| `10.0.11.234` | 1134 | Verd | HAProxy + etcd — Eir |
+| `10.0.11.235` | 1135 | Skuld | HAProxy + etcd — Snotra |
+| `10.0.11.30` | 2900 (VM) | Verd (HA-managed) | Frigg — control node (Terraform/Ansible/Flux cycle, `claude remote-control`, the Toolbelt) |
 
 **Asgard K3s MetalLB VLAN 20 (10.0.20.0/24):**
 
@@ -89,10 +91,9 @@
 
 Göndul moved Urd → Verd on 2026-05-17 (the deferred backlog item from the 2026-05-14 incident), then back Verd → Urd in Phase 4b (2026-05-22). Current placement is **Urd** (Hlökk on Verd, Sigrún on Skuld).
 
-**Jotunheim K3s MetalLB VLAN 30 (10.0.30.0/24):**
-`10.0.30.11–.99` — LoadBalancer pool
+**Jotunheim K3s (reserved, not deployed; dropped 2026-10-05, design in [`jotunheim-k3s.md`](../services/jotunheim-k3s.md)):**
 
-**Jotunheim K3s nodes VLAN 31 (10.0.31.0/24):**
+VLAN 30 (`10.0.30.0/24`): LoadBalancer pool `10.0.30.11–.99`. VLAN 31 (`10.0.31.0/24`) nodes:
 
 | Address | VM ID | Node | Role | Name |
 |---------|-------|------|------|------|
@@ -121,8 +122,9 @@ NFS traffic only — no static assignments needed.
 | Range | Type |
 |-------|------|
 | 1101–1199 | Asgard LXCs (sub-grouped by function) |
-| 2001–2999 | Asgard K3s VMs |
-| 3001–3999 | Jotunheim K3s VMs |
+| 2001–2103 | Asgard K3s VMs (CPs 2001–2003, workers 2101–2103) |
+| 2900–2999 | Other asgard VMs (Frigg = 2900) |
+| 3001–3999 | Jotunheim K3s VMs (reserved) |
 | 9900–9999 | DigitalOcean offsite nodes (NetBox `VMID` cross-reference only; not Proxmox guests — `do1` = 9900) |
 | 10001+ | Templates |
 
@@ -130,9 +132,9 @@ NFS traffic only — no static assignments needed.
 
 | Range | Group |
 |-------|-------|
-| 1101–1109 | Backup & monitoring (PBS, Zabbix) |
+| 1101–1109 | Backup, monitoring and notifications (PBS 1101, Zabbix 1102, Hermod 1103) |
 | 1110–1119 | Network infrastructure (AdGuard ×3, Tailscale ×3) |
-| 1120–1129 | Services (Factorio; Teamspeak pivoted to a K3s app — no longer an LXC) |
+| 1120–1129 | Services (Factorio 1120, Gná 1121, Ratatoskr 1122, Jellyfin 1123; Teamspeak pivoted to a K3s app) |
 | 1130–1139 | Database (PostgreSQL ×3, HAProxy ×3) |
 | 1190–1199 | AIOps canary pool (1190–1192 in use; Urd only, disposable — [`procedures/canary-pool.md`](../procedures/canary-pool.md)) |
 
