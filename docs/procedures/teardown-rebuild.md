@@ -213,7 +213,7 @@ cd terraform/proxmox/asgard-k3s
 terraform init && terraform apply      # creates VMs 2001–2003 (CP) + 2101–2103 (workers)
 ```
 
-Each worker carries a 50G `scsi1` data disk (`/data`, local-path tier — see CLAUDE.md). Cloud-init takes 2–3 min after apply returns. Clear stale host keys + confirm reachability:
+Each worker carries a 50G `scsi1` data disk (`/data`, local-path tier — see CLAUDE.md) and a 100G `scsi2` scratch disk (`/scratch`, `local-path-scratch`, not in PBS: its contents are re-downloaded, not restored). Cloud-init takes 2–3 min after apply returns. Clear stale host keys + confirm reachability:
 
 ```fish
 for ip in 10.0.21.11 10.0.21.12 10.0.21.13 10.0.21.21 10.0.21.22 10.0.21.23

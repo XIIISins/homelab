@@ -37,10 +37,11 @@ spec:
   values:
     # Node-local storage for app-replicated state (Vault Raft, Class L in the
     # storage tiering plan). K3s' built-in local-storage provisioner is disabled
-    # in our CP config; this is the Flux-managed replacement. Data lands on a
-    # dedicated 50G scsi1 data disk on each worker, mounted container-writable
-    # at /data by the local-path-disk Ansible role (separate from the OS disk,
-    # so it survives a VM rebuild). See docs/procedures/storage-tiering.md.
+    # in our CP config; this is the Flux-managed replacement. `local-path` data
+    # lands on a dedicated 50G scsi1 data disk on each worker, mounted
+    # container-writable at /data by the local-path-disk Ansible role (separate
+    # from the OS disk, so it survives a VM rebuild); `local-path-scratch` uses a
+    # second, unbacked-up disk at /scratch. See docs/procedures/storage-tiering.md.
     image:
       repository: docker.io/rancher/local-path-provisioner
       tag: v0.0.37 # concrete pin (matches chart appVersion / git tag)
@@ -48,24 +49,51 @@ spec:
       # Chart default is the floating busybox:latest — pin per CLAUDE.md no-floats.
       repository: docker.io/library/busybox
       tag: "1.37.0"
-    storageClass:
-      create: true
-      name: local-path
-      # NOT the default class — explicit per-workload SC naming. The iSCSI
-      # synology-csi-iscsi-retain stays default (Stage 4 revisits dropping it).
-      defaultClass: false
-      # Retain (not Delete): a released/deleted PVC must NOT wipe its node-local
-      # host dir. The tier now backs single-replica workloads (VictoriaLogs,
-      # VictoriaMetrics) with no app-level replication, so auto-delete-on-release
-      # would be irreversible data loss + a migration footgun. (The original
-      # Delete rationale — "Raft is the durability layer" — only held while this
-      # was Vault-only.) Tradeoff: orphan dirs persist on /data after a PVC
-      # delete and need an occasional manual sweep per worker. Changing this on
-      # a live SC needs delete+recreate (reclaimPolicy is immutable).
-      reclaimPolicy: Retain
-      # WaitForFirstConsumer: bind the PV on the node the consuming pod schedules
-      # onto — load-bearing for node-local storage (prevents cross-node binding).
-      volumeBindingMode: WaitForFirstConsumer
+    # Two independent classes, one provisioner (chart `storageClassConfigs`; with it set, the
+    # single `storageClass:` block is ignored, so every field is spelled out per class).
+    # `local-path` renders exactly as the single-class form did: StorageClass fields are
+    # immutable and Vault's data lives on it.
+    storageClassConfigs:
+      local-path:
+        storageClass:
+          create: true
+          # NOT the default class — explicit per-workload SC naming. The iSCSI
+          # synology-csi-iscsi-retain stays default (Stage 4 revisits dropping it).
+          defaultClass: false
+          defaultVolumeType: hostPath
+          # Retain (not Delete): a released/deleted PVC must NOT wipe its node-local
+          # host dir. The tier now backs single-replica workloads (VictoriaLogs,
+          # VictoriaMetrics) with no app-level replication, so auto-delete-on-release
+          # would be irreversible data loss + a migration footgun. (The original
+          # Delete rationale — "Raft is the durability layer" — only held while this
+          # was Vault-only.) Tradeoff: orphan dirs persist on /data after a PVC
+          # delete and need an occasional manual sweep per worker. Changing this on
+          # a live SC needs delete+recreate (reclaimPolicy is immutable).
+          reclaimPolicy: Retain
+          # WaitForFirstConsumer: bind the PV on the node the consuming pod schedules
+          # onto — load-bearing for node-local storage (prevents cross-node binding).
+          volumeBindingMode: WaitForFirstConsumer
+        nodePathMap:
+          - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+            paths:
+              - /data
+      # Scratch tier: cache-class bulk data (SABnzbd's incomplete/ downloads). A separate 100G
+      # scsi2 disk per worker, mounted at /scratch by the local-path-disk role, with PBS backup
+      # off, so churn never reaches the backups and a full scratch disk can't starve Vault's
+      # /data. Delete (not Retain): a deleted PVC's directory is junk by definition.
+      local-path-scratch:
+        storageClass:
+          create: true
+          defaultClass: false
+          defaultVolumeType: hostPath
+          reclaimPolicy: Delete
+          volumeBindingMode: WaitForFirstConsumer
+        nodePathMap:
+          - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+            paths:
+              - /scratch
+    # Fallback for any class without its own map (none today); kept so the config.json key
+    # that existed before the multi-class form stays in place.
     nodePathMap:
       - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
         paths:

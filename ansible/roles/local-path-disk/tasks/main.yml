@@ -1,6 +1,6 @@
 # ansible/roles/local-path-disk/tasks/main.yml
 ---
-- name: Resolve the scsi1 data disk by stable SCSI address (immune to iSCSI sd* reordering)
+- name: Resolve the data disk by stable SCSI address (immune to iSCSI sd* reordering)
   ansible.builtin.shell: |
     set -o pipefail
     dev=$(readlink -f /dev/disk/by-path/*-scsi-{{ local_path_disk_scsi_address }} 2>/dev/null || true)
@@ -13,7 +13,7 @@
 - name: Note skip when the data disk is not attached on this host yet
   ansible.builtin.debug:
     msg: >-
-      No scsi1 data disk at SCSI address {{ local_path_disk_scsi_address }} on
+      No data disk at SCSI address {{ local_path_disk_scsi_address }} on
       {{ inventory_hostname }} — skipping local-path-disk setup (attach the disk
       via terraform/proxmox/asgard-k3s first).
   when: lpd_resolve.stdout | trim == ""

@@ -136,6 +136,20 @@ resource "proxmox_virtual_environment_vm" "worker" {
     ssd          = true
   }
 
+  # Scratch disk for cache-class bulk data (SABnzbd's incomplete/ downloads, storage class
+  # local-path-scratch). Separate from scsi1 so churn can't fill the disk Vault Raft lives on
+  # and stays out of PBS (backup = false): it holds nothing that is worth restoring. Thin on
+  # local-lvm (a cap, not a reservation); fstrim returns freed blocks. Formatted + mounted at
+  # /scratch by the local-path-disk role (second invocation, SCSI address 0:0:0:2).
+  disk {
+    datastore_id = "local-lvm"
+    size         = 100
+    interface    = "scsi2"
+    discard      = "on"
+    ssd          = true
+    backup       = false
+  }
+
   network_device {
     bridge  = "vmbr0"
     vlan_id = 21
