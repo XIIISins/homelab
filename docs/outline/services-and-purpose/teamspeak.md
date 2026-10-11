@@ -4,6 +4,8 @@
 
 Voice chat for friends. A TeamSpeak 3 server in Kubernetes with an offsite standby for when the homelab is down.
 
+![TeamSpeak 3: voice for friends, with an offsite failover](/api/attachments.redirect?id=25384197-591a-422a-be90-c7efbcf57a92)
+
 ---
 
 ## How it runs
@@ -38,3 +40,4 @@ The DNS SRV record lists two targets: the homelab at priority 1 and an offsite n
 - **Network** (Components): MetalLB and the policy-routing rules.
 - **Storage & data** (Components): the Postgres cluster behind it.
 - **Edge** (Components): the non-HTTP path.
+- **TeamSpeak diagram** (Diagrams): the normal path and the DNS failover.

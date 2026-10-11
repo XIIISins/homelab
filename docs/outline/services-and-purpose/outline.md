@@ -4,6 +4,8 @@
 
 The wiki you are reading. It holds the operational notebook: how-tos, how-to-use-the-homelab pages for family, and notes that are still evolving. The git-tracked `docs/` tree is the other half: it records how the homelab is *built* (decisions, services, incidents, runbooks).
 
+![Outline: the operational wiki, fed by every infra layer](/api/attachments.redirect?id=61b4afbb-cfd5-43f8-82af-7612f5594ff7)
+
 ---
 
 ## These pages come from Git
@@ -41,3 +43,4 @@ Four Vault paths feed it (app keys, database password, S3 credentials, OIDC clie
 - **Storage & data** (Components): Garage and the Postgres cluster.
 - **Identity & secrets** (Components): the OIDC flow and where the secrets live.
 - **Edge** (Components): the three hostnames.
+- **Outline diagram** (Diagrams): the three hostnames and everything behind them.

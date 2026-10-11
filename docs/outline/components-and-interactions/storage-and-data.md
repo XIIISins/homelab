@@ -41,11 +41,15 @@ All relational data lives in one Patroni-managed PostgreSQL 17 cluster, `niflhei
 
 Postgres only: no MySQL or Galera anywhere.
 
+![PostgreSQL: Patroni HA behind one address](/api/attachments.redirect?id=8c5c36f5-61db-43e7-9fd8-729d5e5eab37)
+
 ---
 
 ## Object storage: Garage
 
 **Garage** is a single-node S3-compatible store inside the cluster, used by Outline for attachments. Metadata (LMDB) sits on the one remaining iSCSI LUN; object data sits on NFS. It runs with replication factor 1 on purpose: both tiers already live on the same NAS, so replicating inside Garage would add no safety and block startup waiting for peers. Durability is the NAS and the backups, not Garage. Buckets, keys and permissions are provisioned by Terraform, which writes each consumer's S3 credentials to its own Vault path. The admin API is ClusterIP-only, reached by port-forward.
+
+![Garage: S3 storage inside the cluster](/api/attachments.redirect?id=0beeb37e-1f2b-43d5-b117-315a2d11a6c7)
 
 ---
 
@@ -83,3 +87,5 @@ Backups are only trusted because they are exercised. A weekly **restore test** r
 - **Identity & secrets** (this section): where each service's database password comes from.
 - **Storage & iSCSI** and **Vault & Postgres** troubleshooting (Troubleshooting).
 - **Procedures**: whole-cluster rebuild and Vault recovery.
+- **PostgreSQL diagram** (Diagrams): the VIP, HAProxy, etcd and the Patroni members.
+- **Garage diagram** (Diagrams): the doors in and the two storage tiers.

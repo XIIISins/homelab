@@ -4,6 +4,8 @@
 
 Knowing what the homelab is doing and being told when it is broken. The design splits by failure domain: in-cluster metrics and logs run in Kubernetes; host and LXC monitoring runs outside it, so an outage of the cluster is still reported.
 
+![Observability: VictoriaMetrics and VictoriaLogs, no Grafana](/api/attachments.redirect?id=260fe7c8-75f5-440c-a1ea-424916a2c3f1)
+
 ---
 
 ## The split
@@ -99,3 +101,4 @@ Severity sets the embed colour; the tag sets the channel. Definitions come from 
 - **Storage & data** (this section): the local-path volumes behind the Victoria stack.
 - **Zabbix** and **Hermod** (Services and purpose): the per-service summaries.
 - **Troubleshooting**: first checks for common alerts.
+- **Observability diagram** (Diagrams): the shippers, the stores and who looks.

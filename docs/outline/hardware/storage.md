@@ -26,6 +26,8 @@ A two-bay NAS with an ARM SoC and 1 GB of RAM, running two drives in RAID 1 (abo
 
 DSM's NFS share sizes are advisory: the DSM volume is the real ceiling.
 
+![Munin: the Synology that backs storage for the whole lab](/api/attachments.redirect?id=e4e3b8b3-8c14-4a3a-9cf9-7e7de7e09367)
+
 ---
 
 ## The LUN ceiling
@@ -59,3 +61,4 @@ There is deliberately no default StorageClass in the cluster: every PVC must nam
 - **Hypervisors** (this section): the local NVMe drives.
 - **Storage & data** (Components): how Postgres, PBS, Garage and the K8s tiers are used.
 - **Storage & iSCSI** troubleshooting (Troubleshooting): mount failures, orphan sessions, the LUN cap.
+- **Synology (Munin) diagram** (Diagrams): the volumes and who uses each.

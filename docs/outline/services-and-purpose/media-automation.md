@@ -4,6 +4,8 @@
 
 The pipeline that fills the Jellyfin library without anyone copying files: Sonarr finds episodes, SABnzbd downloads them from Usenet, Sonarr imports them. Anime only, Usenet only.
 
+![Media automation: Sonarr, SABnzbd and Recyclarr](/api/attachments.redirect?id=4fdb90ac-bb5a-467a-a126-8d17ca362606)
+
 ---
 
 ## The pieces
@@ -45,3 +47,4 @@ Sonarr cannot post Hermod's payload format, so its native Discord connection pos
 - **Jellyfin** (this section): the consumer of the library.
 - **Hermod** (this section): why media events skip it.
 - **Storage & data** (Components): the NFS and local-path tiers.
+- **Media automation diagram** (Diagrams): the pipeline from indexer to library.
