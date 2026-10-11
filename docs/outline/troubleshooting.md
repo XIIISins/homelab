@@ -51,7 +51,9 @@ hdr "Vault (each pod: sealed? HA mode?)"
 for i in 0 1 2; do printf 'vault-%s ' $i; kubectl -n vault exec vault-$i -c vault -- vault status 2>/dev/null | grep -E "Sealed|HA Mode" | tr -s ' ' | tr '\n' ' '; echo; done
 
 hdr "Postgres/Patroni: leader + replicas"
-$SSH ansible@10.0.11.230 'sudo patronictl -c /etc/patroni/patroni.yml list' 2>&1 | tail -8
+for ip in 10.0.11.230 10.0.11.231 10.0.11.232; do   # any member answers; Fulla (.230) is on Skuld, which freezes
+  $SSH ansible@$ip 'sudo patronictl -c /etc/patroni/patroni.yml list' 2>/dev/null | tail -8 | grep . && break
+done || echo "NO PATRONI MEMBER ANSWERED"
 hdr "Postgres VIP accepts TCP; etcd healthy on the trio"
 timeout 3 bash -c '</dev/tcp/10.0.10.210/5432' && echo "VIP 10.0.10.210:5432 open" || echo "VIP DOWN"
 for ip in 10.0.11.233 10.0.11.234 10.0.11.235; do printf '%s ' $ip; curl -s -m 3 http://$ip:2379/health || echo "etcd DOWN"; echo; done

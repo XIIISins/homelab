@@ -54,11 +54,12 @@ PVE skuld 'pct list; qm list'                                                  #
 PVE skuld 'cat /sys/class/watchdog/watchdog0/identity'                          # iTCO_wdt = hardware watchdog active; "Software Watchdog" = cannot catch a hard freeze
 kubectl get nodes                                                              # sigrun + einherjar-skuld Ready again
 ssh -o IdentitiesOnly=true -i "$ANSIBLE_PRIVATE_KEY_FILE" ansible@10.0.11.231 'sudo patronictl -c /etc/patroni/patroni.yml list'    # Fulla back as a streaming replica (pg_rewind runs itself)
-kubectl -n vault get pods -o wide; kubectl -n vault exec vault-0 -c vault -- env VAULT_TOKEN="$(op read 'op://Homelab 2.0/7g4grolyien2yqkm7me2jficmy/password')" vault operator raft list-peers     # 3 voters
+kubectl -n vault get pods -o wide
+for i in 0 1 2; do printf 'vault-%s ' $i; kubectl -n vault exec vault-$i -c vault -- vault status 2>/dev/null | grep -E "Sealed|HA Mode" | tr -s ' ' | tr '\n' ' '; echo; done     # 3 unsealed, one active (needs no token)
 for ip in 10.0.11.233 10.0.11.234 10.0.11.235; do curl -s -m 3 http://$ip:2379/health; echo; done
 ```
 
-Then clean up: `kubectl get pods -A | grep -E "Evicted|Error|ContainerStatusUnknown"` (delete them), check `df -h` on the control plane that kept logging (see **Kubernetes & Flux** §2), and re-run the Semaphore drift check; LXC-only drift after a reboot is expected (§6).
+The Raft voter list (`list-peers`) needs the root token, so it is an operator step: **Vault recovery** §1. Then clean up: `kubectl get pods -A | grep -E "Evicted|Error|ContainerStatusUnknown"` (delete them), check `df -h` on the control plane that kept logging (see **Kubernetes & Flux** §2), and re-run the Semaphore drift check; LXC-only drift after a reboot is expected (§6).
 
 **If a guest did not start:** `PVE skuld 'pct start <id>'` and read §4. If the host will not boot at all, escalate: hardware.
 

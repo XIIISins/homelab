@@ -60,7 +60,7 @@ AdGuard uses DoH upstreams with bootstrap IPs. If the bootstrap addresses are un
 
 ```bash
 $SSH ansible@10.0.11.201 'sudo journalctl -u AdGuardHome -n 40 --no-pager'
-# Temporary: add a plain upstream by setting adguard_upstream_dns (group_vars/adguard.yml) to include 1.1.1.1 and re-running asgard-adguard.yml --limit <node>
+# Temporary: override adguard_upstream_dns (default in roles/adguard/defaults/main.yml) in group_vars/adguard.yml to include 1.1.1.1, then re-run asgard-adguard.yml --limit <node>
 ```
 
 Change it back afterwards (PR). When **all** AdGuard nodes are down, internal names stop resolving everywhere and pods flap; fix AdGuard first (**Hosts & Proxmox** for a dead node).

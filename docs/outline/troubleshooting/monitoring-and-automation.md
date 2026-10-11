@@ -31,7 +31,7 @@ curl -s -o /dev/null -w 'direct backdoor: %{http_code}\n' http://hugin-direct.ni
 | "LXC has been restarted (uptime < 10m)" for `CT1199`/`restore-test-*` | Scratch containers from the restore test | Ignore; they clear on their own |
 | Replica loss was silent | Stock template has no trigger | The `Patroni replication` template adds two; make sure it is imported (`zabbix-host-groups.yml`) |
 | A template added in Git is missing for a new host | The host registered before the template was imported | `ansible-playbook … playbooks/zabbix-host-groups.yml`, then re-run the host play |
-| Canary alert never reached the AIOps agent | The agent only receives High and Disaster; the stock "agent not available" is Average | Use the `Canary smoke test` triggers (**Hosts & Proxmox** / AIOps) |
+| Canary alert never reached the AIOps agent | The agent only receives High and Disaster; the stock "agent not available" is Average | Use the `Canary smoke test` template's triggers (`playbooks/files/zabbix/canary-smoke-test.yml`), which are High |
 
 Escalation severities map to Hermod tags: Disaster/High → `critical`, Average → `alert`; Warning and Information stay in the UI only. Disk thresholds are global macros (`{$VFS.FS.PUSED.MAX.WARN/CRIT}`), tighter for Postgres.
 
@@ -103,7 +103,7 @@ curl -s "$SEMAPHOREUI_API_BASE_URL/project/1/tasks/last" -H "Authorization: Bear
 
 ## 5. The health prober (`infra-health-check`, every 12 h)
 
-It posts `critical` for: Cloudflare token invalid, a certificate under 3 days, Patroni/etcd quorum lost, a failed PBS task, the prober erroring, a lapsed Frigg remote-control session, control-node env drift (`frigg/iac-env`), the `do1` `/health`. Run it now: **Everyday operations** §8. If it itself errors (`RB-S4-PROBER-ERRORED`), read the task output; common causes: an expired credential it uses (Vault token, PBS API token), or a Hermod 403.
+It posts `critical` for: Cloudflare token invalid, a certificate under 3 days, Patroni/etcd quorum lost, a failed PBS task, the prober erroring, a lapsed Frigg remote-control session, control-node env drift (`frigg/iac-env`). It posts `alert` (not `critical`) when the `do1` `/health` fails, because `do1` is the failover node, not a primary service. Run it now: **Everyday operations** §8. If it itself errors (`RB-S4-PROBER-ERRORED`), read the task output; common causes: an expired credential it uses (Vault token, PBS API token), or a Hermod 403.
 
 | Alert | Do |
 |---|---|
@@ -145,7 +145,7 @@ Typical: the datastore NFS mount is gone (mount it, restart `proxmox-backup` and
 
 ## 8. AIOps (Gná, Ratatoskr, the Toolbelt)
 
-In Discord: `/aiops status` (kill switch, budgets, open proposals), `/aiops pending`, **`/aiops kill [reason]`** stops everything (nothing can be approved or started; resume with `/aiops resume`), `/aiops maintenance on|off`, `/aiops autonomy on|off|reset-breaker`. Only the operator's Discord account can approve; cards expire after 30 minutes undecided and nothing runs.
+In Discord: `/aiops status` (kill switch, budgets, open proposals), `/aiops pending`, **`/aiops kill [reason]`** stops everything (nothing can be approved or started; resume with `/aiops resume`), `/aiops maintenance on|off`, `/aiops autonomy on|off|reset-breaker`. Only the operator's Discord account can approve; cards expire after 4 hours undecided and nothing runs.
 
 ```bash
 $SSH ansible@10.0.11.221 'systemctl is-active n8n caddy; sudo journalctl -u n8n -n 30 --no-pager'                    # Gná
