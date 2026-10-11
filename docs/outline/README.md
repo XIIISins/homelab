@@ -59,15 +59,16 @@ python3 docs/outline/sync_outline.py --apply
 
 ```bash
 python3 docs/outline/sync_outline.py --archive           # dry-run: lists what would be archived
-python3 docs/outline/sync_outline.py --archive --apply   # archive every managed page
+python3 docs/outline/sync_outline.py --archive --apply   # archive everything in the collection
 ```
 
-Moves every page the manifest manages into Outline's Archive (native
-`documents.archive`; restorable from the Archive section) and drops those entries
-from `.outline-manifest.json`, so the next `--apply` (run it twice to wire
-cross-links) recreates the pages fresh. Pages with no manifest entry, such as the
-hand-made "Storage redesign" page, are left alone. This is the recoverable
-alternative to the soft-delete step of the whole-collection recreate below.
+Moves **every** live page in the collection, whether or not it has a source file,
+into Outline's Archive (native `documents.archive`; restorable from the Archive
+section) and clears `.outline-manifest.json`, so the next `--apply` (run it twice
+to wire cross-links) recreates the pages fresh. Read the dry-run first: it lists
+every live doc (parents first, children indented) and tags any with no manifest entry as `UNMANAGED`. This
+is the recoverable alternative to the soft-delete step of the whole-collection
+recreate below.
 
 Token from Vault (preferred) or, for a one-off where the shim isn't wired:
 
