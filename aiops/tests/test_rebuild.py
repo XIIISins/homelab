@@ -355,6 +355,20 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("SINGLE-INSTANCE", m["summary"])
         self.assertIn("Manifest clean", m["summary"])
 
+    def test_scratch_class_is_disposable_and_never_blocks(self):
+        pvs, pods = lst(pv("pv6", "media", "sabnzbd-incomplete", NODE, sc="local-path-scratch")), lst(pod("sabnzbd-0", "media", ["sabnzbd-incomplete"], NODE))
+        for age in (None, 100):
+            with self.subTest(age=age):
+                m = rebuild.worker_data_manifest(pvs, pods, age, NODE)
+                self.assertEqual(m["local_path"][0]["kind"], "scratch")
+                self.assertFalse(m["blocks"], m)
+                self.assertIn("disposable", m["summary"])
+
+    def test_scratch_does_not_hide_a_single_instance_neighbour(self):
+        pvs = lst(pv("pv6", "media", "sabnzbd-incomplete", NODE, sc="local-path-scratch"), pv("pv2", "apps", "db", NODE))
+        pods = lst(pod("sabnzbd-0", "media", ["sabnzbd-incomplete"], NODE), pod("app-0", "apps", ["db"], NODE))
+        self.assertTrue(rebuild.worker_data_manifest(pvs, pods, None, NODE)["blocks"])
+
     def test_pv_with_no_consumer_is_conservatively_single_instance(self):
         m = rebuild.worker_data_manifest(lst(pv("pv3", "apps", "orphan", NODE)), lst(), None, NODE)
         self.assertEqual((m["local_path"][0]["kind"], m["local_path"][0]["owner"], m["blocks"]), ("single-instance", "none", True))

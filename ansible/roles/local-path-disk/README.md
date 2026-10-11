@@ -2,7 +2,17 @@
 # local-path-disk
 
 Prepares a dedicated node-local data disk on K3s **workers** for
-`local-path-provisioner`.
+`local-path-provisioner`. The playbook includes the role **twice**, with
+different parameters:
+
+| Instance | Disk | SCSI address | Mount | Size window | Storage class | PBS |
+|---|---|---|---|---|---|---|
+| default | `scsi1`, 50 GB | `0:0:0:1` | `/data` | 40-60 GiB | `local-path` | backed up |
+| `scratch-disk` | `scsi2`, 100 GB | `0:0:0:2` | `/scratch` | 90-110 GiB | `local-path-scratch` | **not** backed up |
+
+The scratch disk holds cache-class bulk data (SABnzbd's `incomplete/`). It is a
+separate disk so that churn never reaches PBS and a full scratch disk cannot
+starve Vault Raft on `/data`.
 
 Separates persistent local data from the OS/ephemeral root disk: if a worker's
 OS is corrupted or the VM is rebuilt, the data disk can be detached and
@@ -13,7 +23,7 @@ reattached (mounted by `UUID`) to preserve stateful data. Pairs with the
 ## What it does (idempotent)
 
 1. **Resolves the data disk by stable SCSI address** (`*-scsi-0:0:0:1` in
-   `/dev/disk/by-path/`), NOT a `/dev/sdX` name. iSCSI LUNs (Vault's PVC etc.)
+   `/dev/disk/by-path/`; `:2` for the scratch instance), NOT a `/dev/sdX` name. iSCSI LUNs (Vault's PVC etc.)
    also claim `sd*` letters with unstable ordering, so a `/dev/sdb` assumption
    could target a live LUN. The scsi1 virtual disk is always at SCSI `0:0:0:1`;
    iSCSI is `ip-…-iscsi-…` and can't collide. Skips gracefully if absent (safe
@@ -49,7 +59,16 @@ local-path-provisioner".
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `local_path_disk_scsi_address` | `0:0:0:1` | scsi1 SCSI address (scsi0/`0:0:0:0` = OS) |
+| `local_path_disk_scsi_address` | `0:0:0:1` | SCSI address (scsi0/`0:0:0:0` = OS, scsi1 = `/data`, scsi2 = `/scratch` at `0:0:0:2`) |
 | `local_path_disk_mountpoint` | `/data` | whole-volume container-writable mount |
 | `local_path_disk_selinux_context` | `system_u:object_r:container_file_t:s0` | blanket FS label |
 | `local_path_disk_min_gib` / `_max_gib` | `40` / `60` | mkfs safety window |
+
+## Adding the scratch disk to a running worker
+
+`terraform apply` hot-adds `scsi2` (`reboot_after_update = false`); the guest
+normally sees it at once. If `ls /dev/disk/by-path/*-scsi-0:0:0:2` is empty,
+rescan: `echo '- - -' > /sys/class/scsi_host/host0/scan`. The role skips a node
+whose disk is absent, so it is safe to run before every worker has it. Then
+`ansible-playbook playbooks/asgard-k3s.yml --tags scratch-disk` and reboot-test
+one worker at a time (the fstab entry must mount on boot).

@@ -451,6 +451,7 @@ def _safe(v: object, n: int = 80) -> str:
 # (3) Worker data manifest
 # ---------------------------------------------------------------------------------------------------------------------
 
+SCRATCH_CLASS = "local-path-scratch"  # the scsi2 /scratch disk: not in PBS, holds only re-downloadable data
 BACKUP_MAX_AGE_HOURS = 24.0  # single-instance data with no PBS backup of the worker /data disk this recent blocks
 _SAFE_TEXT = re.compile(r"[^A-Za-z0-9._/-]")
 _MANIFEST_LINES = 12
@@ -478,7 +479,7 @@ def _pv_node(pv: dict) -> str | None:
 def _is_local_path(pv: dict) -> bool:
     spec = pv.get("spec") or {}
     ann = (pv.get("metadata") or {}).get("annotations") or {}
-    return spec.get("storageClassName") == "local-path" or "local-path" in str(ann.get("pv.kubernetes.io/provisioned-by", ""))
+    return spec.get("storageClassName") in ("local-path", SCRATCH_CLASS) or "local-path" in str(ann.get("pv.kubernetes.io/provisioned-by", ""))
 
 
 def _is_iscsi(pv: dict) -> bool:
@@ -519,7 +520,10 @@ def worker_data_manifest(pv_json: object, pods_json: object, backup_age_hours: o
             if _pv_node(pv) != node:
                 continue
             vault = any(((p.get("metadata") or {}).get("labels") or {}).get("app.kubernetes.io/name") == "vault" for p in pods)
-            entry["kind"] = "replicated" if vault else "single-instance"
+            if (pv.get("spec") or {}).get("storageClassName") == SCRATCH_CLASS:
+                entry["kind"] = "scratch"  # cache-class on the unbacked-up /scratch disk: disposable, never blocks
+            else:
+                entry["kind"] = "replicated" if vault else "single-instance"
             entry["owner"] = clean((pods[0].get("metadata") or {}).get("name")) if pods else "none"
             local.append(entry)
         elif _is_iscsi(pv):
@@ -551,7 +555,7 @@ def manifest_text(m: dict) -> str:
     """The short human manifest for an approval card (already sanitised fields only; bounded)."""
     lines = [f"Data on {m['node']} if rebuilt:"]
     for e in m["local_path"][:_MANIFEST_LINES]:
-        what = "replicated (Raft resyncs)" if e["kind"] == "replicated" else "SINGLE-INSTANCE (dies with the node)"
+        what = {"replicated": "replicated (Raft resyncs)", "scratch": "scratch (disposable, not backed up)"}.get(e["kind"], "SINGLE-INSTANCE (dies with the node)")
         lines.append(f"- {e['namespace']}/{e['pvc']} {e['size']}: {what}")
     if len(m["local_path"]) > _MANIFEST_LINES:
         lines.append(f"- ... and {len(m['local_path']) - _MANIFEST_LINES} more local-path volume(s)")
