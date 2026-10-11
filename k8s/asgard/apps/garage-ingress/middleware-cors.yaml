@@ -1,0 +1,29 @@
+# k8s/asgard/apps/garage-ingress/middleware-cors.yaml
+#
+# Outline uploads from the browser: the page on wiki.* POSTs a multipart form
+# (a presigned POST) to s3.xiiisins.com. That is a cross-origin request, and
+# Garage sends no CORS headers, so without this the browser discards the
+# response and Outline reports "upload failed" even though the object landed.
+# Applies to the internal read/write route only; the tunnel path is read-only
+# and loaded by <img>, which needs no CORS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: garage-s3-cors
+  namespace: garage
+spec:
+  headers:
+    accessControlAllowOriginList:
+      - https://wiki.xiiisins.com
+      - https://wiki.midgard.xiiisins.com
+      - https://wiki.niflheim.xiiisins.com
+    accessControlAllowMethods:
+      - GET
+      - HEAD
+      - POST
+      - PUT
+      - OPTIONS
+    accessControlAllowHeaders:
+      - "*"
+    accessControlMaxAge: 600
+    addVaryHeader: true

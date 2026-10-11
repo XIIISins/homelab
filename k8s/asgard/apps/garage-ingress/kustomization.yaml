@@ -1,0 +1,18 @@
+# k8s/asgard/apps/garage-ingress/kustomization.yaml
+#
+# Browser-facing S3 for Outline: an internal read/write route plus a read-only
+# proxy for the Cloudflare tunnel. Lives in apps/ (not infrastructure/garage)
+# because HTTPRoute and Middleware need CRDs that infrastructure installs
+# (decisions: "Flux structure").
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - middleware-cors.yaml
+  - httproute.yaml
+configMapGenerator:
+  - name: garage-s3-ro-caddy
+    namespace: garage
+    files:
+      - Caddyfile

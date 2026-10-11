@@ -195,6 +195,12 @@ locals {
     # Internal-only: no Cloudflare record and no tunnel rule, so outside the
     # LAN/tailnet this name does not resolve.
     "status.xiiisins.com" = "10.0.20.10"
+
+    # Garage S3 for Outline's browser uploads and image reads (k8s/asgard/apps/garage-ingress/).
+    # LAN and tailnet clients land on Traefik's read/write route; from the internet the same
+    # name resolves to Cloudflare and takes the read-only tunnel path. Pods use the CoreDNS
+    # rewrite in infrastructure/coredns-custom/.
+    "s3.xiiisins.com" = "10.0.20.10"
   }
 }
 

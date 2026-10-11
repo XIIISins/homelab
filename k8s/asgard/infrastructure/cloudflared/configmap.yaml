@@ -114,6 +114,17 @@ data:
           httpHostHeader: immich.xiiisins.com
           noTLSVerify: true
 
+      # Garage S3, READ-ONLY, for Outline's images. The target is the Caddy
+      # proxy in apps/garage-ingress (GET/HEAD of /outline/* only), NOT
+      # Traefik, so uploads can only ever happen from the LAN/tailnet (where
+      # s3.xiiisins.com resolves to Traefik's read/write route instead).
+      # httpHostHeader keeps the signed host (SigV4 covers it). CF DNS record:
+      # cloudflare_dns_record.s3 in terraform/cloudflare/main.tf.
+      - hostname: s3.xiiisins.com
+        service: http://garage-s3-ro.garage.svc.cluster.local:8080
+        originRequest:
+          httpHostHeader: s3.xiiisins.com
+
       # Catch-all — required by cloudflared. Returns 404 for any
       # hostname not matched above.
       - service: http_status:404

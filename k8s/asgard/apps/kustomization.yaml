@@ -20,6 +20,9 @@ resources:
   # Outline wiki — Authentik OIDC, PG via Patroni HAProxy VIP, S3 via
   # Garage in infrastructure/, OIDC OAuth2 provider in terraform/authentik/.
   - outline
+  # Browser-facing S3 for Outline uploads/images: read/write route for LAN+tailnet,
+  # read-only proxy for the Cloudflare tunnel (garage-ingress/Caddyfile).
+  - garage-ingress
   # Zabbix ingress shim — Zabbix server itself runs on LXC 1102 (hugin,
   # outside K3s), this directory only contains the K8s-side routing
   # (Service + EndpointSlice + HTTPRoute) that lets Traefik front the

@@ -1,0 +1,37 @@
+# k8s/asgard/apps/garage-ingress/Caddyfile
+#
+# Read-only front for Garage's S3 API, reached ONLY through the Cloudflare
+# tunnel (cloudflared -> this Service). LAN/tailnet clients never touch it:
+# they resolve s3.xiiisins.com to Traefik and get the full read/write route
+# (httproute.yaml). Splitting by network path, not by anything in the request,
+# means there is no header an outside caller could forge to get write access.
+#
+# What outside callers can do: GET/HEAD of presigned URLs for the one bucket
+# Outline uses. Everything else answers 405. An unsigned GET still gets a 403
+# from Garage (the bucket is private), so this exposes signed links, not the
+# bucket. Caddy's reverse_proxy passes the original Host header through, which
+# the SigV4 signature needs (it signs the host s3.xiiisins.com).
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	header -Server
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	@read {
+		method GET HEAD
+		path /outline/*
+	}
+	handle @read {
+		reverse_proxy garage-s3.garage.svc.cluster.local:3900
+	}
+
+	handle {
+		respond "read-only endpoint" 405
+	}
+}
