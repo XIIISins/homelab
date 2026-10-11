@@ -2,6 +2,10 @@
 
 # Asgard K3s cluster
 
+![Asgard K3s: the one production cluster](diagrams/asgard-k3s.svg)
+
+*Sketch of how it fits together; editable source: [`asgard-k3s.excalidraw`](diagrams/asgard-k3s.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 The one production cluster (Jotunheim was dropped 2026-10-05; [`jotunheim-k3s.md`](jotunheim-k3s.md) is the shelved design). It runs the platform pieces whose absence cascades (Vault, ESO, MetalLB, Traefik, Authentik) and most application workloads. Resiliency over simplicity.
 
 Status lives in [`build-sequence.md`](../operations/build-sequence.md); this page is the map of what runs and how it is wired. **Chart and image versions are not repeated here: the HelmRelease under `k8s/asgard/` is the pin** (all concrete, no floats), and `playbooks/platform-version-drift.yml` reports K3s/Calico drift.

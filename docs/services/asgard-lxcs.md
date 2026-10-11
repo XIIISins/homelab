@@ -2,6 +2,10 @@
 
 # Asgard LXCs
 
+![Asgard LXCs: what runs outside K3s, and where](diagrams/asgard-lxcs.svg)
+
+*Sketch of how it fits together; editable source: [`asgard-lxcs.excalidraw`](diagrams/asgard-lxcs.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 | LXC | ID | Node | IP | Role | Status |
 |-----|----|------|----|------|--------|
 | PBS | 1101 | Urd | `10.0.11.20` | Proxmox Backup Server (moved from Skuld 2026-10-01; the Munin NFS datastore is mounted inside the LXC) | ✅ |

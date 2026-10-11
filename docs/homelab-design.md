@@ -25,6 +25,7 @@ A ground-up homelab demonstrating senior-level infrastructure design.
 - **Platform:** [`asgard-k3s.md`](services/asgard-k3s.md) (the cluster, Flux structure, platform components), [`asgard-lxcs.md`](services/asgard-lxcs.md) (the LXC table), [`synology.md`](services/synology.md) (Munin), [`postgres.md`](services/postgres.md) (Patroni + HAProxy), [`adguard.md`](services/adguard.md) (DNS), [`netbox.md`](services/netbox.md) (IPAM/DCIM), [`garage.md`](services/garage.md) (S3).
 - **Monitoring and alerting:** [`observability.md`](services/observability.md) (VictoriaMetrics/Logs), [`zabbix.md`](services/zabbix.md) (Hugin), [`notifications.md`](services/notifications.md) (Hermod → Discord).
 - **User-facing:** [`jellyfin.md`](services/jellyfin.md), [`media-automation.md`](services/media-automation.md), [`immich.md`](services/immich.md), [`outline.md`](services/outline.md), [`teamspeak.md`](services/teamspeak.md), [`factorio.md`](services/factorio.md) (the template for operator-managed services), [`startpage.md`](services/startpage.md), [`microbin.md`](services/microbin.md), [`overview.md`](services/overview.md).
+- **Diagrams:** every service page above opens with a hand-drawn sketch (Excalidraw source + SVG in [`services/diagrams/`](services/diagrams/README.md)); conventions and editing steps are in that README.
 - **Shelved:** [`jotunheim-k3s.md`](services/jotunheim-k3s.md) (Phase 7, dropped 2026-10-05; design record only).
 
 ## Operations — state and decisions

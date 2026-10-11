@@ -2,6 +2,10 @@
 
 # Observability stack (VictoriaMetrics + VictoriaLogs)
 
+![Observability: VictoriaMetrics + VictoriaLogs, no Grafana](diagrams/observability.svg)
+
+*Sketch of how it fits together; editable source: [`observability.excalidraw`](diagrams/observability.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. The Zabbix LXC ([`zabbix.md`](zabbix.md)) handles host/LXC alerting independently of K3s; this stack is for K8s-native metrics and fleet logs via the native vmui and VictoriaLogs UIs. Deployed in Phase 8a (2026-05-24/25). **Chart and image versions are not repeated here: the HelmReleases under `k8s/asgard/` are the pins.**
 
 **No Grafana.** Dropped from scope after the initial sketch — VM ships vmui (interactive PromQL + chart playground) and VictoriaLogs ships its own LogsQL UI; the dashboard layer Grafana adds isn't load-bearing for our homelab workflow. Four custom dashboards shipped via `customDashboardsPath` ConfigMap. Revisit if/when we need cross-source dashboards, annotation timelines, or a UI-driven dashboards-as-code pipeline.

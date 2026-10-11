@@ -2,6 +2,10 @@
 
 # Garage (asgard K3s)
 
+![Garage: S3 storage inside the cluster](diagrams/garage.svg)
+
+*Sketch of how it fits together; editable source: [`garage.excalidraw`](diagrams/garage.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 S3-compatible object store for in-cluster consumers (first user: Outline). Single-node, replication-factor 1. Storage is tiered after the 2026-05-30 redesign: LMDB **metadata on iSCSI** (Synology Volume2, the cluster's sole remaining iSCSI LUN — mmap-class, NFS-hostile) + **object data on NFS** (`csi-driver-nfs`, no per-DSM LUN-cap pressure). Lives in `k8s/asgard/infrastructure/garage/` (Flux Kustomization `infrastructure`).
 
 Picked Garage over MinIO + SeaweedFS in 2026-05-25 after the MinIO OSS pivot made it no-longer-trustable upstream and SeaweedFS's POSIX/WebDAV surfaces turned out redundant with the existing iSCSI + NFS paths. Garage is purpose-built as a small-scale S3 — Rust, distroless image, LMDB metadata, no JVM, no shell. Fits the homelab's "as little surface as possible" posture.

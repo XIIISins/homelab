@@ -1,6 +1,10 @@
 <!-- docs/services/startpage.md -->
 # Startpage
 
+![Startpage: a static page cloned from Git at pod start](diagrams/startpage.svg)
+
+*Sketch of how it fits together; editable source: [`startpage.excalidraw`](diagrams/startpage.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 Personal browser-homepage served at **`home.xiiisins.com`** (public, external-only).
 A static site (the [`XIIISins/startpage`](https://github.com/XIIISins/startpage) repo,
 branch `tokyonight_colors`) served by Caddy in asgard K3s.

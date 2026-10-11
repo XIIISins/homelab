@@ -1,6 +1,10 @@
 <!-- docs/services/microbin.md -->
 # MicroBin
 
+![MicroBin: public pastebin with a gated janitor door](diagrams/microbin.svg)
+
+*Sketch of how it fits together; editable source: [`microbin.excalidraw`](diagrams/microbin.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 Public pastebin + file-share at **`paste.xiiisins.com`** (internet-exposed via
 cloudflared). Anonymous create/view/upload; a trusted "janitor" crew gets the
 gated `/list` + `/admin` for cleanup.

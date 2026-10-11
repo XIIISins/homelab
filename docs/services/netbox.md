@@ -2,6 +2,10 @@
 
 # NetBox (IPAM/DCIM)
 
+![NetBox: the queryable view of the lab](diagrams/netbox.svg)
+
+*Sketch of how it fits together; editable source: [`netbox.excalidraw`](diagrams/netbox.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 NetBox in asgard K3s, internal-only via Traefik at `netbox.niflheim.xiiisins.com` (deployed 2026-05-24). The queryable view of devices, VMs/LXCs, IPs, VLANs, prefixes, sites and clusters, and the source of the Ansible dynamic inventory. **Git stays the IaC spec**: Terraform writes NetBox (`terraform/netbox/`), people don't, apart from per-entry notes and tags. Retros: [5i](../incidents/2026-05-24-5i-netbox.md), [TF retrofit](../incidents/2026-05-24-5i3-tf-netbox-retrofit.md); gotchas (including provider quirks): [`known-issues/netbox.md`](../known-issues/netbox.md).
 
 ## Architecture

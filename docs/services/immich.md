@@ -1,6 +1,10 @@
 <!-- docs/services/immich.md -->
 # Immich
 
+![Immich: family photo library](diagrams/immich.svg)
+
+*Sketch of how it fits together; editable source: [`immich.excalidraw`](diagrams/immich.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 Self-hosted photo/video library for the operator + direct family — a
 **secondary copy** alongside iCloud/Google Photos, not the sole copy. That
 framing drove the redundancy posture below (single-NAS RAID1, no PBS, no
