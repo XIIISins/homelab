@@ -55,6 +55,20 @@ python3 docs/outline/sync_outline.py --verbose   # + per-file detail (title chan
 python3 docs/outline/sync_outline.py --apply
 ```
 
+### Archive all current pages
+
+```bash
+python3 docs/outline/sync_outline.py --archive           # dry-run: lists what would be archived
+python3 docs/outline/sync_outline.py --archive --apply   # archive every managed page
+```
+
+Moves every page the manifest manages into Outline's Archive (native
+`documents.archive`; restorable from the Archive section) and drops those entries
+from `.outline-manifest.json`, so the next `--apply` (run it twice to wire
+cross-links) recreates the pages fresh. Pages with no manifest entry, such as the
+hand-made "Storage redesign" page, are left alone. This is the recoverable
+alternative to the soft-delete step of the whole-collection recreate below.
+
 Token from Vault (preferred) or, for a one-off where the shim isn't wired:
 
 ```bash

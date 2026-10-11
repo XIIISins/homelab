@@ -30,6 +30,13 @@ Usage:
   python3 docs/outline/sync_outline.py            # dry-run, show the plan
   python3 docs/outline/sync_outline.py --apply     # write changes
   python3 docs/outline/sync_outline.py --verbose    # show per-file diffs in dry-run
+  python3 docs/outline/sync_outline.py --archive    # dry-run: list what would be archived
+  python3 docs/outline/sync_outline.py --archive --apply   # archive every managed page
+
+--archive moves every page the manifest manages into Outline's Archive (native
+documents.archive, recoverable from the Archive section) instead of syncing, then
+drops those entries from the manifest so the next --apply recreates the pages
+fresh. Pages without a manifest entry (e.g. hand-made ones) are left alone.
 
 Cross-reference link rewriting (the bold **Name** placeholders -> Outline doc
 links) is a deliberate SEPARATE step and is NOT done here — see README.md.
@@ -84,7 +91,7 @@ def get_token() -> str:
              "at secret/ansible/outline/api-token (field `token`).")
 
 
-WRITE_OPS = {"documents.create", "documents.update", "documents.delete"}
+WRITE_OPS = {"documents.create", "documents.update", "documents.delete", "documents.archive"}
 
 
 def api(method: str, payload: dict, token: str) -> dict:
@@ -251,13 +258,60 @@ def ensure_collection(token: str, apply: bool) -> str:
     return res["data"]["id"]
 
 
+def archive_pages(token: str, apply: bool):
+    """Archive every live doc the manifest manages (parents first), then drop
+    those manifest entries so the next sync recreates the pages."""
+    manifest = load_manifest()
+    cols = api_paginated("collections.list", {}, token)
+    col = next((c for c in cols if c["name"] == COLLECTION_NAME), None)
+    if col is None:
+        sys.exit(f"Collection '{COLLECTION_NAME}' not found; nothing to archive.")
+    live = {d["id"]: d for d in api_paginated("documents.list", {"collectionId": col["id"]}, token)}
+
+    # top-level entries first: archiving a parent archives its children too
+    rels = sorted(manifest, key=lambda r: (r.count("/"), r))
+    todo, gone = [], []
+    for rel in rels:
+        entry = manifest[rel]
+        doc_id = entry.get("id") if isinstance(entry, dict) else entry
+        (todo if doc_id in live else gone).append((rel, doc_id))
+
+    print(f"Archive from '{COLLECTION_NAME}': {len(todo)} live managed pages, "
+          f"{len(gone)} manifest entries with no live doc (already archived/deleted)")
+    for rel, doc_id in todo:
+        print(f"  {'ARCHIVE' if apply else '[dry-run] would ARCHIVE'}  {rel}  ({doc_id})")
+    if not apply:
+        print("\nRe-run with --archive --apply to archive. Manifest NOT updated in dry-run.")
+        return
+
+    archived = 0
+    for rel, doc_id in todo:
+        # a parent's archive may already have taken this child with it
+        info = api("documents.info", {"id": doc_id}, token)["data"]
+        if info.get("archivedAt"):
+            continue
+        api("documents.archive", {"id": doc_id}, token)
+        archived += 1
+    for rel, _ in todo + gone:
+        manifest.pop(rel, None)
+    save_manifest(manifest)
+    print(f"\nDone. archived {archived} directly (children of archived parents came "
+          f"along); {len(todo) + len(gone)} manifest entries dropped.")
+    print("Run the sync with --apply (twice, to wire cross-links) to recreate the pages.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Reconcile docs/outline/ into Outline.")
     ap.add_argument("--apply", action="store_true", help="actually write (default: dry-run)")
     ap.add_argument("--verbose", action="store_true", help="show per-file detail")
+    ap.add_argument("--archive", action="store_true",
+                    help="archive all managed pages instead of syncing (dry-run unless --apply)")
     args = ap.parse_args()
 
     token = get_token()
+    if args.archive:
+        archive_pages(token, args.apply)
+        return
     pages = discover_pages()
     manifest = load_manifest()
 
