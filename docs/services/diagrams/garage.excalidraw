@@ -2562,7 +2562,8 @@
  ],
  "appState": {
   "gridSize": null,
-  "viewBackgroundColor": "#ffffff"
+  "viewBackgroundColor": "transparent",
+  "theme": "dark"
  },
  "files": {}
 }
