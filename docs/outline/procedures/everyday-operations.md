@@ -212,7 +212,7 @@ Sync to the replicas takes up to a minute.
 1. Append the guest to the right Terraform module: `terraform/proxmox/asgard-lxcs/lxcs.tf` (normal) or `terraform/proxmox/asgard-lxcs-root/` (needs device passthrough, FUSE or keyctl).
 2. In the **same change**, add the NetBox declarations in `terraform/netbox/vms.tf` (VM, interface, IP; new Ansible groups need a tag in `tags.tf`).
 3. Add the host to `ansible/inventory/hosts.yml`, write its role and `asgard-<service>.yml`.
-4. Apply, from the main checkout: `terraform -chdir=terraform/proxmox/asgard-lxcs apply`, then `terraform -chdir=terraform/netbox apply -parallelism=1`.
+4. Apply, from the main checkout: `terraform -chdir=terraform/proxmox/asgard-lxcs apply`, then `terraform -chdir=terraform/netbox apply -parallelism=2`.
 5. Bootstrap: `ansible-playbook -i inventory/hosts.yml playbooks/asgard-<service>.yml -e ansible_user=root --tags baseline --limit <host>`, then the full play as `ansible`.
 6. Run the Semaphore `refresh-netbox-inventory` template so scheduled jobs see it.
 

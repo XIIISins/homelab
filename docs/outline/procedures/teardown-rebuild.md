@@ -375,7 +375,7 @@ These recreate external-provider resources and write their machine secrets to Va
 terraform -chdir=terraform/cloudflare apply              # tunnel, DNS, cloudflared credentials
 terraform -chdir=terraform/authentik apply               # OIDC/SAML providers, users and groups
 terraform -chdir=terraform/tailscale apply               # ACL, auth keys, split DNS
-terraform -chdir=terraform/netbox apply -parallelism=1   # ~160 records; 1 avoids the transient 500s
+terraform -chdir=terraform/netbox apply -parallelism=2   # ~160 records; the standing rule for this module
 kubectl -n garage port-forward svc/garage-admin 3903:3903 &      # Garage admin is ClusterIP only
 terraform -chdir=terraform/garage apply                  # bucket, key, grant, secret/k8s/outline/s3
 kill %1

@@ -90,7 +90,7 @@ Auto-merge is fine for docs and routine bumps (`gh pr merge --auto --squash`). F
 | `ansible/…` | `ansible-playbook … --limit <host> --check --diff`, then without `--check`; or let the Semaphore drift-check report it | Drift check returns `changed=0` |
 | Docs only | Nothing to apply | |
 
-Terraform notes: the `netbox` module needs `-parallelism=1` (the default overloads NetBox). The `aws` module needs the bootstrap identity: `set-aws-creds bootstrap`. Modules that write secrets to Vault or read `secret/k8s/*` need the root token (`set-vault-token root`, operator only). Never apply a plan that proposes to **destroy** a guest, volume or database you did not intend to; stop and ask.
+Terraform notes: the `netbox` module always runs with `-parallelism=2` (same speed as the default, more headroom for the NetBox pod). The `aws` module needs the bootstrap identity: `set-aws-creds bootstrap`. Modules that write secrets to Vault or read `secret/k8s/*` need the root token (`set-vault-token root`, operator only). Never apply a plan that proposes to **destroy** a guest, volume or database you did not intend to; stop and ask.
 
 ## 7. Post-flight (documentation is part of done)
 
