@@ -4,7 +4,7 @@
 
 DS223J on a single RAID 1 pool, carved into DSM volumes by purpose. Serves PBS and Proxmox over NFS, K8s PVs over NFS and iSCSI, and the media library.
 
-**Live volumes (after the 2026-05-30 storage-tiering redesign, [`synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)):**
+**Live volumes (after the 2026-05-30 storage-tiering redesign, [`storage-tiering.md`](../procedures/storage-tiering.md)):**
 
 | Volume | Role |
 |--------|------|

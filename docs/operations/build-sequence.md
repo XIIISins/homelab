@@ -43,7 +43,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 | 4a CP taint | ✅ 2026-05-21 | `control-plane:NoSchedule` on all three CPs, workloads moved to workers, Vault spread across workers. Surfaced two outages and ~10 findings ([incident log](../incidents/README.md)). |
 | 4b Göndul Verd → Urd | ✅ 2026-05-22 | Recreated on Urd, stale etcd member cleared, rejoined as a server with `-e k3s_init_node=hlokk`. CP topology is now Göndul/Urd, Hlökk/Verd, Sigrún/Skuld; Vault stayed 3/3. |
 | Worker rebuild (einherjar-urd) | ✅ 2026-05-22 | Corrected stale `template_node` references and doubled as validation of the worker-rebuild path. Vault ran 2/3 voters for ~25 min by design. |
-| Storage tiering redesign | ✅ 2026-05-30 | Escaped the DS223J ~10-LUN cap: NFS (`csi-driver-nfs`) for file-class, `local-path` on a 50G per-worker xfs disk for replicated state (Vault Raft moved there), iSCSI only for block-critical DBs, emptyDir for caches. Runbook [`synology-storage-redesign.md`](../procedures/synology-storage-redesign.md), [incident](../incidents/2026-05-30-storage-redesign-nas-rework.md). |
+| Storage tiering redesign | ✅ 2026-05-30 | Escaped the DS223J ~10-LUN cap: NFS (`csi-driver-nfs`) for file-class, `local-path` on a 50G per-worker xfs disk for replicated state (Vault Raft moved there), iSCSI only for block-critical DBs, emptyDir for caches. Runbook [`storage-tiering.md`](../procedures/storage-tiering.md), [incident](../incidents/2026-05-30-storage-redesign-nas-rework.md). |
 
 ## Edge, DNS and identity
 

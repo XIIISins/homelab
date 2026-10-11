@@ -170,7 +170,7 @@ Restore from [`../architecture/network.md`](../architecture/network.md). Key sta
 
 ### 1.2 Synology (Munin) — storage  (~60–120 min)
 
-Restore from [`../services/synology.md`](../services/synology.md) and [`synology-storage-redesign.md`](synology-storage-redesign.md) (the latter is the *current* tiered layout). DSM is manual UI. Recreate:
+Restore from [`../services/synology.md`](../services/synology.md) and [`storage-tiering.md`](storage-tiering.md) (the latter is the *current* tiered layout). DSM is manual UI. Recreate:
 
 - **Volumes** on the RAID-1 pool — Volume1 (data / backups), Volume2 (media + Garage meta). The 2026-05-30 redesign made **Volume1 the dedicated backup volume**; mind the **DSM-wide ~10 iSCSI LUN cap** (hard model limit — see CLAUDE.md). Storage tiering is what keeps you under it: iSCSI only for block-critical single-instance data; NFS for file-class; local-path (node-NVMe) for app-replicated; emptyDir for caches.
 - **Shared folders + exports** — `proxmox-backup` (NFS, PBS datastore), `db-backups` (NFS), `uploads` (Factorio SFTP), `media`/`manga`/`downloads`/`immich`, plus the NFS exports backing the K3s file-class tier (`csi-driver-nfs`). Match the export paths the redesign moved things to (`/volumeN/…`) — a stale path = stale NFS handle on clients.

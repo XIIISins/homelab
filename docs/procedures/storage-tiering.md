@@ -1,4 +1,4 @@
-<!-- docs/procedures/synology-storage-redesign.md -->
+<!-- docs/procedures/storage-tiering.md -->
 
 # Synology storage redesign — tiering off the iSCSI LUN cap
 

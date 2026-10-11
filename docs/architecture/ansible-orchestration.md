@@ -96,7 +96,7 @@ Declared in `terraform/semaphore/templates.tf` (the authority; this is the shape
 
 Per-service drift-check variants are added only when a service needs a different cadence or has a known noisy-but-OK diff class to filter before the alert fires.
 
-The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality; the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Plan and validation: [`1.0-stabilization.md`](../plans/done/1.0-stabilization.md), [`s4-observability-validation.md`](../procedures/s4-observability-validation.md).
+The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality; the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Plan and validation: [`1.0-stabilization.md`](../plans/done/1.0-stabilization.md), [`infra-health-check-validation.md`](../procedures/infra-health-check-validation.md).
 
 ## Inventory — NetBox dynamic + static fallback
 

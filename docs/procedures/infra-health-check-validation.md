@@ -1,4 +1,4 @@
-<!-- docs/procedures/s4-observability-validation.md -->
+<!-- docs/procedures/infra-health-check-validation.md -->
 
 # Wave S4 — observability deploy + validation runbook
 

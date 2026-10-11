@@ -85,7 +85,7 @@ First deploy tried a 1Gi iSCSI PVC for `outline-redis` and Synology returned "Nu
 - Yjs collab doc deltas in transit — clients re-sync from PG on reconnect.
 - Websocket presence — naturally rebuilt as clients reconnect.
 
-Nothing in Outline's Redis is canonical. `--save "" --appendonly no` makes that explicit (no RDB, no AOF). emptyDir means the cache evaporates on pod restart, which is fine. emptyDir is the settled answer, not a stopgap: the storage tiering (cache-class state → emptyDir; iSCSI only for block-critical DBs) makes it the designated tier ([`synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)).
+Nothing in Outline's Redis is canonical. `--save "" --appendonly no` makes that explicit (no RDB, no AOF). emptyDir means the cache evaporates on pod restart, which is fine. emptyDir is the settled answer, not a stopgap: the storage tiering (cache-class state → emptyDir; iSCSI only for block-critical DBs) makes it the designated tier ([`storage-tiering.md`](../procedures/storage-tiering.md)).
 
 ## Why `sslmode=no-verify`
 
