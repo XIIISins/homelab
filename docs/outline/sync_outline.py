@@ -30,6 +30,13 @@ Usage:
   python3 docs/outline/sync_outline.py            # dry-run, show the plan
   python3 docs/outline/sync_outline.py --apply     # write changes
   python3 docs/outline/sync_outline.py --verbose    # show per-file diffs in dry-run
+  python3 docs/outline/sync_outline.py --archive    # dry-run: list what would be archived
+  python3 docs/outline/sync_outline.py --archive --apply   # archive every managed page
+
+--archive moves EVERY live page in the collection (managed or not) into Outline's
+Archive (native documents.archive, recoverable from the Archive section) instead
+of syncing, then clears the manifest so the next --apply recreates the pages
+fresh. The dry-run lists each doc and flags any with no source file.
 
 Cross-reference link rewriting (the bold **Name** placeholders -> Outline doc
 links) is a deliberate SEPARATE step and is NOT done here — see README.md.
@@ -84,7 +91,7 @@ def get_token() -> str:
              "at secret/ansible/outline/api-token (field `token`).")
 
 
-WRITE_OPS = {"documents.create", "documents.update", "documents.delete"}
+WRITE_OPS = {"documents.create", "documents.update", "documents.delete", "documents.archive"}
 
 
 def api(method: str, payload: dict, token: str) -> dict:
@@ -251,13 +258,67 @@ def ensure_collection(token: str, apply: bool) -> str:
     return res["data"]["id"]
 
 
+def archive_pages(token: str, apply: bool):
+    """Archive every live doc in the collection (parents first), managed or not,
+    then clear the manifest so the next sync recreates the pages."""
+    manifest = load_manifest()
+    cols = api_paginated("collections.list", {}, token)
+    col = next((c for c in cols if c["name"] == COLLECTION_NAME), None)
+    if col is None:
+        sys.exit(f"Collection '{COLLECTION_NAME}' not found; nothing to archive.")
+    live = {d["id"]: d for d in api_paginated("documents.list", {"collectionId": col["id"]}, token)}
+    managed = {(e.get("id") if isinstance(e, dict) else e): rel for rel, e in manifest.items()}
+
+    def depth(d):
+        n = 0
+        while d.get("parentDocumentId") in live:
+            d, n = live[d["parentDocumentId"]], n + 1
+        return n
+
+    # parents first: archiving a parent archives its children too
+    todo = sorted(live.values(), key=lambda d: (depth(d), d["title"]))
+    stale = [rel for rel in manifest if (manifest[rel].get("id") if isinstance(manifest[rel], dict)
+                                         else manifest[rel]) not in live]
+
+    print(f"Archive everything in '{COLLECTION_NAME}': {len(todo)} live docs "
+          f"({sum(d['id'] in managed for d in todo)} managed, "
+          f"{sum(d['id'] not in managed for d in todo)} not in the manifest); "
+          f"{len(stale)} manifest entries have no live doc")
+    for d in todo:
+        tag = managed.get(d["id"], "UNMANAGED (no source file)")
+        print(f"  {'ARCHIVE' if apply else '[dry-run] would ARCHIVE'}  "
+              f"{'  ' * depth(d)}{d['title']}  [{tag}]  ({d['id']})")
+    if not apply:
+        print("\nRe-run with --archive --apply to archive. Manifest NOT updated in dry-run.")
+        return
+
+    archived = 0
+    for d in todo:
+        # a parent's archive may already have taken this child with it
+        info = api("documents.info", {"id": d["id"]}, token)["data"]
+        if info.get("archivedAt"):
+            continue
+        api("documents.archive", {"id": d["id"]}, token)
+        archived += 1
+    n = len(manifest)
+    save_manifest({})
+    print(f"\nDone. archived {archived} directly (children of archived parents came "
+          f"along); manifest cleared ({n} entries).")
+    print("Run the sync with --apply (twice, to wire cross-links) to recreate the pages.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Reconcile docs/outline/ into Outline.")
     ap.add_argument("--apply", action="store_true", help="actually write (default: dry-run)")
     ap.add_argument("--verbose", action="store_true", help="show per-file detail")
+    ap.add_argument("--archive", action="store_true",
+                    help="archive all pages in the collection instead of syncing (dry-run unless --apply)")
     args = ap.parse_args()
 
     token = get_token()
+    if args.archive:
+        archive_pages(token, args.apply)
+        return
     pages = discover_pages()
     manifest = load_manifest()
 
