@@ -13,7 +13,7 @@ A ground-up homelab demonstrating senior-level infrastructure design.
 
 ## Architecture — the design itself
 
-- [`homelab-overview.png`](architecture/homelab-overview.png): one-page picture of the whole lab (edge, three Proxmox hosts and their guests, asgard K3s, storage, off-site), with no IPs or IDs so it is safe to reuse. Editable source: [`homelab-overview.excalidraw`](architecture/homelab-overview.excalidraw) (open it at excalidraw.com); vector copy: [`homelab-overview.svg`](architecture/homelab-overview.svg).
+- [`homelab-overview.png`](architecture/homelab-overview.png): one-page picture of the whole lab (edge, three Proxmox hosts and their guests, asgard K3s, storage, off-site), with no IPs or IDs so it is safe to reuse. Dark theme on a transparent background, like the service diagrams (light ink, so it reads best on a dark page). Editable source: [`homelab-overview.excalidraw`](architecture/homelab-overview.excalidraw) (open it at excalidraw.com); vector copy: [`homelab-overview.svg`](architecture/homelab-overview.svg).
 - [`hardware.md`](architecture/hardware.md): nodes (Urd/Verd/Skuld, Munin), storage tiers, naming convention.
 - [`network.md`](architecture/network.md): VLANs, per-LXC/VM IPs, cluster CIDRs, VMID scheme, three-zone DNS and TLS, internet exposure and firewall.
 - [`identity-secrets.md`](architecture/identity-secrets.md): Authentik/LDAP/SSSD, the three secret stores, AppRole bootstrap, control-node tooling.
