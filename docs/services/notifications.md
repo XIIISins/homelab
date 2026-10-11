@@ -2,307 +2,126 @@
 
 # Notifications (Hermod, LXC 1103)
 
-Single notification aggregation point for the homelab. Sources POST to one HTTP endpoint; Hermod fans out to Discord webhooks (and any future delivery channel) based on tag-driven routing. Designed to scale by addition — wiring a new alert source needs zero hub-side config.
-
-Slotted as **Phase 5h.2**, immediately after Phase 8c (Zabbix LXC). Sequence rationale: until Zabbix is live, the primary infra-alert producer doesn't exist; building the delivery layer first would be untested speculation.
+The homelab's single notification aggregation point. Sources POST to one HTTP endpoint; Hermod fans out to Discord webhooks (and any future channel) by tag. Wiring a new alert source needs no hub-side config. Built in Phase 5h.2 (2026-05-26); retros: [deploy](../incidents/2026-05-25-hermod-deploy.md), [producer wiring](../incidents/2026-05-26-hermod-producer-wiring.md).
 
 ## What it is
 
-- **One LXC**, `hermod` (1103, 10.0.11.22), on Verd. Norse god of messengers — Odin's emissary who rode to Hel to retrieve Baldr. (1101 = PBS, 1102 = Hugin/Zabbix per Phase 8c.)
-- **AppriseAPI** — open-source notification gateway with 80+ delivery backends. **Installed natively via pip into a venv + gunicorn + systemd unit**, matching the homelab's "all LXC services are native + systemd" pattern (Postgres, Factorio, SFTPGo, Zabbix, AdGuard). Docker deliberately not used — adds an alien moving part to one LXC and Apprise's non-Docker path is well-trodden.
-- **Caddy reverse proxy on the same LXC**, AppriseAPI bound to `127.0.0.1:8000`. Caddy listens on `:80` and gates inbound POSTs via a `remote_ip` allowlist matcher — non-matches → 403. JSON access logs to `/var/log/caddy/access.log` ship to VictoriaLogs via the existing vlagent role. TLS-ready path preserved for future internal-CA wiring.
-- **Stateless** — config on the LXC root disk (PBS-backed), no DB, no PVC.
-- **Internal-only** — exposed on VLAN 11, no Tailscale, no Cloudflare. Sources reach it within the homelab.
+- **One LXC**, `hermod` (1103, `10.0.11.22`, Verd), Debian 13, unprivileged + nesting, 1 vCPU / 512 MB / 4 GB, VLAN 11. Ansible group is `apprise`; playbook `asgard-hermod.yml` (baseline, caddy-reverse-proxy, hermod-api, vlagent, zabbix-agent, hardening).
+- **AppriseAPI** (80+ delivery backends), installed natively: pip into a venv, gunicorn (`bind 127.0.0.1:8000`), systemd, version pinned by `hermod_api_version`. No Docker, matching the "native + systemd" pattern of the other LXCs.
+- **Caddy** on `:80` (generic `caddy-reverse-proxy` role) is the only listener. A `remote_ip` allowlist gates producers (non-matches get 403); JSON access logs at `/var/log/caddy/hermod.log` ship to VictoriaLogs via vlagent.
+- **Stateless and internal-only:** config on the root disk (PBS-backed), no DB; reachable on VLAN 11 only, no Tailscale or Cloudflare. Endpoint: `http://hermod.niflheim.xiiisins.com/notify/<config-key>`.
 
 ## Why this shape
 
 | Choice | Reason |
 |--------|--------|
-| LXC, not K8s pod | Independent failure domain from asgard K3s — alerts about K3s being down need to fire even when K3s is down |
-| AppriseAPI, not raw webhooks per source | One source-side schema, N delivery destinations behind it. Adding a delivery channel (ntfy, email, Slack) doesn't touch source code. |
-| Tag-based routing, not severity-based | Severity drives Discord embed *color*; tag drives *which channel*. Decoupling lets `tag: media` reuse the same hub without sharing the infra alerts channel. (Sonarr, the first media producer, posts to the same Discord webhook through its own Discord connection instead of through Hermod, because it cannot send Apprise's payload; see [`media-automation.md`](media-automation.md).) |
-| Routine notifications NOT routed via Hermod | vlagent already ships every host's syslog/journald to VictoriaLogs. Routine event = log line. No reason to double-route through Hermod just to write to VL. |
-| Config on root disk, Ansible-managed | Matches every other Ansible-managed service in the homelab (AdGuard, Postgres, Factorio). PBS backs up the LXC root disk = config covered. |
+| LXC, not a K8s pod | Independent failure domain: alerts about K3s being down must fire when K3s is down. |
+| AppriseAPI, not raw webhooks per source | One source-side schema, N destinations. Adding ntfy/email/Slack touches no source code. |
+| Tag routing, not severity routing | Severity drives the embed *color*, the tag drives the *channel*. `tag: media` reuses the hub without sharing the infra channels. (Sonarr, the first media producer, can't send Apprise's payload and posts to the `#media` webhook through its own Discord connection; see [`media-automation.md`](media-automation.md).) |
+| Routine events not routed via Hermod | vlagent already ships every host's logs to VictoriaLogs. A routine event is a log line. |
+| Config on root disk, Ansible-managed | Like every other Ansible-managed service; PBS covers it. |
+| Single LXC, no HA | If Hermod is down, notifications aren't delivered but producers' failures still log to VL. Revisit only if Discord becomes the sole channel and the downtime is felt. |
+
+Out of scope: deduplication and storm prevention (the producer's job: Zabbix trigger dependencies, VMAlert `for:`), replay or querying (the audit trail is VL).
 
 <!-- runbook: RB-ALERT-UNCLASSIFIED -->
-## Severity taxonomy + routing
+## Severity taxonomy and routing
 
-| Tag | Response expectation | Producer examples | Discord destination |
-|-----|---------------------|-------------------|---------------------|
-| `critical` | Look within minutes, even at 2am | Cluster quorum lost, environment down, service hard-unavailable, disk >90% | `#infra-critical`, `@everyone` mention |
-| `alert` | Look within hours, business-day OK | Single-node failure (cluster degraded but operational), drift detected, drift correction failed, sustained resource load 5–15 min, disk 70–80% | `#infra-alerts`, no mention |
-| `info` | FYI only; never needs a response | Non-prod / canary-pool signals (hermod_summary `nonprod-*` wrappers, Zabbix events on `canary-*` hosts) — the cap tier for anything that must NEVER wake or page anyone | `#infra-info` (operator-created channel; name it as created), no mention |
-| `media` | Whenever | Sonarr release notifications (grab, import, upgrade): live since 2026-10-08, sent straight to the `#media` webhook by Sonarr's Discord connection, not through Hermod | `#media`, no mention |
-| _(no tag, but POSTed to Hermod)_ | Producer bug — should have tagged | Any source whose code POSTs without a `tag` field | **`#hermod-untagged` quarantine channel**, no mention. Creates a natural backlog of producers to fix. |
-| _(routine success, no notification)_ | n/a | Routine success, drift-check-clean, scheduled reconcile-OK | **Not routed to Hermod at all — logged to VL via vlagent, queryable post-hoc** |
+| Tag | Response expectation | Examples | Discord destination |
+|-----|---------------------|----------|---------------------|
+| `critical` | Look within minutes, even at 2am | Quorum lost, service hard-down, disk >90% | `#infra-critical`, `@everyone` |
+| `alert` | Look within hours, business-day OK | Single-node failure (degraded but up), drift detected or correction failed, sustained load 5–15 min, disk 70–80% | `#infra-alerts`, no mention |
+| `info` | FYI, never needs a response | Non-prod and canary-pool signals (`nonprod-*` wrappers, Zabbix events on `canary-*` hosts): the cap tier for anything that must never wake anyone | `#infra-info`, no mention |
+| `media` | Whenever | Sonarr grab/import/upgrade, sent straight to the `#media` webhook, not through Hermod | `#media` |
+| _(none, but POSTed)_ | Producer bug | Any POST without a `tag` | `#hermod-untagged` quarantine, no mention |
+| _(routine success)_ | n/a | Clean drift-check, reconcile OK | Not sent; logged to VL |
 
-Severity definitions are derived from response-time expectations rather than impact descriptors. "Service unavailable at 2am" demands `critical` because *the response time differs from `alert`*, not because the word "critical" feels heavier.
+Severity definitions come from response-time expectations, not impact adjectives: "service down at 2am" is `critical` because the *response time* differs from `alert`.
 
-The untagged-quarantine channel exists because Apprise's default behaviour on a tag-less notification is to match *every* URL whose `tag:` is unspecified — which would silently fan a stray POST to wherever the yaml has tag-less URLs. The fix is structural: every routed URL has an explicit `tag:`, and exactly one URL (the quarantine Discord webhook) has no `tag:` clause, catching the untagged stragglers in one place.
+The quarantine exists because Apprise matches a tag-less notification against **every URL whose tag is unspecified**, so a stray POST would silently fan out wherever the YAML has tag-less URLs. The fix is structural: every routed URL has an explicit `tag:`, and exactly one URL (the quarantine webhook) has none.
 
 ## JSON schema (source → Hermod)
 
 ```json
 POST /notify/<config-key>
-Content-Type: application/json
-
 {
-  "title":  "string, required — one-line headline shown in Discord embed title",
-  "body":   "string, required — full message body; markdown allowed if format=markdown",
+  "title":  "required: headline, shown as the embed title",
+  "body":   "required: message body (markdown if format=markdown)",
   "type":   "info | success | warning | failure",
-  "tag":    "string, comma-separated — routing key (critical, alert, media, ...)",
+  "tag":    "comma-separated routing key (critical, alert, info, media)",
   "format": "text | markdown | html"
 }
 ```
 
-Field semantics:
+`type` sets the embed **color** only (info blue, success green, warning yellow, failure red) and never routes. `tag` routes: Hermod delivers to every configured URL whose tag matches. `format` defaults to `text`.
 
-| Field | Drives |
-|-------|--------|
-| `title` | Discord embed title |
-| `body` | Discord embed body |
-| `type` | Discord embed **color** (info=blue, success=green, warning=yellow, failure=red). Does NOT drive routing. |
-| `tag` | **Routing.** Comma-separated tag list; Hermod fans the notification to every configured URL whose tag pattern matches. |
-| `format` | Body interpretation. Default `text`; use `markdown` for any embedded formatting. |
+## Apprise YAML (Hermod side)
 
-Source-side conformance (example — Ansible failure handler):
+Rendered by `roles/hermod-api` (`templates/apprise.yml.j2`) to `/etc/apprise/config/<config-key>.yml`; the config-key is a long random string (soft-auth in the URL, behind the Caddy allowlist). Each Discord webhook is stored in Vault as the **full webhook URL** in one `url` field (what Discord copy-pastes); the template strips `https://discord.com/api/webhooks/` and prepends `discord://`.
 
-```yaml
-- name: Notify on drift correction failure
-  ansible.builtin.uri:
-    url: http://hermod.niflheim.xiiisins.com:8000/notify/homelab
-    method: POST
-    body_format: json
-    body:
-      title: "Drift correction failed: {{ inventory_hostname }}"
-      body: |
-        **Playbook:** {{ ansible_play_name }}
-        **Failed task:** {{ ansible_failed_task.name }}
-        **Reason:** {{ ansible_failed_result.msg | default('see logs') }}
-      type: failure
-      tag: alert
-      format: markdown
-  when: hermod_notify_on_failure | default(true)
-```
+**The URL is the dict key, not a `url:` field.** A tagged route is `- discord://…/?format=markdown&username=Hrist:` with `- tag: critical` nested under it; the quarantine is a bare string entry with no options. The sibling-field form (`- url: …` + `tag: …`) silently fails with "Unsupported URL … no service(s) to notify".
 
-## Apprise yaml (Hermod-side)
-
-Rendered by `roles/hermod-api` from a Jinja template, installed at `/etc/apprise/config/<config-key>.yml` where `<config-key>` is a long random string (acting as soft-auth in the URL — Caddy's IP allowlist is the primary gate, this is belt-and-braces). Secrets via Vault.
-
-Vault stores each Discord webhook as a **single `url` field** containing the full webhook URL (`https://discord.com/api/webhooks/<id>/<token>`) — the form Discord copy-pastes natively. The Jinja template strips the `https://discord.com/api/webhooks/` prefix and prepends Apprise's `discord://` scheme at render time, keeping the operator workflow to one paste per webhook (no manual ID/token splitting).
-
-**Apprise YAML schema — URL is the dict KEY, not a `url:` field.** Subtle but load-bearing — see [2026-05-25 deploy retro](../incidents/2026-05-25-hermod-deploy.md). Two valid forms:
-
-- **Tagged routing**: URL is a dict key, options (incl. `tag`) under it as a list of single-key dicts.
-- **Untagged fallback**: URL as a bare string list entry, no nested options — matches notifications with no `tag` field.
-
-```jinja2
-{%- macro discord_apprise(url) -%}
-discord://{{ url | regex_replace('^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/', '') }}
-{%- endmacro -%}
-
-# Tag-driven routing. Sources tag; Hermod dispatches.
-urls:
-  - {{ discord_apprise(vault_discord_critical_url) }}/?format=markdown&username=Hrist:
-      - tag: critical
-
-  - {{ discord_apprise(vault_discord_alert_url) }}/?format=markdown&username=Mist:
-      - tag: alert
-
-  - {{ discord_apprise(vault_discord_info_url) }}/?format=markdown&username=Randgrid:
-      - tag: info
-
-  - {{ discord_apprise(vault_discord_media_url) }}/?format=markdown&username=Olrun:
-      - tag: media
-
-  # Quarantine: bare URL (no nested options) catches POSTs with no `tag`
-  # field. Apprise YAML semantics: a URL with no tag-options matches
-  # notifications with empty/unset tag. Producers fanning to tagged URLs
-  # (`critical`, `alert`, `info`, `media`) DO NOT also land here.
-  - {{ discord_apprise(vault_discord_untagged_url) }}/?format=markdown&username=Hel
-```
-
-**What does NOT work** (the wrong shape — silently fails with "Ignored entry url found under urls, entry #N" + "Unsupported URL, entry #N" → "no service(s) to notify"):
-
-```yaml
-# WRONG — Apprise rejects this format.
-urls:
-  - url: discord://...     # ❌ url-as-sibling-field
-    tag: critical          # ❌ tag-as-sibling-field
-```
-
-Webhook display names per tag — **Hrist** (critical, "the shaker" — canonical Valkyrie from Grímnismál), **Mist** (alert, "cloud" — watchful), **Randgrid** (info, "shield-truce" — quiet FYI), **Ölrún** (media, "ale-rune" — feast/social), **Hel** (untagged, the underworld of lost messages). Set via Apprise `?username=` override so the Discord-side display name is consistent regardless of how the webhook itself was named in the Discord UI.
-
-Adding a delivery channel later (e.g. ntfy for phone push on `critical`) is one yaml line — the source-side code does not change.
+Display names, forced via Apprise's `?username=` (so Discord shows them whatever the webhook is called there): **Hrist** `critical` (the shaker), **Mist** `alert` (cloud), **Randgrid** `info` (shield-truce), **Ölrún** `media` (ale-rune), **Hel** untagged (the underworld of lost messages). Adding a channel (e.g. ntfy push for `critical`) is one YAML line.
 
 ## Source-side severity mapping
 
-The policy artifact. Every alert producer in the homelab maps its native severity → an Apprise tag. Committing this table makes "what should I tag this as?" a documented lookup, not a per-author judgment call.
+The policy artifact: every producer maps its native severity to a tag. Changes here are policy decisions worth a PR; the Apprise YAML only realizes them.
 
-| Producer | Native level | Apprise tag |
-|----------|-------------|-------------|
-| **Zabbix** | Disaster, High | `critical` |
-| **Zabbix** | Average | `alert` |
-| **Zabbix** | Disaster, High, Average on a `canary-*` host | `info` (capped in `hermod-webhook.js`; non-prod never alerts above FYI) |
-| **Zabbix** | Information, Warning | _(none — only logs)_ |
-| **VMAlert** (future Phase 8b) | severity: critical | `critical` |
-| **VMAlert** (future Phase 8b) | severity: warning | `alert` |
-| **Semaphore** (or AWX) | Task failure: apply | `critical` |
-| **Semaphore** (or AWX) | Task failure: drift-check | `alert` |
-| **Semaphore** `asgard-nonprod-apply` / `-drift-check` | Task failure (changes-only drift is silent) | `info` (title prefixed `[non-prod]`) |
-| **Semaphore** (or AWX) | Task success | _(none — only logs)_ |
-| **Patroni** | Leader change | `alert` (degraded; cluster still up) |
-| **Patroni** | All replicas lost | `critical` |
-| **infra-health-check** (S4 prober) | CF token invalid · cert <3d · Patroni/etcd quorum lost · PBS task failed/auth-fail · prober errored | `critical` |
-| **infra-health-check** (S4 prober) | cert <14d | `alert` |
-| **infra-health-check** (S4 prober) | all checks clean | _(none — silent; debug line logged to VL)_ |
-| **Ansible** (custom playbook) | `failed_when` trigger | author picks; documented in role README |
-| **Sonarr / Radarr** (future) | All releases | `media` |
+| Producer | Native level | Tag |
+|----------|-------------|-----|
+| Zabbix | Disaster, High | `critical` |
+| Zabbix | Average | `alert` |
+| Zabbix | Disaster/High/Average on a `canary-*` host | `info` (capped in `hermod-webhook.js`) |
+| Zabbix | Information, Warning | none (logged only) |
+| VMAlert (future, Phase 8b) | critical / warning | `critical` / `alert` |
+| Semaphore | apply failure / drift-check failure | `critical` / `alert` |
+| Semaphore `asgard-nonprod-apply`, `-drift-check` | failure (changes-only drift is silent) | `info`, title prefixed `[non-prod]` |
+| Semaphore | success | none |
+| Patroni | leader change / all replicas lost | `alert` / `critical` |
+| infra-health-check (S4 prober) | CF token invalid, cert <3d, Patroni/etcd quorum lost, PBS task failed or auth-fail, prober errored | `critical` |
+| infra-health-check | cert <14d | `alert` |
+| infra-health-check | all clean | none (debug line to VL) |
+| Ansible custom playbook | `failed_when` trigger | author picks; documented in the role README |
+| Sonarr / Radarr | releases | `media` (direct webhook) |
 
-Changes to this table are policy decisions worth a PR. The Apprise yaml is just the mechanical realization.
+**Machine-readable form (Phase 10c).** The same producers, normalized into a versioned alert (`host`, `service`, `check`, `severity` = the tag, `runbook_id`, fingerprint, timestamps), live in [`aiops/`](../../aiops/README.md): schema, per-source mapping ([`alert-mapping.md`](../../aiops/alert-mapping.md)), and a routing table guaranteeing every `critical` path resolves to a `runbook_id`. Producers still POST the wire format above; a new producer or message shape needs a route in `aiops/alert-routing.yml`, until then it lands on `RB-ALERT-UNCLASSIFIED`.
 
-**Machine-readable form (Phase 10c).** The same producers, normalized into a versioned alert (`host`, `service`, `check`, `severity` = the tag above, `runbook_id`, fingerprint, timestamps) live in [`aiops/`](../../aiops/README.md): schema, per-source mapping ([`alert-mapping.md`](../../aiops/alert-mapping.md)), a routing table that guarantees every `critical` path resolves to a `runbook_id`, and fixtures. Producers are unchanged; they keep POSTing the wire format above. A new producer or a changed message shape means a new route in `aiops/alert-routing.yml` (until then it lands on `RB-ALERT-UNCLASSIFIED`).
+## Producer wiring
+
+- **Zabbix:** `roles/zabbix-server` declares a webhook media type (`templates/hermod-webhook.js`) via `community.zabbix.zabbix_mediatype` and attaches it to `Admin`, the recipient of the stock "Report problems to Zabbix administrators" action, so no action wiring is needed. The script maps severity → tag (above), suppresses lower severities, and POSTs to the Hermod URL built from `webhook_params` with the config-key resolved from Vault at template time. The user-media severity bitmask (56: Average+High+Disaster) suppresses a second time. A separate n8n media type feeds the AIOps analysis path independently ([`zabbix.md`](zabbix.md)).
+- **Patroni `on_role_change`:** `/etc/patroni/hermod-callback.sh` (rendered by `roles/patroni/tasks/hermod-callback.yml`, mode 0500 `postgres`, gated by `patroni_hermod_enabled`). `primary`/`master` (both appear: Patroni renamed it, and cold start still emits `master`), `replica` and `standby_leader` all map uniformly to `alert`/`warning`. Demotion is the other half of every failover, and a quieter colour for it was easy to miss. A cold start therefore yields three messages and a failover two. The script always exits 0 so a Hermod outage can never block Patroni's supervisor loop; failures log to `/var/log/patroni-hermod.log`.
+- **Semaphore / Ansible:** the `hermod_summary` callback and the playbook wrappers (`apply.yml`, `drift-check.yml`, `nonprod-*`) post the run summary; `infra-health-check.yml` posts per its table above.
+- **Not wired:** a PBS failure hook (deferred, PBS-side) and VMAlert (Phase 8b).
 
 ## Vault layout
 
 ```
-secret/ansible/hermod/discord/critical    { url }
-secret/ansible/hermod/discord/alert       { url }
-secret/ansible/hermod/discord/info        { url }
-secret/ansible/hermod/discord/media       { url }
-secret/ansible/hermod/discord/untagged    { url }
-secret/ansible/hermod/config-key          { value }
+secret/ansible/hermod/discord/{critical,alert,info,media,untagged}   { url }
+secret/ansible/hermod/config-key                                      { value }
 ```
 
-Path under `ansible/` because Hermod's configuration is Ansible-managed at runtime — matches the consumer-domain convention (see CLAUDE.md "Vault path convention"). Discord webhook entries minted in Discord UI, written to Vault out-of-band by the operator (no TF→Discord provider in scope, no TF resource for these paths either — operator-managed end-to-end). `config-key` is TF-minted in `terraform/vault/` via `random_password` (length 32, special=false) — gates the AppriseAPI `/notify/<key>` URL as soft-auth behind Caddy.
+Under `ansible/` because the Ansible role is the consumer. The Discord webhooks are minted in the Discord UI and written to Vault by the operator (no TF resource; 1P mirrors `Hermod - Discord webhook - <tag>`). `config-key` is TF-minted in `terraform/vault/` (`random_password`, length 32, no specials). `hermod-api` resolves every path in `hermod_api_discord_vault_paths` and **fails fast on a missing one**, so seed a new tag's secret before running the role; until a live run renders it, a POST for that tag matches no Apprise URL and is dropped.
 
-Each Discord path's `url` field stores the **full webhook URL** (`https://discord.com/api/webhooks/<id>/<token>`) as a single paste-friendly value — the Jinja template handles the conversion to Apprise's `discord://<id>/<token>` URL scheme at config-render time (see Apprise yaml section). Avoids the operator having to split ID + token by hand; Discord's UI exposes the URL, not the parts.
+## Access control: Caddy allowlist
 
-**`info` secret must be seeded first.** The hermod-api role resolves every path in `hermod_api_discord_vault_paths` and fails fast if one is missing (no tolerance for an absent secret, same as the other tags). The operator mints the info-channel webhook and writes `secret/ansible/hermod/discord/info` (field `url`, 1P mirror `Hermod - Discord webhook - info`) BEFORE running `playbooks/asgard-hermod.yml`; until that live run the Hermod config has no `info` URL, so an `info` POST matches no Apprise URL and is dropped (Apprise "no service(s) to notify"). Do not run the role against live Hermod before the secret exists.
-
-The Caddy IP-allowlist is the *primary* access gate; the config-key is *additional* depth. Producers receive the full URL `http://hermod.niflheim.xiiisins.com/notify/<config-key>` via their respective integration mechanisms (Zabbix media-type macro, Ansible group_vars, etc.).
-
-## Access control — Caddy IP allowlist
-
-Caddy is the only thing bound to `:80` on the Hermod LXC. AppriseAPI listens only on `127.0.0.1:8000` (gunicorn `bind` in `gunicorn.conf.py`). Caddy's `remote_ip` matcher gates accepted producers; everything else gets 403 with a JSON access-log line for VL.
-
-Caddyfile shape (rendered by `roles/caddy-reverse-proxy` — generic, reusable):
-
-```caddy
-:80 {
-    @allowed remote_ip {{ caddy_allowed_cidrs | join(' ') }}
-
-    handle @allowed {
-        reverse_proxy 127.0.0.1:8000
-    }
-
-    handle {
-        respond "forbidden" 403
-    }
-
-    log {
-        output file /var/log/caddy/access.log {
-            roll_size  10mb
-            roll_keep  5
-        }
-        format json
-    }
-}
-```
-
-Starting allowlist (concrete, derived from the source→tag mapping table):
+Caddy renders `:80 { @allowed remote_ip … ; handle @allowed { reverse_proxy 127.0.0.1:8000 } ; handle { respond "forbidden" 403 } }` with JSON logs (roll 10 MB × 5). The list is `caddy_sites[].allowed_cidrs` in `ansible/inventory/group_vars/apprise.yml`; adding a producer is a group_vars edit plus a re-run.
 
 | CIDR | Producer |
 |------|----------|
-| `10.0.11.21/32` | Hugin (Zabbix server) |
-| `10.0.11.230/32`, `10.0.11.231/32`, `10.0.11.232/32` | PG trio (Patroni callbacks) |
-| `10.0.11.233/32`, `10.0.11.234/32`, `10.0.11.235/32` | HAProxy/etcd trio (future: failover hooks) |
-| `10.0.21.0/24` | Asgard K3s nodes (future VMAlert, Semaphore, any K8s-side producer) |
-| `10.0.20.0/24` | Asgard K3s MetalLB pool (catches LB-mode producers if any land) |
-| `10.0.254.11/32`, `10.0.254.12/32`, `10.0.254.13/32` | Proxmox hosts (PBS notification hook, optional) |
+| `10.0.11.21/32` | Hugin (Zabbix) |
+| `10.0.11.230–.232/32` | PG trio (Patroni callbacks) |
+| `10.0.11.233–.235/32` | HAProxy/etcd trio |
+| `10.0.11.30/32` | Frigg (control node; the `ping-operator` relay) |
+| `10.0.21.0/24` | K3s nodes |
+| `10.0.20.0/24` | MetalLB pool (LB-mode producers) |
+| `10.0.254.11–.13/32` | Proxmox hosts |
 
-Allowlist lives in `ansible/inventory/group_vars/hermod_hosts.yml` as `caddy_allowed_cidrs`. Additions are a group_vars edit + re-run.
-
-## LXC spec
-
-| Field | Value |
-|-------|-------|
-| Hostname | `hermod` |
-| VMID | 1103 |
-| Host | Verd |
-| OS | Debian 13 |
-| vCPU | 1 |
-| RAM | 512 MB |
-| Disk | 4 GB |
-| Network | VLAN 11, `10.0.11.22/24` |
-| Privileged | No |
-| Nesting | Yes (Debian 13 systemd) |
-
-Sized small — AppriseAPI is stateless Python/gunicorn, single-digit RSS. Bumps later if needed.
-
-## Implementation outline (Phase 5h.2)
-
-Slotted **after** Phase 8c (Zabbix LXC). Until Zabbix exists, this phase has nothing to alert about.
-
-1. **5h.2.a** — `terraform/proxmox/asgard-lxcs/lxcs.tf` Hermod resource (Debian 13, 1 vCPU / 512 MB / 4 GB, VLAN 11 / 10.0.11.22, unprivileged + nesting). Standard LXC pattern — no `device_passthrough` / `keyctl` / `fuse`, so the main API-token module not the root-pam variant. `lifecycle.ignore_changes` for `operating_system[0].template_file_id` + `initialization[0].user_account` per the import-drift gotcha (defensive even on fresh creates). Apply from main per the `terraform apply` rule.
-2. **5h.2.b** — `terraform/netbox/vms.tf` Hermod records: `netbox_virtual_machine` (vmid=1103, role=`notifications` [new role in `roles.tf` — semantically distinct from `monitoring`/Zabbix], cluster=niflheim, device=verd) + `netbox_interface` (eth0) + `netbox_ip_address` (10.0.11.22/24) + primary_ip binding. Per the TF→NetBox standing-pattern rule. Apply from main.
-3. **5h.2.c** — `terraform/vault/main.tf` (additions): `random_password.hermod_config_key` (length=32, special=false) + `vault_kv_secret_v2` at `secret/ansible/hermod/config-key`. **Discord webhook paths are NOT TF-managed** — they're operator-minted (Discord UI), operator-rotated, operator-written. Keeping them out of TF avoids the create-time placeholder overwriting real values. Apply from main.
-4. **5h.2.d** — `ansible/roles/caddy-reverse-proxy/` — generic role: install `caddy` apt package, render Caddyfile from `caddy_sites` list-of-dicts (each: name, listen, allowlist_cidrs, upstream, log_path), systemd-managed, log dir owned by `caddy` user, vlagent picks up `/var/log/caddy/access.log` via group_vars override. Reusable for any future LXC needing a thin reverse proxy.
-5. **5h.2.e** — `ansible/roles/hermod-api/` — installs AppriseAPI:
-   - `apt install python3-venv python3-pip` (idempotent)
-   - `python3 -m venv /opt/apprise-api`
-   - `pip install apprise-api[all]==<pin>` (concrete-pin per IaC policy; capture latest stable at role-write time)
-   - Render `/etc/apprise/config/{{ hermod_config_key }}.yml` from Jinja template; Discord webhook `url` field per tag via `community.hashi_vault.vault_kv2_get` (template strips the `https://discord.com/api/webhooks/` prefix + prepends `discord://`); config-key via the same Vault lookup
-   - systemd unit `apprise-api.service` (`Type=notify`) invoking `<venv>/bin/gunicorn --config gunicorn.conf.py core.wsgi:application` (the Django WSGI entrypoint; `bind = 127.0.0.1:8000` in the gunicorn config)
-   - `APPRISE_CONFIG_DIR=/etc/apprise/config` env var so the API auto-loads on startup
-   - Config render task notifies a `reload apprise-api` handler (`systemctl reload apprise-api` → `ExecReload=/bin/kill -HUP $MAINPID`; gunicorn reloads gracefully on SIGHUP)
-6. **5h.2.f** — `ansible/playbooks/asgard-hermod.yml` — baseline + caddy-reverse-proxy + hermod-api + hardening. Add `hermod_hosts` group to `ansible/inventory/hosts.yml` with `hermod` host entry; group_vars in `group_vars/hermod_hosts.yml` for `caddy_allowed_cidrs` + `caddy_sites` config. vlagent log-input override for `/var/log/caddy/access.log` (JSON-structured field hints).
-7. **5h.2.g** — Operator: Discord UI channel creation (`#infra-critical`, `#infra-alerts`, `#media`, `#hermod-untagged`); mint four webhooks (named Hrist / Mist / Ölrún / Hel respectively, though display names are also enforced via Apprise `?username=` override — the webhook name is informational); `vault kv put secret/ansible/hermod/discord/<tag> url=https://discord.com/api/webhooks/...` for each of `critical,alert,media,untagged`. 1P "Homelab" recovery copy per webhook (`Hermod - Discord webhook - <tag>`, fields = `url`). Then re-run `asgard-hermod.yml` to re-render config now that Vault is populated.
-8. **5h.2.h** — `terraform/adguard/rewrites.tf` entry for `hermod.niflheim.xiiisins.com → 10.0.11.22`. Apply from main.
-9. **5h.2.i** — Zabbix media-type integration. Done 2026-05-26 (commit 9c9eef7, [retro](../incidents/2026-05-26-hermod-producer-wiring.md)):
-   - `community.zabbix.zabbix_mediatype` declaratively registers a Webhook media-type with a JS script (`roles/zabbix-server/templates/hermod-webhook.js`) that maps Zabbix trigger severity → Apprise tag (`Disaster`/`High` → `critical`, `Average` → `alert`, lower severities → suppressed) and POSTs JSON to `<scheme>://<hermod-host>/notify/<config-key>` (URL built from `webhook_params`, config-key resolved from Vault at Ansible-template time).
-   - `community.zabbix.zabbix_user` attaches the media-type to Admin (member of "Zabbix administrators", already the recipient of the default trigger action — so no separate action wiring needed). Severity bitmask 56 (Average+High+Disaster); lower severities suppressed at user-media layer + again in the JS, defence-in-depth.
-   - Reuses the httpapi connection pattern from 8c.8 host registration. The Action layer was not modified — Zabbix's stock "Report problems to Zabbix administrators" action carries everything through end-to-end.
-10. **5h.2.j** — Source-side wiring for non-Zabbix producers:
-    - **Patroni `on_role_change` callback** — done 2026-05-26 (commit c344697, [retro](../incidents/2026-05-26-hermod-producer-wiring.md)). Bash script at `/etc/patroni/hermod-callback.sh` (rendered by `roles/patroni/tasks/hermod-callback.yml` with Vault-resolved Hermod URL embedded at template time, mode 0500 postgres:postgres). Patroni `postgresql.callbacks.on_role_change` block in `patroni.yml.j2` (gated by `patroni_hermod_enabled`). Maps role transitions uniformly to `alert/warning` (yellow embed) for `master` / `replica` / `standby_leader`; unknown role → silent skip. Initial design split colours (yellow promotion + blue demotion + blue standby_leader) but a demotion is the OTHER half of every failover — operator feedback 2026-05-26 confirmed both halves need to land at the same attention level, otherwise the demotion half is easy to miss in busy channels. Cold cluster start now produces 3 yellow messages (one per node settling); failover produces 2 (demote + promote of the affected pair) — both are genuine "cluster geometry changed" events worth surfacing identically. Script always exits 0 — Hermod outages must never deadlock the Patroni supervisor loop. Failures log to `/var/log/patroni-hermod.log`.
-    - PBS notification hook → `critical` on backup failure (optional, Proxmox host integration). Deferred — PBS hasn't backed up enough yet for this to matter.
-    - Ansible failure handlers in `roles/<role>/handlers/main.yml` where role exit-state matters — folded into Semaphore drift-check (Phase 5h.3).
-11. **5h.2.k** — Smoketest matrix:
-    - Positive: 3 tags × 2 representative types each (critical/failure, critical/warning, alert/warning, alert/success, media/info, media/success) = 6 curls from an allowlisted source; verify Discord embed colour matches `type` (info=blue, success=green, warning=yellow, failure=red), mention behaviour (`@everyone` on critical only), VL access-log JSON line per request
-    - Negative — untagged: 1 POST with no `tag` field → lands in `#hermod-untagged`, no fanout to the three real channels
-    - Negative — disallowed source: 1 POST from a non-allowlisted IP (e.g. tailnet) → 403, no Discord traffic, VL line with `status=403`
-    - End-to-end Zabbix: temporarily lower a trigger severity to High on a no-op item (e.g. `agent.ping` on a host you're about to reboot), trigger fires, Discord receives `critical`, recovery clears
-
-## Future expansion
-
-- **ntfy phone push** for `critical` only — add one yaml line.
-- **Email digest** of `alert`-tagged notifications via Mailgun/SMTP — useful if Discord-only proves insufficient.
-- **VMAlert integration** (Phase 8b) — wire VMAlert's `notifier.config` at an Apprise destination URL.
-- **AWX/Semaphore notification template** — single template referenced by every job, body templated from Ansible facts.
-
-## What stays out of scope
-
-- **HA Hermod.** Single LXC. If Hermod is down, alerts fail to deliver — but they still land in VL via vlagent (the access path also writes to syslog when sources POST and fail). Acceptable for a homelab; revisit only if Discord becomes the sole channel and downtime is felt.
-- **Inbound message filtering / deduplication.** Apprise is a fanout, not a state machine. Storm prevention is the producer's responsibility (Zabbix trigger dependencies, VMAlert `for:` clauses).
-- **Direct Hermod queries.** Hermod does not aggregate or replay. Audit trail = VL.
-
-## Decisions locked (2026-05-25)
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| AppriseAPI install path | **pip into venv + gunicorn + systemd** (Option A) | Matches every other LXC role's "native + systemd" pattern. Docker rejected — alien moving part for one LXC, and Apprise's non-Docker path is well-trodden. Detailed install steps in 5h.2.e above. |
-| Access control | **Caddy reverse proxy on same LXC with `remote_ip` allowlist matcher** (Option A) | Producers are a small concrete set (Zabbix, PG, K3s, etc.) — explicit allowlist audits well in git. Caddy gives JSON-structured access logs to VL for free + preserves a trivial TLS path for later. Generic `caddy-reverse-proxy` role is reusable. |
-| Untagged-notification policy | **Quarantine channel `#hermod-untagged`** via Apprise yaml URL with `tag:` omitted | Producer bugs surface in a dedicated Discord channel rather than silent fanout or `@everyone` pings. Natural backlog of producers to fix. Four Discord webhooks total (critical/alert/media/untagged). |
-| Zabbix media-type management | **`community.zabbix.zabbix_mediatype` + `zabbix_action` declarative** | Reuses the httpapi-connection pattern from 8c.8 host registration. No click-ops in Zabbix UI. Lives in `roles/zabbix-server/`. |
-| Config-key as soft-auth | **TF-minted via `random_password` length 32**, stored at `secret/ansible/hermod/config-key` | Belt-and-braces behind the Caddy IP allowlist. Producers receive the full `/notify/<key>` URL via Vault lookups, not literal HCL. |
-
-## Items still deferred to role-write time
-
-- Concrete `apprise-api` pip version pin — capture latest stable at role-write time (5h.2.e).
-- Concrete Caddy version pin (apt `caddy` package version, or pin to a release) — capture at role-write time (5h.2.d).
-- Critical-tag avatar URL — pick a static-served image at smoketest time (Caddy apex-static pod can serve from `/icons/` if desired; otherwise omit).
-- `@here` vs `@everyone` for `critical` — confirm at smoketest time. `@everyone` pings users while offline (correct for true-2am-pageable alerts); `@here` only currently-online users. Decision can be deferred safely — it's a one-character Apprise URL parameter (`&mentions=@everyone` vs `&mentions=@here`) to flip later.
+The allowlist is the primary gate; the config-key is depth behind it.
 
 ## Operator ping from an unattended Claude session
 
-`scripts/notify/ping-operator "<title>" "<body>" [info|alert|critical]` posts to Hermod's `/notify/<key>` (the key is read from Vault `secret/ansible/hermod/config-key` inside the process, never printed). From a non-allow-listed source (the Mac) Hermod answers 403, so it retries from Frigg over SSH with the key on stdin. Use the `alert` tier for "I need you"; `info` is the FYI channel. Added 2026-10-03 for the unattended 10f/10g run.
+`scripts/notify/ping-operator "<title>" "<body>" [info|alert|critical]` posts to `/notify/<key>`, reading the key from Vault `secret/ansible/hermod/config-key` inside the process (never printed). From a non-allowlisted source (the Mac) Hermod answers 403, so it retries from Frigg over SSH with the key on stdin. Use `alert` for "I need you"; `info` is the FYI channel.
+
+## Possible later
+
+ntfy phone push for `critical` (one YAML line); an email digest of `alert`; VMAlert's `notifier.config` pointed at an Apprise URL (Phase 8b); `@here` instead of `@everyone` for `critical` (one Apprise URL parameter, `&mentions=`).
