@@ -17,7 +17,7 @@ Status lives in [`build-sequence.md`](../operations/build-sequence.md); this pag
 | Göndul | 2001 | Urd | `10.0.21.11` | CP (default init node) | 2 vCPU / 4 GB / 20 GB |
 | Hlökk | 2002 | Verd | `10.0.21.12` | CP | same |
 | Sigrún | 2003 | Skuld | `10.0.21.13` | CP | same |
-| Einherjar-urd | 2101 | Urd | `10.0.21.21` / `10.0.20.201` | worker | 2 vCPU / 16 GB / 30 GB `scsi0` + 50 GB `scsi1` (xfs `/data`, `local-path`) |
+| Einherjar-urd | 2101 | Urd | `10.0.21.21` / `10.0.20.201` | worker | 2 vCPU / 16 GB / 30 GB `scsi0` + 50 GB `scsi1` (xfs `/data`, `local-path`) + 100 GB `scsi2` (xfs `/scratch`, `local-path-scratch`, not in PBS) |
 | Einherjar-verd | 2102 | Verd | `10.0.21.22` / `10.0.20.202` | worker | same |
 | Einherjar-skuld | 2103 | Skuld | `10.0.21.23` / `10.0.20.203` | worker | same |
 
@@ -62,7 +62,7 @@ Flux pulls `k8s/asgard/` from `main` (merging is the deploy). Rule: anything tha
 | Sealed Secrets | Master key backed up to 1Password. Public-safe ciphertext in git. |
 | Synology CSI | iSCSI for block-critical single-instance DBs only. **No default StorageClass:** every PVC names its tier or fails to bind (protects the DS223J LUN cap). [`synology.md`](synology.md) |
 | csi-driver-nfs | Class `nfs-client`, Munin share, for large/append file-class volumes. |
-| local-path-provisioner | Class `local-path` on each worker's `/data`; replicated state (Vault Raft) and mmap-safe single-instance. Replaces the disabled K3s built-in. |
+| local-path-provisioner | Class `local-path` on each worker's `/data`: replicated state (Vault Raft) and mmap-safe single-instance. Class `local-path-scratch` (`Delete`) on `/scratch`: disposable bulk data, no PBS backup. One provisioner, two classes via `storageClassConfigs`. Replaces the disabled K3s built-in. |
 | Vault | 3-node Raft HA on `local-path`, AWS KMS auto-unseal, TLS from the internal CA; UI at `vault.niflheim.xiiisins.com` via Authentik OIDC. Required pod anti-affinity: 3 replicas on 3 workers, so a cordoned worker leaves one Pending (2/3 voters is by design during a worker rebuild). Config in `terraform/vault/`. |
 | External Secrets Operator | `ClusterSecretStore` `vault`, trusting the internal CA via `caProvider`. The validating webhook is `failurePolicy: Fail`, so Flux dry-runs of ExternalSecrets fail while its pod is being recreated. |
 | MetalLB | L2, pool `10.0.20.10–.99`; `.10` is Traefik, `.11` the Vault UI. |

@@ -30,6 +30,7 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 |------|-------------|-----------|---------|----------|
 | **NFS** | `nfs-client` | Synology share `/volume2/k8s-nfs` via `csi-driver-nfs` | file-class: append/large-file, fsync-tolerant | **0** |
 | **local-path** | `local-path` | dedicated 50G `scsi1` `/data` disk per worker (xfs) | app-replicated state (Raft/quorum) | **0** |
+| **local-path-scratch** | `local-path-scratch` | dedicated 100G `scsi2` `/scratch` disk per worker (xfs, `backup=0`, reclaim `Delete`) | disposable bulk data: SABnzbd `incomplete/` (added 2026-10-11) | **0** |
 | **iSCSI** | `synology-csi-iscsi-retain-vol2` | Synology LUN on Volume2 | block-critical single-instance: mmap/fsync (LMDB, BoltDB) | **1 each** |
 | **emptyDir** | — | pod ephemeral | pure cache (rebuilds on restart) | **0** |
 

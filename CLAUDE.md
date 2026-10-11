@@ -36,6 +36,7 @@ Rationale + dates are in [`docs/operations/decisions.md`](docs/operations/decisi
 - **Storage is tiered by access pattern** (forced by the DS223J's hard ~10 DSM-wide iSCSI LUN cap; [`storage-iscsi-synology.md`](docs/known-issues/storage-iscsi-synology.md), [`procedures/storage-tiering.md`](docs/procedures/storage-tiering.md)):
   - **iSCSI** (Synology CSI, class `synology-csi-iscsi-retain-vol2`): block-critical single-instance mmap/fsync DBs only. One LUN per PVC; one synology-csi per cluster; not democratic-csi. Vestigial target `…munin.k3s-core.f954439fc46` is NOT in use.
   - **local-path** (per-worker 50G `/data` xfs): app-replicated/quorum state (Vault Raft) + mmap-safe single-instance.
+  - **local-path-scratch** (per-worker 100G `/scratch` xfs, no PBS backup): disposable bulk data (SABnzbd `incomplete/`).
   - **NFS** (`csi-driver-nfs`, class `nfs-client`, Munin share): large/append file-class volumes.
   - **emptyDir**: cache-class.
 - **VM disks: local LVM-thin** (faster than NFS at 1 GbE). **PostgreSQL only, no Galera**; PG backend is local LVM-thin, never NFS (fsync/WAL latency).
@@ -159,7 +160,7 @@ Fan out `Agent` calls in **one message** for independent work: per-source resear
 Detail: [`docs/services/asgard-k3s.md`](docs/services/asgard-k3s.md), [`k3s-lifecycle.md`](docs/known-issues/k3s-lifecycle.md), [`networking-multi-homed-workers.md`](docs/known-issues/networking-multi-homed-workers.md).
 
 - **K3s install** is fully IaC via the Ansible `k3s` role. Pin `k3s_version` in `roles/k3s/defaults/main.yml` (currently `v1.36.4+k3s1`); on a healthy cluster only `playbooks/k3s-upgrade.yml` applies it (one minor per run), so a bump alone does nothing. `detect-state.yml` sets `k3s_already_healthy` so install/calico skip on re-run (avoids duplicate-join); `config.yml` always runs. Order: init node (default `gondul`, `--cluster-init`) → CPs → workers. **Rebuilding the init node:** `-e k3s_init_node=hlokk` (any healthy CP) and `kubectl delete node <name>` from a survivor first.
-- **VM specs:** `locals.{control_planes,workers}` in `terraform/proxmox/asgard-k3s/main.tf` is authoritative. CPs Göndul/Hlökk/Sigrún on Urd/Verd/Skuld: 2 vCPU / 4 GB / 20 GB, one NIC on VLAN 21, tainted `NoSchedule`, identical by rule (failover symmetry). Workers Einherjar-urd/verd/skuld: 2 vCPU / 16 GB / 30 GB `scsi0` + 50 GB `scsi1` xfs `/data`, eth0 VLAN 21 / eth1 VLAN 20.
+- **VM specs:** `locals.{control_planes,workers}` in `terraform/proxmox/asgard-k3s/main.tf` is authoritative. CPs Göndul/Hlökk/Sigrún on Urd/Verd/Skuld: 2 vCPU / 4 GB / 20 GB, one NIC on VLAN 21, tainted `NoSchedule`, identical by rule (failover symmetry). Workers Einherjar-urd/verd/skuld: 2 vCPU / 16 GB / 30 GB `scsi0` + 50 GB `scsi1` xfs `/data` + 100 GB `scsi2` `/scratch`, eth0 VLAN 21 / eth1 VLAN 20.
 - ⚠️ **Workers are multi-homed**; the four landmine fixes in `roles/k3s/tasks/network.yml` (Calico CIDR pin `10.0.21.0/24`, `rp_filter=2`, `route_localnet=1`, VLAN 20 policy routing) must never be hardened away.
 
 ## Build status
