@@ -1,6 +1,8 @@
-<!-- docs/procedures/zabbix-saml-deploy.md -->
+<!-- docs/procedures/archive/2026-05-26-zabbix-saml-deploy.md -->
 
 # Zabbix SAML SSO deploy (Phase 8c.3–8c.6)
+
+> **ARCHIVED: executed runbook (Zabbix SAML SSO first deploy, Phase 8c.3–8c.6, closed 2026-05-26).** Kept as the historical record, not the current procedure. For what runs today see [`../../services/zabbix.md`](../../services/zabbix.md) for the as-built service and auth chain; the retrospective is [`../../incidents/2026-05-26-zabbix-saml-deploy.md`](../../incidents/2026-05-26-zabbix-saml-deploy.md).
 
 One-time procedure to apply the SAML SSO draft (worktree branch `worktree-draft-zabbix-saml`) end-to-end. Pre-conditions: network access for `terraform apply` (S3 state lock) and `git push` (Flux reconciliation).
 

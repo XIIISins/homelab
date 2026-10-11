@@ -2,7 +2,7 @@
 
 # AdGuard Home (DNS)
 
-Three LXCs (Saga / Mimir / Kvasir) run AdGuard Home as the homelab's resolver and ad/tracker blocker. One VIP, `10.0.10.200`, floats across them via keepalived; clients only ever talk to the VIP. Saga is the origin: `adguardhome-sync` runs on Saga and pushes its config to Mimir and Kvasir every minute. Fully IaC since the 5b.2 cutover (2026-05-25); cutover runbook: [`agh-cutover.md`](../procedures/agh-cutover.md).
+Three LXCs (Saga / Mimir / Kvasir) run AdGuard Home as the homelab's resolver and ad/tracker blocker. One VIP, `10.0.10.200`, floats across them via keepalived; clients only ever talk to the VIP. Saga is the origin: `adguardhome-sync` runs on Saga and pushes its config to Mimir and Kvasir every minute. Fully IaC since the 5b.2 cutover (2026-05-25); cutover runbook: [`agh-cutover.md`](../procedures/archive/2026-05-25-agh-cutover.md).
 
 ## Architecture
 

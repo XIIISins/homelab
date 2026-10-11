@@ -1,6 +1,8 @@
-<!-- docs/procedures/agh-cutover.md -->
+<!-- docs/procedures/archive/2026-05-25-agh-cutover.md -->
 
 # AdGuard Home cutover (manual → IaC, Phase 5b.2)
+
+> **ARCHIVED: executed runbook (AdGuard Home manual→IaC cutover, Phase 5b.2, closed 2026-05-25).** Kept as the historical record, not the current procedure. For what runs today see [`../../services/adguard.md`](../../services/adguard.md) for the as-built service, `terraform/adguard/` and `ansible/roles/adguard/` for the IaC.
 
 One-shot deployment runbook to lift the manually-installed AGH trio (Saga / Mimir / Kvasir) into Terraform + Ansible management. After this completes, the LXCs are TF-defined + the AGH/sync/keepalived config is Ansible-rendered + the secrets live in Vault.
 
@@ -273,8 +275,8 @@ After verification passes:
 
 ## See also
 
-- [`docs/services/adguard.md`](../services/adguard.md)
-- [`ansible/roles/adguard/README.md`](../../ansible/roles/adguard/README.md)
-- [`ansible/roles/adguardhome-sync/README.md`](../../ansible/roles/adguardhome-sync/README.md)
-- Phase 5g.2 cutover patterns (HAProxy / keepalived VIP — same VRRP failover semantics) — see [`docs/incidents/2026-05-24-5g2-haproxy-keepalived-vip.md`](../incidents/2026-05-24-5g2-haproxy-keepalived-vip.md)
-- [`known-issues/dns-adguard.md`](../known-issues/dns-adguard.md) and [`known-issues/haproxy-keepalived.md`](../known-issues/haproxy-keepalived.md)
+- [`docs/services/adguard.md`](../../services/adguard.md)
+- [`ansible/roles/adguard/README.md`](../../../ansible/roles/adguard/README.md)
+- [`ansible/roles/adguardhome-sync/README.md`](../../../ansible/roles/adguardhome-sync/README.md)
+- Phase 5g.2 cutover patterns (HAProxy / keepalived VIP — same VRRP failover semantics) — see [`docs/incidents/2026-05-24-5g2-haproxy-keepalived-vip.md`](../../incidents/2026-05-24-5g2-haproxy-keepalived-vip.md)
+- [`known-issues/dns-adguard.md`](../../known-issues/dns-adguard.md) and [`known-issues/haproxy-keepalived.md`](../../known-issues/haproxy-keepalived.md)
