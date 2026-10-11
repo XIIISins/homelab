@@ -69,3 +69,21 @@ spec:
   resources:
     requests:
       storage: 2Gi
+---
+# SABnzbd's incomplete/ downloads: node-local scratch (class local-path-scratch, the unbacked-up scsi2 /scratch disk
+# on each worker), not the NFS share. Every article write, direct unpack and move over NFS to the DS223J held the
+# downloader at ~33 MB/s (2026-10-11). Cache-class: a lost volume just means re-downloading the jobs in flight.
+# The request is nominal (local-path does not enforce it); the real bound is the 100G disk and SABnzbd's
+# `download_free` guard. Pinned to whichever worker the pod first lands on, like sabnzbd-config.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-incomplete
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path-scratch
+  resources:
+    requests:
+      storage: 80Gi
