@@ -4,7 +4,7 @@
 
 The whole homelab on one sheet. It is a map, not a reference: it shows what exists and how the layers connect. **Components & interactions** explains each layer, and **Hardware** carries the addresses and specs that are left out here on purpose.
 
-![Homelab overview](/api/attachments.redirect?id=d456af80-c117-4ceb-894c-eb95787b82a7)
+![Homelab overview](/api/attachments.redirect?id=e7a7b97d-1437-42c9-a9d9-9bde9cdfe265)
 
 ---
 
@@ -22,6 +22,6 @@ The whole homelab on one sheet. It is a map, not a reference: it shows what exis
 
 The editable source (open it at excalidraw.com; the export settings are on the **Diagrams** page) and a vector copy for zooming in or reusing elsewhere.
 
-[homelab-overview.excalidraw 142204](/api/attachments.redirect?id=de785e63-cc79-4478-9120-209534375b59)
+[homelab-overview.excalidraw 142227](/api/attachments.redirect?id=2879cfa7-c684-4e98-a767-46a3eaf8fa74)
 
-[homelab-overview.svg 279474](/api/attachments.redirect?id=f5f10a23-756d-4cdb-99e2-443aee4dd744)
+[homelab-overview.svg 279452](/api/attachments.redirect?id=0e70051d-5a88-46ac-a6d9-134aa9e511fe)
