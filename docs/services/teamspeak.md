@@ -2,6 +2,10 @@
 
 # Teamspeak 3 (asgard K3s)
 
+![TeamSpeak 3: voice for friends, with an offsite failover](diagrams/teamspeak.svg)
+
+*Sketch of how it fits together; editable source: [`teamspeak.excalidraw`](diagrams/teamspeak.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 K3s-hosted TeamSpeak 3 server for friends/family voice. Single replica, PostgreSQL backend on the Patroni cluster, MetalLB-fronted UDP+TCP with source-IP preservation for per-IP bans.
 
 Lives in `k8s/asgard/apps/teamspeak/`. Pivoted from a planned LXC (1121 on Verd) on 2026-05-25 — K3s wins on GitOps uniformity; no HA loss because TS failover is DNS-SRV at the client side (`do-ts3.xiiisins.com` on DigitalOcean covers the homelab being down).

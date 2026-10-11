@@ -2,6 +2,10 @@
 
 # Outline (asgard K3s)
 
+![Outline: the operational wiki, fed by every infra layer](diagrams/outline.svg)
+
+*Sketch of how it fits together; editable source: [`outline.excalidraw`](diagrams/outline.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 K3s-hosted Outline wiki for living homelab notes — HOWTOs, gotchas-in-progress, friends/family-readable how-to-use-the-homelab content. Distinct in purpose from the git-tracked `docs/` tree: `docs/` is *deploy-shape* truth (decisions, services, incidents, IaC-adjacent context); Outline is the *operational* notebook where things evolve. Access gated through Authentik OIDC + the `outline-users` group.
 
 Lives in `k8s/asgard/apps/outline/`. Backends span Patroni Postgres, a sidecar Redis, Garage S3, and Authentik OIDC — a useful exemplar of "K8s app fed by every existing infra layer."

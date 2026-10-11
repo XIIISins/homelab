@@ -2,6 +2,10 @@
 
 # Factorio LXC architecture (deployed 2026-05-16)
 
+![Factorio: a game server a friend runs through SFTP only](diagrams/factorio.svg)
+
+*Sketch of how it fits together; editable source: [`factorio.excalidraw`](diagrams/factorio.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 LXC 1120 hosts the Factorio headless server *and* SFTPGo on the same host. The operator (a trusted friend) manages the server via SFTP only — no shell access, no web UI, no SSH. Everything happens through JSON control files in `/factorio/control/` edited via SFTPGo's virtual filesystem.
 
 **Filesystem layout** (under `/factorio/`):

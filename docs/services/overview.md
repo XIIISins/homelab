@@ -1,6 +1,10 @@
 <!-- docs/services/overview.md -->
 # Overview page
 
+![Overview page: a status page that reads two APIs](diagrams/overview.svg)
+
+*Sketch of how it fits together; editable source: [`overview.excalidraw`](diagrams/overview.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 A one-screen status page and launcher for the homelab, served at
 **`overview.niflheim.xiiisins.com`**. Internal-only: the name exists only in AdGuard, so it
 resolves on the LAN and the tailnet and nowhere else. It is **not** the Startpage:

@@ -2,6 +2,10 @@
 
 # Notifications (Hermod, LXC 1103)
 
+![Notifications: Hermod fans alerts out to Discord by tag](diagrams/notifications.svg)
+
+*Sketch of how it fits together; editable source: [`notifications.excalidraw`](diagrams/notifications.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 The homelab's single notification aggregation point. Sources POST to one HTTP endpoint; Hermod fans out to Discord webhooks (and any future channel) by tag. Wiring a new alert source needs no hub-side config. Built in Phase 5h.2 (2026-05-26); retros: [deploy](../incidents/2026-05-25-hermod-deploy.md), [producer wiring](../incidents/2026-05-26-hermod-producer-wiring.md).
 
 ## What it is

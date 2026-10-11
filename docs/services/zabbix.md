@@ -2,6 +2,10 @@
 
 # Zabbix (host/LXC monitoring — Hugin)
 
+![Zabbix (Hugin): host and LXC monitoring outside K3s](diagrams/zabbix.svg)
+
+*Sketch of how it fits together; editable source: [`zabbix.excalidraw`](diagrams/zabbix.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 Zabbix 7.0 LTS on LXC 1102 (Hugin, Urd, `10.0.11.21`): the host/LXC-layer half of observability, next to the in-cluster VictoriaMetrics/Logs stack ([`observability.md`](observability.md)). It runs on its own LXC **outside K3s on purpose**: when K3s is the thing on fire, Zabbix is what tells us. Built in Phase 8c (2026-05-26); promoted from 5h so that failure-domain role is visible in the build sequence (decision rows "Zabbix promotion", "Zabbix UI auth — native SAML, not Traefik ForwardAuth", "Zabbix LAN TLS termination" in [`decisions.md`](../operations/decisions.md)). Retros: [server deploy](../incidents/2026-05-25-zabbix-server-deploy.md), [SAML](../incidents/2026-05-26-zabbix-saml-deploy.md); gotchas: [`known-issues/zabbix.md`](../known-issues/zabbix.md).
 
 ## Architecture

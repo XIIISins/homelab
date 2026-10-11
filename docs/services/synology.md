@@ -2,6 +2,10 @@
 
 # Synology (Munin)
 
+![Munin: the Synology that backs storage for the whole lab](diagrams/synology.svg)
+
+*Sketch of how it fits together; editable source: [`synology.excalidraw`](diagrams/synology.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 DS223J on a single RAID 1 pool, carved into DSM volumes by purpose. Serves PBS and Proxmox over NFS, K8s PVs over NFS and iSCSI, and the media library.
 
 **Live volumes (after the 2026-05-30 storage-tiering redesign, [`storage-tiering.md`](../procedures/storage-tiering.md)):**

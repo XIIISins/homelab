@@ -2,6 +2,10 @@
 
 # PostgreSQL (Patroni HA, Fulla / Vör / Idunn)
 
+![PostgreSQL: Patroni HA behind one address](diagrams/postgres.svg)
+
+*Sketch of how it fits together; editable source: [`postgres.excalidraw`](diagrams/postgres.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+
 PostgreSQL 17 from PGDG on three LXCs: Fulla (1130, Skuld), Vör (1131, Urd) and Idunn (1132, Verd), TLS-enabled, scram-sha-256 only. Fulla was deployed standalone 2026-05-17; Phase 5g.2 (2026-05-24) adopted it in place into the Patroni cluster `niflheim-pg`, with Vör and Idunn joining as replicas (3/3 streaming); etcd DCS lives on the HAProxy/etcd LXC trio (Hlin/Eir/Snotra at 1133/1134/1135) — see [decisions](../operations/decisions.md) for the DCS-placement reasoning. Each cluster node lives on a different Proxmox host so a single-host failure never takes down >1 PG node.
 
 **Why local LVM-thin, not NFS.** Postgres on NFS is an anti-pattern: Synology DSM's NFS isn't on anyone's validated list, fsync semantics vary between server implementations, soft mounts can silently drop writes under load, and WAL fsync over 1 GbE makes every commit a network round-trip. Database scale (the `postgres_databases` consumers: Authentik, NetBox, Zabbix, Teamspeak, Outline, Semaphore, Immich) is tens of GB fits inside the 16 GB LXC disk; `pct resize` is one command if it ever fills.
