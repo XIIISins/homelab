@@ -314,5 +314,3 @@ Applied from the operator's local `main` (plan reviewed first, each plan purely 
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: **pure logic built (10g1, unit-tested), nothing deployed**: the eligibility rules, the plan checker, the worker data manifest and the registry `rebuild:` section exist as code and tests; the engine `steps`/`backend` support, flag, breaker and bot cards are built (10g2, faked in tests, see "As built"), but the rebuild runner, the Terraform pool and token, the playbooks and Semaphore templates, the runbooks and the bot cards are **not built** (see "As built so far").

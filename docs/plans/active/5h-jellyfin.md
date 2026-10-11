@@ -237,5 +237,3 @@ J0 (NFS rule, Urd memory check) and M0 (accounts, share layout) can run in paral
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: 🟡 **J0 host checks done 2026-10-06 (all pass except the DSM NFS rule, an operator step); implementation starting**.

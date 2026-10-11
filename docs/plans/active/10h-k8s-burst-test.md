@@ -37,5 +37,3 @@ One burst cluster per PR, TTL 4 h, at most one test running fleet-wide, the kill
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: **slices 1-2 built and run live (2026-10-04)**: the baseline on unchanged `main` passes in about 2.5 minutes on a cluster built from Terraform + Ansible; the broken-branch cases fail for the right reasons (results in [`procedures/k8s-burst-test.md`](../../procedures/k8s-burst-test.md)). Slices 3-4 are open.
