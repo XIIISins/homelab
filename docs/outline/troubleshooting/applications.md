@@ -53,7 +53,7 @@ kill %1
 |---|---|---|
 | UI redirects to login forever / 404 on `/outpost.goauthentik.io` | The proxy provider is not attached to the embedded outpost | **Identity & edge** §2 |
 | SABnzbd crash-loops, jobs `Paused` at 90 to 95% with `__ADMIN__/… missing` | OOM kill at a low memory limit (needs `cache_limit = 256M`, memory limit 2 Gi) | Remove the corrupt jobs from the queue/history; raise limits in Git; the init container re-asserts `cache_limit`/`bandwidth_max` on each start |
-| Downloads complete but files have holes/CRC errors | `pp` was unset so SABnzbd did not repair/unpack | Categories must have `pp = 3` (done); replace damaged files: move the file to `/data/_quarantine/`, delete the episode file via the API, search again |
+| Downloads complete but files have holes/CRC errors | `pp` was unset so SABnzbd did not repair/unpack | Categories must have `pp = 3` (the init container sets it on every start); replace damaged files: move the file to `/data/_quarantine/`, delete the episode file via the API, search again |
 | Imports stall: "No files found are eligible for import" | A single-episode release grabbed as a season pack left phantom queue entries | Delete them with `blocklist=true&skipRedownload=true`, then `POST /command {"name":"EpisodeSearch","episodeIds":[…]}` |
 | A wrong-show or wrong-season release was imported | Loose indexer search; auto re-download matched by absolute number | Check the queue after any mass search; remove with blocklist; the profile's minimum custom-format score (100) rejects most junk |
 | Removing a queue item did not start a new search | Sonarr does not always re-search | Trigger `EpisodeSearch` yourself; SubsPlease uses absolute numbering, so do not filter by season |
@@ -160,12 +160,12 @@ curl -s -o /dev/null -w '%{http_code}\n' https://netbox.niflheim.xiiisins.com/ap
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Pod OOMKilled / 503 for a minute during `terraform plan/apply` | The state refresh hammers the API | Use `-parallelism=1`; the memory floor is 1.5 GiB for the server |
-| Terraform: `invalid character 'B'…` / `TextConsumer` / `[500] OperationalError: the connection is closed` | A 503/500 blip mid-refresh | Retry once; use `-parallelism=1` |
+| Pod OOMKilled / 503 for a minute during `terraform plan/apply` | The state refresh (~160 resources) hammers the API; it only kills the pod when the memory limit is too low | A plan at the default parallelism peaks near 1.5 GiB against the 2.5 GiB limit and leaves the pod alone. If it OOMs anyway, check the HelmRelease limit first, then add `-parallelism=2` |
+| Terraform: `invalid character 'B'…` / `TextConsumer` / `[500] OperationalError: the connection is closed` | A 503/500 blip mid-refresh | Retry once; if it repeats, add `-parallelism=2` |
 | Every API call: `Invalid v1 token` | `API_TOKEN_PEPPERS` missing in the app secret | The `netbox-app` ExternalSecret must carry `api_token_peppers` |
 | Scheduled Ansible runs report `skipping: no hosts matched` | Cold inventory cache plus a NetBox 500 | **Monitoring & automation** §4 |
 | New OIDC user can log in but do nothing | NetBox permissions are not synced from groups | Log in as the local superuser and elevate the user (Active/Staff/Superuser) |
-| Fresh install loops in migrations / OOM at 768 Mi | The migration phase needs more memory | Keep at least the medium preset |
+| Fresh install loops in migrations / OOM at 768 Mi | The migration phase needs more memory than a small preset gives | Keep the explicit requests and limits in the HelmRelease (about 2 GiB request, 2.5 GiB limit); do not fall back to a small preset |
 | `VM create fails: could not locate referenced tag "ansible:<group>"` | The tag is missing from `terraform/netbox/tags.tf` | Add the tag in the same change as the VM |
 | Perpetual `custom_fields` diff on a VM with no VMID | A DigitalOcean node with no value | Declare the 9900-range VMID |
 

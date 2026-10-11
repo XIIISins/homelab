@@ -90,7 +90,7 @@ curl -s "$SEMAPHOREUI_API_BASE_URL/project/1/tasks/last" -H "Authorization: Bear
 | Symptom | Cause | Fix |
 |---|---|---|
 | A task stays `running` for hours; later jobs `waiting` | The project runs one task at a time. A fleet reboot killed `semaphore-0`'s node mid-play (it has no PVC and lands anywhere) | Read the end of the output (`.../tasks/<id>/output`: it cuts off mid-handler); stop the task: `curl -s -X POST "$SEMAPHOREUI_API_BASE_URL/project/1/tasks/<id>/stop" -H "Authorization: Bearer $SEMAPHOREUI_API_TOKEN"`; the playbook is idempotent, so re-run it. Check the rebooted node returned (`kubectl get nodes`) |
-| Task "success" but `skipping: no hosts matched` everywhere | Cold NetBox inventory cache plus a NetBox 500 produced zero hosts and Ansible exited 0 | Run the `refresh-netbox-inventory` template; check NetBox (`kubectl -n netbox get pods`); the `site.yml` preflight now fails loudly under 20 hosts |
+| Task "success" but `skipping: no hosts matched` everywhere | Cold NetBox inventory cache plus a NetBox 500 produced zero hosts and Ansible exited 0 | Run the `refresh-netbox-inventory` template; check NetBox (`kubectl -n netbox get pods`); the `site.yml` preflight fails the run when fewer than 20 hosts match |
 | A group's variables are ignored in Semaphore only | NetBox builds groups from `ansible:<group>` tags; a group that exists only in `hosts.yml` is empty there | Add the tag in `terraform/netbox/tags.tf`/`vms.tf`, apply, refresh the inventory |
 | Per-host vars missing in Semaphore | Inline `hosts.yml` host vars are invisible to the NetBox inventory | Put them in `inventory/host_vars/<host>.yml` |
 | Run fails on a task using a collection feature | Semaphore ran the older image-bundled collections | The custom image bakes the pins; rebuild/bump it via CI |
@@ -129,7 +129,7 @@ ssh-add -l                                                                  # on
 | Playbook runs a stale version of the repo | Frigg's checkout is not auto-updated | `cd ~/homelab && git -c core.fileMode=false pull --ff-only` before Frigg-driven applies |
 | `*.niflheim` lookups fail only on Frigg | systemd-resolved stuck to the UCG fallback | `resolvectl status`; set the AdGuard VIP as eth0's DNS; reboot-test |
 | Remote control is `failed` (`You must be logged in to use Remote Control`) | The login session was invalidated; the unit crash-looped past its start limit | The listener auto-remediates: it posts an auth URL to Discord and serves a paste-back page at `http://frigg-auth.niflheim.xiiisins.com:8686/` (internal only). Manual: `claude auth login` as `ghost`, then `sudo systemctl reset-failed claude-remote-control && sudo systemctl restart claude-remote-control` (the `reset-failed` is required within 5 minutes of the crash) |
-| Terraform from Frigg `permission denied` on `auth/token/create` | The Frigg policy lacked it; now granted | Use the root token modules from the operator's workstation |
+| Terraform from Frigg `permission denied` on `auth/token/create` | A stale cached token: `homelab-frigg` grants `auth/token/create` (child tokens only, no `sys/*`) | `vault-homelab-env --refresh >/dev/null 2>&1`, retry; `terraform/vault` itself always needs the root token (operator) |
 | A shim change has no effect | The three-hour cache | `vault-homelab-env --refresh >/dev/null 2>&1` |
 | Drift-check shows `changed` on a Frigg task | A file a runtime process also writes was fully managed | Note it; the fix is a drop-in layer, not a template fight |
 

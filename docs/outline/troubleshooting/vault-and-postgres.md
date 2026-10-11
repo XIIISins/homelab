@@ -34,7 +34,7 @@ vault token lookup >/dev/null 2>&1 && echo "my token ok" || echo "my token INVAL
 | `list-peers` shows a member that is unreachable | Ghost entry from a rebuilt node | `raft remove-peer <id>` (root token): **Vault recovery** §3 |
 | Config change merged but pods unchanged | StatefulSet is `OnDelete` | Roll one pod at a time, leader last: **Vault recovery** §4 |
 | A Terraform step says `permission denied` / `invalid token` mid-deploy | The cached token is per-session and expired | `set-vault-token root` (operator) or `vault-homelab-env --refresh`; verify with `vault token lookup` |
-| A module 403s on `secret/k8s/*`, on a write, or on `auth/token/create` | The shim's AppRole token reads `secret/ansible/*` only | The root token is needed for `terraform/vault`, `semaphore`, `tailscale`, `cloudflare`, `authentik`: operator runs them |
+| A module 403s on `secret/k8s/*`, on a write, or on `auth/token/create` | On the MacBook the shim's `ansible-local` token reads `secret/ansible/*` only; Frigg's `homelab-frigg` token reads and writes all of `secret/*` and mints child tokens, but has no `sys/*` | Modules that write `secret/k8s/*` (`semaphore`, `tailscale`, `cloudflare`, `authentik`) need the root token from the operator's workstation, or run from Frigg; `terraform/vault` always needs the root token |
 | `invalid role or secret ID` | A stale SecretID (re-seeding only copies the shell value) | **AppRole rotation**. To tell apart: `vault read -field=role_id auth/approle/role/<role>/role-id` vs the role id in the local secret-zero file; if they match, only the secret_id is bad |
 | Rotation helper says `unknown role` | Wrong helper for Semaphore's role | `rotate-semaphore-approle` (fish) |
 | SecretID dies after about 32 days, not 90 | The auth mount's max lease TTL clamps it | `vault read sys/auth/approle/tune` (want `2160h`); fix in `terraform/vault` |
@@ -86,7 +86,7 @@ Interpretation:
 | Replica fails with `no pg_hba.conf entry for replication` | Patroni's `bootstrap.pg_hba` only applies at initdb; on adoption it never ran | `patronictl edit-config` to add the replication entries (including `127.0.0.1/32` and `::1/128` for local `pg_rewind`) |
 | Editing role defaults changed nothing | Patroni DCS settings seed only on first start | `patronictl show-config` / `edit-config`; the role reconciles reload-only parameters |
 | Disk full on a Postgres LXC | WAL or dumps | Check `df -h` and `/var/backups/postgresql`; an LXC disk grows online with `pct resize`; WAL write failure is an outage |
-| Zabbix history tables bloated, cache pressure | Stock autovacuum scale factor too lax for huge tables | Per-table autovacuum settings are already applied; check they persisted |
+| Zabbix history tables bloated, cache pressure | Stock autovacuum scale factor too lax for huge tables | The role applies per-table autovacuum settings; check they persisted |
 | `psycopg.DataError: cannot dump lists of mixed types` crashing Patroni at init | Patroni 4.x with psycopg3 | Install Patroni with the etcd3 extra on the supported pins (already in the role); reinstall via `asgard-postgres.yml` |
 | Postgres service handler fails on a Patroni-managed node | The distro `postgresql` service is stopped on purpose | Handlers are gated on `postgres_patroni_managed`; do not start the distro unit |
 

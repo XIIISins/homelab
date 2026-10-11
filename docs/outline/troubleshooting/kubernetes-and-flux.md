@@ -122,7 +122,7 @@ flux reconcile source git flux-system && flux reconcile kustomization flux-syste
 
 - Workers are close to full on CPU/memory **requests**; a surge or a drain leaves pods Pending until capacity returns. Real usage is low.
 - Memory reservations: 2 GiB per worker is held for the OS and K3s. `eviction-hard` replaces the kubelet defaults, so all thresholds must always be restated together.
-- A worker config change used to never restart the agent; it does now (`restart k3s-agent`, `KillMode=process` keeps pods up).
+- A worker config change restarts the agent (`restart k3s-agent`); `KillMode=process` keeps the pods up.
 - Calico and the K3s version are **not** Flux-managed: `playbooks/platform-version-drift.yml` reports drift.
 
 ---
