@@ -1,7 +1,10 @@
 # SABnzbd. Same image family and volume layout as Sonarr. The init container renders sabnzbd.ini ONCE (only when the
-# file is missing): seeded API/NZB keys, the Usenet provider from Vault, the `anime` category, direct unpack and a speed
-# cap so the downloader cannot fill the 1 GbE link the workers share with iSCSI and everything else. After the first
-# start the ini on the config volume is authoritative (edit it in the UI or delete it to re-seed).
+# file is missing): seeded API/NZB keys, the Usenet provider from Vault, the `anime` category and a speed cap so the
+# downloader cannot fill the 1 GbE link the workers share with iSCSI and everything else. Downloads are assembled in
+# /incomplete on node-local scratch (PVC sabnzbd-incomplete) and only the finished, unpacked result is written to the
+# NFS share, so the download and the unpack never compete for the DS223J's write throughput. Direct unpack is off:
+# SABnzbd unpacks once the whole job is downloaded. After the first start the ini on the config volume is authoritative
+# (edit it in the UI or delete it to re-seed), except the keys `setkey` re-asserts below.
 # CPU is capped at one core (par2 repair and unrar are CPU-heavy bursts on 2 vCPU workers).
 apiVersion: apps/v1
 kind: Deployment
@@ -29,6 +32,8 @@ spec:
             - |
               set -eu
               INI=/config/sabnzbd.ini
+              # The scratch volume is created root-owned by the provisioner; the app runs as 1000.
+              chown 1000:1000 /incomplete
               # Keys this manifest owns even after the first render (the rest of the ini is the UI's). The article cache
               # is what OOM-killed the pod at a 1 GiB limit with 20 connections plus unpack (2026-10-08).
               setkey() {
@@ -47,6 +52,12 @@ spec:
               if [ -f "$INI" ]; then
                 setkey cache_limit 256M
                 setkey bandwidth_max 50M
+                # Where jobs are assembled, and the no-unpack-while-downloading rule. Jobs already in the queue keep
+                # the download_path they were created with; only new jobs use /incomplete.
+                setkey download_dir /incomplete
+                setkey direct_unpack 0
+                # Pause rather than fill the scratch disk (a stuck job must not eat all of it).
+                setkey download_free 10G
                 setcatpp
                 echo "sabnzbd.ini exists: only the managed keys were enforced"; exit 0
               fi
@@ -56,10 +67,10 @@ spec:
                 printf 'api_key = %s\n' "$SAB_API_KEY"
                 printf 'nzb_key = %s\n' "$SAB_NZB_KEY"
                 printf 'host_whitelist = sabnzbd.niflheim.xiiisins.com, sabnzbd, sabnzbd.media, sabnzbd.media.svc, sabnzbd.media.svc.cluster.local\n'
-                printf 'download_dir = /data/Downloads/incomplete\n'
+                printf 'download_dir = /incomplete\n'
                 printf 'complete_dir = /data/Downloads/complete\n'
                 printf 'bandwidth_max = 50M\ncache_limit = 256M\n'
-                printf 'direct_unpack = 1\n'
+                printf 'direct_unpack = 0\ndownload_free = 10G\n'
                 printf 'cleanup_list = .nfo, .sfv, .srr\n'
                 printf '[servers]\n[[usenet]]\n'
                 printf 'name = usenet\ndisplayname = usenet\nenable = 1\nssl = 1\n'
@@ -85,6 +96,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
+            - name: incomplete
+              mountPath: /incomplete
       containers:
         - name: sabnzbd
           image: ghcr.io/linuxserver/sabnzbd:5.1.3-ls275
@@ -127,6 +140,8 @@ spec:
               mountPath: /config
             - name: data
               mountPath: /data
+            - name: incomplete
+              mountPath: /incomplete
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -134,3 +149,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: media-data
+        - name: incomplete
+          persistentVolumeClaim:
+            claimName: sabnzbd-incomplete
