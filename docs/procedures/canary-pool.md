@@ -27,7 +27,7 @@ Urd total 31.9 GB; 7.6 GB **available** with PBS (1 GB) already on it (7 LXCs + 
 
 0. **Alerting prerequisites first** (so the first canary event cannot reach a high tier): (a) seed Vault `secret/ansible/hermod/discord/info` (field `url`, the operator-created FYI channel webhook; 1P mirror `Hermod - Discord webhook - info`); (b) live run `ansible-playbook playbooks/asgard-hermod.yml --tags hermod-api` (renders the `info` Apprise block; the role fails fast if the secret is missing, and must not be run before it exists); (c) `ansible-playbook playbooks/asgard-zabbix.yml --tags zabbix:hermod-mediatype` (pushes the webhook script with the canary cap); (d) `terraform apply` in `terraform/semaphore` (new `asgard-nonprod-*` templates + daily schedule; check with `plan` first).
 1. `terraform/proxmox/asgard-lxcs`: `terraform plan` then `apply` (expect +6: 3 `random_password`, 3 containers).
-2. `terraform/netbox`: `terraform plan -parallelism=2` then `apply -parallelism=2` (default parallelism OOMKills NetBox). Expect +1 `netbox_device_role` (`canary`), +3 `netbox_tag`, +3 VMs, +3 interfaces, +3 IPs, +3 primary IPs (+16, no changes/destroys to existing).
+2. `terraform/netbox`: `terraform plan -parallelism=2` then `apply -parallelism=2` (the standing rule for the NetBox module; see [`known-issues/netbox.md`](../known-issues/netbox.md)). Expect +1 `netbox_device_role` (`canary`), +3 `netbox_tag`, +3 VMs, +3 interfaces, +3 IPs, +3 primary IPs (+16, no changes/destroys to existing).
 3. Day-1 (root only, no `ansible` user yet), one at a time with the Ansible playbook lock rule:
    `ansible-playbook -i inventory/hosts.yml -e 'ansible_user=root' --tags baseline --limit canary playbooks/site-nonprod.yml`
 4. Full converge as `ansible` (locks root out at the end):

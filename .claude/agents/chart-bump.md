@@ -26,7 +26,7 @@ Helper scripts (read-only, in `.claude/scripts/chart-bump/`; they keep state in 
    - Read the matching `docs/known-issues/<subject>.md` (index in CLAUDE.md) and grep `docs/operations/open-questions.md` + `decisions.md`. Treat pending tasks as prerequisites.
    - **Read the real upstream release notes** between pinned and target — don't trust secondary summaries (including `docs/plans/active/chart-bumps-2026-09.md`, which was partly wrong). GitHub API (`/releases/tags/<tag>`, `/releases?per_page=100` filtered for `breaking|deprecat|removed|must`), raw `CHANGELOG.md` / `website/docs/releases/...` files. For each breaking item ask "do WE use this?" and grep the repo/cluster to prove it.
    - Compare live values to repo (`helm -n <ns> get values <rel>`): drift means the repo file isn't the truth.
-3. Capture a baseline you can compare after: pods, HR status, `terraform plan` (no changes?) for any coupled module (`-parallelism=1` for netbox), endpoint status codes.
+3. Capture a baseline you can compare after: pods, HR status, `terraform plan` (no changes?) for any coupled module (`-parallelism=2` for netbox), endpoint status codes.
 
 ## Phase 2 — Checks (gate each item; any failure changes the plan)
 
@@ -64,7 +64,7 @@ Order by **blast radius, lowest first**, then fix dependencies. Current referenc
 - **cert-manager:** all Certificates + ClusterIssuers Ready, controller/webhook logs free of post-startup errors. A forced renewal is the real test but mutates certs — request it from the owner if the classifier blocks it.
 - **MetalLB:** a 1 req/s probe of the Traefik and Vault VIPs across the speaker roll (count non-200/000), plus a TCP check of each other VIP.
 - **Authentik:** OIDC discovery issuer/authorize URLs are `https`, ForwardAuth 302s, NetBox/Vault OIDC redirect, SAML redirect (Hugin), `terraform plan` clean with the matching provider, no server/worker errors.
-- **NetBox:** `/api/status/` version, authenticated API reads, `terraform plan -parallelism=1` clean, dynamic inventory resolves hosts, OIDC redirect.
+- **NetBox:** `/api/status/` version, authenticated API reads, `terraform plan -parallelism=2` clean, dynamic inventory resolves hosts, OIDC redirect.
 - **Synology CSI:** node plugins/controller on the new driver, existing PV still Bound/attached, then a full re-mount (delete the consuming pod: NodeUnpublish→Unstage→Stage→Publish in the node-plugin logs; a single retried "Failed to remove target path" is benign).
 - **Calico:** `status.calicoVersion`, all TigeraStatus Available, `calico-node` rolled; IPPool / IPAMBlock / BlockAffinity counts ≥ before; a **cross-node** probe (an app on one node reaching a backend on another, e.g. wiki / metric / NetBox / Authentik health), not just the smoketest (same-node backend can mask a broken overlay).
 - **K3s:** every node at target + Ready, `flux get hr -A`, `kubectl get tigerastatus`, ExternalSecrets, Vault 3/3, smoketest.

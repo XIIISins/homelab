@@ -490,7 +490,7 @@ Apply in dependency order (all from the main checkout):
 terraform -chdir=terraform/cloudflare apply    # tunnel + DNS records + cloudflared creds (secret/k8s/cloudflared/credentials)
 terraform -chdir=terraform/authentik apply     # OIDC/SAML providers + identity-as-data (users.yaml/groups.yaml)
 terraform -chdir=terraform/tailscale apply     # ACL (policy.hujson) + auth keys + split DNS
-terraform -chdir=terraform/netbox apply -parallelism=1   # ~160 records; parallelism=1 avoids the transient 500s
+terraform -chdir=terraform/netbox apply -parallelism=2   # ~160 records; the standing rule for this module
 terraform -chdir=terraform/garage apply        # bucket+key+grant + secret/k8s/outline/s3 (needs `kubectl port-forward svc/garage-admin 3903`)
 terraform -chdir=terraform/semaphore apply     # pushes ansible-awx SecretID + app/oidc/pg config to Semaphore
 terraform -chdir=terraform/adguard apply       # DNS rewrites (write-to-origin Saga; sync fans to Mimir/Kvasir)
