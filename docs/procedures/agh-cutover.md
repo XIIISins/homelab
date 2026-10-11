@@ -62,7 +62,7 @@ vault kv get secret/ansible/keepalived/adguard_vrrp | grep auth_pass
 
 The current manual deploy uses `ghost` as the admin user. The IaC default is `admin`. Either:
 
-- **Keep `ghost`**: add `adguard_admin_user: ghost` to `ansible/inventory/group_vars/adguard_hosts.yml`. The bcrypt hash above gets associated with `ghost` instead of `admin`.
+- **Keep `ghost`**: add `adguard_admin_user: ghost` to `ansible/inventory/group_vars/adguard.yml`. The bcrypt hash above gets associated with `ghost` instead of `admin`.
 - **Migrate to `admin`**: leave defaults. The 1P item should also say `admin`.
 
 Pick one; consistency matters more than the value.

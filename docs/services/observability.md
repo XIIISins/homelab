@@ -44,7 +44,7 @@ Three classes of producers feed VL + VM:
 |----------|------|---------|----------|
 | K3s pods (container logs) | vlagent DaemonSet on every asgard node, `-kubernetesCollector` for native pod-log discovery, ships to VL via in-cluster Service DNS | `victoria-logs-collector` chart `0.3.4` at `k8s/asgard/infrastructure/victoria-logs-collector/` | `http://victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428/insert/native` |
 | Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, PBS — 14+ hosts) | vlagent systemd binary reads rsyslog'd `/var/log/syslog` (Debian) or `/var/log/messages` (RHEL) → VL ingest via HTTPRoute on the niflheim Gateway | `ansible/roles/vlagent/` | `https://logs.niflheim.xiiisins.com/insert/native` |
-| Proxmox VMs (K3s nodes — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs except endpoint is the in-cluster ClusterIP — K3s host network can't reach MetalLB VIPs | Same `ansible/roles/vlagent/` + `group_vars/asgard_k3s.yml` override | `http://10.43.14.105:9428/insert/native` (ClusterIP of `victorialogs-ingest` companion Service) |
+| Proxmox VMs (K3s nodes — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs except endpoint is the in-cluster ClusterIP — K3s host network can't reach MetalLB VIPs | Same `ansible/roles/vlagent/` + `group_vars/k3s.yml` override | `http://10.43.14.105:9428/insert/native` (ClusterIP of `victorialogs-ingest` companion Service) |
 | Proxmox hosts (Urd/Verd/Skuld) | Same vlagent role | `ansible/roles/vlagent/` with `-e ansible_user=root` | `https://logs.niflheim.xiiisins.com/insert/native` |
 
 **vlagent is CLI-flag-only, not YAML-configured.** All config is passed as command-line flags. `-fileCollector.glob` + `-fileCollector.extraFields` are array flags — each appears multiple times, aligned by position to give per-file tags. The role builds the flag list via Jinja loop over `vlagent_log_inputs`.
@@ -87,7 +87,7 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 4. **AGH split-DNS** — `terraform/adguard/rewrites.tf` adds `metric.niflheim.xiiisins.com` + `logs.niflheim.xiiisins.com` → Traefik VIP `10.0.20.10`.
 5. **K3s `coredns-custom`** — handles the in-cluster-pod → K8s-fronted-FQDN class for pods that need to reach `authentik.midgard.xiiisins.com` etc. for OIDC backchannel.
 6. **Authentik** — two proxy providers (`mode: forward_single`) declared in `terraform/authentik/observability.tf`. `monitoring-admins` group in `terraform/authentik/groups.yaml` gates access.
-7. **Companion ClusterIP Service** `victorialogs-ingest` (the chart's primary is headless) — K3s host network can't reach MetalLB VIPs, so the K3s VM hosts target the ClusterIP via `group_vars/asgard_k3s.yml` override.
+7. **Companion ClusterIP Service** `victorialogs-ingest` (the chart's primary is headless) — K3s host network can't reach MetalLB VIPs, so the K3s VM hosts target the ClusterIP via `group_vars/k3s.yml` override.
 
 ## Operational notes
 

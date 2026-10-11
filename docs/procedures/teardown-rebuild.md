@@ -348,7 +348,7 @@ homelab-env --refresh
 # ansible-awx (consumed by Semaphore) — Vault-KV-canonical, comes later with Semaphore (§7)
 # Test the lookup path end-to-end:
 set-vault-token approle
-ansible-playbook -i inventory/hosts.yml playbooks/test-vault-lookup.yml   # expects a value back
+ansible localhost -m ansible.builtin.debug -a "msg={{ lookup('community.hashi_vault.vault_kv2_get', 'ansible/test/hello').secret.value }}"   # expects a value back (seed ansible/test/hello first; see identity-secrets.md "Verify end-to-end")
 set -e VAULT_TOKEN
 ```
 
@@ -533,7 +533,7 @@ Semaphore (deployed in §7 as a K3s app) drives steady-state from here: its `ref
 - [ ] `vault status` initialized+unsealed on all 3; `raft list-peers` → 3 voters
 - [ ] Sealed-secrets active keypair matches the 1P backup
 - [ ] Traefik VIP `10.0.20.10` answers HTTP from outside the cluster (route_localnet + VLAN20 policy routing + L2)
-- [ ] AppRole lookup works (`test-vault-lookup.yml`); idempotency: `asgard-k3s.yml` → `changed=0`
+- [ ] AppRole lookup works (the ad-hoc `vault_kv2_get` check above); idempotency: `asgard-k3s.yml` → `changed=0`
 
 **LXC tiers**
 - [ ] AdGuard VIP `10.0.10.200` resolving (TCP test, not ping); failover works
