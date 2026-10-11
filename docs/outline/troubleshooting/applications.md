@@ -160,8 +160,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://netbox.niflheim.xiiisins.com/ap
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Pod OOMKilled / 503 for a minute during `terraform plan/apply` | The state refresh (~160 resources) hammers the API; it only kills the pod when the memory limit is too low | A plan at the default parallelism peaks near 1.5 GiB against the 2.5 GiB limit and leaves the pod alone. If it OOMs anyway, check the HelmRelease limit first, then add `-parallelism=2` |
-| Terraform: `invalid character 'B'…` / `TextConsumer` / `[500] OperationalError: the connection is closed` | A 503/500 blip mid-refresh | Retry once; if it repeats, add `-parallelism=2` |
+| Pod OOMKilled / 503 for a minute during `terraform plan/apply` | The state refresh (~160 resources) hammers the API; it only kills the pod when the memory limit is too low | Always run this module with `-parallelism=2` (same speed, more headroom). A default-parallelism plan peaks near 1.5 GiB against the 2.5 GiB limit and leaves the pod alone; if it OOMs anyway, check the HelmRelease limit first |
+| Terraform: `invalid character 'B'…` / `TextConsumer` / `[500] OperationalError: the connection is closed` | A 503/500 blip mid-refresh | Retry once with `-parallelism=2` |
 | Every API call: `Invalid v1 token` | `API_TOKEN_PEPPERS` missing in the app secret | The `netbox-app` ExternalSecret must carry `api_token_peppers` |
 | Scheduled Ansible runs report `skipping: no hosts matched` | Cold inventory cache plus a NetBox 500 | **Monitoring & automation** §4 |
 | New OIDC user can log in but do nothing | NetBox permissions are not synced from groups | Log in as the local superuser and elevate the user (Active/Staff/Superuser) |
