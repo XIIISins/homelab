@@ -85,7 +85,7 @@ First deploy tried a 1Gi iSCSI PVC for `outline-redis` and Synology returned "Nu
 - Yjs collab doc deltas in transit — clients re-sync from PG on reconnect.
 - Websocket presence — naturally rebuilt as clients reconnect.
 
-Nothing in Outline's Redis is canonical. `--save "" --appendonly no` makes that explicit (no RDB, no AOF). emptyDir means the cache evaporates on pod restart, which is fine. The right long-term fix is investigating the Synology LUN cap (revisit in open questions) — once lifted, swap emptyDir for an iSCSI PVC for less restart-time chatter.
+Nothing in Outline's Redis is canonical. `--save "" --appendonly no` makes that explicit (no RDB, no AOF). emptyDir means the cache evaporates on pod restart, which is fine. emptyDir is the settled answer, not a stopgap: the storage tiering (cache-class state → emptyDir; iSCSI only for block-critical DBs) makes it the designated tier ([`synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)).
 
 ## Why `sslmode=no-verify`
 
@@ -130,14 +130,12 @@ Look for `Listening on http://localhost:3000` to confirm migrations completed.
 
 **Storage expansion.** N/A — Outline has no PVC. Uploads grow in Garage; resize Garage's underlying storage as needed (separate, future work).
 
-**Migrate Redis to iSCSI** (when the LUN cap is investigated + lifted): drop the emptyDir, add a `volumeClaimTemplates` entry on the StatefulSet, follow the chown-init pattern documented in CLAUDE.md for iSCSI fsGroup. Behavioral change is "Redis restart doesn't drop cache" — purely a polish improvement, no correctness impact.
-
 **Bumping Outline.** Pin moves in `deployment.yaml`. Outline's migration discipline is mature; rollbacks are PG-flavored (down-migration if available, or restore from Patroni basebackup). Read upstream release notes before any minor-version jump.
 
 ## Known gotchas referenced
 
-- CLAUDE.md "Authentik chart values block does NOT override env vars" — Outline's app config is entirely env-driven from `outline-app` Secret; no chart values shape worth confusing with.
-- CLAUDE.md "Cloudflared targets backend Services by ClusterIP DNS, NEVER MetalLB IPs" — applied; `wiki.xiiisins.com` tunnel ingress points at `traefik.traefik.svc.cluster.local`.
-- CLAUDE.md "In-cluster K8s-fronted FQDNs: use a CoreDNS rewrite, not hostAliases" — N/A so far; nothing in-cluster currently dials `wiki.*.xiiisins.com`. Add a rewrite if/when an in-cluster integration appears (e.g. an embed-checker bot).
-- CLAUDE.md "PG `hostssl`-only rejects plaintext clients" — `sslmode=no-verify` (not `require`) satisfies the hostssl-only pg_hba while accepting Patroni's self-signed cert. Adds the self-signed-cert nuance on top of the existing rule.
-- CLAUDE.md "K3s host network can't reach MetalLB-announced VIPs from the same cluster" — N/A; Outline doesn't run on a K3s host, and external traffic reaches Traefik either via cloudflared (in-cluster) or via the MetalLB VIP from off-cluster clients.
+- [`known-issues/authentik.md`](../known-issues/authentik.md) "Authentik chart values block does NOT override env vars" — Outline's app config is entirely env-driven from `outline-app` Secret; no chart values shape worth confusing with.
+- [`known-issues/cloudflare.md`](../known-issues/cloudflare.md) "Cloudflared targets backend Services by ClusterIP DNS, NEVER MetalLB IPs" — applied; `wiki.xiiisins.com` tunnel ingress points at `traefik.traefik.svc.cluster.local`.
+- [`known-issues/dns-adguard.md`](../known-issues/dns-adguard.md) "In-cluster K8s-fronted FQDNs: use a CoreDNS rewrite, not hostAliases" — N/A so far; nothing in-cluster currently dials `wiki.*.xiiisins.com`. Add a rewrite if/when an in-cluster integration appears (e.g. an embed-checker bot).
+- [`known-issues/postgres.md`](../known-issues/postgres.md) "PG `hostssl`-only rejects plaintext clients" — `sslmode=no-verify` (not `require`) satisfies the hostssl-only pg_hba while accepting Patroni's self-signed cert. Adds the self-signed-cert nuance on top of the existing rule.
+- [`known-issues/networking-multi-homed-workers.md`](../known-issues/networking-multi-homed-workers.md) "K3s host network can't reach MetalLB-announced VIPs from the same cluster" — N/A; Outline doesn't run on a K3s host, and external traffic reaches Traefik either via cloudflared (in-cluster) or via the MetalLB VIP from off-cluster clients.

@@ -6,7 +6,7 @@ cloudflared). Anonymous create/view/upload; a trusted "janitor" crew gets the
 gated `/list` + `/admin` for cleanup.
 
 - **Manifests:** `k8s/asgard/apps/microbin/`
-- **Image:** `danielszabo99/microbin:2.1.4` (the official image — repo README badges)
+- **Image:** `ghcr.io/xiiisins/microbin-homelab` (pinned in the Deployment), a **patched build** of the official `danielszabo99/microbin` (`docker/microbin/`, built by `.github/workflows/build-microbin-image.yml`). Stock MicroBin has an upstream bug (v2.0.4 through master): under `--json-db`, `remove_expired` panics while holding the paste mutex, which poisons it and makes every POST 502 while the pod still looks healthy. There is no fixed release, hence the one-patch build; details in [`known-issues/microbin.md`](../known-issues/microbin.md).
 - **Hostname:** `paste.xiiisins.com` — external-only, internet-public.
 
 ## Why MicroBin (tool selection)

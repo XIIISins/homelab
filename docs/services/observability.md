@@ -1,26 +1,26 @@
 <!-- docs/services/observability.md -->
 
-# Observability stack (Phase 8a — deployed 2026-05-24/25)
+# Observability stack (VictoriaMetrics + VictoriaLogs)
 
-VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. Zabbix LXC ([Phase 8c](../operations/build-sequence.md), pending) handles infra-level alerting independently from any K3s state; the Phase-8 stack is for K8s-native metrics + logs queries via the native vmui + VictoriaLogs UI.
+VictoriaMetrics + VictoriaLogs in **asgard K3s**. Replaces Prometheus + Loki per the CLAUDE.md architectural invariant. The Zabbix LXC ([`zabbix.md`](zabbix.md)) handles host/LXC alerting independently of K3s; this stack is for K8s-native metrics and fleet logs via the native vmui and VictoriaLogs UIs. Deployed in Phase 8a (2026-05-24/25). **Chart and image versions are not repeated here: the HelmReleases under `k8s/asgard/` are the pins.**
 
 **No Grafana.** Dropped from scope after the initial sketch — VM ships vmui (interactive PromQL + chart playground) and VictoriaLogs ships its own LogsQL UI; the dashboard layer Grafana adds isn't load-bearing for our homelab workflow. Four custom dashboards shipped via `customDashboardsPath` ConfigMap. Revisit if/when we need cross-source dashboards, annotation timelines, or a UI-driven dashboards-as-code pipeline.
 
 **Asgard, not jotunheim.** Earlier draft placed VM/VL in jotunheim per the "monitoring outside production" instinct; reversed before any deploy. Three reasons: jotunheim's deploy timeline is uncertain; the bulk of log/metric producers live in asgard so in-cluster ingest is shorter; failure-domain separation is already preserved by **Zabbix LXC** (fully outside K3s). Full rationale: [`docs/operations/decisions.md`](../operations/decisions.md) row "VM/VL placement — asgard".
 
-**Status:** ✅ Phase 8a live. 23 off-cluster hosts shipping logs via vlagent systemd binary, K3s pod logs via DaemonSet, vmagent + KSM scraping K8s-layer metrics, vmui+VL UI behind Authentik ForwardAuth. Phase 8b (vm-operator migration) deferred.
+**Status:** ✅ live. Off-cluster hosts (about two dozen) shipping logs via the vlagent systemd binary, K3s pod logs via DaemonSet, vmagent + KSM scraping K8s-layer metrics, vmui+VL UI behind Authentik ForwardAuth. Phase 8b (vm-operator migration) deferred.
 
 ## Architecture
 
 | Layer | Stack | Notes |
 |-------|-------|-------|
-| Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by Zabbix LXC (Phase 8c, fully outside K3s). |
+| Cluster | asgard K3s | Same cluster as the bulk of producers — shortest in-cluster ingest path. Failure-domain separation provided by the Zabbix LXC, fully outside K3s. |
 | Namespace | `monitoring` | Shared by both apps + vmagent + KSM + log-collector DaemonSet |
-| Metrics store + UI | `victoria-metrics-single` chart `0.38.0` → app v1.143.0 | vmsingle (not vmcluster — homelab scale doesn't need sharding). 100 Gi iSCSI PV, 6mo retention. vmui (built into vmsingle) is the dashboard layer. |
-| Log store + UI | `victoria-logs-single` chart `0.12.5` → app v1.50.0 | vlsingle, 50 Gi iSCSI PV, **30d retention initially** (measure + resize before extending to the eventual 6mo target). |
-| K8s metrics scraper | `victoria-metrics-agent` chart `0.39.0` | vmagent — kubelet `/metrics` + kubelet `/metrics/cadvisor` via apiserver-proxy + KSM scrape + pod-annotation scrape. Manifests at `k8s/asgard/infrastructure/vmagent/`. |
-| K8s state metrics | `kube-state-metrics` chart `7.4.0` → app v2.19.0 | Cluster-state (pod phases, restarts, deploy replicas, etc.). Manifests at `k8s/asgard/infrastructure/kube-state-metrics/`. |
-| K8s pod-log shipper | `victoria-logs-collector` chart `0.3.4` | vlagent DaemonSet (`-kubernetesCollector`, privileged + runAsUser=0 for RHEL SELinux). Manifests at `k8s/asgard/infrastructure/victoria-logs-collector/`. |
+| Metrics store + UI | `victoria-metrics-single` | vmsingle (not vmcluster — homelab scale doesn't need sharding). 20 Gi `local-path` PV, **1 month** retention (long-term low-res trends are Zabbix's job; VM downsampling is Enterprise-only). vmui (built into vmsingle) is the dashboard layer. |
+| Log store + UI | `victoria-logs-single` | vlsingle, 20 Gi `local-path` PV (it mmaps its storage and is the documented Synology-NFS panic case, so local xfs, not NFS), **30d retention**. If 30d ingest outgrows the PV, grow the worker `/data` disk and bump the size. |
+| K8s metrics scraper | `victoria-metrics-agent` | vmagent — kubelet `/metrics` + kubelet `/metrics/cadvisor` via apiserver-proxy + KSM scrape + pod-annotation scrape. Manifests at `k8s/asgard/infrastructure/vmagent/`. |
+| K8s state metrics | `kube-state-metrics` | Cluster-state (pod phases, restarts, deploy replicas, etc.). Manifests at `k8s/asgard/infrastructure/kube-state-metrics/`. |
+| K8s pod-log shipper | `victoria-logs-collector` | vlagent DaemonSet (`-kubernetesCollector`, privileged + runAsUser=0 for RHEL SELinux). Manifests at `k8s/asgard/infrastructure/victoria-logs-collector/`. |
 | Off-cluster log shipper | `ansible/roles/vlagent/` | vlagent systemd binary on LXCs + K3s VM hosts + Proxmox hosts + PBS. CLI-flag-only config; `/insert/native` protobuf endpoint. |
 | Edge | HTTPRoute on niflheim Gateway → ClusterIP Services | Internal-only, no public ingress, no Cloudflare tunnel. Hostnames: `metric.niflheim.xiiisins.com` (vmui) + `logs.niflheim.xiiisins.com` (VL UI + ingest). |
 | Auth | Authentik ForwardAuth via Traefik Middleware | Proxy providers (mode: forward_single) for vmui + VL UI. `/insert/*` PathPrefix on VL HTTPRoute bypasses auth so off-cluster shippers don't need OIDC. |
@@ -42,8 +42,8 @@ Three classes of producers feed VL + VM:
 
 | Producer | Path | Shipper | Endpoint |
 |----------|------|---------|----------|
-| K3s pods (container logs) | vlagent DaemonSet on every asgard node, `-kubernetesCollector` for native pod-log discovery, ships to VL via in-cluster Service DNS | `victoria-logs-collector` chart `0.3.4` at `k8s/asgard/infrastructure/victoria-logs-collector/` | `http://victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428/insert/native` |
-| Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, PBS — 14+ hosts) | vlagent systemd binary reads rsyslog'd `/var/log/syslog` (Debian) or `/var/log/messages` (RHEL) → VL ingest via HTTPRoute on the niflheim Gateway | `ansible/roles/vlagent/` | `https://logs.niflheim.xiiisins.com/insert/native` |
+| K3s pods (container logs) | vlagent DaemonSet on every asgard node, `-kubernetesCollector` for native pod-log discovery, ships to VL via in-cluster Service DNS | `victoria-logs-collector` at `k8s/asgard/infrastructure/victoria-logs-collector/` | `http://victorialogs-victoria-logs-single-server.monitoring.svc.cluster.local:9428/insert/native` |
+| Asgard LXCs (PG, HAProxy/etcd, Tailscale, AGH, Factorio, PBS, Zabbix, Hermod, Jellyfin, AIOps hosts) | vlagent systemd binary reads rsyslog'd `/var/log/syslog` (Debian) or `/var/log/messages` (RHEL) → VL ingest via HTTPRoute on the niflheim Gateway | `ansible/roles/vlagent/` | `https://logs.niflheim.xiiisins.com/insert/native` |
 | Proxmox VMs (K3s nodes — Göndul/Hlökk/Sigrún, Einherjar-urd/verd/skuld) | Same as LXCs except endpoint is the in-cluster ClusterIP — K3s host network can't reach MetalLB VIPs | Same `ansible/roles/vlagent/` + `group_vars/k3s.yml` override | `http://10.43.14.105:9428/insert/native` (ClusterIP of `victorialogs-ingest` companion Service) |
 | Proxmox hosts (Urd/Verd/Skuld) | Same vlagent role | `ansible/roles/vlagent/` with `-e ansible_user=root` | `https://logs.niflheim.xiiisins.com/insert/native` |
 
@@ -60,7 +60,7 @@ Three classes of producers feed VL + VM:
 - **vmagent's default ClusterRole is missing `nodes/proxy`** — added via `rbac.extraRules` in the HelmRelease. Without it, every cAdvisor scrape gets 403 and `container_*` metrics never reach VM.
 - **cAdvisor metrics group by `instance`, not `node`.** The chart's apiserver-proxy relabel sets the node identifier in `instance` (and `kubernetes_io_hostname`). KSM metrics DO have `node` set; cAdvisor is the asymmetric one.
 
-**Zabbix LXC** (Phase 8c, pending — see [`docs/services/zabbix.md`](zabbix.md)) covers host/LXC-level metrics — CPU/memory/disk/network at the OS layer + service-level Zabbix templates. Clean split: vmagent for the K8s layer, Zabbix for everything below the K8s layer. No duplication.
+**The Zabbix LXC** ([`zabbix.md`](zabbix.md)) covers host/LXC-level metrics — CPU/memory/disk/network at the OS layer + service-level Zabbix templates. Clean split: vmagent for the K8s layer, Zabbix for everything below the K8s layer. No duplication.
 
 ## vmui dashboards
 
@@ -79,7 +79,7 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 
 ## Deployment dependencies — actual reused infrastructure
 
-1. **Synology CSI** + `synology-csi-iscsi-retain` StorageClass — vmsingle 100Gi + vlsingle 50Gi PVs. VL needed a chown init container (fsGroup quirk; chart values key is `server.initContainers`).
+1. **`local-path` StorageClass** — vmsingle and vlsingle PVs, pinned by PV node affinity to one worker. A single instance on node-local storage does not self-heal across node loss: the recovery floor is the daily PBS backup of the worker `/data` disk, acceptable for refillable observability and not a template for availability-critical data. The chart key is `storageClassName` (`storageClass` is silently ignored and falls back to the cluster default).
 2. **Gateway API + Traefik** + the `niflheim` Gateway. Two HTTPRoutes:
    - `metric.niflheim.xiiisins.com` → vmsingle (auth via Authentik ForwardAuth middleware)
    - `logs.niflheim.xiiisins.com` → VL with split rules: `/insert/*` no-auth (for shippers), `/` auth (for UI)
@@ -91,22 +91,21 @@ Shipped via `customDashboardsPath`-mounted ConfigMap at `k8s/asgard/apps/victori
 
 ## Operational notes
 
-- **VictoriaMetrics retention** is set to `6` months. Bump if disk allows.
-- **VictoriaLogs retention** is 30d initially. Measure week-of-data baseline, then resize the LUN + bump to 6mo target.
+- **Retention:** metrics 1 month, logs 30 d, both on 20 Gi PVs; grow the worker `/data` disk before raising either.
+- **Read-only AIOps routes:** `logs-read.niflheim.xiiisins.com` (`GET /select/logsql/` only) and `metrics-read.niflheim.xiiisins.com` (instant and range queries only, no admin API) are IP-allowlisted to Frigg by the `aiops-read-ipallow` middleware, so the Toolbelt queries the stack without Authentik.
 - **vm-operator** is NOT installed. Phase 8b refactors the Helm charts to CRD-based deploys (`VLSingle`, `VMSingle`, `VMAgent` CRDs + `VMServiceScrape` for ServiceMonitor-emitting charts). Deferred until ServiceMonitor-emitting charts land or alerting becomes a need.
-- **Alerts** — vmalert NOT enabled. Zabbix watches infra (host up/down, disk full, etc.); vmalert would watch application metrics. Enable when a specific alert use case lands. **Active edge/app checks** that no metric-scrape covers (Cloudflare-token validity, served-cert expiry per wildcard zone, Patroni/etcd quorum, PBS backup-failure) are handled by the Wave-S4 **`infra-health-check` Semaphore prober** (`ansible/playbooks/infra-health-check.yml`, every 12h → Hermod), not vmalert — see [`docs/architecture/ansible-orchestration.md`](../architecture/ansible-orchestration.md) "Templates".
+- **Alerts** — vmalert NOT enabled. Zabbix watches hosts and LXCs (up/down, disk full, etc.); vmalert would watch application metrics. Enable when a specific alert use case lands. **Active edge/app checks** that no metric-scrape covers (Cloudflare-token validity, served-cert expiry per wildcard zone, Patroni/etcd quorum, PBS backup-failure) are handled by the Wave-S4 **`infra-health-check` Semaphore prober** (`ansible/playbooks/infra-health-check.yml`, every 12h → Hermod), not vmalert — see [`docs/architecture/ansible-orchestration.md`](../architecture/ansible-orchestration.md) "Templates".
 - **vmagent + kube-state-metrics** scrape every 30s. Tune via the HelmRelease `staticScrapeConfig` if cardinality grows past comfort.
 
 ## Pending follow-ups
 
 - **Phase 8b — vm-operator migration**. Switches VL/VM/vmagent lifecycle from raw Helm to `VLSingle`/`VMSingle`/`VMAgent` CRDs. Also brings `ServiceMonitor` → `VMServiceScrape` conversion for cert-manager / ESO / other ServiceMonitor-emitting charts that we currently don't scrape.
-- **VL retention bump** — 30d → 6mo once disk-use baseline is known.
 - **VMAlert + alert routing** — when a paged-alert use case beyond Zabbix's coverage lands.
 - **Cross-source dashboards** — Grafana revisit trigger: needing canned dashboards with annotations spanning metrics + logs, OR needing to share read-only dashboards with non-operator users.
 
 ## See also
 
 - [`docs/incidents/2026-05-24-phase-7-observability.md`](../incidents/2026-05-24-phase-7-observability.md) — Phase 8a deploy retrospective (12 findings)
-- CLAUDE.md "Architectural invariants → Services / placement" + "vmui / VictoriaMetrics dashboards" gotcha section
+- CLAUDE.md "Architectural invariants → Services / placement" and [`known-issues/observability.md`](../known-issues/observability.md)
 - [`docs/services/asgard-k3s.md`](asgard-k3s.md) — pattern reference for K8s deployments
-- Phase 8c Zabbix LXC ([`docs/services/zabbix.md`](zabbix.md), [`docs/operations/build-sequence.md`](../operations/build-sequence.md)) — infra-level monitoring, complementary to this stack
+- [`zabbix.md`](zabbix.md): host/LXC monitoring, complementary to this stack; [`overview.md`](overview.md) reads this stack's metrics for the status page

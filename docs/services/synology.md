@@ -2,9 +2,17 @@
 
 # Synology (Munin)
 
-Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
+DS223J on a single RAID 1 pool, carved into DSM volumes by purpose. Serves PBS and Proxmox over NFS, K8s PVs over NFS and iSCSI, and the media library.
 
-> ⚠️ **This volume layout predates the 2026-05-30 storage-tiering redesign** ([`docs/procedures/synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)) and no longer matches the live NAS (now 5 DSM volumes on the same underlying pool: Proxmox-backup, K8s-NFS, Proxmox-NFS, synology-pkgs, Media-backup — no `immich` share exists yet, see below). Folder-level detail below is historical; volume-level reality is in the redesign doc.
+**Live volumes (after the 2026-05-30 storage-tiering redesign, [`synology-storage-redesign.md`](../procedures/synology-storage-redesign.md)):**
+
+| Volume | Role |
+|--------|------|
+| Volume1 | Backup: the PBS datastore (`proxmox-backup`, mounted inside the PBS LXC) and Hyper Backup |
+| Volume2 | All asgard K8s storage: the `k8s-nfs` share (every `nfs-client` PVC, ~95 GiB effective, so NFS sizing is advisory and the DSM volume is the real ceiling) and the one surviving iSCSI LUN class (`synology-csi-iscsi-retain-vol2`, e.g. `garage/meta`) |
+| Volume5 | Media: shared folder `media` (renamed from `media-backup`) |
+
+The DSM-wide iSCSI LUN cap (~10) is why K8s storage is tiered; see [`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md). The folder tables below predate the redesign and are kept as the share inventory; verify against DSM before relying on a row.
 
 ## Volume 1 — data (~553GB)
 
@@ -12,7 +20,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 |--------|----------|---------|
 | `proxmox-backup` | NFS | PBS datastore |
 | `k3s-core-data` | NFS | Asgard K3s PVs (legacy, iSCSI now used) |
-| `k3s-data` | NFS | Jotunheim K3s PVs |
+| `k3s-data` | NFS | Jotunheim K3s PVs (unused: Jotunheim dropped 2026-10-05) |
 | `db-backups` | NFS | DB dumps |
 | `uploads` | NFS+SMB | Factorio SFTP |
 | `hyper-backup` | Internal | Hyper Backup destination |
@@ -21,7 +29,7 @@ Factory reset. Fresh DSM. Two volumes on single RAID 1 pool.
 
 | Folder | Protocol | Purpose |
 |--------|----------|---------|
-| `media` | NFS+SMB | Movies, TV. **Live export (2026-10-05): `10.0.254.20:/volume5/media-backup`**, consumed read-only by Jellyfin (LXC 1123, [plan](../plans/active/5h-jellyfin.md)) |
+| `media` | NFS+SMB | Movies, TV. **Live export `10.0.254.20:/volume5/media`**, read-only for Jellyfin (LXC 1123, [`jellyfin.md`](jellyfin.md)) and read/write for the media-automation pods ([`media-automation.md`](media-automation.md)) |
 | `manga` | NFS+SMB | Manga — Komga |
 | `downloads` | NFS | sabnzbd landing zone |
 | `immich` | NFS | Not a separate folder — Immich's library is a PVC on the existing `k8s-nfs` share/`nfs-client` StorageClass (same as MicroBin), deployed 2026-09-03. See [`services/immich.md`](immich.md). |
