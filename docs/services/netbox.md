@@ -75,4 +75,4 @@ NetBox shares K3s' failure domain with Patroni, Authentik and Vault, yet IPAM is
 
 - **OIDC group → permission sync** (`SOCIAL_AUTH_PIPELINE` override), trigger above.
 - **Media PVC** if device photos start landing.
-- **Pod memory limit / `terraform` parallelism** hygiene: see [`open-questions.md`](../operations/open-questions.md).
+- **`terraform` parallelism**: `-parallelism=2` is the standing rule; measurements in [`known-issues/netbox.md`](../known-issues/netbox.md).
