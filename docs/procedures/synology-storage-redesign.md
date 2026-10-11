@@ -34,7 +34,7 @@ CLAUDE.md gotcha corrected accordingly ("Synology DS223J iSCSI LUN cap" — was 
 | **emptyDir** | — | pod ephemeral | pure cache (rebuilds on restart) | **0** |
 
 - **NFS** is live + validated (csi-driver-nfs 4.13.2, one `pvc-<uuid>` subdir per PV inside the single `k8s-nfs` share — **no shared-folder-per-PV pollution**; that's synology-csi's NFS mode, deliberately not used).
-- **local-path** is live (2026-05-30) — Rancher `local-path-provisioner` v0.0.36 via Flux (`nodePathMap → /data`), backed by a dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` SELinux mount). K3s's built-in `local-storage` stays **disabled**. Ready for the Vault tier. See CLAUDE.md "local-path-provisioner" gotchas.
+- **local-path** is live (2026-05-30) — Rancher `local-path-provisioner` v0.0.36 via Flux (`nodePathMap → /data`), backed by a dedicated 50G `scsi1` data disk per worker (xfs, blanket `context=container_file_t` SELinux mount). K3s's built-in `local-storage` stays **disabled**. Ready for the Vault tier. See [`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md) "local-path-provisioner" gotchas.
 - **iSCSI** stays only where block semantics are load-bearing (memory-mapped DBs hate NFS).
 
 ---
@@ -76,7 +76,7 @@ Single RAID1 pool on the DS223j → volume separation is **logical only** (no IO
 
 - ✅ **csi-driver-nfs** deployed (4.13.2), `nfs-client` SC, `k8s-nfs` share validated.
 - ✅ **iSCSI vol2 SC** + VM retention 6mo→1mo committed (commit `62c300b`).
-- ✅ **local-path-provisioner** (2026-05-30) — Rancher v0.0.36 via Flux, SC `local-path`. Backed by a dedicated 50G `scsi1` data disk per worker (xfs, mounted `/data` with a blanket `context=container_file_t` SELinux mount option; ssd+discard+fstrim). All three workers done + reboot-validated; Vault Class-L tier unblocked. See CLAUDE.md "local-path-provisioner" gotchas.
+- ✅ **local-path-provisioner** (2026-05-30) — Rancher v0.0.36 via Flux, SC `local-path`. Backed by a dedicated 50G `scsi1` data disk per worker (xfs, mounted `/data` with a blanket `context=container_file_t` SELinux mount option; ssd+discard+fstrim). All three workers done + reboot-validated; Vault Class-L tier unblocked. See [`storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md) "local-path-provisioner" gotchas.
 - ✅ **`k8s-nfs` final home decided** — Volume2 (its own volume, separate from the backup Volume1). No double-move.
 
 ---
@@ -292,8 +292,8 @@ Edit: `k8s/asgard/infrastructure/garage/statefulset.yaml` — **`data` VCT only*
   - **iSCSI: Volume1 now holds ZERO live K8s LUNs** (only old meta PV `pvc-fbc870f9` Released/Retain as rollback net); Volume2 has the one bound LUN (`meta-garage-0` `pvc-84381dc4`). Storage-redesign LUN-vacate work is **complete** — every workload is on the tier its data needs.
 - ✅ **Stage 3 — Volume1 delete+recreate DONE (2026-05-30)** — Volume1 reborn as the dedicated backup volume; PBS datastore moved back onto it + restore-verified. The redesign is **complete**. What it took (full retro: [`docs/incidents/2026-05-30-storage-redesign-nas-rework.md`](../incidents/2026-05-30-storage-redesign-nas-rework.md)):
   - PBS datastore moved Volume1 → **Volume3** (DSM folder move, ~74 GB) as staging; data verified intact on vol3 via a read-only scratch NFS mount (75 GB, full chunk store, all VM/CT groups incl. the worker VMs that hold the local-path Vault/VL/VM data).
-  - Volume1 **wouldn't delete** (`Device or resource busy`) through a 5-holder hunt — iSCSI LUN → Tailscale package install dir → `s2s_daemon` (masked) → stale-PBS-mount `nfsd` lock → invisible `Synotify`/fanotify mark. **Resolved by a NAS reboot** (clears all kernel-level holds). Full diagnostic toolkit now in CLAUDE.md "Storage / iSCSI / Synology CSI".
+  - Volume1 **wouldn't delete** (`Device or resource busy`) through a 5-holder hunt — iSCSI LUN → Tailscale package install dir → `s2s_daemon` (masked) → stale-PBS-mount `nfsd` lock → invisible `Synotify`/fanotify mark. **Resolved by a NAS reboot** (clears all kernel-level holds). Full diagnostic toolkit now in [`known-issues/storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md).
   - **Pre-reboot quiesce** (NAS reboot bounces the one iSCSI target = garage-meta): `outline→0`, `garage→0` (clean iSCSI logout, no ext4-RO), suspend Flux apps+infra. garage came back **rw** + identity intact; teamspeak/garage-data NFS (`hard` mounts) self-recovered.
   - Volume1 recreated → PBS datastore moved back Volume3 → Volume1 → fstab was already `/volume1` (never changed), just `mount` + `systemctl restart proxmox-backup proxmox-backup-proxy` → **restore-verified** (operator: live LXC backup succeeded + file restore works; full restore-to-new-LXC deferred to next day).
-  - **Tailscale outage** mid-Stage-3: reinstalling the Tailscale package (its dir was on old Volume1) + web-UI auth cut Munin's LAN → cut cluster storage → recovered via `tailscale down` over the tailnet IP → re-enabled with `--accept-routes=false --reset`. See CLAUDE.md "Tailscale".
+  - **Tailscale outage** mid-Stage-3: reinstalling the Tailscale package (its dir was on old Volume1) + web-UI auth cut Munin's LAN → cut cluster storage → recovered via `tailscale down` over the tailnet IP → re-enabled with `--accept-routes=false --reset`. See [`known-issues/tailscale.md`](../known-issues/tailscale.md).
   - **Cluster cleanup:** dangling PV `pvc-fbc870f9` deleted + stale iSCSI node-records for it cleared on urd+verd (skuld was already clean). Volume3 retire + dropping the cluster default StorageClass are the only Stage-4 tail items left.

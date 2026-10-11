@@ -58,7 +58,7 @@ Everything below the Proxmox layer that *isn't* in IaC (UCG-Ultra, KPN, Synology
                                                  ▼
 §5 Data tier                  etcd DCS → Patroni PG → DB data restore
                                                  ▼
-§6 App / monitoring LXCs      Factorio → Hermod → Zabbix(Hugin) → PBS
+§6 App / monitoring LXCs      Factorio → Hermod → Zabbix(Hugin) → Gná → Ratatoskr → Jellyfin → PBS
                                                  ▼
 §7 Secret-minting TF + apps   cloudflare/authentik/tailscale/netbox/garage/semaphore/… → Flux apps converge
                                                  ▼
@@ -88,7 +88,7 @@ Times are wall-clock for one operator working the happy path; add slack for firs
 | 3.7 | Infra + storage-tier reconcile | 20–40 min | **1** |
 | 4 | AdGuard + Tailscale LXCs | 30–45 min | **2** |
 | 5 | Data tier (etcd → Patroni → DB restore) | 45–75 min | **2** |
-| 6 | Factorio + Hermod + Zabbix + PBS LXCs | 60–90 min | **2** |
+| 6 | Factorio + Hermod + Zabbix + AIOps (Gná, Ratatoskr) + Jellyfin + PBS LXCs | 60–90 min | **2** |
 | 7 | Secret-minting TF modules + Flux apps | 30–60 min | **2** |
 | 8 | Fleet agents + Semaphore | 15 min | **2** |
 | 9 | Verification | 30 min | **2** |
@@ -435,7 +435,7 @@ Patroni bootstraps the leader against etcd, then basebackups the replicas. The H
 
 ### 5.3 Restore database data
 
-A fresh Patroni cluster is **empty** — the app DBs (authentik, netbox, semaphore, zabbix, teamspeak3, outline) must be restored. Backup source: the per-node daily logical dumps at `/var/backups/postgresql` (`globals.sql` + `<db>.dump`, leader-gated, **PBS-captured** — local disk, never NFS). Recover the dump files via a PBS file-restore of the most recent PG-leader backup, then:
+A fresh Patroni cluster is **empty** — the app DBs (the `postgres_databases` list in `group_vars/postgres.yml`: authentik, netbox, zabbix, teamspeak3, outline, semaphore, immich) must be restored. Backup source: the per-node daily logical dumps at `/var/backups/postgresql` (`globals.sql` + `<db>.dump`, leader-gated, **PBS-captured** — local disk, never NFS). Recover the dump files via a PBS file-restore of the most recent PG-leader backup, then:
 
 ```fish
 # On the current Patroni leader, per database (globals FIRST):
@@ -458,13 +458,18 @@ All depend on Vault (secrets) and most on PG (VIP). Bring up in any order within
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-factorio.yml   # game LXC 1120 (SFTPGo + reconcile loop)
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-hermod.yml     # notifications LXC 1103 (AppriseAPI + Caddy)
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-zabbix.yml     # Hugin LXC 1102 (Zabbix 7.0 server + frontend)
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-gna.yml        # AIOps agent host LXC 1121 (n8n + Toolbelt client)
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-ratatoskr.yml  # AIOps Discord bot LXC 1122
+ansible-playbook -i inventory/hosts.yml playbooks/asgard-jellyfin.yml   # Jellyfin LXC 1123 (created by the -root module, §4)
 ```
+
+The AIOps pieces (Gná, Ratatoskr, the Toolbelt on Frigg) need their Vault entries and Discord/Anthropic credentials; if they are missing on Path B, bring them back after §7 and follow [`aiops-diagnosis.md`](aiops-diagnosis.md) and [`aiops-actions.md`](aiops-actions.md). Frigg itself (HA VM 2900, `terraform/proxmox/asgard-vms` + `asgard-control.yml`): [`frigg-control-node.md`](../known-issues/frigg-control-node.md). The media automation pods (Sonarr, SABnzbd) return with the Flux apps in §7.
 
 **Zabbix DB** is one of the §5.3 restores; **first-login admin** is factory `Admin`/`zabbix` until rotated to the Vault value via UI (see CLAUDE.md Zabbix gotchas — don't pre-login with the Vault value, it locks the account).
 
-### 6.x PBS LXC (1101 on Skuld)
+### 6.x PBS LXC (1101 on Urd)
 
-PBS was *assumed up* as the restore source for §5.3 / rollback. If PBS itself is also gone, it's a hard bootstrap dependency for data restore — rebuild it early (right after §1.2) so it's available:
+PBS was *assumed up* as the restore source for §5.3 / rollback. If PBS itself is also gone, it's a hard bootstrap dependency for data restore — rebuild it early (right after §1.2) so it's available. It lives on **Urd, never Skuld** (Skuld hard-freezes):
 
 ```fish
 ansible-playbook -i inventory/hosts.yml playbooks/asgard-pbs.yml        # agent-only converge; datastore is NFS on Munin
@@ -494,7 +499,7 @@ terraform -chdir=terraform/proxmox/zabbix-access apply   # PVE user/token for Za
 
 For **Path B** also re-mint `ansible-awx` via `rotate-semaphore-approle`, and restore any operator-minted KV from the 1P mirrors with `scripts/secrets/vault-1p-mirror to-vault` ([procedure](secret-mirroring.md); it verifies each write and puts a PEM's final newline back) (Hermod Discord webhooks `secret/ansible/hermod/discord/*`, Zabbix SAML SP keypair, etc.).
 
-Then the Flux **apps** (`k8s/asgard/apps/`) converge once their ExternalSecrets resolve (authentik, netbox, outline, semaphore, teamspeak, victorialogs, victoriametrics, apex-static, zabbix-ingress):
+Then the Flux **apps** (`k8s/asgard/apps/`) converge once their ExternalSecrets resolve (authentik, netbox, outline, semaphore, teamspeak, victorialogs, victoriametrics, apex-static, startpage, microbin, immich, overview, media, backups and the vault/zabbix/jellyfin ingress shims):
 
 ```fish
 flux reconcile kustomization apps --with-source

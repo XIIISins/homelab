@@ -277,4 +277,4 @@ After verification passes:
 - [`ansible/roles/adguard/README.md`](../../ansible/roles/adguard/README.md)
 - [`ansible/roles/adguardhome-sync/README.md`](../../ansible/roles/adguardhome-sync/README.md)
 - Phase 5g.2 cutover patterns (HAProxy / keepalived VIP — same VRRP failover semantics) — see [`docs/incidents/2026-05-24-5g2-haproxy-keepalived-vip.md`](../incidents/2026-05-24-5g2-haproxy-keepalived-vip.md)
-- CLAUDE.md "Known gotchas → DNS" + "HAProxy / keepalived"
+- [`known-issues/dns-adguard.md`](../known-issues/dns-adguard.md) and [`known-issues/haproxy-keepalived.md`](../known-issues/haproxy-keepalived.md)

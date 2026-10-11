@@ -82,7 +82,7 @@ One prefix per VLAN, linked to the corresponding VLAN. Status: `Active`.
 
 ## 7. Physical Devices
 
-For each: create the Device, add an interface, assign a primary IP to that interface. NIC names matter — see CLAUDE.md "Networking" gotchas for the Beelink `nic0` vs Cubi `enp45s0` distinction.
+For each: create the Device, add an interface, assign a primary IP to that interface. NIC names matter — see [`known-issues/networking-multi-homed-workers.md`](../known-issues/networking-multi-homed-workers.md) for the Beelink `nic0` vs Cubi `enp45s0` distinction.
 
 ### 7.1 Urd
 
@@ -101,7 +101,7 @@ For each: create the Device, add an interface, assign a primary IP to that inter
 ### 7.3 Skuld
 
 - [ ] **Device**: `Skuld`, role `proxmox-host`, type `Beelink MINI-S12`, site `home`
-- [ ] **Interface**: `nic0` (Beelink's vendor-custom UEFI NIC name — different from Cubi's predictable `enp45s0`; see CLAUDE.md "Proxmox same-node hardware refresh" gotcha)
+- [ ] **Interface**: `nic0` (Beelink's vendor-custom UEFI NIC name — different from Cubi's predictable `enp45s0`; see [`known-issues/networking-multi-homed-workers.md`](../known-issues/networking-multi-homed-workers.md) ("Proxmox same-node hardware refresh"))
 - [ ] **IP**: `10.0.254.13/24` primary
 - [ ] **Description**: "Proxmox host. N100/16GB, the outlier vs Urd+Verd. Hosts PBS (1101) + several LXCs."
 
