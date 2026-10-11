@@ -11,7 +11,7 @@ Anime only, Usenet only, no Radarr. Sonarr watches for episodes, SABnzbd downloa
 | Item | Value |
 |---|---|
 | Sonarr | `ghcr.io/linuxserver/sonarr` 4.0.20.3014-ls326, `Recreate`, 1 replica, `sonarr.niflheim.xiiisins.com`, auth method External (the Authentik ForwardAuth in front is the only login), API key seeded from Vault |
-| SABnzbd | `ghcr.io/linuxserver/sabnzbd` 5.1.3-ls275, `Recreate`, 1 replica, CPU limit 1 core, memory 512 Mi request / **2 Gi limit**, `sabnzbd.niflheim.xiiisins.com` |
+| SABnzbd | `ghcr.io/linuxserver/sabnzbd` 5.1.3-ls275, `Recreate`, 1 replica, CPU limit 1 core, memory 512 Mi request / **4 Gi limit** (page cache under NFS writeback counts against it), `sabnzbd.niflheim.xiiisins.com` |
 | Recyclarr | `ghcr.io/recyclarr/recyclarr` 8.7.3, CronJob daily 04:30, syncs `k8s/asgard/apps/media/recyclarr-config.yaml` into Sonarr |
 | Config volumes | local-path PVCs `sonarr-config` and `sabnzbd-config` (2 Gi each). SQLite and ini never on NFS |
 | Scratch volume | PVC `sabnzbd-incomplete` (class `local-path-scratch`, the unbacked-up `/scratch` disk of the worker the pod runs on) at `/incomplete` in SABnzbd: jobs are assembled here. Pinned to that worker like `sabnzbd-config`; cache-class, a lost volume means re-downloading the jobs in flight. See [`../known-issues/storage-iscsi-synology.md`](../known-issues/storage-iscsi-synology.md) |
