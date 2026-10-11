@@ -8,6 +8,7 @@
 #   - [text](relative/path.md#anchor)    -> ...and the heading anchor exists
 #   - [text](#anchor)                    -> the anchor exists in the same file
 # Skips: http(s)/mailto/tel links (no network in CI — external rot is not a gate),
+# site-absolute /api/ links (Outline attachment links in docs/outline/, served by the wiki),
 # fenced code blocks, inline code spans, and reference-style definitions.
 # Exit 1 on any broken link. Stdlib only.
 import re
@@ -22,7 +23,7 @@ LINK = re.compile(r"(?<!!)\[(?:[^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE = re.compile(r"^\s*(```|~~~)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 INLINE_CODE = re.compile(r"`[^`]*`")
-SKIP_SCHEMES = ("http://", "https://", "mailto:", "tel:", "ftp://")
+SKIP_SCHEMES = ("http://", "https://", "mailto:", "tel:", "ftp://", "/api/")
 
 
 def slug(text: str, seen: dict) -> str:
