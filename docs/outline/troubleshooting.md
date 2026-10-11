@@ -2,39 +2,52 @@
 
 # Troubleshooting
 
-The on-call reference. Start here when something's broken and you want the fastest path from symptom to fix. Each playbook is organised symptom-first — find the thing you're seeing, read the cause, run the diagnosis, apply the fix.
-
-*Start from what you observe, not what you suspect. The error string in front of you is more trustworthy than your theory about it.*
+Symptom-first triage. Start from what you see, not from which component you suspect. Each area page lists symptoms, the likely cause and the first check; the repository's `docs/known-issues/` has the full rule, reason and recovery for each.
 
 ---
 
-## First three things to check
+## The first three things to check
 
-Before diving into a specific playbook, these resolve or localise most incidents:
+1. **Is it the network or DNS?** From a client, resolve a name and connect by IP. Internal names failing while IPs work means DNS (AdGuard VIP `10.0.10.200`).
+2. **Is Postgres reachable on the VIP?** Several apps stop at once when `10.0.10.210` is down or has no leader.
+3. **What changed?** The drift-check output, the last merged PR, and a node that rebooted. Most outages follow a change.
 
-1. **Is it DNS or the network?** The lowest layers fail in ways that look like application bugs. If something "can't connect," confirm name resolution and reachability first — see **DNS & networking**.
-2. **Is the storage layer healthy?** A surprising share of "pod won't start" and "service is down" traces to iSCSI sessions, the CSI controller, or the NAS — see **Storage & iSCSI**.
-3. **What changed?** Flux and Semaphore both reconcile continuously; a recent commit or a drift-apply is often the trigger. Check the most recent change before assuming hardware.
+Two reminders: a MetalLB VIP does not answer ping (test with TCP), and a Helm release that "succeeded" does not prove its values were applied.
 
 ---
 
-## The playbooks
+## Index by symptom
 
-| Playbook | Covers |
+| You see | Go to |
 |---|---|
-| **Storage & iSCSI** | Mount failures, orphan sessions, the DS223J LUN cap, read-only filesystems, CSI controller down |
-| **DNS & networking** | Internal NXDOMAIN, MetalLB VIP reachability, in-cluster tromboning, AdGuard sync, multi-homed worker drops |
-| **Kubernetes & Flux** | Duplicate node names, stuck rollouts, failed HelmReleases, ExternalSecrets not syncing, immutable Jobs |
-| **Vault & Postgres** | Sealed Vault, expired tokens, AppRole mismatches, TLS/sslmode rejections, writing to a replica |
-| **Identity & edge** | Authentik outpost host caching, per-app group denials, stale Cloudflare tokens, SSH hostkey mismatches |
+| A pod stuck in `ContainerCreating` with a mount error, a volume read-only, "Multi-Attach", PVC cannot be created | **Storage & iSCSI** |
+| An internal name returns NXDOMAIN, a VIP does not respond, DNS is stale after failover, LoadBalancer traffic times out | **DNS & networking** |
+| A node will not rejoin, a rollout is stuck, a HelmRelease will not reconcile, a Secret will not sync, a Job will not update | **Kubernetes & Flux** |
+| Vault is sealed, a token or AppRole fails, Postgres rejects a client, a write hits a replica, a failover looks wrong | **Vault & Postgres** |
+| A login redirects to the wrong host, an app denies a valid user, a certificate will not renew, SSH reports a host key change | **Identity & edge** |
+
+## By alert
+
+| Alert source | Usually means | Start with |
+|---|---|---|
+| Hermod `critical` | Quorum lost or a service hard-down | The area page matching the service, then **Procedures** |
+| Hermod `alert`: drift detected | The fleet differs from Git | The drift-check diff in Semaphore; update the IaC or apply it |
+| Weekly restore test silent on Wednesday | The schedule or Semaphore stopped | Semaphore template history |
+| Zabbix QuickSync test failing | Jellyfin lost its GPU device | The group membership and the `i915` journal on Urd |
+| Skuld missing | A hard freeze (known hardware fault) | **Hypervisors** (Hardware); quorums tolerate one node |
 
 ---
 
-## When it's not a quick fix
+## Habits that prevent most mistakes
 
-Some symptoms point at a deliberate operation rather than a one-line fix — rebuilding a node, recovering Vault, rebuilding the cluster. Those live in **Procedures**. The playbooks here link across when that's the right escalation.
+- Look at live state before editing: re-read the file, fetch upstream, grep the line.
+- After a change that must survive a reboot, reboot the node.
+- Never `kubectl apply` to fix production: fix Git and let Flux apply, or force a reconcile.
+- Never put a secret literal in a command; if one leaks, rotate it.
+
+---
 
 ## See also
 
-- **Procedures** — the deliberate operations these playbooks sometimes escalate to.
-- **Components & interactions** — the architecture behind each failure mode.
+- **Procedures**: when the fix is a runbook.
+- **Components & interactions**: how the failing piece connects to its neighbours.

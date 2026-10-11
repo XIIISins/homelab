@@ -2,47 +2,39 @@
 
 # Semaphore
 
-The Ansible orchestration layer — a scheduler and UI that runs the homelab's playbooks on a cadence, checks the fleet for drift, and reports problems. Semaphore is to the LXCs and VMs what Flux is to the cluster: the thing that keeps reality matching the spec.
+The Ansible scheduler. It runs the homelab's playbooks on a timer and by hand, against a NetBox-built inventory, and turns drift into an alert. Internal-only at `semaphore.niflheim.xiiisins.com`.
 
 ---
 
-## Where it runs
+## Why Semaphore
 
-Semaphore runs in **asgard K3s** (`semaphore` namespace), with a Postgres backend on the Patroni VIP (database `semaphore`).
+It was chosen over AWX for footprint (about 100 MB against about 3 GB), a single Go binary and a simpler operational story. Because the playbook structure is scheduler-agnostic, swapping it later would need no playbook changes.
 
-Its dependencies tie together most of the platform:
+## How it runs
 
-- **Postgres** for its own state.
-- **Vault** for credentials, authenticating with the `ansible-awx` AppRole (the role it inherited when it replaced the originally-planned AWX deployment).
-- **NetBox** as its dynamic inventory source.
-- **Authentik OIDC** for login, at `semaphore.niflheim.xiiisins.com`.
-- **Hermod** for alert delivery.
+A single-replica StatefulSet in asgard K3s with its state in the shared Postgres cluster. Sign-in is Authentik OIDC, with a local break-glass admin. It uses a **custom image** with the repo's pinned Ansible collections baked in: the stock image silently used older bundled collections and ignored the pins. Vault access is an AppRole whose SecretID is injected into the task environment and is never in Terraform state. The project, keys, inventory, templates and schedules are all declared in Terraform, and runs are serialised one at a time. A second project holds the AIOps action executor.
 
----
+## What it runs
 
-## The templates
-
-Semaphore runs four scheduled or on-demand jobs:
-
-| Template | Cadence | What it does |
+| Template | When | What |
 |---|---|---|
-| `refresh-netbox-inventory` | Every 4 h | Rebuilds the cached NetBox dynamic inventory. |
-| `asgard-drift-check` | Every 6 h | Runs the fleet playbooks in `--check --diff` mode; any drift is reported to Hermod with a compact per-host summary. A clean run is silent. |
-| `asgard-apply` | Manual | Applies the fleet playbooks for real (operator-triggered). |
-| `asgard-fleet-agents` | Daily | Rolls out the monitoring/log agents (Zabbix agent, vlagent) across the fleet. |
+| Drift check | Every 6 hours | Full converge in check-and-diff mode. Any difference or failure alerts; a clean run is silent. This is the baseline: the check settles at zero changes. |
+| Apply | Manual | Converge the fleet |
+| OS updates | Manual | Patch and reboot, one node per quorum group |
+| Fleet agents | Daily | Re-converge the log and monitoring agents everywhere |
+| Infra health check | Every 12 hours | Certificates, token validity, Patroni and etcd quorum, PBS failures |
+| PBS restore test | Weekly | Prove backups restore |
+| Inventory refresh | Every 4 hours | Rebuild the NetBox inventory cache |
+| Canary variants | Daily | The same loop against disposable test containers, alerts capped at `info` |
 
-The **drift-check baseline is zero changes** across the fleet. A green drift-check means every LXC and VM matches its Ansible spec exactly; any `changed=` line is drift worth a human's attention.
+Results go to Hermod: drift is an `alert`, a failed apply is `critical`, success is a log line.
 
----
-
-## Where it's heading
-
-Apply is operator-driven today — the operator reads the drift diff, then either fixes the spec or runs the apply. The direction is **auto-apply on detected drift**: Semaphore converging the fleet automatically and notifying after the fact, the same posture Flux and Patroni already have.
+Today an operator reads the drift diff and either fixes the IaC or applies it; the direction is automatic convergence of small drift, with the operator told afterwards.
 
 ---
 
 ## See also
 
-- **GitOps & automation** (Components) — the full change-deployment flow and how Semaphore fits the Terraform/Ansible/Flux ownership split.
-- **Identity & secrets** (Components) — the `ansible-awx` AppRole Semaphore authenticates with.
-- **Observability** (Components) — how Semaphore's drift alerts reach Discord through Hermod.
+- **GitOps & automation** (Components): playbook structure and the AIOps layer.
+- **NetBox** (this section): the inventory source.
+- **Hermod** (this section): where its alerts go.

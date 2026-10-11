@@ -1,47 +1,40 @@
 <!-- docs/outline/services-and-purpose/teamspeak.md -->
 
-# TeamSpeak
+# Teamspeak
 
-Voice chat for gaming and hanging out — low-latency, push-to-talk, the kind of always-on voice server a friend group lives in.
-
----
-
-## Where it runs
-
-TeamSpeak (TS3 server 3.13.7) runs in **asgard K3s** (`teamspeak` namespace) as a single-replica StatefulSet. It's a stateful, singleton service — there's one voice server, and it keeps its channel tree and permissions in Postgres.
-
-- **Database:** Postgres via the Patroni HAProxy VIP (`10.0.10.210`), using TeamSpeak's first-party `ts3db_postgresql` plugin with `sslmode=require`.
-- **Identity:** TeamSpeak's own token/identity system. The server-admin privilege key is captured at first boot.
+Voice chat for friends. A TeamSpeak 3 server in Kubernetes with an offsite standby for when the homelab is down.
 
 ---
 
-## Networking — the shared VIP
+## How it runs
 
-Voice and file transfer share a single MetalLB VIP, `10.0.20.12`:
+A single-replica StatefulSet in asgard K3s. Its database is a role on the shared Postgres cluster, reached through the HAProxy VIP; file transfers use a small NFS volume. It started life as a planned LXC and moved to Kubernetes for GitOps uniformity; high availability comes from the client-side failover below, not from the pod.
 
-- **UDP 9987** — voice.
-- **TCP 30033** — file transfer.
+## Reaching it
 
-The two ports share one IP via MetalLB's `allow-shared-ip` annotation. The Service uses `externalTrafficPolicy: Local` so the client's real source IP is preserved (TeamSpeak's identity and ban system care about source IP).
-
----
-
-## The SRV failover ring
-
-Clients don't connect to a raw IP — they resolve an SRV record:
+Teamspeak is raw UDP and TCP, so it bypasses Traefik and Cloudflare entirely:
 
 ```
-_ts3._udp.ts3.xiiisins.com
-  ├── hel-ts3   (homelab — primary)
-  └── do-ts3    (DigitalOcean — fallback)
+Friend's client → DNS SRV for ts3.xiiisins.com → hel-ts3.xiiisins.com → home IP
+ → UCG-Ultra port-forward (UDP 9987 voice, TCP 30033 files)
+ → MetalLB VIP 10.0.20.12 → a worker → the pod
 ```
 
-If the homelab is unreachable, the SRV ring points clients at a DigitalOcean fallback so voice keeps working during an outage. The SRV record lives outside Terraform (it predates the IaC for this service).
+The service uses a pinned MetalLB address, `externalTrafficPolicy: Local` (so per-IP bans see real source addresses) and the VLAN 20 policy routing that keeps replies symmetric. The admin ServerQuery ports are not forwarded; they are reached only with a port-forward from inside.
+
+## The failover ring
+
+The DNS SRV record lists two targets: the homelab at priority 1 and an offsite node on DigitalOcean at priority 99. TeamSpeak clients fall through to the second when the first does not answer. The offsite server runs the same version with its own independent database, restored from a snapshot, and is explicitly best-effort: if it misbehaves, wiping its database is acceptable and users reconnect. The DNS records are managed in Terraform.
+
+## Notes
+
+- LAN and tailnet clients reach the server through the public IP and hairpin at the router. A local DNS rewrite would avoid that if it ever matters.
+- Port-forwards on the UCG-Ultra are not in IaC; they are recorded in the docs.
 
 ---
 
 ## See also
 
-- **Storage & data** (Components) — the Patroni Postgres cluster TeamSpeak persists to.
-- **Network** (Components) — MetalLB shared-IP VIPs and `externalTrafficPolicy: Local`.
-- **URLs** — connection details in the directory.
+- **Network** (Components): MetalLB and the policy-routing rules.
+- **Storage & data** (Components): the Postgres cluster behind it.
+- **Edge** (Components): the non-HTTP path.

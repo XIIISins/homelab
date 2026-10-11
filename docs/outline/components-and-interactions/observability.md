@@ -2,135 +2,100 @@
 
 # Observability
 
-This subpage covers how the homelab sees itself — metrics, logs, and the alert pipeline that wakes the operator. Two stacks split the work along a clean failure-domain boundary: **VictoriaMetrics + VictoriaLogs** live inside asgard K3s and watch K8s-native concerns, while **Zabbix** runs on its own LXC outside K3s and watches everything below the cluster. The alert layer (**Hermod**) is a third LXC, deliberately outside K3s for the same reason: if K3s is what's on fire, the thing that pages about it must not depend on K3s being healthy.
-
-The principle that shapes every choice on this page: a monitoring component cannot share a failure domain with what it monitors. K8s-native scrapes can live in K3s — if K3s is down, those metrics aren't meaningful anyway. Host-level monitoring and the notification pipe live outside K3s, so they survive the cluster's worst day and report on it.
+Knowing what the homelab is doing and being told when it is broken. The design splits by failure domain: in-cluster metrics and logs run in Kubernetes; host and LXC monitoring runs outside it, so an outage of the cluster is still reported.
 
 ---
 
-## The split: in-cluster vs out-of-cluster
+## The split
 
-| Layer | Stack | Where it runs | Watches |
+| Concern | Tool | Where it runs | Why there |
 |---|---|---|---|
-| K8s metrics + logs | VictoriaMetrics + VictoriaLogs (single-binary) | asgard K3s, `monitoring` namespace | Pods, kubelet/cAdvisor, cluster state, Flux reconciliation, the VM/VL stack itself |
-| Host + LXC metrics + service templates | Zabbix 7.0 LTS | LXC 1102 (Hugin) on Urd, outside K3s | Every node, every LXC, every VM. PG/HAProxy/etcd/Proxmox/nginx/PHP-FPM templates. Patroni + etcd cluster health as defence-in-depth against PG-callback-driven Hermod notifications. |
-| Notification fan-out | Hermod (AppriseAPI behind Caddy IP-allowlist) | LXC 1103 on Verd, outside K3s | Every alert producer above POSTs here; Hermod dispatches to Discord channels by tag. |
+| Kubernetes metrics | **VictoriaMetrics** + vmagent + kube-state-metrics | asgard K3s, `monitoring` namespace | Most producers are in the cluster; shortest ingest path |
+| Logs, everywhere | **VictoriaLogs** + vlagent shippers | asgard K3s | One searchable place for every host's logs |
+| Hosts, LXCs, services | **Zabbix** (server "Hugin") | LXC 1102 on Urd, **outside K3s** | If the cluster is on fire, the thing that tells you must not be on it |
+| Notifications | **Hermod** (AppriseAPI) | LXC 1103 on Verd | Same independence: alerts about K3s must work when K3s is down |
+| Active checks | **infra-health-check** prober | Semaphore | Certificates, tokens, quorum, backups: things a metric scrape cannot see |
+| At-a-glance status | **Overview page** | asgard K3s | A one-screen status page and app launcher |
+| Outside view | **Gatus** watcher | Offsite DigitalOcean node | Detects the homelab being unreachable altogether |
 
-vmagent collects K8s-layer metrics; Zabbix collects host-layer metrics. No overlap — `container_*` and `kube_*` series stay in VictoriaMetrics; `system.cpu.util`, `vfs.fs.size`, `net.if.in` stay in Zabbix. Each store is authoritative for its layer.
-
----
-
-## VictoriaMetrics + VictoriaLogs — K8s-native store
-
-Two single-binary deployments in the `monitoring` namespace. No vmoperator CRDs yet — straight Helm charts.
-
-- **vmsingle** (chart `victoria-metrics-single`) — 20 GiB `local-path` PV (node-local xfs), 1-month retention. PromQL queries land here. The built-in **vmui** is the dashboard layer — interactive PromQL playground, chart panels, and a small set of canned dashboards mounted via `customDashboardsPath` ConfigMap.
-- **vlsingle** (chart `victoria-logs-single`) — 20 GiB `local-path` PV (node-local xfs), 30-day retention. LogsQL queries (PromQL-flavored) via the native VictoriaLogs UI.
-
-Both run on **`local-path`** (a per-worker `/data` disk), not the NAS: their mmap engines want local ext4/xfs, and they're single-instance node-pinned. The data is refillable short-term observability (Zabbix backstops long-term trends) and PBS backs up the worker `/data` disk daily — so durability here is *recovery*, not HA.
-
-There is **no Grafana**. vmui + the VictoriaLogs UI handle every dashboard and ad-hoc query the homelab needs at this scale. The revisit trigger is genuine cross-source dashboards (metrics + logs in a single panel) or wanting to share read-only dashboards with non-operator users.
-
-### Ingress + auth
-
-Both UIs sit behind Traefik on the niflheim Gateway, internal-only. AdGuard rewrites point `metric.niflheim.xiiisins.com` and `logs.niflheim.xiiisins.com` at the Traefik VIP. A Traefik ForwardAuth middleware against an Authentik proxy provider gates browser access; the VL HTTPRoute splits the `/insert/*` path prefix off as no-auth so off-cluster log shippers can POST without OIDC.
+**No Grafana.** VictoriaMetrics ships `vmui` (interactive PromQL and charts) and VictoriaLogs ships its own LogsQL UI; at homelab scale a separate dashboard layer is not load-bearing. A handful of custom vmui dashboards are shipped as a ConfigMap. Prometheus and Loki are not used; VictoriaMetrics is far lighter for the same ingest, and its query language is PromQL-compatible.
 
 ---
 
-## vmagent — K8s metrics scraper
+## Metrics
 
-vmagent runs in the same namespace as vmsingle, scrapes the cluster, and remote-writes to vmsingle.
+- **VictoriaMetrics** runs as a single instance (not cluster mode) on a 20 GiB `local-path` volume with one month of retention. Long-term, low-resolution trends are Zabbix's job.
+- **vmagent** scrapes kubelet and cAdvisor through the API server proxy (so it needs `nodes/proxy` permission, without which every cAdvisor scrape returns 403) and kube-state-metrics every 30 seconds. kube-state-metrics gets scraped through more than one path, so every query pins its job label or sums read double.
+- **Proxmox host metrics are not in VictoriaMetrics.** There is no exporter: host data goes to Zabbix. The overview page reads the Proxmox API itself, with a dedicated read-only token.
+- **vmalert is not enabled** and the vm-operator migration is deferred until a charted component needs CRD-based scraping or there is a metrics-alerting case Zabbix does not cover.
 
-- **Kubelet self-metrics + cAdvisor** via the apiserver-proxy pattern. The scrape target is `kubernetes.default.svc:443` with a relabel that rewrites `__metrics_path__` to `/api/v1/nodes/<name>/proxy/metrics[/cadvisor]`. vmagent's default ClusterRole is missing `nodes/proxy`, so the HelmRelease grants it via `rbac.extraRules`.
-- **kube-state-metrics** runs as its own Deployment in `monitoring` and exposes cluster-state metrics (`kube_pod_*`, `kube_node_*`, `kube_deployment_*`, etc.). vmagent scrapes it as a standard pod-annotation target.
-- **30s scrape interval** across the board. Cardinality is tuned by what KSM emits + the relabel rules — no per-pod scrape annotations needed for the homelab-shape workloads.
+## Logs
 
-**Label asymmetry.** cAdvisor's `container_*` series group by `instance` (the node), not `node` — the apiserver-proxy relabel sets `instance` and `kubernetes_io_hostname` but not `node`. KSM's `kube_*` series do have a `node` label set normally. Dashboards that join across both sources have to be aware of which key holds the node identifier.
+Every shipper is **vlagent**, the VictoriaLogs project's own agent (chosen over Vector and Fluent Bit on throughput, CPU and file-rotation correctness).
+
+| Producer | Path |
+|---|---|
+| Pods | A privileged DaemonSet (needed to read host log paths under SELinux) ships to VictoriaLogs inside the cluster |
+| LXCs and Proxmox hosts | A systemd vlagent binary, installed by an Ansible role, reads syslog and ships to VictoriaLogs through an HTTPRoute on the internal Gateway (the `/insert` path skips SSO so shippers need no login) |
+| K3s node VMs | Same binary, but targeting a ClusterIP, because a node's own network namespace cannot reach a MetalLB VIP |
+
+About two dozen hosts ship logs. Retention is 30 days on a 20 GiB volume. Debian 13 is journald-only by default, so the role installs rsyslog to give vlagent files to read.
+
+The metrics and logs UIs (`metric.` and `logs.` under `niflheim`) are internal-only behind Authentik ForwardAuth. Separate read-only query routes, IP-allowlisted to the control node, serve the AIOps Toolbelt without SSO.
 
 ---
 
-## vlagent — log shipper, two deploy modes
+## Zabbix
 
-All log shipping uses **vlagent**, the official VictoriaLogs project shipper. CLI-flag-only configuration (no YAML). Two deploy shapes:
+Zabbix 7.0 LTS in its own LXC watches the layer below Kubernetes: Proxmox hosts, every LXC and VM, and service-level templates (Postgres, HAProxy, AdGuard and so on). The agent runs on every host. Its database is the shared Patroni cluster. Sign-in is native SAML with Authentik (a local `Admin` remains for break-glass), and there are three ways in: the public name, an internal alias through Traefik, and a **direct backdoor** straight to the LXC for when Traefik is the thing being debugged.
 
-| Mode | Where | How |
+Zabbix events go to Hermod and, in parallel, to the diagnosis agent. Zabbix has no HA of its own: if its LXC is lost, collection pauses until restored from backup, and the data survives.
+
+---
+
+## Hermod: notifications
+
+One HTTP endpoint every alert source posts to. Hermod, an AppriseAPI instance fronted by Caddy with a source-IP allowlist, fans notifications out to Discord channels by **tag**:
+
+| Tag | Meaning | Channel |
 |---|---|---|
-| K3s DaemonSet | One pod per asgard worker | `victoria-logs-collector` Helm chart, runs vlagent with `-kubernetesCollector` for native pod-log discovery. SELinux on RHEL workers requires `privileged: true` + `runAsUser: 0`. |
-| systemd binary | Every off-cluster host — LXCs, K3s VMs, Proxmox hosts, PBS | Ansible `vlagent` role drops the binary + a systemd unit that reads from `/var/log/syslog` (Debian) or `/var/log/messages` (RHEL). |
+| `critical` | Look within minutes, even at 2 am: quorum lost, service hard-down | Hrist (with `@everyone`) |
+| `alert` | Look within hours: degraded but up, drift detected | Mist |
+| `info` | Never needs a response; the cap tier for anything non-production | Randgrid |
+| `media` | Sonarr events (sent straight to Discord by Sonarr, not via Hermod) | Ölrún |
+| *(none)* | Producer bug | Hel (quarantine, so nothing vanishes) |
 
-### Ingress endpoints
+Severity sets the embed colour; the tag sets the channel. Definitions come from the expected *response time*, not from impact adjectives. Routine successes (a clean drift-check) are not sent at all: they are log lines in VictoriaLogs.
 
-The on-cluster DaemonSet writes directly to vlsingle via in-cluster Service DNS. Off-cluster shippers POST to vlsingle via an HTTPRoute on the niflheim Gateway — `https://logs.niflheim.xiiisins.com/insert/native`. K3s VM hosts are the awkward middle: their host network can't reach MetalLB VIPs from the same cluster, so a companion ClusterIP Service (`victorialogs-ingest`) is what they target, overridden in `group_vars/k3s.yml`.
-
-### Debian rsyslog
-
-Debian 13 ships journald-only; `/var/log/syslog` doesn't get written by default. The `vlagent` role installs and enables rsyslog on Debian hosts so the filelog input has content to read. Native journald collection in vlagent is upstream-pending.
-
----
-
-## Zabbix — host, LXC, and service templates
-
-Zabbix runs on a single LXC (Hugin, `10.0.11.21`) — Zabbix server, frontend, and a local agent2 instance for sanity. The database lives on the Patroni VIP like every other K3s consumer, so Postgres HA is shared with the rest of the homelab.
-
-### Agent rollout
-
-Every inventory host runs `zabbix-agent2`, deployed via an OS-aware Ansible role split (apt on Debian, dnf + SELinux boolean on RHEL). Hosts register declaratively — the `community.zabbix.zabbix_host` module creates host records via Zabbix's API with `delegate_to: hugin` and an `httpapi` connection. Inventory groups map to a hierarchical host-group taxonomy in Zabbix (`Asgard/K3s/CP`, `Asgard/LXCs/Postgres`, `Hypervisors/Proxmox`, etc.).
-
-### Service templates
-
-Round 2 of the Phase 8c rollout layered domain-specific monitoring on top of the agent baseline:
-
-- **Postgres**: `PostgreSQL by Zabbix agent 2` template, agent2's PG plugin package, a `zbx_monitor` PG role with `pg_monitor` membership.
-- **HAProxy + etcd**: HAProxy stats page on localhost:9000, etcd's `:2379/metrics` scraped server-side via the `Etcd by HTTP` template.
-- **Proxmox**: PVE API user + token minted via `terraform/proxmox/zabbix-access/`, scraped via the `Proxmox VE by HTTP` template.
-- **Nginx + PHP-FPM**: Hugin's own front-end via localhost stub_status + status/ping endpoints.
-
-### Auth — SAML, not OIDC
-
-Zabbix 7.0 has built-in SAML 2.0 support and uses it to federate with Authentik. The choice over OIDC + Traefik ForwardAuth is failure-domain-driven: Zabbix is the K3s-down emergency observability path, and its auth cannot itself depend on K3s being healthy. SAML against Authentik keeps the dependency direction sane (browser → Cloudflared → Traefik → Zabbix → SAML to Authentik), and a local-Admin break-glass account bypasses SAML for the `hugin-direct.niflheim.xiiisins.com` backdoor when Authentik itself is down.
+**Producers:** Zabbix (a webhook media type on its standard "report problems" action), Patroni (an `on_role_change` callback posts every promotion or demotion within seconds), Semaphore (drift-check, apply, health-check, restore-test), the AIOps components, and the offsite watcher (which has its own independent Discord channel).
 
 ---
 
-## Hermod — notification fan-out
+## What watches the watchers
 
-Hermod (LXC 1103, `10.0.11.22`) is the single notification endpoint for every alert producer in the homelab. Producers POST JSON to `/notify/<config-key>`; AppriseAPI fans the notification out to Discord webhooks based on a tag-driven routing config.
-
-### The tag taxonomy
-
-Severity is encoded in the **tag**, not the body. Tags map to Discord channels with Valkyrie display names.
-
-| Tag | Response window | Producers | Channel |
-|---|---|---|---|
-| `critical` | Within minutes, even at 2am | Apply blew up, cluster quorum lost, service hard-unavailable, disk >90% | Hrist — `#infra-critical`, `@everyone` mention |
-| `alert` | Within hours, business-day OK | Drift detected, single-node failure (cluster degraded), sustained resource load, disk 70–80% | Mist — `#infra-alerts`, no mention |
-| `media` (future) | Whenever | Sonarr/Radarr release notifications | Ölrún — `#media`, no mention |
-| _(no tag)_ | Producer bug — should have tagged | Any POST without a `tag` field | Hel — `#hermod-untagged` quarantine |
-
-Severity drives Discord embed colour; tag drives which channel. Decoupling means a future `media` producer can reuse the same hub without sharing the infra-alerts channel. The untagged-quarantine channel exists because Apprise's default behaviour on a tagless notification is to match every URL whose `tag:` is unspecified — without an explicit catch-all, a stray producer bug would silently fan out. The fix is structural: every routed URL has an explicit `tag:`, and exactly one URL (the quarantine webhook) has no `tag:` clause.
-
-### Producer wiring
-
-- **Zabbix** → Hermod via a `community.zabbix.zabbix_mediatype` webhook + the stock "Report problems to Zabbix administrators" trigger action. Severity bitmask `Average+High+Disaster` routes to the `alert` tag.
-- **Patroni** → Hermod via an `on_role_change` bash callback on every PG node. Promotion/demotion fires a `patroni` tag. The callback always exits 0 (a non-zero exit would deadlock Patroni's supervisor).
-- **Semaphore (drift-check)** → Hermod via a webhook notifier on the template. Drift detected or hard failure fires `alert`; clean runs are silent. Manual `asgard-apply` failure fires `critical`.
+- Zabbix is outside K3s; Hermod is outside K3s.
+- Semaphore's infra-health-check and weekly restore test post their own results; a silent Wednesday means the test stopped, not that all is well.
+- The offsite Gatus watcher on DigitalOcean checks the homelab from outside and expects a heartbeat from the control node.
 
 ---
 
-## Failure surfaces worth knowing
+## Failure surfaces
 
-- **VictoriaMetrics down.** K8s metrics ingestion stops; vmagent buffers in its remote-write queue (disk-backed, bounded). Pre-existing series remain queryable through whichever vmsingle replica returns first; on single-replica the queries fail. Zabbix is unaffected — separate stack.
-- **VictoriaLogs down.** Log ingestion stops; vlagent buffers locally (DaemonSet pods + each off-cluster systemd unit). Pre-existing logs are unqueryable until vlsingle returns. Same independence from Zabbix.
-- **Zabbix LXC down.** Host-level alerting stops. K8s-layer queries (VM/VL) keep working. Hermod still serves other producers — Patroni callbacks, Semaphore drift-check.
-- **Hermod down.** Every producer's webhook POST fails. Caddy's local journal still records the attempt, so the producer-side audit trail survives. Discord channels go quiet — operator has no out-of-band alert path for as long as Hermod is out. Single-LXC, no HA; the directional answer is a second LXC + DNS round-robin or VRRP, deferred until a real outage justifies the work.
-- **Cluster quorum lost.** Patroni's `on_role_change` callback fires from whichever surviving node was the previous leader. The Zabbix Patroni/etcd templates detect cluster-wide quorum loss as defence-in-depth — even if the callback fails to fire, Zabbix sees it.
-- **Authentik down.** vmui and the VictoriaLogs UI 401 (their ForwardAuth dependency is broken). Zabbix UI falls back to its local `Admin` account or the backdoor hostname — neither path needs Authentik. Off-cluster log shippers continue to POST to vlsingle via the auth-bypassed `/insert/*` path; nothing about producer-side observability depends on Authentik.
+| What fails | Effect |
+|---|---|
+| VictoriaMetrics or VictoriaLogs | Cluster metrics or logs gap until the pod returns (the worker volume is pinned). Zabbix and alerting are unaffected. |
+| A log shipper | That host's logs stop; the host itself is unaffected. |
+| Zabbix LXC | Host monitoring pauses; K3s-side metrics continue. |
+| Hermod | Alerts are not delivered to Discord; the sources still record them, and logs still reach VictoriaLogs. |
+| Discord | Same as Hermod from the operator's view. The offsite watcher uses a separate channel for this reason. |
+| The whole cluster | Zabbix and Hermod keep running and report it. |
 
 ---
 
 ## See also
 
-- **Identity & secrets** (this section) — Authentik ForwardAuth for vmui + VL UI, native SAML for Zabbix, the Vault paths that hold each piece's secrets.
-- **Edge** (this section) — niflheim Gateway HTTPRoutes for both UIs, Cloudflared tunnel route for Zabbix's external apex hostname, ClusterIP companion Service for K3s-VM-host log shipping.
-- **GitOps & automation** (this section) — Semaphore is the first concrete `alert`-tag producer; drift-check failures arrive in Hermod via this path.
-- **Services and purpose** — per-service notes on which Zabbix templates apply, what log streams each ships, what alert tags each producer wires.
-- **Troubleshooting** — vmagent missing `nodes/proxy`, cAdvisor `node`-label asymmetry, vmui `unit` field as suffix not formatter, vlagent CLI-flag schema and `/insert/native` endpoint, Apprise YAML tag-as-dict-key shape.
+- **Edge** (this section): the Gateways and SSO in front of the UIs.
+- **GitOps & automation** (this section): Semaphore's drift-check and the AIOps layer that consumes these signals.
+- **Storage & data** (this section): the local-path volumes behind the Victoria stack.
+- **Zabbix** and **Hermod** (Services and purpose): the per-service summaries.
+- **Troubleshooting**: first checks for common alerts.

@@ -2,38 +2,51 @@
 
 # Procedures
 
-Step-by-step operational runbooks. Where **Troubleshooting** is reactive ("this is broken, what now"), Procedures are deliberate ("I am going to do this thing on purpose"). Each one is a standalone document; some compose others.
-
-*A procedure is a route to a known end state, written so it can be followed under pressure. The thinking happens once, when the runbook is written — not at 2 a.m. when it's being run.*
+Runbooks for the operations that are worth doing the same way every time. This section is the wiki-readable summary: it explains what each procedure is for, the order of operations, and what to watch for. The full step-by-step commands live in the repository under `docs/procedures/`, next to the code they drive.
 
 ---
 
-## How these are written
+## Philosophy
 
-- **Composable.** A big procedure references smaller ones rather than inlining them. "Rebuild the cluster" leans on "deploy with Terraform," "provision with Ansible," and "recover Vault."
-- **Danger points are called out explicitly.** Any irreversible step (a `terraform destroy`, a key that can't be regenerated) is flagged before it appears, not after.
-- **The repo is the source of exact values.** These runbooks give the shape, the order, and the load-bearing commands. Per-resource specifics (exact module paths, variable names) live in the code; the runbook tells you which code to run and why.
+- **Ordered by blast radius.** Changing a document is not rebuilding a cluster. The index below runs from routine to catastrophic, and the care required rises with it.
+- **Prerequisites first.** Each procedure names what must already be healthy. Several refuse to start against a degraded system.
+- **One thing at a time.** Anything touching a quorum (etcd, Postgres, Vault, the Proxmox cluster) is strictly serial, and waits for 3 of 3 before moving on.
+- **Persistence is part of done.** After a change that must survive a reboot (network config, sysctls, systemd units, kernel), reboot the node before declaring victory. A runtime fix can mask a broken file that bites weeks later.
+- **Secrets never appear in a command line or a transcript.** Credentials are resolved inside the shell process. If one leaks, tell the owner and rotate; never auto-rotate.
+- **Rebuild beats repair** when the guest is cattle, and the IaC is the recovery path.
 
 ---
 
-## The runbooks
+## Index
 
-| Procedure | When you reach for it | Blast radius |
+| Procedure | Blast radius | Use when |
 |---|---|---|
-| **Credential rotation** | Any machine credential — AWS, Cloudflare, Authentik, NetBox, Semaphore, AdGuard, the Vault root token — needs a fresh value | One credential's consumers |
-| **AppRole rotation** | Routine credential hygiene, or after a SecretID leak — the Vault AppRole deep dive | One consumer's Vault auth |
-| **Vault recovery** | Vault is sealed, a follower won't rejoin, or a token expired mid-deploy | The secrets layer |
-| **K3s node rebuild** | A single control-plane or worker node needs rebuilding | One node; cluster stays up |
-| **NetBox initial data import** | First-time (or post-wipe) NetBox population | NetBox data only |
-| **Proxmox host patching** | Rolling OS patch + reboot of the PVE hypervisor hosts | Each host's guests, one host at a time |
-| **Teardown & rebuild** | The whole asgard cluster needs reconstructing from scratch | Everything in asgard K3s |
+| **Landing a change** | Low | Any change to the repository |
+| **Credential rotation** | Low to medium | A credential leaked, or on a schedule |
+| **AppRole rotation** | Low | Vault AppRole SecretIDs, every 90 days |
+| **Backups & restore drills** | Low (read-mostly) | Verifying that recovery would work |
+| **K3s & Calico upgrade** | Medium | A new Kubernetes or CNI minor version |
+| **Proxmox host patching** | High | Patching the hypervisors |
+| **Vault recovery** | High | Raft node lost, sealed, stuck init or token lost |
+| **K3s node rebuild** | High | Replacing a control plane or worker VM |
+| **Teardown & rebuild** | Highest | Disaster recovery, a rebuild from the Proxmox layer up |
 
-Ordered above by increasing blast radius. Reach for the smallest procedure that solves the problem.
+---
+
+## Order of attack in an outage
+
+1. **Is the network up?** (UCG-Ultra, DNS VIP.) Nothing else is diagnosable without it.
+2. **Is Postgres reachable on the VIP?** Most apps depend on it.
+3. **Is Vault unsealed?** New secret syncs and Ansible lookups need it.
+4. **Is the cluster healthy?** Nodes Ready, Flux reconciling, Traefik answering.
+5. Then the application layer.
+
+See **Troubleshooting** for the symptom-first version.
 
 ---
 
 ## See also
 
-- **Troubleshooting** — for the reactive side: a symptom you're trying to diagnose rather than an operation you're choosing to run.
-- **Components & interactions** — the architecture these procedures operate on.
-- **GitOps & automation** (Components) — the normal change paths these procedures sit outside of (they're the break-glass operations).
+- **Troubleshooting**: diagnosing before you act.
+- **Components & interactions**: how the pieces fit.
+- **Identity & secrets** (Components): the model several procedures protect.

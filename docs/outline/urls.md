@@ -2,92 +2,78 @@
 
 # URLs
 
-The flat directory — every hostname, what it is, and how to log in. When you just want the link, this is the page. For what a service actually *does*, see **Services and purpose**.
+Every hostname worth knowing, what it is, how you sign in, and where it is reachable from. Three DNS zones decide reachability:
 
-A quick orientation on the three DNS zones, because the hostname tells you how to reach a thing:
+- `xiiisins.com`: public, resolved by Cloudflare. Reached through the tunnel from anywhere.
+- `midgard.xiiisins.com`: internal alias of a public service, for LAN and tailnet clients.
+- `niflheim.xiiisins.com`: internal only. Resolves on the LAN and tailnet and nowhere else.
 
-- **`xiiisins.com`** (apex) — externally reachable, via the Cloudflare tunnel. Works from anywhere.
-- **`midgard.xiiisins.com`** — internal alias for the same publicly-reachable services; resolved on the LAN by AdGuard straight to Traefik.
-- **`niflheim.xiiisins.com`** — internal-only. LAN (or tailnet) access exclusively; the firewall blocks it from outside.
-
----
-
-## Web apps — external (apex)
-
-Reachable from anywhere, through the Cloudflare tunnel.
-
-| URL | Service | Sign in with |
-|---|---|---|
-| `wiki.xiiisins.com` | Outline (this wiki) | Authentik OIDC (`outline-users`) |
-| `authentik.xiiisins.com` | Authentik | Authentik (it *is* the IdP) |
-| `hugin.xiiisins.com` | Zabbix | Authentik SAML (`zabbix-admins`) |
-| `paste.xiiisins.com` | MicroBin (pastebin / file-share) | Anonymous; janitor `/list` + `/admin` via Authentik ForwardAuth |
-| `home.xiiisins.com` | Startpage (landing dashboard) | None — public landing page |
+"Internal" means on the home network or connected through Tailscale.
 
 ---
 
-## Web apps — internal
+## For everyone
 
-LAN / tailnet only. The `midgard` aliases mirror the apex services; the `niflheim` names are internal-only tooling.
+| Address | What | Sign-in | Reach |
+|---|---|---|---|
+| `wiki.xiiisins.com` | This wiki (Outline) | Authentik (OIDC) | Public. Internal aliases: `wiki.midgard.…`, `wiki.niflheim.…` |
+| `immich.xiiisins.com` | Photos and videos | Authentik (OIDC) | Public. Internal alias: `immich.midgard.…` |
+| `paste.xiiisins.com` | Pastebin and file share | None to create or view; `/list` and `/admin` use Authentik | Public |
+| `home.xiiisins.com` | Startpage | None | Public |
+| `jellyfin.midgard.xiiisins.com` | Media server | Jellyfin accounts | Internal only (LAN or Tailscale) |
+| `ts3.xiiisins.com` | Teamspeak (DNS SRV, not a web page) | Teamspeak identity | Public, UDP 9987 |
+| `factorio.xiiisins.com` | Factorio game server | Game client | Public, UDP 34197 |
+| `authentik.xiiisins.com` | Authentik sign-in portal | Authentik | Public. Internal alias: `authentik.midgard.…` |
 
-| URL | Service | Sign in with |
+## Operator tools
+
+| Address | What | Sign-in |
 |---|---|---|
-| `wiki.midgard.xiiisins.com` | Outline | Authentik OIDC |
-| `authentik.midgard.xiiisins.com` | Authentik | Authentik |
-| `hugin.midgard.xiiisins.com` | Zabbix | Authentik SAML |
-| `jellyfin.midgard.xiiisins.com` | Jellyfin *(planned)* | Local Jellyfin account |
-| `vault.niflheim.xiiisins.com` | Vault UI | Authentik OIDC |
-| `netbox.niflheim.xiiisins.com` | NetBox | Authentik OIDC |
-| `semaphore.niflheim.xiiisins.com` | Semaphore | Authentik OIDC |
-| `metric.niflheim.xiiisins.com` | vmui (VictoriaMetrics) | Authentik ForwardAuth |
-| `logs.niflheim.xiiisins.com` | VictoriaLogs UI | Authentik ForwardAuth |
-| `hugin-direct.niflheim.xiiisins.com` | Zabbix (Traefik-bypass backdoor) | Local Zabbix admin |
+| `overview.niflheim.xiiisins.com` (also `status.xiiisins.com`) | Status page and app launcher | None (internal only) |
+| `vault.niflheim.xiiisins.com` | Vault UI | Authentik (OIDC) |
+| `netbox.niflheim.xiiisins.com` | IPAM/DCIM | Authentik (OIDC); local superuser break-glass |
+| `semaphore.niflheim.xiiisins.com` | Ansible scheduler | Authentik (OIDC); local admin break-glass |
+| `hugin.xiiisins.com` | Zabbix (public); `hugin.midgard.…` internal | Authentik (SAML); local `Admin` |
+| `hugin-direct.niflheim.xiiisins.com` | Zabbix backdoor, straight to the LXC | Local `Admin` only |
+| `metric.niflheim.xiiisins.com` | VictoriaMetrics UI | Authentik (ForwardAuth) |
+| `logs.niflheim.xiiisins.com` | VictoriaLogs UI (`/insert` is open to log shippers) | Authentik (ForwardAuth) |
+| `sonarr.niflheim.xiiisins.com` | Sonarr | Authentik (ForwardAuth, `media-admins`) |
+| `sabnzbd.niflheim.xiiisins.com` | SABnzbd | Authentik (ForwardAuth, `media-admins`) |
+| `jellyfin-direct.niflheim.xiiisins.com` | Jellyfin without Traefik | Jellyfin accounts |
+| `smoketest.niflheim.xiiisins.com` | Returns "smoketest ok": proves DNS, Traefik and a backend work | None |
+| `logs-read.` / `metrics-read.niflheim.xiiisins.com` | Read-only query routes for the AIOps Toolbelt | IP allowlist to the control node only |
+| `adguard.niflheim.xiiisins.com` / `adguard-vip.…` | AdGuard admin (Saga) / the VIP | AdGuard admin account |
 
-> Most apps also have a **break-glass local admin** for when Authentik is unavailable. Those credentials live in 1Password, not here.
+## Hosts (no web page unless noted)
+
+| Address | What |
+|---|---|
+| `urd.`, `verd.`, `skuld.niflheim.xiiisins.com` | Proxmox nodes (web UI on the hypervisor port) |
+| `munin.niflheim.xiiisins.com` | Synology DSM |
+| `pbs.niflheim.xiiisins.com` | Proxmox Backup Server |
+| `saga.`, `mimir.`, `kvasir.niflheim.xiiisins.com` | AdGuard nodes |
+| `fulla.`, `vor.`, `idunn.niflheim.xiiisins.com` | Postgres nodes |
+| `hlin.`, `eir.`, `snotra.niflheim.xiiisins.com` | HAProxy and etcd nodes |
+| `pg17-vip.niflheim.xiiisins.com` | The Postgres VIP |
+| `gondul.`, `hlokk.`, `sigrun.niflheim.xiiisins.com` | K3s control planes |
+| `einherjar-urd.`, `-verd.`, `-skuld.niflheim.xiiisins.com` | K3s workers |
+| `hermod.niflheim.xiiisins.com` | Notification hub (API, internal) |
+| `gna.`, `ratatoskr.`, `frigg.niflheim.xiiisins.com` | AIOps agent host, the Discord bot, the control node |
+| `do1.xiiisins.com` | The offsite DigitalOcean node (Teamspeak failover, outside watcher) |
 
 ---
 
-## Connection endpoints (not web)
+## Rules of thumb
 
-| Endpoint | Service | Notes |
-|---|---|---|
-| `_ts3._udp.ts3.xiiisins.com` (SRV) | TeamSpeak | Resolves to `hel-ts3` (homelab) then `do-ts3` (fallback). UDP 9987 voice, TCP 30033 file transfer. |
-| `factorio.xiiisins.com` | Factorio | UDP game port (external via UCG port-forward); SFTP for admins (no shell). |
-| `10.0.10.200:53` | AdGuard Home VIP | The DNS resolver every LAN client points at. |
-
----
-
-## Admin & infrastructure consoles
-
-Not behind Authentik — these are the underlying platform, with their own local credentials (in 1Password, outside the Homelab sub-vault for the non-homelab ones).
-
-| Address | Console | Credential home |
-|---|---|---|
-| `10.0.254.1` | UCG-Ultra (UniFi) | 1Password |
-| `10.0.254.11:8006` | Proxmox — Urd | 1Password |
-| `10.0.254.12:8006` | Proxmox — Verd | 1Password |
-| `10.0.254.13:8006` | Proxmox — Skuld | 1Password |
-| `10.0.254.20` | Synology DSM (Munin) | 1Password |
-| `10.0.11.20` | Proxmox Backup Server | 1Password |
-| `saga.niflheim.xiiisins.com` | AdGuard Home admin (origin) | 1Password |
-
----
-
-## Internal service VIPs
-
-Not user-facing — listed so a hostname or IP in a config or a log is recognisable.
-
-| VIP | Service | Notes |
-|---|---|---|
-| `10.0.20.10` | Traefik | Internal ingress; everything `*.niflheim` / `*.midgard` lands here. |
-| `10.0.10.210` | Patroni HAProxy | The Postgres entry point for every database consumer. |
-| `10.0.20.12` | TeamSpeak | Shared voice + file-transfer VIP. |
-| `garage-s3.garage.svc.cluster.local:3900` | Garage S3 | In-cluster only; no external endpoint by design. |
+- If a name ends in `niflheim`, it is internal-only; it is not on the internet.
+- If it has a `midgard` twin, the twin is the same service reached without leaving the house.
+- A sign-in problem on an Authentik-gated page is almost always group membership, not a wrong password.
+- Jellyfin and the tools above are reachable remotely by joining the tailnet.
 
 ---
 
 ## See also
 
-- **Services and purpose** — what each of these services is for.
-- **Network** (Components) — the full key-IP table and the DNS-zone model behind these hostnames.
-- **Identity & secrets** (Components) — where the credentials behind these logins live.
+- **Services and purpose**: what each service is for.
+- **Edge** (Components): how names reach services.
+- **Troubleshooting**: when a name does not work.

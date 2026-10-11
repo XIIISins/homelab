@@ -2,77 +2,47 @@
 
 # DNS & networking
 
-DNS and the L2/L3 fabric fail in ways that masquerade as application bugs. When something "can't connect," rule these out first.
+Symptoms around names and reachability: internal NXDOMAIN, VIPs that do not answer, tromboning, and the multi-homed worker problems.
 
 ---
 
-## An internal hostname returns NXDOMAIN
+## First diagnostics
 
-**Symptom:** `*.niflheim.xiiisins.com` (or another internal name) won't resolve, or resolves intermittently, on a host or in a pod.
-
-**Cause:** a public resolver crept into the fallback chain. Cloudflare/Google return NXDOMAIN for internal zones, and glibc + CoreDNS cache that NXDOMAIN as authoritative — poisoning resolution until the cache expires.
-
-**Diagnose:** check the resolver config — `/etc/resolv.conf` on the host (or the node backing a CoreDNS replica). Fallbacks must point at the AdGuard peers (`10.0.11.201/202/203`), never at public DNS.
-
-**Fix:** correct the resolver config (the baseline role manages `/etc/resolv.conf` for exactly this reason). For CoreDNS, restart it after fixing the node's resolv.conf: `kubectl rollout restart deploy -n kube-system coredns`.
-
----
-
-## Can't ping a service VIP
-
-**Symptom:** `ping <MetalLB VIP>` returns "Destination Host Unreachable," so you conclude the service is down.
-
-**Cause:** none — this is expected. MetalLB L2 only ARPs for the VIP; the elected node has no kube-proxy DNAT for an ICMP packet, so the kernel rejects it. The service can be perfectly healthy.
-
-**Fix:** never test a VIP with `ping`. Use TCP against a real port: `curl` or `nc -vz <vip> <port>`.
-
----
-
-## A host-network process on a K3s node can't reach a VIP
-
-**Symptom:** a systemd binary or host-installed agent on a K3s node hangs trying to dial the Traefik / VictoriaLogs / other MetalLB VIP.
-
-**Cause:** a process in a K3s node's root netns can't reach a MetalLB VIP announced by its own cluster — the announcing node has no kube-proxy DNAT path back to the pod from the root namespace.
-
-**Fix:** point the process at the service's companion **ClusterIP** instead of the VIP. ClusterIP is reachable from the node (it's how `kubectl` works). Example: vlagent on K3s VM hosts uses the `victorialogs-ingest` ClusterIP, not the VL VIP.
-
----
-
-## A pod can't reach an internal K8s-fronted FQDN
-
-**Symptom:** a pod hangs connecting to something like `authentik.midgard.xiiisins.com` that browsers resolve fine.
-
-**Cause:** AdGuard resolves that FQDN to the Traefik MetalLB VIP for external clients, but a pod dialing the VIP from inside the same cluster tromboning-hangs (same class as the host-network case above).
-
-**Fix:** add a CoreDNS rewrite in `k8s/asgard/infrastructure/coredns-custom/` mapping the FQDN to Traefik's ClusterIP DNS name. Traefik still routes by SNI + Host header; external clients are unaffected. One rewrite per K8s-fronted internal FQDN. Do **not** rewrite FQDNs that point at LXCs/VMs — those aren't behind Traefik.
-
----
-
-## An AdGuard replica serves stale rewrites
-
-**Symptom:** a DNS rewrite works through one AdGuard node but not another; the VIP gives inconsistent answers.
-
-**Cause:** `adguardhome-sync` reported "Sync done" with a sub-microsecond duration — which is not trustworthy; it can read as "no diff" while actually being stale.
-
-**Diagnose:** compare the rewrite lists directly between origin and replica:
 ```
-# on Saga (origin) vs Mimir/Kvasir
-curl .../control/rewrite/list
+dig @10.0.10.200 netbox.niflheim.xiiisins.com      # ask the VIP directly
+dig @10.0.11.201 … ; dig @10.0.11.202 … ; dig @10.0.11.203 …   # each node
+curl https://smoketest.niflheim.xiiisins.com/anything   # one-step check: rewrite + Traefik + backend
 ```
 
-**Fix:** if the origin has the rewrite but a replica doesn't, restart the sync: `systemctl restart adguardhome-sync.service`.
+Test a VIP with TCP, never ping: MetalLB answers ARP only.
+
+## Symptoms
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| An internal name returns NXDOMAIN on one machine only | A public resolver sits in that machine's fallback chain; public resolvers say NXDOMAIN for internal zones and clients cache it as authoritative | Remove the public resolver. Fallbacks may point at the peer AdGuard nodes, never public ones. |
+| A brand-new public hostname is NXDOMAIN on the LAN for ~30 minutes | The name was queried before the record existed and negative-cached by AdGuard and clients (SOA negative TTL 1800 s) | Wait, or flush the AdGuard cache and the client cache. |
+| A rewrite was added but a replica does not have it | `adguardhome-sync` shows "Sync done" in sub-microsecond time, which does not prove anything | Compare the rewrite list on origin and replicas directly; restart the sync service if they differ. Rewrites are made in Terraform, not the UI. |
+| Stale DNS answers after a failover | Sync lag, or the sync stopped when Saga went down | Replicas freeze at last-good config while Saga is down. When Saga returns, its state overwrites any replica edit. |
+| Two nodes answer ARP for the AdGuard VIP | Dual-MASTER during a keepalived change (differing `auth_pass`) | Bounded; settles once both sides have the same key. Two keepalived clusters on one VLAN must use different VRIDs. |
+| Queries time out after an AdGuard restart | The DoH upstream bootstrap addresses are unreachable | Temporarily add a plain upstream resolver. |
+| A pod cannot reach an internal name that works from a laptop | Pod-to-MetalLB-VIP traffic hairpins badly in L2 mode | Add an in-cluster CoreDNS rewrite to the Traefik service name (`coredns-custom`). `*.override` keys go inside the default server block; `*.server` keys define whole new blocks. |
+| A host-network process on a K3s node hangs dialling a VIP | A node's root namespace cannot reach a MetalLB address in its own cluster | Use a ClusterIP companion service. |
+| LoadBalancer traffic intermittently times out | A multi-homed worker setting was "hardened": strict `rp_filter`, `route_localnet` off, Calico bound to eth1, or the VLAN 20 policy routing missing | Restore the four settings in the Ansible `k3s` role. |
+| Replies from a VIP never arrive on a dual-NIC LXC | Asymmetric routing; the VIP's VLAN has no source-based route | The keepalived role's source policy routing. |
+| A VIP on a pinned address changed | A chart's LoadBalancer service did not pin its IP and took one from the pool bottom | Every service pins its address. |
+| After a Proxmox node swap, no LAN after boot | The NIC name changed (`nic0` vs `enp45s0`) and `/etc/network/interfaces` references the old one | Needs the physical console. Capture `ip -br link` beforehand. |
+
+## Calico
+
+- The `Installation` object is merged by the addon controller, so a removed field can linger. After changing autodetection, read the live object and patch it.
+- The MTU is pinned (1450) because the operator cannot read the MTU file under SELinux. Do not remove it without a replacement fix.
+- Cross-node pod traffic failing while nodes are Ready and same-node traffic works suggests a wiped Calico datastore (IP pools gone): see **K3s & Calico upgrade**.
 
 ---
-
-## MetalLB LoadBalancer traffic is dropped at a multi-homed worker
-
-**Symptom:** traffic to a LoadBalancer service arrives but gets no reply; `tcpdump` shows asymmetry (request in on `eth1`, nothing back).
-
-**Cause:** one of the four multi-homed-worker kernel settings has been "cleaned up" — strict `rp_filter`, missing `route_localnet`, Calico bound to the wrong NIC, or missing VLAN-20 source-based policy routing.
-
-**Fix:** these are all set unconditionally by the K3s Ansible role (`roles/k3s/tasks/network.yml`); re-running it restores them. Never harden `rp_filter` back to strict or revert Calico autodetection to `firstFound`. See **Network** (Components) for the full landmine list.
 
 ## See also
 
-- **Network** (Components) — the VLAN model, MetalLB, and the multi-homed worker fixes in depth.
-- **Edge** (Components) — DNS zones, Traefik routing, the CoreDNS rewrite pattern.
+- **Network** (Components): the model behind these rules.
+- **Networking** (Hardware): the physical boundary.
+- **Identity & edge** (this section): when the name resolves but the login fails.

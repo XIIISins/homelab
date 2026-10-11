@@ -2,29 +2,21 @@
 
 # Startpage
 
-A personal browser homepage at **`home.xiiisins.com`** — the landing/dashboard page for a new tab. Public and external-only, no login; it's a tiny static site, so there's nothing to gate.
+The operator's personal browser homepage at `home.xiiisins.com`: a static page of bookmarks. The status-and-launcher view for homelab apps is a different page, the **Overview page**, which links back here as "Bookmarks".
 
 ---
 
-## Where it runs
+## How it works
 
-A static site served by **Caddy in asgard K3s** (3 replicas, one per worker). The page content lives in a private GitHub repo (`XIIISins/startpage`), not in the cluster — each pod **clones the repo at startup** into an `emptyDir` and Caddy serves it. Updating the page is a push to the repo + a rollout restart; no image build, no registry.
+Caddy serves the static site from three pods, one per worker. At pod start an init container clones the (private) startpage repository over SSH with a read-only deploy key and copies only an explicit whitelist of files into the web root, so nothing else in the repository can ever be served. It is cloned rather than packed into a ConfigMap because the repo, with its images and fonts, is far over a ConfigMap's size limit.
 
-Reached from anywhere via the Cloudflare tunnel → Traefik → Caddy. TLS terminates at Traefik on the `*.xiiisins.com` wildcard.
+It is a separate app from the small static-file service that serves WebFinger (needed for Tailscale's OIDC discovery) on purpose: a failed clone must not be able to stop WebFinger from starting.
 
----
-
-## Why this shape
-
-- **Clone-at-startup, not files-in-ConfigMap.** The repo is ~47 MB (background image, banners, icon fonts) — far over the 1 MB ConfigMap limit the WebFinger static site uses. An init container clones it instead.
-- **Separate app from the apex static site.** The apex static pod serves WebFinger, which is OIDC-critical (Tailscale discovery). Keeping the startpage in its own app means a failed clone or a content update can't disturb that. Different failure domains.
-- **Whitelisted webroot.** The init container copies only the page's required paths into the webroot — nothing else from the repo (`.git/`, license, build files) can ever be served, even if the repo grows.
-- **Read-only deploy key.** The private repo is cloned over SSH with a read-only ed25519 deploy key (Vault `secret/k8s/startpage/deploy-key`, 1P mirror), pinned `known_hosts` so there's no trust-on-first-use.
+Public through the Cloudflare tunnel only, with no sign-in. To publish a change: push to the repository, then restart the deployment so the pods re-clone.
 
 ---
 
 ## See also
 
-- **Edge** (Components) — the Cloudflare tunnel → Traefik path every public service shares.
-- **Identity & secrets** (Components) — where the deploy key lives and the mint-to-Vault-mirror-to-1P pattern.
-- **MicroBin** — the other small public-facing utility in the same external-only shape.
+- **Overview page** (this section): the status page and app launcher.
+- **Edge** (Components): the public path.

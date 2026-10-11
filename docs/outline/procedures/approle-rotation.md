@@ -2,65 +2,41 @@
 
 # AppRole rotation
 
-Rotating the Vault AppRole SecretIDs that machines use to authenticate. Run this as routine credential hygiene, or immediately if a SecretID is exposed.
-
-> **The one thing to get right:** there are **three AppRoles** across **two storage conventions** and **two rotation helpers**. Conflating them produces a mismatched RoleID/SecretID pair and a confusing `permission denied` on every Vault login. Know which one you're rotating before you start.
+Vault AppRole SecretIDs are the machine credentials for Ansible and automation. Each is rotated on a 90-day cadence, or at once if one leaks. The footgun is that there are **two storage conventions and two helpers**, and using the wrong one fails or corrupts the wrong store.
 
 ---
 
-## The three AppRoles
+## The roles
 
-| AppRole | Used by | Credentials stored in | Rotate with |
+| Role | Used by | Canonical store | Helper |
 |---|---|---|---|
-| `ansible-local` | The operator's MacBook control node | 1Password `[Asgard] - Ansible - Vault - AppRole (ansible-local)` | `rotate-approle ansible-local` |
-| `ansible-frigg` | The Frigg control-node watchtower | 1Password `[Asgard] - Ansible - Vault - AppRole (ansible-frigg)` | `rotate-approle ansible-frigg` |
-| `ansible-awx` | Semaphore (in-cluster Ansible) | Vault KV `secret/k8s/semaphore/vault-approle` | `rotate-semaphore-approle` |
+| `ansible-local` | The operator's workstation | 1Password item | `rotate-approle ansible-local` |
+| `ansible-frigg` | The control node | 1Password item | `rotate-approle ansible-frigg`, then re-propagate to Frigg |
+| `ansible-awx` | Semaphore (the role pre-dates the AWX → Semaphore switch) | Vault KV at `secret/k8s/semaphore/vault-approle` | `rotate-semaphore-approle` |
 
-The `ansible-awx` name is historical — it was minted for an AWX deployment that Semaphore later replaced; Semaphore inherited the role. There is **no 1Password entry for it**, which is why `rotate-approle ansible-awx` fails with "unknown role": that helper is 1Password-canonical, and `ansible-awx` is the one exception.
+Running `rotate-approle ansible-awx` fails with "unknown role", because that helper is 1Password-canonical and this role has no 1Password item.
 
-No AppRole SecretID goes unwatched anymore — an active check runs on the existing twice-daily infra-health prober and posts a critical alert once any of the three drops inside 14 days of expiry, or has zero live accessors.
+## The flow
 
----
+**1Password-canonical roles.** The helper mints a new SecretID and prints it, along with its accessor and expiry. The operator pastes those three into the 1Password item, the helper hash-verifies the paste, and only then does it revoke the old SecretID. It snapshots the old accessor before minting, so there is no window where the store holds a stale value.
 
-## Rotating `ansible-local` (workstation)
+- **Never touch the `username` field.** It holds the RoleID, which is stable across rotations. A past rotation pasted the accessor into it and broke the next login.
+- If a rotation aborts midway, run the helper with `--fix`: it lists the role's SecretIDs and offers to destroy any that 1Password does not reference.
+- For `ansible-frigg`, Frigg does not read 1Password, so re-run the control-node play with the new SecretID to refresh its on-disk secret.
+- For `ansible-local`, refresh the local environment and re-seed the non-interactive secret file afterwards. Re-seeding only copies what 1Password holds; it does not mint, so if 1Password is the stale copy, only a proper rotation fixes it.
 
-1. `rotate-approle ansible-local` — mints a fresh SecretID and writes it to the 1Password item.
-2. Verify the next Ansible run against a Vault-backed role authenticates cleanly.
+**Semaphore's role.** The helper mints a SecretID, writes it to Vault KV, runs the Semaphore Terraform module to push it into Semaphore's environment, prompts you to validate with a drift-check, then revokes the old ones. No 1Password involvement.
 
----
+## Why 90 days actually means 90 days
 
-## Rotating `ansible-frigg` (control node)
+The auth mount's `max_lease_ttl` caps every role's SecretID TTL. Vault's 768-hour default silently clamped 90-day roles to 32 days; the mount is tuned to 90 days in Terraform. Verify with the auth mount tune output and a fresh mint.
 
-1. `rotate-approle ansible-frigg` — same mint-and-verify flow as `ansible-local`, but the post-revoke step differs: Frigg doesn't read 1Password, so its new SecretID has to be re-propagated onto the box directly, via the `control-node:vault-env` tag on `asgard-control.yml`.
-2. Confirm on Frigg itself that its env loader authenticates cleanly with the new SecretID.
-
----
-
-## Rotating `ansible-awx` (Semaphore)
-
-1. `rotate-semaphore-approle` — this helper mints a fresh SecretID, writes it to the Vault KV path, **and hash-verifies the stored value against the source** before proceeding.
-2. `terraform apply` in `terraform/semaphore/` so Semaphore picks up the new credential.
-3. Confirm a Semaphore drift-check authenticates (no `permission denied` on `/v1/auth/approle/login`).
-4. Revoke the orphaned old SecretID.
-
----
-
-## If you suspect a mismatch
-
-The classic failure is a RoleID from one AppRole paired with a SecretID from the other. To find the authoritative RoleIDs and compare against what a consumer holds:
-
-```
-vault read -field=role_id auth/approle/role/ansible-local/role-id
-vault read -field=role_id auth/approle/role/ansible-awx/role-id
-```
-
-Whichever RoleID matches the consumer's stored value tells you which AppRole that consumer actually uses — then make sure its SecretID came from the *same* role.
-
-> **Why the hash-verify matters:** writing a SecretID through `vault kv patch <field>=-` (stdin) can silently store the wrong bytes — the length looks right but the value is corrupt. Always write with the value in a shell variable and hash-compare the read-back against the source. `rotate-semaphore-approle` does this for you.
+SecretIDs are never in Terraform state, and roles carry no source-address binding because callers' addresses change or are NAT'd.
 
 ---
 
 ## See also
 
-- **Identity & secrets** (Components) — the three-store secrets model and how AppRole auth works.
-- **Vault recovery** (Procedures) — for sealing/unsealing and token problems, a different failure class.
+- **Credential rotation** (this section): every other credential class.
+- **Identity & secrets** (Components): the auth-method model.
+- **Vault recovery** (this section).

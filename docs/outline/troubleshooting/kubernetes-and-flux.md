@@ -2,96 +2,66 @@
 
 # Kubernetes & Flux
 
-Cluster-level symptoms: node lifecycle, stuck rollouts, GitOps reconciliation, and the secret-materialisation layer.
+Symptoms with nodes, rollouts, Helm releases, Secrets and Jobs.
 
 ---
 
-## "duplicate node name found" rebuilding a node
+## First diagnostics
 
-**Symptom:** K3s won't start on a rebuilt node, logging `duplicate node name found`.
-
-**Cause:** the old node's object (and its etcd member) still exist.
-
-**Fix:** delete the stale node from a surviving control plane *before* starting K3s on the replacement — this also evicts the stale etcd member:
 ```
-kubectl delete node <name>
+kubectl get nodes ; kubectl get pods -A | grep -v Running
+flux get kustomizations ; flux get helmreleases -A
+kubectl get externalsecrets -A
 ```
-Full sequence in **K3s node rebuild** (Procedures).
+
+Check `kubectl get nodes` before blaming a chart: a node outage makes Helm waits on DaemonSets and StatefulSets time out.
+
+## Nodes and rollouts
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| "Duplicate node name" when a control plane rebuilds | The old node object is still registered | `kubectl delete node <name>` from a surviving control plane first. |
+| Rebuilding the default init node starts a new cluster | The role defaults to `--cluster-init` | Override the init node with a healthy control plane. |
+| A taint did not appear or pods did not move | `node-taint` applies at registration only, and `NoSchedule` never evicts running pods | Taint existing nodes by hand; delete pods that must move. |
+| A node has `disk-pressure` after an upgrade hop | Drained pods pulled images onto the 30 GB OS disk | Self-heals in about five minutes; clean up evicted pods afterwards. |
+| A Traefik rollout is stuck Pending | The default update strategy surges a fourth pod that cannot schedule (anti-affinity) | The strategy must be set at the chart's root `updateStrategy` with `maxSurge: 0`. |
+| A Vault pod is Pending after a drain | Required anti-affinity: three replicas, three workers | Expected while a worker is out; Vault runs on 2 of 3. |
+| Pods Pending after a drain, CPU requests too high | Workers are heavily requested | A drain is an accepted temporary outage; uncordon when done. |
+| A control plane's disk fills with logs while a peer is down | etcd logs every dropped Raft message | An rsyslog rule drops that line; reclaim old logs by hand. |
+| A K3s config change restarted every node at once | Ansible runs in parallel by default | Stage with `--limit` on one node first. |
+
+## Helm and Flux
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| A HelmRelease stays failed after the cause was fixed | Retries are exhausted and a plain reconcile does nothing | `flux reconcile helmrelease <name> -n <ns> --reset` (or `--force`). |
+| An app that migrates its own database cannot start after a rollback | The rollback restored an older image that refuses the newer schema | Roll **forward**: reset so the desired chart version re-applies. |
+| Helm rolled back and re-deadlocked | A rollback uses the old release values, dropping the new fix | Suspend the release, patch the live Deployment to match Git, then resume. |
+| After a Flux upgrade most releases show "does not have an artifact" | Source-controller rebuilt its artifact store | Wait a few minutes. |
+| A Kustomization fails dry-run on a CRD resource | The CRD is installed by a chart in the same Kustomization | The resource belongs in the component's own `-config` Kustomization. |
+| A Job fails with "field is immutable" | Job templates cannot change | `kubectl delete job/<name>` and reconcile. |
+| A ConfigMap changed but the app did not | A subPath mount does not auto-update | `rollout restart`. |
+| A SealedSecret will not decrypt after a rebuild | The controller generated a new keypair | Restore the master key from 1Password before the controller starts, or re-seal. |
+| The sealed-secrets HelmRepository is `Ready=False` | The upstream index URL moved | Update the URL; the cached release keeps working meanwhile. |
+
+## Secrets from Vault
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| An ExternalSecret is stuck `SecretSyncedError` | A single missing Vault path blocks the whole target Secret | Split into separate ExternalSecrets by when each path resolves, or mint the missing path. |
+| A new Vault value has not reached the pod | Refresh interval is an hour | Annotate the ExternalSecret with `force-sync=<timestamp>`, then restart the consumer. |
+| Flux dry-runs of ExternalSecrets fail during a restart | The ESO validating webhook fails closed while its pod is recreated | Self-heals; reconcile with source afterwards. |
+
+## Hard rules
+
+- No manual `kubectl apply`; change Git.
+- Concrete version pins everywhere; floating ranges have caused breaking patch releases.
+- Verify the rendered object after a Helm change, not just the release status.
 
 ---
-
-## A StatefulSet rollout is stuck on a CrashLoopBackOff pod
-
-**Symptom:** a StatefulSet update never progresses; `UpdateRevision != CurrentRevision` and the old (broken) pod is still running.
-
-**Cause:** the StatefulSet controller waits for the existing pod to be `Ready` before replacing it. A pod stuck in CrashLoopBackOff (e.g. a failing init container) never reaches `Ready`, so the rollout deadlocks.
-
-**Fix:** force-delete the stuck pod to let the new template spawn:
-```
-kubectl delete pod <name> --grace-period=0 --force
-```
-
----
-
-## A HelmRelease reconcile failed
-
-**Symptom:** a HelmRelease is in a failed state and won't recover on retry.
-
-**Fix:** suspend, roll back to the last good revision, fix the version in Git, then resume:
-```
-flux suspend hr <name> -n <ns>
-helm rollback <name> <last-good-rev> -n <ns> --wait=false
-# verify pods; kubectl delete pod to force template re-render if needed
-# fix spec.chart.spec.version in Git
-flux resume hr <name> -n <ns>
-flux reconcile hr <name> -n <ns>
-```
-**Watch out:** Helm rollback uses the *old* release values verbatim, dropping any new-values fix — which can re-deadlock on retry. If that happens, keep the HR suspended, patch the live Deployment to match Git, orphan the old ReplicaSet, then resume.
-
-> For first deploys, set `install.remediation.retries: -1` so a failure doesn't trigger `helm uninstall` (which obscures the original problem). Restore `3` after success.
-
----
-
-## An ExternalSecret isn't materialising
-
-**Symptom:** a consumer is stuck because its K8s Secret never appears; the ExternalSecret shows `SecretSyncedError`.
-
-**Cause:** ExternalSecret `data` refs are all-or-nothing — a single missing Vault path blocks the *entire* target Secret. Or the value exists but hasn't synced yet (default `refreshInterval: 1h`).
-
-**Diagnose:** `kubectl describe externalsecret <name> -n <ns>` — a `Secret does not exist` on one ref blocks all of them.
-
-**Fix:** ensure every `remoteRef` resolves; if consumers have different readiness windows against the same Vault tree, split into multiple ExternalSecrets by resolve-time. To force an immediate sync of an existing value:
-```
-kubectl annotate -n <ns> externalsecret <name> force-sync=$(date +%s) --overwrite
-```
-Then `kubectl rollout restart` the consumer — Secret-as-env is snapshotted at pod start, so the pod needs to restart to see new values.
-
----
-
-## A Job edit is rejected as immutable
-
-**Symptom:** Flux fails a Kustomization with `Job.batch "X" is invalid: spec.template: ... field is immutable`.
-
-**Cause:** Jobs are immutable — you changed the script, image, or env of an already-created Job.
-
-**Fix:** delete the Job, then reconcile so Flux recreates it from Git:
-```
-kubectl delete job/<name> -n <ns>
-flux reconcile kustomization <ks>
-```
-
----
-
-## An override "isn't taking effect"
-
-**Symptom:** a values override (e.g. a rollout strategy) seems ignored.
-
-**Cause:** YAML key casing is silently dropped when unknown to the schema — `rollingupdate` instead of `rollingUpdate`, for instance. Admission accepts-then-ignores it.
-
-**Diagnose:** `kubectl get <resource> -o yaml` and grep for the actual key. If it's missing, it's a casing/spelling problem, not logic.
 
 ## See also
 
-- **GitOps & automation** (Components) — how Flux reconciles and the per-component-config layering.
-- **K3s node rebuild** / **Teardown & rebuild** (Procedures) — the deliberate node and cluster operations.
-- **Vault & Postgres** (this section) — for ExternalSecret failures rooted in Vault itself.
+- **GitOps & automation** (Components): the Flux layering.
+- **K3s node rebuild** and **K3s & Calico upgrade** (Procedures).
+- **Vault & Postgres** (this section).

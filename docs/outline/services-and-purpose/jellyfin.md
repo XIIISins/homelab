@@ -2,38 +2,47 @@
 
 # Jellyfin
 
-The household media server — movies, TV, and music, streamed to whatever device someone's holding. Free and open-source, no account-with-a-vendor, no telemetry.
-
-> **Status: planned.** The design below is settled; the LXC isn't deployed yet. This page describes the intended shape.
+The household media server. It plays an anime library to family devices, transcoding in hardware when a device cannot play a file directly.
 
 ---
 
-## Where it runs, and why
+## Where it runs
 
-Jellyfin runs as a **privileged LXC on Urd** — deliberately *not* in Kubernetes.
+A **privileged LXC on Urd** (`10.0.11.223`), outside Kubernetes. Two reasons:
 
-The reason is hardware transcoding. Jellyfin needs direct access to the Intel iGPU (`/dev/dri`) to offload video transcoding to **QuickSync** instead of melting a CPU on software transcode. Device passthrough into a pod is awkward and fragile; into an LXC it's a clean bind-mount. Urd is the chosen host because all three nodes now carry the same i3-1215u with Intel UHD Graphics — a capable QuickSync engine — so the placement is a deliberate "keep it on a known node" choice rather than a hardware-forced one.
+- **QuickSync.** The Intel iGPU's render device (`/dev/dri/renderD128`) is passed through to the container so H.264 and HEVC transcodes run on the GPU instead of the CPU. That passthrough needs root-ticket authentication to the Proxmox API, so the LXC is defined in the root-auth Terraform module.
+- **Independence.** Playback should survive a Kubernetes outage. A direct name, `jellyfin-direct`, reaches the container without Traefik.
 
-Privileged (rather than the fleet-standard unprivileged) LXC is required for the GPU passthrough to work.
-
----
-
-## Dependencies
-
-- **Media storage** — an NFS share from Munin (the Synology NAS) holds the library. Media is bulk, sequential-read data — exactly what NFS over 1 GbE is good at, and the wrong thing to put on per-PVC iSCSI.
-- **No database service.** Jellyfin keeps its own metadata in a local SQLite store; it doesn't lean on the Postgres cluster.
+The library sits on Munin's `media` share, mounted **read-only** inside the container. The app database stays on the container's local disk (SQLite must never live on NFS), and PBS backs the root disk up. A 40 GB cache mount is excluded from backups.
 
 ---
 
-## Access and identity
+## Access
 
-- **Local Jellyfin accounts.** Jellyfin runs its own user database rather than federating to Authentik. Media-server logins are low-stakes and shared casually within the household, so the OIDC ceremony isn't worth it here.
-- Reachable internally at `jellyfin.midgard.xiiisins.com`, with external access via the Cloudflared tunnel so family can stream from outside the house.
+- **Normal:** `jellyfin.midgard.xiiisins.com`, through Traefik on the internal Gateway. Traefik fronts the LXC with a Service and a manual EndpointSlice, so the page returns 502 whenever the container is down.
+- **Fallback:** `jellyfin-direct.niflheim.xiiisins.com`, plain HTTP straight to the container.
+- **Remote family:** over Tailscale. Jellyfin is **not** exposed through the Cloudflare tunnel: video through a tunnel risks the whole Cloudflare zone under their terms.
+
+---
+
+## What fills the library
+
+**Sonarr** imports finished downloads into the share and tells Jellyfin to refresh, so the library updates without file-system watching. See **Media automation**.
+
+---
+
+## Keeping it honest
+
+- **A QuickSync self-test** runs hourly, transcoding a test pattern as the Jellyfin user. Zabbix raises a High alert if it keeps failing for 70 minutes, which catches a lost GPU device or a broken driver before a family member does.
+- Zabbix also watches that the media share is mounted, that `/health` reports Healthy, and for GPU hangs in the Proxmox hosts' kernel logs.
+- Software versions are pinned; bumping is a deliberate variable change.
+- The container has been migrated to another node and back, and restored from PBS into a scratch container, as part of acceptance.
 
 ---
 
 ## See also
 
-- **Hypervisors** (Hardware) — Urd's i3-1215u and the QuickSync rationale.
-- **Storage & data** (Components) — why media lives on NFS, not iSCSI.
-- **Compute & hypervisors** (Components) — the VM-vs-LXC decision that puts Jellyfin in an LXC.
+- **Media automation** (this section): how episodes arrive.
+- **Hypervisors** (Hardware): the iGPU on Urd.
+- **Edge** (Components): why Jellyfin is internal-only.
+- **Storage** (Hardware): the media share on Munin.

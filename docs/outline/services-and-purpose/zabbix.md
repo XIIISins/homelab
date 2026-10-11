@@ -1,39 +1,33 @@
 <!-- docs/outline/services-and-purpose/zabbix.md -->
 
-# Zabbix (Hugin)
+# Zabbix
 
-Host- and LXC-level monitoring — the thing that watches every physical node, every VM, and every LXC, and alerts when one of them is unhealthy. Named **Hugin**, Odin's raven of Thought, pairing with **Munin** (Memory, the NAS).
-
----
-
-## Where it runs, and why it's an LXC
-
-Zabbix 7.0 LTS runs in **LXC 1102 (Hugin) on Urd** (`10.0.11.21`) — deliberately **outside Kubernetes**.
-
-The reason is failure-domain independence. A monitoring system that lives inside the cluster it monitors goes blind exactly when you need it most — during a cluster outage. By running in its own LXC on its own host, Zabbix keeps watching (and keeps alerting) even if asgard K3s is completely down. This is the same principle that keeps the in-cluster metrics stack and the host-monitoring stack as two separate things.
-
-- **Database:** Postgres via the Patroni VIP.
+Host and LXC monitoring, on its own LXC (Hugin, `10.0.11.21`, on Urd) **outside Kubernetes on purpose**: when the cluster is the thing on fire, Zabbix is what tells you. It pairs with Munin in the naming scheme: one observes, one remembers.
 
 ---
 
 ## What it watches
 
-- **Zabbix agent 2** is deployed to all 23 inventory hosts — every node, LXC, and VM.
-- **Service templates** give deep monitoring of the things that matter: PostgreSQL, HAProxy, etcd, Proxmox VE, nginx, and PHP-FPM.
+Proxmox hosts, every LXC and VM, and service-level templates for Postgres, HAProxy, AdGuard, Jellyfin's QuickSync health and more, through an agent on each host. The cluster's own metrics are VictoriaMetrics' job; Zabbix covers everything beneath Kubernetes.
 
-There's a clean split with the in-cluster observability stack: **VictoriaMetrics/Logs handle Kubernetes-internal metrics and logs; Zabbix handles host- and LXC-level health.** No overlap, no double-counting.
+## How it runs
 
----
+| Aspect | Detail |
+|---|---|
+| Server | Zabbix 7.0 LTS on LXC 1102, 2 vCPU / 2 GB. Placed on Urd, not Skuld, so losing the flaky node cannot also lose monitoring. |
+| Database | The shared Patroni cluster via the HAProxy VIP. Failover is transparent. |
+| Sign-in | Authentik **native SAML**, restricted to the `zabbix-admins` group, plus a local `Admin` for break-glass. |
+| Ways in | `hugin.xiiisins.com` (public), `hugin.midgard.xiiisins.com` (internal, through Traefik, which SAML needs), and `hugin-direct.niflheim.xiiisins.com`, a backdoor straight to the LXC with local login only, for when Traefik is the problem. |
+| Resilience | No HA: a lost LXC pauses collection until restored; stored data survives. |
 
-## Access and identity
+## What it feeds
 
-- **Authentik SAML 2.0**, using Zabbix's native built-in SAML support — *not* Traefik ForwardAuth. ForwardAuth would route auth through the cluster, which contradicts the whole "observability survives a cluster outage" rationale; native SAML keeps Zabbix's auth independent.
-- **Hostnames:** `hugin.xiiisins.com` is the canonical hostname (and the SAML assertion-consumer URL); `hugin.midgard.xiiisins.com` is the LAN alias; `hugin-direct.niflheim.xiiisins.com` is a direct backdoor that bypasses Traefik for emergency access.
+A webhook media type on the standard "report problems" action sends events to **Hermod**, and a second one sends context-rich events to the AIOps diagnosis agent. A read-only API identity serves the agent's tools. The Ansible role declares those webhooks and identities, so the integration is reproducible.
 
 ---
 
 ## See also
 
-- **Observability** (Components) — the full split between Zabbix and the VictoriaMetrics/Logs stack, plus how alerts flow to Hermod.
-- **Identity & secrets** (Components) — Authentik's SAML provider model.
-- **Hermod** (this section) — where Zabbix's alerts go.
+- **Observability** (Components): the monitoring split.
+- **Hermod** (this section): the notification hub.
+- **AIOps agent** (this section): the consumer of events.

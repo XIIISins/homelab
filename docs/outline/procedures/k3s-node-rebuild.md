@@ -2,54 +2,40 @@
 
 # K3s node rebuild
 
-Rebuilding a single asgard K3s node — a control plane or a worker — while the rest of the cluster stays up. The cluster tolerates losing one node; this runbook is how you replace one deliberately and cleanly.
+Replacing a single control-plane or worker VM from scratch. The whole point of the architecture is that this is routine, and it has been rehearsed for both kinds of node.
 
 ---
 
-## Control plane rebuild
+## Control plane
 
-The hazard is the new node trying to start a *fresh* cluster, or colliding with the old node's identity.
+1. **Delete the old node object first**, from a surviving control plane: `kubectl delete node <name>`. Without it the rebuilt VM fails with "duplicate node name". The delete handler also evicts the stale etcd member.
+2. **Recreate the VM** with Terraform (same name, same IP, same VMID).
+3. **Run the K3s play with `--limit <name>`.** If the node being rebuilt is the default init node (Göndul), override the init node with any healthy control plane (`-e k3s_init_node=hlokk`); otherwise the role starts a brand new cluster with `--cluster-init`.
+4. **Verify**: node Ready, three etcd members healthy, Flux and the CNI happy.
 
-1. **Delete the old node object from a surviving control plane** *before* starting K3s on the replacement. This also evicts the stale etcd member:
-   ```
-   kubectl delete node <name>
-   ```
-2. **Rebuild the VM** (Terraform) and **run the K3s playbook against it**, overriding the init node so the rebuilt node *joins* rather than `--cluster-init`-ing a new cluster:
-   ```
-   ansible-playbook playbooks/asgard-k3s.yml --limit <name> -e 'k3s_init_node=<healthy-cp>'
-   ```
-3. Confirm the node is `Ready` and etcd shows a healthy three-member cluster.
+The control-plane taint is applied at registration only. Restarting K3s on an existing node will not re-apply it; use `kubectl taint` for existing nodes.
 
-> Skipping step 1 produces a "duplicate node name found" failure, or a brand-new empty cluster if the init-node override is also missed.
+## Worker
 
----
+Workers hold state, so the order matters:
 
-## Worker rebuild
+1. **Step Raft leadership away first.** If a Vault pod runs on this worker, step down leadership while the pod is healthy so the cluster elects cleanly (about ten seconds), then the pod's departure is a clean follower leaving.
+2. **Cordon and drain.** Vault uses required anti-affinity (three replicas, three workers), so the displaced Vault pod will sit Pending. Run on 2 of 3 voters while the node is gone; Vault stays fully readable and writable. Budget 20–30 minutes.
+3. **Delete the node object, recreate the VM, run the K3s play.** The worker gets a fresh `/data` disk, so its `local-path` volumes are empty: VictoriaMetrics and VictoriaLogs start empty (refillable data), and the Vault pod must rejoin Raft and resync.
+4. **If the old worker held iSCSI volumes**, clean up stale iSCSI node records on the source worker and orphan sessions on the NAS, or a later reboot can log into stale targets and cause Multi-Attach errors elsewhere.
+5. **Uncordon** and verify Vault shows three voters again.
 
-The worker hazards are Raft-quorum workloads (Vault) and iSCSI session/attachment state.
+## General rules
 
-1. **If the worker hosts a Vault pod, step down its Raft leadership first** (while the pod is still healthy), so the cluster re-elects cleanly:
-   ```
-   vault operator step-down
-   ```
-   Vault's pod anti-affinity is *required* with three replicas across three workers — expect to run at 2/3 voters during the window. That's fine; Vault stays read+write.
-2. **Drain the worker** so pods reschedule to surviving nodes.
-3. **Clean up iSCSI on the old worker.** Sessions die with the pods, but the node records in `/var/lib/iscsi/nodes/` persist and will try to log back in on the next reboot. Log out and delete them:
-   ```
-   iscsiadm -m node -T <iqn> -p 10.0.254.20 --logout
-   iscsiadm -m node -T <iqn> -p 10.0.254.20 -o delete
-   ```
-4. **Delete any stale `VolumeAttachment`** still pointing at the dead worker, or volumes won't re-attach elsewhere (Multi-Attach errors).
-5. **Rebuild the VM** (Terraform) and **run the K3s playbook** against it to rejoin. No init-node override needed for workers.
+- Do **one** node at a time and wait for 3 of 3 before the next.
+- Do not run a K3s config change across all nodes at once; a restart handler fires everywhere. Stage with `--limit` on one node first.
+- Persistent changes are verified by rebooting the node.
 
 ---
-
-## Cross-cutting note
-
-A `NoSchedule` taint (like the control-plane taint) does **not** evict existing pods — it only blocks new scheduling. Don't taint a node expecting stateful pods to move; drain them first.
 
 ## See also
 
-- **Vault** → **Identity & secrets** (Components) — the Raft quorum and anti-affinity constraints.
-- **Troubleshooting → Storage & iSCSI** — diagnosing orphan sessions and stuck VolumeAttachments.
-- **Teardown & rebuild** (Procedures) — the whole-cluster version of this.
+- **K3s & Calico upgrade** (this section).
+- **Vault recovery** (this section): the Raft rejoin steps.
+- **Teardown & rebuild** (this section): the partial-rebuild appendices in full.
+- **Compute & hypervisors** (Components): node specs and roles.

@@ -2,52 +2,46 @@
 
 # Hermod
 
-The notification hub — the single place every alert-producing system sends to, which then fans those alerts out to the right Discord channel. Named for Hermóðr, the messenger of the gods. When Postgres fails over or Zabbix trips a trigger, Hermod is how the operator finds out.
+The notification hub: the single place every alert-producing system sends to, which fans alerts out to the right Discord channel by tag. Named for the messenger of the gods. When Postgres fails over or Zabbix trips a trigger, this is how the operator finds out.
 
 ---
 
 ## Where it runs
 
-Hermod runs in **LXC 1103 on Verd** (`10.0.11.22`). It's built from two pieces:
+LXC 1103 on Verd (`10.0.11.22`), outside Kubernetes, so alerts about K3s being down still fire. It is two things:
 
-- **AppriseAPI** (installed natively — pip + venv + gunicorn + systemd, no Docker) does the actual notification dispatch. It's bound to localhost only.
-- **Caddy** sits in front as a reverse proxy on port 80, gating inbound requests.
+- **AppriseAPI**, installed natively (a Python venv under gunicorn and systemd, no Docker), does the dispatch, bound to localhost.
+- **Caddy** on port 80 in front, with a source-IP allowlist as the real access gate. The config key in the URL path is only a soft second factor, since it appears in access logs.
 
----
-
-## How producers reach it
-
-Producers POST to `/notify/<config-key>`. Two layers guard that endpoint:
-
-- **Caddy's `remote_ip` allowlist** is the real access gate — only known homelab sources can POST at all.
-- The config-key in the path is a soft second factor (it ends up in access logs, so it's not a real secret — the IP allowlist is what matters).
-
----
+It is stateless and internal-only: a single LXC with no HA, because if it is down, notifications are not delivered but the producers' failures still land in the log store.
 
 ## The tag taxonomy
 
-A notification carries a `tag`, and the tag decides which Discord channel it lands in. Each channel has a Valkyrie name:
+The tag chooses the channel; severity only sets the embed colour. Definitions come from how fast someone should respond.
 
-| Tag | Channel | For |
+| Tag | Response | Channel |
 |---|---|---|
-| `critical` | **Hrist** | Things that need attention now — quorum loss, a service down. |
-| `alert` | **Mist** | Things worth knowing — drift detected, a warning-level trigger. |
-| `media` | **Ölrún** | Media-stack notifications. |
-| *(untagged)* | **Hel** | Quarantine for anything that arrives without a recognised tag — so nothing silently vanishes. |
+| `critical` | Within minutes, even at night: quorum lost, service hard-down | **Hrist**, with `@everyone` |
+| `alert` | Within hours: degraded but up, drift detected | **Mist** |
+| `info` | Never needs a response; the cap for non-production and canary signals | **Randgrid** |
+| `media` | Media-stack events | **Ölrún** |
+| *(untagged)* | A producer bug | **Hel**, a quarantine so nothing vanishes |
 
----
+Routine successes (a clean drift check) are not sent: they are log lines.
 
-## Who sends to it
+## Who sends
 
-- **Zabbix** — via a webhook media-type wired to its standard "report problems" action, so triggers deliver end-to-end without bespoke per-alert configuration.
-- **Patroni** — via an `on_role_change` callback on every Postgres node, so a failover (promotion or demotion) posts to Discord within seconds.
+- **Zabbix**, through a webhook media type on its standard "report problems" action.
+- **Patroni**, through an `on_role_change` callback on every Postgres node, so a promotion or demotion posts within seconds.
+- **Semaphore**, for drift, failed applies, health-check findings and restore-test results.
+- **The AIOps components.**
 
-Both feed the same pipeline; different sources, identical fan-out.
+Sonarr is the one deliberate exception: it posts to the media webhook directly because it cannot produce Apprise's payload.
 
 ---
 
 ## See also
 
-- **Observability** (Components) — the full alerting picture and how Hermod fits the monitoring split.
-- **Storage & data** (Components) — the Patroni failover events Hermod reports.
-- **Semaphore** (this section) — drift-check alerts that flow through Hermod.
+- **Observability** (Components): the full alerting picture.
+- **Storage & data** (Components): the Patroni failover events.
+- **Semaphore** (this section): the drift alerts.

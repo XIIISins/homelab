@@ -2,65 +2,48 @@
 
 # Vault recovery
 
-Bringing Vault back when it's sealed, a Raft follower won't rejoin, an init left partial state, or a token expired mid-deploy. Vault is a 3-node Raft cluster with AWS KMS auto-unseal, so most "sealed" situations resolve themselves — these are the cases where they don't.
-
-> The Vault root token and recovery keys live in 1Password. Retrieve them dynamically when a step needs them — never paste the literal value anywhere.
+Vault is a three-node Raft cluster on `local-path` volumes, auto-unsealed with AWS KMS. Most failures are one node out of step and are cheap to fix; the expensive ones involve losing the data on more than one node, which is what the snapshots are for.
 
 ---
 
-## A follower won't rejoin Raft
+## Know the shape first
 
-Symptom: after a fresh init or a node restart, a follower logs *"stored unseal keys are supported, but none were found."* It missed the join window.
+- Quorum is 2 of 3. One pod down is degraded but fully working.
+- The chart has no automatic Raft re-join, so a node with a **wiped** data volume comes up uninitialised and sealed and must be joined by hand.
+- The StatefulSet update strategy is `OnDelete`: a config or resource change merged through Flux updates the spec but does **not** touch running pods. Roll them yourself.
+- The listener is TLS from the internal CA; the join command must pass the CA certificate.
 
-Manually join it to a healthy peer:
-```
-kubectl exec -n vault vault-<N> -- \
-  vault operator raft join http://vault-0.vault-internal:8200
-```
-KMS auto-unseals it once it's a member. Confirm:
-```
-vault operator raft list-peers
-```
+## Scenarios
 
----
+**A follower missed the join window on first init.** It logs that stored unseal keys are supported but none were found. Join it to the leader with the CA certificate and its auto-unseal follows.
 
-## Vault is stuck in partial init state
+**Rolling pods after a change.** One pod at a time, standbys first and the leader last: delete the pod, wait for Ready, check it is unsealed, a standby, and at the same Raft applied index as the others, then continue. Deleting the leader is fine; there is no need for a step-down token.
 
-When init left the StatefulSet in a half-configured state that won't recover:
+**Replacing a node's storage** (for example a storage-class migration). Remove the node from Raft, wipe its volume, bring the pod up, join it by hand, then wait until it is a voter before touching the next node. Never do two at once.
 
-1. Delete the StatefulSet, keeping the pods' PVCs orphaned:
-   `kubectl delete statefulset vault -n vault --cascade=orphan`
-2. Delete the data PVCs: `kubectl delete pvc -n vault data-vault-{0,1,2}`
-3. Force-delete the pods: `kubectl delete pod -n vault vault-{0,1,2} --force --grace-period=0`
-4. Re-reconcile: `flux reconcile helmrelease vault -n vault --force`
-5. Sweep the orphaned `local-path` data dirs on the affected workers afterward. Vault's store is the node-local `local-path` tier since the storage redesign, so there are no iSCSI LUNs in DSM to clean up for Vault — a wiped node re-syncs from its Raft peers and KMS-auto-unseals.
+**Stuck partial init.** Delete the StatefulSet with `--cascade=orphan`, delete the three data claims and pods, then force-reconcile the HelmRelease. Clean up any old iSCSI LUNs on the NAS afterwards.
 
----
+**A worker is being rebuilt.** Step leadership away before draining, accept 2 of 3 voters while the node is out (see **K3s node rebuild**).
 
-## A token expired mid-deploy
+**Token expired mid-deploy.** The cached token in the shell is per-session. If Terraform reports permission denied or invalid token against Vault resources, re-mint it and verify with a token lookup. Which token a module needs depends on the module: the AppRole used by Ansible can only read `secret/ansible/*`, so modules that write or that read `secret/k8s/*` need the root token.
 
-Symptom: a long `terraform apply` chain starts erroring `permission denied` / `invalid token` on `vault_*` resources. The per-session `VAULT_TOKEN` in the env cache expired.
+**HelmRelease install exhausted its retries.** A plain reconcile will not retry; use a forced reconcile once the underlying cause is fixed.
 
-Re-mint the root token into the cache:
-```
-fish -c 'homelab-env; set-vault-token root; homelab-env --refresh'
-```
-Then `vault token lookup` to confirm. For any apply chain spanning more than a couple of hours, re-verify the token before each module's apply — expiry mid-flight is a quiet failure that costs a full plan-and-retry.
+**Lost root token.** The token lives in 1Password. If it is truly lost, `vault operator generate-root` mints a new one; rotate it afterwards.
 
----
+**Everything is gone.** Restore from a Raft snapshot: a daily snapshot is uploaded to S3, and a snapshot should be taken by hand before any storage-touching maintenance. A restore drill proved a scratch single-node Vault with the production KMS key unseals a fresh store and takes the snapshot, arriving with production's data and cluster ID. A Raft snapshot is the right backup; a plaintext dump of KV is not (it covers only KV and sits unencrypted on disk).
 
-## Stepping down before maintenance
+## Rules
 
-Before draining or deleting the worker holding Vault's Raft leadership, step down cleanly first so the cluster elects a new leader without a disruptive timeout:
-```
-vault operator step-down
-```
-Then proceed with the node operation. Costs about ten seconds; turns an abrupt leadership loss into a graceful handover.
+- Take a snapshot before touching Vault storage.
+- Do not mix up the two AppRole rotation helpers (see **AppRole rotation**).
+- Values written with `vault kv put/patch` should be verified by hash; a value beginning with `@` is read as a file and `-` as stdin. For Vault to 1Password copies, use the mirror script.
+- After any restore, check that External Secrets resync and that Semaphore's AppRole still logs in.
 
 ---
 
 ## See also
 
-- **Identity & secrets** (Components) — Vault's architecture, the KMS auto-unseal, the `tls_disable` design choice.
-- **K3s node rebuild** (Procedures) — where the step-down-first rule applies during worker maintenance.
-- **AppRole rotation** (Procedures) — for credential problems, which are a separate failure class from sealing/tokens.
+- **Identity & secrets** (Components): the Vault model.
+- **Backups & restore drills** (this section).
+- **Vault & Postgres** troubleshooting (Troubleshooting): sealed, token and AppRole symptoms.

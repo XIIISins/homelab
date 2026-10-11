@@ -2,133 +2,115 @@
 
 # Identity & secrets
 
-This subpage covers who can do what, and where credentials live. Two systems carry the load: **Authentik** as the identity provider for both humans and SSH, and a **three-store secrets model** that splits credentials by who consumes them and when.
-
-The principle that shapes every choice on this page: secrets land in the store whose access pattern matches their consumer. Humans need a UI with autofill and mobile access — that's 1Password. Machines at runtime need an audited, policy-driven API — that's HashiCorp Vault. Machines that need credentials *before Vault is reachable* live in the narrowest possible third store. The discipline is the rule, not any one tool.
+Two questions run through the whole homelab: *who is this person?* and *where does this credential come from?* Authentik answers the first. Three stores, each with one job, answer the second.
 
 ---
 
-## Authentik — identity provider
+## Identity: Authentik
 
-Authentik runs in the asgard K3s cluster (`authentik` namespace). One instance, serving every web-app login + every SSH login on every node.
+**Authentik is the only identity provider.** It runs in the asgard cluster (three server replicas and a worker, behind Traefik, with its database on the Postgres VIP). Users and groups are defined as data in Terraform (`users.yaml`, `groups.yaml`); each application is its own Terraform file that creates the provider, the application and a per-app group binding.
 
-- **OIDC for web apps.** Every internal service that fronts a browser UI (Vault UI, NetBox, Outline, Zabbix, vmui, the VictoriaLogs UI, etc.) federates to Authentik. Some use native OIDC; some are wrapped via Traefik's ForwardAuth against an Authentik proxy provider. Each app's gate is a group-membership check declared in `terraform/authentik/`.
-- **SAML for the apps that need it.** Zabbix 7.0 uses SAML 2.0 against Authentik rather than ForwardAuth. The choice is failure-domain-driven: Zabbix is the K3s-down emergency observability path, so its auth cannot itself depend on K3s being healthy. SAML against Authentik keeps the dependency direction sane (apex hostname → CF tunnel → Traefik → Zabbix → SAML to Authentik).
-- **LDAP for SSH.** Every node runs SSSD pointed at Authentik's LDAP outpost. The operator's personal user (`ghost`) authenticates against LDAP with an SSH key registered in Authentik. No node-local accounts for human use.
-- **Local break-glass accounts** exist on every web service for the case where Authentik itself is down. Their credentials live in 1Password, not in Authentik. Same for Linux: each node has a `recovery` user with NOPASSWD sudo and an SSH key in 1Password.
+| Protocol | Used by |
+|---|---|
+| **OIDC** | Outline, NetBox, Semaphore, Immich, MicroBin (admin paths), Vault UI, Tailscale |
+| **SAML** | Zabbix |
+| **Proxy / ForwardAuth** | Tools with no SSO of their own: the VictoriaMetrics UI (`metric`), the VictoriaLogs UI (`logs`), Sonarr, SABnzbd. A Traefik middleware sends the request to the Authentik outpost before the app sees it. |
 
-### Identity as data
+Access is per-app: a user must be in the application's group, and non-members are denied (with an opaque "Policy binding 'None'" message that looks like a bug and is not). Group membership lives in `users.yaml`, so granting access is a reviewed commit.
 
-Users and groups are declared in `terraform/authentik/users.yaml` and `groups.yaml` and applied via Terraform. Per-app group bindings (e.g. `outline-users`, `zabbix-admins`, `vault-admins`) gate access. Adding a user to a new app is a YAML edit + `terraform apply`, not a click in the Authentik UI.
+**Break-glass.** Every web app also keeps a local admin account, stored in 1Password, so a broken Authentik does not lock the operator out. On hosts, the `ansible` service account (key-only, passwordless sudo) runs automation, and the `recovery` user (key-only, key in 1Password) exists for emergencies. LDAP-backed SSH for personal accounts (Authentik's LDAP outpost plus SSSD on hosts) is designed and the group exists, but is not deployed: operators reach hosts today with keys, Tailscale SSH, and the memory-only agent on the control node.
 
 ---
 
-## The secrets architecture: three stores, one rule
+## Secrets: three stores, one rule
 
-**The rule:** *Homelab human lookup → Vault UI (Authentik-gated), with 1Password as the offline mirror. Bootstrap and non-homelab human lookup → 1Password. Machine at runtime → HashiCorp Vault. Machine at bootstrap → Ansible Vault.*
+> **Humans looking up a homelab secret → the Vault UI** (mirrored offline in 1Password).
+> **Bootstrap, and non-homelab credentials → 1Password.**
+> **Machines at runtime → HashiCorp Vault.**
+> **Machines at bootstrap → Ansible Vault.**
 
-| Store | Consumer | What lives here |
+| Store | Who reads it | Holds |
 |---|---|---|
-| **HashiCorp Vault** (asgard K3s) | K8s workloads via ESO, Ansible via AppRole, automation | App-to-DB passwords, Authentik signing key, S3 access keys, every credential a running workload needs |
-| **1Password — Homelab vault** | Operator at any time; also the offline mirror | Bootstrap-only credentials, the offline mirror of everything in Vault, AppRole RoleID/SecretID for the control node |
-| **Ansible Vault** (`group_vars/all/vault.yml`) | Ansible, on a fresh node before HashiCorp Vault is reachable | `k3s_token`, RHEL activation keys, baseline SSH keys, AWS KMS re-seal recovery copy |
-| **1Password — other vaults** | Operator, when homelab is down or for non-homelab systems | Proxmox root, Synology admin, UCG-Ultra admin, KPN router, personal credentials |
+| **HashiCorp Vault** (asgard, 3-node Raft, AWS KMS auto-unseal) | Kubernetes workloads through External Secrets Operator; Ansible through AppRole; humans through the Vault UI behind Authentik | Every runtime secret: database passwords, API tokens, app keys, per-consumer S3 credentials |
+| **1Password, "Homelab" vault** | The operator | (1) Credentials that must survive Vault being down: the Vault root token, the KMS unseal credentials, the SSH recovery key, the sealed-secrets keypair backup, the control-node AppRole credentials. (2) A scripted offline mirror of every Vault-stored homelab secret. |
+| **1Password, other vaults** | The operator | Credentials for things *under* the homelab and personal ones: Proxmox root, Synology admin, the UCG-Ultra, KPN, plus anything non-homelab |
+| **Ansible Vault** (`group_vars/all/vault.yml`) | Ansible, on a fresh node | Only what is needed *before* Vault is reachable: the K3s join token, RHEL subscription keys, SSH public keys, and a recovery copy of the KMS reference |
+| **Sealed Secrets** | The cluster controller | The one secret Vault needs to unseal itself (the AWS KMS credentials), safe to commit because it is encrypted to the cluster's key |
 
-### Scope rule
+**The scope rule.** Things that exist *because the homelab exists* go in Vault (and the Homelab 1Password vault as a mirror). Personal credentials, and infrastructure beneath the homelab, live in 1Password outside it. Human-only secrets that no machine ever reads (for example the Munin Tailscale key) stay in 1Password alone.
 
-"Things that exist *because the homelab exists*" go in the Homelab vault or Vault. Infrastructure *under* the homelab (Proxmox root, Synology admin, UCG-Ultra, KPN) lives in 1Password but outside the Homelab vault — it's personal/external. This keeps the Homelab vault tightly defined.
+**The bootstrap rule.** Vault runs in Kubernetes, so anything Kubernetes needs to start cannot live in Vault: that would be a loop. The test is "is this needed before Vault is reachable?" Yes means Ansible Vault; no means Vault.
 
-### Why three stores and not one
+**Why not one tool.** Humans need autofill, search and mobile access that Vault's UI does not give; machines need leases, policies and an API that a password manager does not give. Enterprises layer the same way. The layering is kept legible by a clean rule rather than by forcing one tool to do both jobs.
 
-Vault's UI is austere — daily human credential use needs better UX (mobile, autofill, search) than Vault is built for. 1Password as the only store would force a SaaS-dependent K8s integration path on every workload, and Vault already runs cleanly and matches enterprise patterns. Ansible Vault exists for the narrow bootstrap layer because anything K3s itself needs to come up cannot live in a K3s-hosted Vault (circular dependency).
-
-The discoverability concern that one-store would solve is handled instead by the rule + a discipline: every Vault-stored secret is also mirrored offline into the 1Password Homelab vault. If Vault is down, the operator opens 1Password.
-
-**Public-repo posture.** The repository is public. Secrets never live in Git regardless, but two things now rest on discipline rather than repo-privacy: the `ansible-vault`-encrypted `group_vars/all/vault.yml` is publicly downloadable, so its security is entirely the strength of the vault passphrase (keep it strong, rotate if ever weakened); and SealedSecrets are safe by design (encrypted to the cluster's public key). Internal IPs, Vault paths, and 1Password item IDs are now public recon surface — identifiers, not values, an accepted portfolio tradeoff. The never-commit-secrets discipline is load-bearing, not best-effort.
+The repository is public. Topology, IPs, Vault paths and 1Password item identifiers are accepted as public information; values never are. Ansible Vault files are downloadable, so their security rests on a long passphrase, and Sealed Secrets are public-safe by design.
 
 ---
 
-## Vault — runtime store
+## Vault
 
-Three-node Raft HA in asgard K3s. AWS KMS auto-unseal (eu-west-1 single-key account, decrypt-only IAM user). **Node-local `local-path` storage** — Raft replicates the store across the three nodes, so HA is at the app layer and the per-node disk needs no storage-layer replication (a wiped node re-syncs from its peers + KMS-auto-unseals). KV-v2 engine mounted at `secret/`.
+| Aspect | Detail |
+|---|---|
+| Deployment | Three pods, one per worker, Raft on `local-path` volumes. Quorum replication is the availability story, not storage-level replication. |
+| Unseal | AWS KMS auto-unseal with a single-key account; the IAM user is scoped to that key only. |
+| TLS | The listener serves TLS from the cert-manager internal CA. Traefik re-encrypts to Vault through a `BackendTLSPolicy`; External Secrets trusts the CA via trust-manager's bundle. There is no plaintext endpoint. |
+| Layout | KV v2 at `secret/`, organised by **consumer**: `secret/k8s/…` for Kubernetes workloads, `secret/ansible/…` for Ansible on LXCs and VMs. The Terraform module that mints a secret writes it to the consumer's path. |
+| Config | Mounts, auth methods, policies and roles are all in Terraform (`terraform/vault/`). **AppRole SecretIDs are never in Terraform state.** |
+| UI | `vault.niflheim.xiiisins.com`, signed in through Authentik OIDC. |
+| Snapshots | A daily Raft snapshot is uploaded to S3 by a CronJob that authenticates with its ServiceAccount, so there is no credential to expire. |
 
-- **Listener TLS is disabled.** `tls_disable = 1` on the Vault listener is deliberate — Traefik terminates TLS at the niflheim Gateway in front of Vault's UI; cluster traffic to Vault is plaintext over the in-cluster network.
-- **Vault config is Terraform-managed.** Auth methods, policies, roles, and KV mounts all live in `terraform/vault/`. SecretIDs are never in state — they're minted manually and stored externally.
-- **UI is Authentik-gated** at `vault.niflheim.xiiisins.com` (Traefik-fronted, niflheim Gateway). Phase 6 Stage 1 is live: OIDC SSO + the `vault-admins` group → read-only `homelab-admin` policy binding, with `VAULT_ADDR` cut over to the HTTPS FQDN. The Vault UI is now the primary lookup point for homelab-scoped human secrets; 1Password remains the offline mirror.
+### Two auth methods
 
-### Path convention
+- **Kubernetes auth** for External Secrets Operator: the operator's ServiceAccount maps to a policy that reads `secret/data/*`.
+- **AppRole** for Ansible and automation. Policies are narrower (the `ansible` policy reads only `secret/data/ansible/*`). Separate roles exist for the operator's workstation, for Semaphore, and for the control node, so each can be rotated and revoked independently. Roles carry no source-address binding, since the callers' addresses change or are NAT'd.
 
-`secret/<consumer-domain>/...` where the consumer-domain identifies who reads the secret, not which Terraform module mints it.
-
-- `secret/k8s/<app>/...` — K8s workloads (e.g. `secret/k8s/outline/s3` for Outline's S3 credentials).
-- `secret/ansible/<role>/...` — Ansible-on-LXC credentials (e.g. `secret/ansible/postgres/zabbix-password`).
-- `secret/k8s/semaphore/vault-approle` — exceptional case; see AppRole flow below.
-
-Human-only secrets that never reach a machine consumer (e.g. Munin's Tailscale authkey) stay in 1Password only — Vault is the runtime path, and there's no runtime here.
-
-### Two auth methods, two consumer patterns
-
-- **Kubernetes auth** at `auth/kubernetes/`. Vault's own service account is the reviewer. The `eso` role binds the `external-secrets` ServiceAccount to a policy that grants read on `secret/data/*`. This is the path every K8s workload uses, via ESO.
-- **AppRole auth** at `auth/approle/`. Two roles:
-  - **`ansible-local`** — used by the MacBook control node for manual playbook runs. RoleID + SecretID live in the 1Password Homelab vault.
-  - **`ansible-awx`** — used by Semaphore for scheduled playbook runs. RoleID + SecretID live at Vault KV `secret/k8s/semaphore/vault-approle` (different storage convention from `ansible-local`).
-
-Both AppRole roles bind to a narrower `ansible` policy that grants read only on `secret/data/ansible/*`. Ansible reads its own subtree; it cannot reach K8s app secrets.
+SecretIDs are minted by hand, stored outside Terraform, and rotated on a 90-day cadence with helper functions that mint the new one and revoke the old one only after the store is updated. There are two helpers because Semaphore's credentials are canonical in Vault, while the workstation's are canonical in 1Password; using the wrong one for a role fails at the first step.
 
 ---
 
-## ESO flow — Kubernetes workloads
+## How a secret reaches a pod
 
-K8s workloads never talk to Vault directly. The External Secrets Operator (ESO) does, and projects each Vault path into a K8s `Secret` that the consumer pod reads as env vars or mounted files.
+```
+Terraform (or an operator) writes secret/k8s/<app>/…  in Vault
+        │
+External Secrets Operator ── Kubernetes auth ──▶ reads the path
+        │
+Kubernetes Secret  ──▶ pod env var / mounted file
+```
 
-1. Operator declares an `ExternalSecret` in the consumer's namespace, referencing a Vault path under `secret/<consumer-domain>/...`.
-2. ESO authenticates to Vault as its own ServiceAccount via the Kubernetes auth method.
-3. The Vault `eso` policy grants read on the path. ESO fetches the value and materializes a K8s `Secret` with the same name as the `ExternalSecret`.
-4. The consumer pod's spec references the K8s `Secret` (via `envFrom: secretRef:` or a volume mount). On pod start, the value lands in the container.
+Each app ships an `ExternalSecret` that names the Vault path and the Secret to build. Secrets refresh on a poll interval (an hour by default) and can be forced. The trade-off is that the secret exists as a Kubernetes Secret as well as in Vault. The production design keeps this ESO sync model; runtime retrieval (Vault Agent or the Vault Secrets Operator) is explored only as a learning exercise on the ephemeral burst cluster.
 
-A `ClusterSecretStore` named `vault` points at `http://vault.vault.svc.cluster.local:8200`, KV-v2, mount `secret`, role `eso`. Every namespace's `ExternalSecret` references this `ClusterSecretStore` — no per-namespace store config.
+The same applies in reverse for secrets that Terraform mints (Garage keys, Authentik client secrets, the Proxmox read-only token for the overview page): the minting module writes straight into the consumer's Vault path, then the 1Password mirror script copies it across.
 
-The `refreshInterval` is 1h by default. Rotation requires a force-sync annotation on the `ExternalSecret` plus a `kubectl rollout restart` on the consumer (Kubernetes snapshots Secret-as-env at pod start; the consumer doesn't see the new value until the pod restarts).
+## How a secret reaches Ansible
 
----
-
-## AppRole flow — Ansible
-
-The control node (MacBook running fish) and Semaphore (scheduled playbooks in K3s) both authenticate to Vault via AppRole. They use different roles and different storage conventions for the credential pair.
-
-### Control node — `ansible-local`
-
-RoleID + SecretID for `ansible-local` live in the 1Password Homelab vault. The repo-tracked fish file `<repo>/.config/fish/conf.d/homelab.fish` exposes a `homelab-env` function that reads 1Password and exports `VAULT_ADDR` + `ANSIBLE_HASHI_VAULT_*` into the shell. Ansible's `community.hashi_vault` collection reads those env vars and authenticates with Vault on every lookup.
-
-`homelab-env` caches into `~/.cache/homelab/env.sh` and `.fish` with a 24h TTL so multi-command flows don't re-fetch from 1Password on every invocation. The cache holds derived env vars only — no Vault token by default.
-
-For **non-interactive** control-node use — the Frigg watchtower VM, and headless automation where 1Password can't prompt for biometric auth — a parallel **Vault-backed shim** (`vault-homelab-env`) AppRole-logs-in to Vault with an on-disk secret-zero and exports the same IaC env vars (cache `~/.cache/homelab/vault-env.{sh,fish}`, 3h TTL). The 1Password-backed `homelab-env` stays the path for the operator's interactive MacBook; `vault-homelab-env` is the path that needs no human.
-
-`rotate-approle ansible-local` mints a new SecretID, prompts the operator to paste it into 1Password, then revokes the old one. The accessor is snapshotted *before* the mint so the revoke step targets the correct SecretID even after 1P is updated. Rotation cadence: 90 days (the longest TTL Vault permits).
-
-### Semaphore — `ansible-awx`
-
-Semaphore reads its AppRole credential from Vault KV at `secret/k8s/semaphore/vault-approle`, not from 1Password. The credential pair is injected into Semaphore's environment via Terraform (`terraform/semaphore/`).
-
-Rotation uses `rotate-semaphore-approle` — a separate helper from `rotate-approle`. It mints a new SecretID, writes it to Vault KV with a hash-verify on the read-back, runs `terraform apply` to push it into Semaphore, then revokes the old SecretID after a drift-check confirms the new one works.
+On a playbook run, the `community.hashi_vault` lookup logs in with AppRole and reads `secret/ansible/…`. The control node and AI assistant sessions use a **Vault-backed environment shim**: it logs in non-interactively, caches the infrastructure credentials for three hours, and exports them to the commands that need them, so nothing interactive (like a password manager prompt) is required. Credentials are resolved inside the shell process and never typed into a command line or transcript.
 
 ---
 
-## Failure surfaces worth knowing
+## The mirror
 
-- **Authentik down.** Every web UI's primary login path breaks. Break-glass: each web service has a local admin account (Vault UI, NetBox, Outline, Zabbix, etc.) whose password lives in 1Password. SSH continues to work via SSSD's cached credentials for a while; once the cache expires, the per-node `recovery` user is the fallback (key in 1Password).
-- **Vault down.** Every K8s workload loses its ability to rotate or fetch new secrets. Workloads already running keep their existing `Secret` values (ESO materializes K8s `Secret` objects, which persist independently of Vault). Pods that restart re-read the K8s `Secret` and stay alive; net effect is rotation freezes. Operator emergency lookups go through the 1Password offline mirror.
-- **1Password down.** Bootstrap is blocked (the MacBook control node can't load AppRole credentials), but running workloads are unaffected. Vault still serves K8s + Ansible-on-Semaphore traffic.
-- **Sealed-secrets master key lost.** Every `SealedSecret` in Git becomes undecryptable. Recovery is the master keypair backup stored in 1Password — restored *before* the sealed-secrets controller starts on the rebuilt cluster. Loss of both Git and 1Password copies means rebuilding every bootstrap secret by hand.
-- **AppRole leak.** A leaked SecretID is rotated immediately via the rotation helper that matches the role (`rotate-approle` for `ansible-local`, `rotate-semaphore-approle` for `ansible-awx`). The corresponding RoleID is non-sensitive; only the SecretID rotates. Vault audit log shows every login by that SecretID, so the blast radius is auditable.
+The 1Password mirror is manual discipline backed by a script (`vault-1p-mirror`) that copies Vault ↔ 1Password from a names-only map and verifies every write. The direction of the rule is: **everything in Vault has a 1Password copy; not everything in 1Password is in Vault.** Items follow a `[Realm] - Consumer - Service - Detail` title convention, and machines reference items by UUID rather than title so retitling is safe.
+
+---
+
+## Failure surfaces
+
+| What fails | Effect |
+|---|---|
+| Authentik | OIDC/SAML/ForwardAuth logins fail. Local break-glass accounts, direct LXC backdoors and key-based SSH remain. Running sessions on most apps continue until they expire. |
+| One Vault pod | Raft keeps quorum (2 of 3). External Secrets and Ansible continue. |
+| Vault sealed | Existing Kubernetes Secrets keep working, new syncs and Ansible lookups fail. KMS auto-unseal normally prevents this; if AWS is unreachable, unsealing needs the 1Password-held bootstrap credentials. |
+| All Vault pods | Existing workloads keep running on their cached Kubernetes Secrets. Restore comes from a Raft snapshot in S3; the root token lives in 1Password. |
+| 1Password | Day-to-day operation is unaffected: machines never read it. The offline mirror and bootstrap credentials are unavailable until it returns. |
+| A leaked credential | Rotate it. The procedures are per credential class; automation never rotates on its own. |
 
 ---
 
 ## See also
 
-- **Storage & data** (this section) — Vault on the node-local `local-path` tier, Patroni-minted DB credentials at `secret/ansible/postgres/<app>-password`.
-- **GitOps & automation** (this section) — Semaphore's Vault KV-stored credentials, drift-check templates that authenticate via the `ansible-awx` AppRole.
-- **Edge** (this section) — Authentik fronted via Traefik + Cloudflared, Traefik ForwardAuth middleware against Authentik proxy providers.
-- **Services and purpose** — per-service notes on which auth method each app uses (OIDC, SAML, ForwardAuth).
-- **Procedures** — AppRole bootstrap and rotation runbooks.
-- **Troubleshooting** — Authentik outpost host caching, ESO refresh + force-sync, AppRole mismatch diagnostics.
+- **Edge** (this section): how requests reach Authentik and the ForwardAuth middleware.
+- **GitOps & automation** (this section): how Semaphore and Terraform use these credentials.
+- **Storage & data** (this section): the S3 backups of Vault.
+- **Vault & Postgres** and **Identity & edge** troubleshooting (Troubleshooting).
+- **Procedures**: AppRole rotation, credential rotation, Vault recovery.
