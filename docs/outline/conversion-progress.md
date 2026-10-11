@@ -10,10 +10,11 @@ Working tracker for the reader-shaped Outline pages built from `docs/`. Not itse
 
 ## Status snapshot
 
-- **Pages:** 45, all rewritten from scratch on 2026-10-11 against the as-built canonical docs (`docs/architecture/`, `docs/services/`, `docs/procedures/`, `docs/known-issues/`, `docs/operations/`) and the IaC. The previous tree (last drift-reviewed 2026-06-18) was deleted, not patched, so nothing carries over from it; its content and the old doc IDs are in Git history (`.outline-manifest.json` at the commit before this rewrite).
+- **Pages:** 51, all rewritten from scratch on 2026-10-11 against the as-built canonical docs (`docs/architecture/`, `docs/services/`, `docs/procedures/`, `docs/known-issues/`, `docs/operations/`) and the IaC. The previous tree (last drift-reviewed 2026-06-18) was deleted, not patched, so nothing carries over from it; its content and the old doc IDs are in Git history (`.outline-manifest.json` at the commit before this rewrite).
 - **Not yet published.** `.outline-manifest.json` was removed with the old pages. The next `sync_outline.py --apply` has no manifest, so it matches live pages by title and updates them in place. If the live `Homelab` collection should be rebuilt rather than updated (for the link-rendering gotcha in `README.md`), follow the whole-collection recreate in `README.md`: soft-delete the old managed docs first (IDs from the old manifest in Git history), then run `--apply` twice. Both are outward-facing writes; run deliberately.
 - **Changes from the previous set:**
-  - Added: Immich, Media automation, Overview page, AIOps agent (services); Landing a change, K3s & Calico upgrade, Backups & restore drills (procedures).
+  - Added: Immich, Media automation, Overview page, AIOps agent (services); Everyday operations, Landing a change, Postgres operations, Secret mirroring, K3s & Calico upgrade, Backups & restore drills (procedures); Hosts & Proxmox, Monitoring & automation, Applications (troubleshooting).
+  - **Procedures and Troubleshooting are full runbooks** (second pass, 2026-10-11): each carries copy-paste commands an on-call person can run without having built the system, taken from `docs/procedures/` and `docs/known-issues/` and the IaC (unit names, namespaces, IPs, Vault paths, helper functions). Bash unless a block says fish; the rotation blocks are fish because that is the proven form.
   - Removed: the in-cluster n8n page (that service is gone; "n8n" now means the AIOps agent, covered by AIOps agent) and the NetBox initial-import runbook (executed and archived).
   - Reframed throughout: one cluster (asgard), tiered storage, Authentik/Vault/1Password/Ansible Vault model, Semaphore plus the AIOps tier, Jellyfin on an LXC.
 - **Known deliberate gaps:** LDAP-backed SSH is described as designed but not deployed; the live state of the repository's open items (build sequence "What's left") is summarised in one paragraph on the overview, not enumerated.
@@ -39,13 +40,13 @@ Working tracker for the reader-shaped Outline pages built from `docs/`. Not itse
 - Platform services (Authentik, Vault, Postgres, Garage, AdGuard, Munin, PBS, Traefik, Tailscale, Frigg) are catalog rows with a pointer to their deep page, deliberately not duplicated as subpages.
 
 ### Procedures
-- `procedures.md`: philosophy, index by blast radius, order of attack.
-- Subpages: `landing-a-change`, `credential-rotation`, `approle-rotation`, `backups-and-restore`, `k3s-upgrade`, `proxmox-host-patching`, `vault-recovery`, `k3s-node-rebuild`, `teardown-rebuild`.
-- Wiki versions summarise; the commands live in `docs/procedures/`.
+- `procedures.md`: session setup (credentials, SSH, where to run what), rules, escalation list, index by blast radius, order of attack.
+- Subpages: `everyday-operations`, `landing-a-change`, `postgres-operations`, `secret-mirroring`, `credential-rotation`, `approle-rotation`, `backups-and-restore`, `k3s-upgrade`, `k3s-node-rebuild`, `proxmox-host-patching`, `vault-recovery`, `teardown-rebuild`.
+- Each: when to use, prerequisites, numbered steps with commands, verify, rollback.
 
 ### Troubleshooting
-- `troubleshooting.md`: first three checks, index by symptom and by alert.
-- Subpages: `storage-and-iscsi`, `dns-and-networking`, `kubernetes-and-flux`, `vault-and-postgres`, `identity-and-edge` (symptom, cause, action tables drawn from `docs/known-issues/`).
+- `troubleshooting.md`: a one-block read-only health sweep, index by symptom, index by alert (`RB-*` ids), first-response habits.
+- Subpages: `storage-and-iscsi`, `dns-and-networking`, `kubernetes-and-flux`, `vault-and-postgres`, `identity-and-edge`, `hosts-and-proxmox`, `monitoring-and-automation`, `applications`. Each: first diagnostics (read-only commands), then symptom → cause → fix tables with commands.
 
 ---
 
@@ -54,7 +55,7 @@ Working tracker for the reader-shaped Outline pages built from `docs/`. Not itse
 - **File path header.** Every file starts with `<!-- docs/outline/<path>.md -->`.
 - **Section = page with subpages.** The parent is `docs/outline/<section>.md`; subpages live in `docs/outline/<section>/`.
 - **Kebab-case paths**; the H1 is the wiki title and what the sync matches on, so keep titles unique.
-- **Length.** Overview ~175 lines, section parents up to ~225, subpages up to ~220, service pages short.
+- **Length.** Overview ~175 lines, section parents up to ~225, subpages up to ~220, service pages short. Runbook pages (Procedures, Troubleshooting) run longer because they carry the commands.
 - **Current truth only.** No "X, not Y as earlier drafts had it"; that lives in `decisions.md`, `incidents/` and `known-issues/`.
 - **Cross-references use the canonical name in bold.** A "See also" block closes every subpage. The sync turns bold names into links (see `README.md`).
 - **Failure surfaces** sections where failure behaviour is concrete.
