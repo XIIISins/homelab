@@ -32,7 +32,7 @@ spec:
     # the driver creates ONE SUBDIRECTORY per PV inside it — NOT a Synology
     # shared folder per PV (that's synology-csi's NFS mode, which pollutes
     # the Shared Folder overview and is deliberately avoided here).
-    # See docs/procedures/synology-storage-redesign.md (storage tiering).
+    # See docs/procedures/storage-tiering.md (storage tiering).
     storageClass:
       create: true
       name: nfs-client

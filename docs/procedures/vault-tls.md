@@ -1,4 +1,4 @@
-<!-- docs/procedures/vault-tls-migration.md -->
+<!-- docs/procedures/vault-tls.md -->
 
 # Vault listener TLS migration (plaintext → internal CA)
 
@@ -183,9 +183,9 @@ Worst case, restore the pre-flight Raft snapshot.
 - [ ] `CLAUDE.md` — line ~57 (Secrets invariant): drop "listener is `tls_disable = 1`",
   state TLS via internal CA; tick the Phase 6 gate line.
 - [ ] `docs/architecture/identity-secrets.md` — same invariant flip.
-- [ ] `docs/procedures/teardown-rebuild.md` + `docs/procedures/synology-storage-redesign.md`
+- [ ] `docs/procedures/teardown-rebuild.md` + `docs/procedures/storage-tiering.md`
   ("Class L") — Raft-join commands → `https://` + CA.
 - [ ] `docs/operations/decisions.md` — already has the row (added with this branch).
 - [ ] `docs/operations/open-questions.md` — tick the "Vault listener TLS" item.
 - [ ] Forward-fit: the same `homelab-internal-ca` can later issue the Patroni
-  leader cert (retires Outline's `sslmode=no-verify`) and jotunheim in-cluster TLS.
+  leader cert (retires Outline's `sslmode=no-verify`).

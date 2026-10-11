@@ -33,7 +33,7 @@ spec:
       # https: it auto-sets VAULT_ADDR=https://127.0.0.1:8200 in the pods and
       # switches probe schemes. The listener cert is wired below (server.*).
       # No plaintext listener survives — the cluster's one Vault endpoint is
-      # TLS. See docs/procedures/vault-tls-migration.md.
+      # TLS. See docs/procedures/vault-tls.md.
       tlsDisable: false
 
     server:

@@ -87,5 +87,3 @@ The injected-fault matrix on the canaries passes ([procedure](../../procedures/a
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: 🟡 **code complete and tested; deploy, then the ~14-day canary soak** (the soak is the exit criterion, so 10f is not "done" until it passes).

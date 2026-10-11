@@ -34,7 +34,7 @@ Media automation is in scope since 2026-10-05 (operator): **Sonarr + SABnzbd onl
 | Decisions | "Jellyfin: privileged LXC on Urd, QuickSync /dev/dri passthrough". Service page: NFS media from Munin, SQLite, local accounts, `jellyfin.midgard.xiiisins.com`, external via Cloudflared | Followed, except the Cloudflared part (next row). Privileged is still the right call, see "Why privileged" |
 | Cloudflared for external access | Cloudflare's terms only allow serving video through the CDN with their paid video products (Stream/R2); tunnel traffic is CDN traffic. A suspension would hit the whole `xiiisins.com` zone: Authentik, WebFinger/OIDC, MicroBin, the apex | **Do not put Jellyfin behind the tunnel.** Decision D-1 below; default is Tailscale (already live, split-DNS already serves `midgard`) |
 | Urd headroom ([`10d-diagnosis-chatops.md`](../done/10d-diagnosis-chatops.md) D-f) | ~7.7 GB free on 2026-10-01, before Gná (1 GB) and Ratatoskr (512 MB) landed. Urd is the most loaded node: Factorio (8 GB cap until 2026-10-06, 2 GB since the memory-caps PR; it really uses ~45 MB), Einherjar-urd 16 GB, Göndul, Hugin, Vör, Hlin, Saga, PBS, the canaries | Jellyfin gets **3 GB** (it runs ~1 GB steady, ~2 GB during a big scan). J0 re-measures live; under 4 GB free → decision D-3 |
-| Munin media share | The storage redesign deferred the media volume ("own volume, created last", [`../procedures/synology-storage-redesign.md`](../../procedures/synology-storage-redesign.md)); the old `media` share table in [`../services/synology.md`](../../services/synology.md) is flagged stale | **Share exists (operator, 2026-10-05): `10.0.254.20:/volume5/media-backup`.** J0 only adds an NFS rule for `10.0.11.223`. Don't move the share to another volume later: that changes its export path and strands NFS clients ([`storage-iscsi-synology.md`](../../known-issues/storage-iscsi-synology.md)) |
+| Munin media share | The storage redesign deferred the media volume ("own volume, created last", [`../procedures/storage-tiering.md`](../../procedures/storage-tiering.md)); the old `media` share table in [`../services/synology.md`](../../services/synology.md) is flagged stale | **Share exists (operator, 2026-10-05): `10.0.254.20:/volume5/media-backup`.** J0 only adds an NFS rule for `10.0.11.223`. Don't move the share to another volume later: that changes its export path and strands NFS clients ([`storage-iscsi-synology.md`](../../known-issues/storage-iscsi-synology.md)) |
 | LXC features ([`lxc-proxmox.md`](../../known-issues/lxc-proxmox.md)) | `device_passthrough` and `mount=nfs` both need `root@pam` ticket auth; an API token can only change `nesting` | The container lives in `terraform/proxmox/asgard-lxcs-root/` (the Tailscale trio's module), not the main one |
 | NFS inside an LXC (PBS precedent, LXC 1101) | PBS mounts its Munin share inside the container (`features: mount=nfs` + LXC fstab), so it doesn't depend on the host | Same pattern for `/media`, mounted **read-only** |
 | LXC reboot drift ([`lxc-proxmox.md`](../../known-issues/lxc-proxmox.md) "LXC reboot persistence") | PVE rewrites resolv.conf at start; LXC sysctls reset at interface bring-up | `initialization.dns` in Terraform (fleet standard); the hardening role's LXC branches must also apply to a privileged container (check `ansible_virtualization_type == 'lxc'` is true for it, J3) |
@@ -58,7 +58,7 @@ fallback (K3s down) ── http ──────> jellyfin-direct.niflheim →
 LXC 1123:  /dev/dri/renderD128 (passed, gid=2001 `igpu`, 0660) → jellyfin-ffmpeg (iHD/QSV)
            /var/lib/jellyfin     rootfs, local-lvm, backed up    (config, SQLite DB, metadata)
            /var/cache/jellyfin   mount point, local-lvm, backup=false (transcodes, image cache)
-           /media                NFS ro 10.0.254.20:/volume5/media-backup, mounted in-container, RequiresMountsFor
+           /media                NFS ro 10.0.254.20:/volume5/media, mounted in-container, RequiresMountsFor
 ```
 
 Identity: **LXC 1123, `10.0.11.223`, VLAN 11, Urd** (next free in the 1120–1129 services range). Sizing: 4 cores (scans, subtitle extraction and the occasional software fallback; iGPU work does not count against them), 3 GB RAM + 1 GB swap, 16 GB rootfs, 40 GB cache mount point. Not in a PVE HA group (passthrough + in-guest NFS: moves are a deliberate `pct migrate --restart`).
@@ -73,7 +73,7 @@ J1 (host role, PRs #207/#212), J2 (Terraform, NetBox, AdGuard, #208/#209/#213), 
 
 ## J0 — Prerequisites and host checks (read-only, plus one DSM change)
 
-- [x] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`. ✅ Rule in place 2026-10-06 with Squash "Map all users to admin", Read only (the first attempt with "Map root to guest" denied everyone; see [`jellyfin.md`](../../known-issues/jellyfin.md)).
+- [x] **Media share on Munin**: exists at `10.0.254.20:/volume5/media` (operator, 2026-10-05; the shared folder was created as `media-backup` and renamed). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media`. ✅ Rule in place 2026-10-06 with Squash "Map all users to admin", Read only (the first attempt with "Map root to guest" denied everyone; see [`jellyfin.md`](../../known-issues/jellyfin.md)).
 - [x] **Urd headroom** ✅ 2026-10-06: **7.6 GB available** (0.75 GB "free" is mostly reclaimable cache), swap 2.3 of 8 GB, memory PSI 0.00, load 0.4-1.1 on 8 cores, `local-lvm` 758 GB free. Read as *available* (the figure that matters; page cache is reclaimable) the gate passes: **3 GB RAM + 1 GB swap, 4 cores, D-3 not triggered.** The LXC caps trim (Factorio 8 → 2 GB, Hugin 4 → 2 GB, HAProxy/etcd trio 2 → 1 GB) lowered Urd's configured guest RAM from 44.5 to 34 GB but frees no live RAM: caps are not reservations ([`lxc-proxmox.md`](../../known-issues/lxc-proxmox.md)). At the 3 GB cap Urd keeps about 4.6 GB available. **Portability:** Verd has 5.6 GB available (a migration there leaves ~2.5 GB: free room first), Skuld 7.2 GB with almost no swap but it is the node that hard-freezes.
 - [x] **Dual-channel RAM** ✅ 2026-10-06, **all three nodes**: two 16 GB DDR4-2400 DIMMs on separate controllers (`Controller0/1-ChannelA-DIMM0`), so dual-channel. J5 still measures tone-mapping capacity.
 - [x] **iGPU on the host** ✅ 2026-10-06, **all three nodes identical**: `pci-0000:00:02.0-render -> ../renderD128` (the only DRM render node), Alder Lake-UP3 GT1 `[8086:46b3]` on `i915`, `renderD128` is `root:render 0660`, **render gid 993** everywhere (matches the pinned gid in J2). Kernel `7.0.14-17-pve` on Urd and Verd, `-19` on Skuld.
@@ -100,7 +100,7 @@ Day-1 baseline as root, then the full play as `ansible`, per the LXC bootstrap f
 The `jellyfin` role:
 
 - `igpu` group (gid 2001, the passed device's gid); `jellyfin` user in `igpu` (and `video`, `media`).
-- NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media-backup /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
+- NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
 - Jellyfin apt repo + pinned `jellyfin` and `jellyfin-ffmpeg7`.
 - systemd drop-in: `RequiresMountsFor=/media /var/cache/jellyfin`, so Jellyfin never starts against an empty mount point and scans the library away.
 - Paths in `/etc/default/jellyfin` / `system.xml`: cache and transcodes under `/var/cache/jellyfin`; metadata under `/var/lib/jellyfin`.
@@ -181,7 +181,7 @@ Elsewhere:
 
 ## Operator steps (the ones Claude cannot do)
 
-1. Add the NFS permission rule for `10.0.11.223` on `volume5/media-backup` (J0).
+1. Add the NFS permission rule for `10.0.11.223` on `volume5/media` (J0).
 2. Answer D-3 if J0 triggers it; give the KPN upload rate for the remote bitrate limit.
 3. `terraform apply` in `asgard-lxcs-root` (needs `PROXMOX_VE_PASSWORD`), `netbox`, `adguard`, from the main checkout.
 4. Jellyfin first-run wizard (admin account, libraries), then create household accounts.
@@ -237,5 +237,3 @@ J0 (NFS rule, Urd memory check) and M0 (accounts, share layout) can run in paral
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: 🟡 **J0 host checks done 2026-10-06 (all pass except the DSM NFS rule, an operator step); implementation starting**.

@@ -1,8 +1,10 @@
-<!-- docs/procedures/netbox-initial-data-import.md -->
+<!-- docs/procedures/archive/2026-05-24-netbox-initial-data-import.md -->
 
 # NetBox initial data import
 
-One-shot population of NetBox with the current homelab inventory. Done once per cluster lifetime (or after a wipe+rebuild). All data sourced from [`docs/architecture/network.md`](../architecture/network.md) (VLANs, prefixes, IPs) + [`terraform/proxmox/asgard-lxcs/lxcs.tf`](../../terraform/proxmox/asgard-lxcs/lxcs.tf) (LXCs) + [`ansible/inventory/hosts.yml`](../../ansible/inventory/hosts.yml) (group structure, k3s VMs) — those files remain the IaC source of truth; NetBox is the queryable view (per the Phase 5i decision row in [`docs/operations/decisions.md`](../operations/decisions.md)).
+> **ARCHIVED: executed runbook (NetBox hand import, Phase 5i.e, 2026-05-24).** Kept as the historical record, not the current procedure. For what runs today see [`../../services/netbox.md`](../../services/netbox.md); the records are now Terraform-owned (`terraform/netbox/`), so a rebuild re-applies that module instead of re-importing by hand.
+
+One-shot population of NetBox with the current homelab inventory. Done once per cluster lifetime (or after a wipe+rebuild). All data sourced from [`docs/architecture/network.md`](../../architecture/network.md) (VLANs, prefixes, IPs) + [`terraform/proxmox/asgard-lxcs/lxcs.tf`](../../../terraform/proxmox/asgard-lxcs/lxcs.tf) (LXCs) + [`ansible/inventory/hosts.yml`](../../../ansible/inventory/hosts.yml) (group structure, k3s VMs) — those files remain the IaC source of truth; NetBox is the queryable view (per the Phase 5i decision row in [`docs/operations/decisions.md`](../../operations/decisions.md)).
 
 NetBox doesn't distinguish VM from LXC in its model — both are `VirtualMachine` objects. We use the `role` field to differentiate.
 
@@ -82,7 +84,7 @@ One prefix per VLAN, linked to the corresponding VLAN. Status: `Active`.
 
 ## 7. Physical Devices
 
-For each: create the Device, add an interface, assign a primary IP to that interface. NIC names matter — see CLAUDE.md "Networking" gotchas for the Beelink `nic0` vs Cubi `enp45s0` distinction.
+For each: create the Device, add an interface, assign a primary IP to that interface. NIC names matter — see [`known-issues/networking-multi-homed-workers.md`](../../known-issues/networking-multi-homed-workers.md) for the Beelink `nic0` vs Cubi `enp45s0` distinction.
 
 ### 7.1 Urd
 
@@ -101,7 +103,7 @@ For each: create the Device, add an interface, assign a primary IP to that inter
 ### 7.3 Skuld
 
 - [ ] **Device**: `Skuld`, role `proxmox-host`, type `Beelink MINI-S12`, site `home`
-- [ ] **Interface**: `nic0` (Beelink's vendor-custom UEFI NIC name — different from Cubi's predictable `enp45s0`; see CLAUDE.md "Proxmox same-node hardware refresh" gotcha)
+- [ ] **Interface**: `nic0` (Beelink's vendor-custom UEFI NIC name — different from Cubi's predictable `enp45s0`; see [`known-issues/networking-multi-homed-workers.md`](../../known-issues/networking-multi-homed-workers.md) ("Proxmox same-node hardware refresh"))
 - [ ] **IP**: `10.0.254.13/24` primary
 - [ ] **Description**: "Proxmox host. N100/16GB, the outlier vs Urd+Verd. Hosts PBS (1101) + several LXCs."
 

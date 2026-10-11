@@ -7,7 +7,7 @@ framing drove the redundancy posture below (single-NAS RAID1, no PBS, no
 offsite — a deliberate, stated tradeoff, not a silent gap).
 
 - **Manifests:** `k8s/asgard/apps/immich/`
-- **Chart:** official `oci://ghcr.io/immich-app/immich-charts/immich`, pinned `0.13.1` (app `v3.0.0`) — built on the bjw-s common-library chart
+- **Chart:** official `oci://ghcr.io/immich-app/immich-charts/immich`, pinned in the HelmRelease (`k8s/asgard/apps/immich/`) — built on the bjw-s common-library chart
 - **Deployed:** 2026-09-03
 - **Terraform:** `terraform/authentik/immich.tf` (native OIDC provider + app + `immich-users` gate), `terraform/vault/main.tf` (PG password), `terraform/cloudflare/` (apex CNAME), `terraform/adguard/` (midgard rewrite)
 - **Hostnames:** `immich.xiiisins.com` (external, cloudflared) + `immich.midgard.xiiisins.com` (LAN-fast-path) — no niflheim-only route; family-facing, not operator-only

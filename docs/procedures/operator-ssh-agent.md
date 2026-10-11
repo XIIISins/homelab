@@ -8,7 +8,7 @@
 
 Three personal keys from the 1Password `Dev` vault (`Personal SSH-RSA` — the git signing key —, `Luxuria - ed25519`, `id_ed25519`) live at `secret/operator/ssh/<name>` with fields `private_key` and `public_key`. The three work keys (`X2com - Myron`, `id_rsa_sentia`, `work key: id_ed25519`) are deliberately NOT in Vault. 1Password keeps its copy of every key.
 
-**Who may read `secret/operator/*`:** the MacBook (`ansible-local`, policy `operator-ssh-read`), Frigg (`homelab-frigg`, already reads `secret/data/*`; it signs and pushes with its own deploy key and does not need these) and root. Not Semaphore/AWX (`ansible` policy is `secret/data/ansible/*` only). `eso` and `homelab-admin` read `secret/data/*` and therefore carry an explicit `deny` on `secret/{data,metadata}/operator/*`; **any new policy that reads `secret/data/*` must add the same deny.**
+**Who may read `secret/operator/*`:** the MacBook (`ansible-local`, policy `operator-ssh-read`), Frigg (`homelab-frigg`, already reads `secret/data/*`; it signs and pushes with its own deploy key and does not need these) and root. Not Semaphore (`ansible` policy is `secret/data/ansible/*` only). `eso` and `homelab-admin` read `secret/data/*` and therefore carry an explicit `deny` on `secret/{data,metadata}/operator/*`; **any new policy that reads `secret/data/*` must add the same deny.**
 
 ## One-time setup (operator, MacBook)
 

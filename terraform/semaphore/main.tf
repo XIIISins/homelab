@@ -113,7 +113,7 @@ locals {
     # HTTPS since the listener TLS flip — Vault serves the homelab internal
     # CA cert, so the lookup must trust it via ANSIBLE_HASHI_VAULT_CA_CERT
     # (the trust-manager vault-ca-bundle ConfigMap, mounted at /etc/vault-ca
-    # by the StatefulSet). See docs/procedures/vault-tls-migration.md.
+    # by the StatefulSet). See docs/procedures/vault-tls.md.
     ANSIBLE_HASHI_VAULT_ADDR    = "https://vault.vault.svc.cluster.local:8200"
     ANSIBLE_HASHI_VAULT_CA_CERT = "/etc/vault-ca/ca.crt"
     ANSIBLE_CALLBACKS_ENABLED   = "hermod_summary"

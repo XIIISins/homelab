@@ -40,7 +40,7 @@ spec:
     # in our CP config; this is the Flux-managed replacement. Data lands on a
     # dedicated 50G scsi1 data disk on each worker, mounted container-writable
     # at /data by the local-path-disk Ansible role (separate from the OS disk,
-    # so it survives a VM rebuild). See docs/procedures/synology-storage-redesign.md.
+    # so it survives a VM rebuild). See docs/procedures/storage-tiering.md.
     image:
       repository: docker.io/rancher/local-path-provisioner
       tag: v0.0.37 # concrete pin (matches chart appVersion / git tag)

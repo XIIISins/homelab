@@ -23,9 +23,9 @@ Every multi-step build plan lives here, in one of three folders. **This index is
 | [`10f-autonomous-healing.md`](active/10f-autonomous-healing.md) | 10f | Autonomous T1 healing, deployed; exit criterion is the ~14-day canary soak. |
 | [`10g-rebuild-loop.md`](active/10g-rebuild-loop.md) | 10g | Fleet rebuild loop (canaries → replicas → workers); stage A proven. |
 | [`10h-predictive-change.md`](active/10h-predictive-change.md) | 10h | Forecasting, PR author, drift/incident drafts; live, exit criteria open. |
-| [`10h-k8s-burst-test.md`](active/10h-k8s-burst-test.md) | 10h | Burst-cluster tests for `k8s/` PRs (child of 10h); slices 1–2 built, 3–4 open. |
+| [`10h-k8s-burst-test.md`](active/10h-k8s-burst-test.md) | 10h | Burst-cluster tests for `k8s/` PRs (child of 10h); slices 1–4 built and live for `k8s/` PRs. |
 | [`10i-rightsizing.md`](active/10i-rightsizing.md) | 10i | Pod rightsizing with VPA; recommend-only live, Toolbelt tool, findings, digest, watch and the PR class live; exit criteria open. |
-| [`5h-jellyfin.md`](active/5h-jellyfin.md) | 5h | Jellyfin LXC + media automation (J0–J6, M0–M4); built, J5 acceptance open. |
+| [`5h-jellyfin.md`](active/5h-jellyfin.md) | 5h | Jellyfin LXC + media automation (J0–J6, M0–M4); built and accepted (J5, 2026-10-10); open items are in `build-sequence.md`. |
 | [`chart-bumps-2026-09.md`](active/chart-bumps-2026-09.md) | — | Helm chart / platform bump review and wave handoff, worked by the `chart-bump` agent. |
 
 ## Done

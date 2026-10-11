@@ -2,11 +2,9 @@
 
 # Ansible orchestration
 
-How Ansible is organized, executed, and kept honest against drift. Captures the playbook-structure refactor + the Semaphore-driven push-scheduling loop. Sequenced as Phase 5h.3, immediately after Hermod (5h.2) because the drift-check loop is the first concrete producer of `alert`-tagged events into the notification hub.
+How Ansible is organized, executed, and kept honest against drift: the per-host-group playbook structure, the Semaphore push-scheduling loop, the NetBox dynamic inventory and the drift-check loop. Built in Phase 5h.3 (2026-05-27, [retro](../incidents/2026-05-27-5h3-semaphore-drift-check.md)); the drift loop is the first concrete producer of `alert`-tagged events into Hermod.
 
 ## Playbook structure — per-host-group, not per-role
-
-Current `ansible/playbooks/` mixes per-role and per-host-group playbooks (`-host` / `-hosts` / `-agents` suffixes inconsistently). The structural rule going forward:
 
 **One playbook per inventory host-group.** Inside each playbook, the `roles:` list contains *every* role that group needs — baseline, hardening, service-specific roles, agents (vlagent, zabbix-agent). The playbook is the contract for "what state does this group of hosts hold."
 
@@ -18,31 +16,19 @@ Current `ansible/playbooks/` mixes per-role and per-host-group playbooks (`-host
 
 ### Naming
 
-`asgard-<service>.yml`. Drops the old `-host` / `-hosts` / `-agents` suffix confusion. The host-group affinity is implicit in the playbook name + the `hosts:` selector inside.
+`asgard-<service>.yml`; the host-group affinity is implicit in the name and the `hosts:` selector inside. Current set: `asgard-{k3s,adguard,tailscale,postgres,haproxy-etcd,factorio,hermod,gna,ratatoskr,jellyfin,zabbix,proxmox,pbs,control}.yml`, plus the cross-group `vlagent.yml`, `zabbix-agent.yml` (the agent rollout, singular) and `fleet-agents.yml`. `site.yml` imports them (after a preflight and `zabbix-host-groups.yml`), with `platform-version-drift.yml` right after `asgard-k3s.yml`. Non-prod: `site-nonprod.yml` for the canary pool. Older docs and retros use the former `*-host.yml` / `*-hosts.yml` / `*-agents.yml` names; `test-vault-lookup.yml` was a throwaway proof-of-pattern and is deleted (the AppRole lookup pattern is settled in `roles/tailscale/`).
 
-| Old | New |
-|-----|-----|
-| `asgard-k3s.yml` | `asgard-k3s.yml` (unchanged) |
-| `postgres-host.yml` | `asgard-postgres.yml` |
-| `haproxy-etcd-host.yml` | `asgard-haproxy-etcd.yml` |
-| `adguard-host.yml` | `asgard-adguard.yml` |
-| `tailscale-host.yml` | `asgard-tailscale.yml` |
-| `factorio-host.yml` | `asgard-factorio.yml` |
-| `zabbix-host.yml` | `asgard-zabbix.yml` |
-| _(new, Phase 5h.2)_ | `asgard-hermod.yml` |
-| `zabbix-agents.yml` | `zabbix-agent.yml` (singular — it's the agent rollout, not the agent fleet) |
-| `vlagent-agents.yml` | `vlagent.yml` |
-| `test-vault-lookup.yml` | **deleted** (throwaway proof-of-pattern; the AppRole lookup is now used in `roles/tailscale/` and the pattern is settled) |
+`site.yml`'s preflight asserts the inventory has a sane host count (`site_inventory_min_hosts`, default 20), so a cold NetBox cache plus a failed live rebuild fails loud instead of silently skipping every play.
 
 ### Multi-play files when `serial:` differs
 
 A single playbook file can hold multiple `- name:` plays with different host selectors + serial settings. Use this when one *stage* needs ordered rollout (e.g. Patroni replicas first via `serial: 1`) and another *stage* of the same playbook should run in parallel (agent install on all members at once).
 
 ```yaml
-# ansible/playbooks/asgard-postgres.yml (illustrative shape)
+# ansible/playbooks/asgard-postgres.yml (shape, simplified)
 ---
 - name: Postgres stack — ordered (Patroni-safe)
-  hosts: postgres_hosts
+  hosts: postgres
   serial: "{{ patroni_serial | default(1) }}"   # one node at a time
   become: true
   roles:
@@ -53,99 +39,85 @@ A single playbook file can hold multiple `- name:` plays with different host sel
     - { role: hardening,        tags: hardening }
 
 - name: Postgres agents — parallel
-  hosts: postgres_hosts
+  hosts: postgres
   become: true
   roles:
     - { role: vlagent,          tags: vlagent }
     - { role: zabbix-agent,     tags: zabbix-agent }
 ```
 
-The win: agents land via the same playbook (no separate `zabbix-agents.yml --limit postgres_hosts` invocation, no missed group when adding a new agent role) without paying the `serial: 1` tax on agent rollout.
+The win: agents land via the same playbook (no separate `zabbix-agent.yml --limit postgres` invocation, no missed group when adding a new agent role) without paying the `serial: 1` tax on agent rollout.
 
-The same pattern applies to K3s (CP-then-worker ordering vs parallel agent install) once the existing `asgard-k3s.yml` grows agent rollouts inline.
+`asgard-k3s.yml` has not adopted the split yet (CP-then-worker ordering vs parallel agent install); that waits until a new agent forces the question.
 
 ## Scheduling — Semaphore in asgard K3s
 
-Push-mode scheduler driving drift-check + apply loops. Chosen over AWX based on resource footprint (~100 MB vs ~3 GB), single-binary Go runtime, and simpler operational story. Picked 2026-05-25; revisiting is cheap because the playbook structure is scheduler-agnostic — any future swap (AWX, Rundeck, K8s CronJob + raw ansible) doesn't need playbook changes.
+Push-mode scheduler driving drift-check + apply loops. Chosen over AWX based on resource footprint (~100 MB vs ~3 GB), single-binary Go runtime, and simpler operational story. Picked 2026-05-25 (decision row "Ansible scheduler — Semaphore in asgard K3s (over AWX)"); revisiting is cheap because the playbook structure is scheduler-agnostic — any future swap (AWX, Rundeck, K8s CronJob + raw ansible) doesn't need playbook changes.
 
 ### Where it runs
 
-In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres backend on Patroni HAProxy VIP** (same pattern as Authentik / NetBox / Outline / Zabbix / Teamspeak — every other homelab K3s consumer is PG-backed). Drafts initially considered sqlite-on-PVC; pivoted to PG at deploy time for consistency + survives pod-restart-into-broken-PVC.
+In asgard K3s, namespace `semaphore`. Single-replica StatefulSet, **Postgres backend on Patroni HAProxy VIP** (same pattern as Authentik / NetBox / Outline / Zabbix / Teamspeak — every other homelab K3s consumer is PG-backed). Chosen over sqlite-on-PVC for consistency and so a pod restart can't land on a broken PVC.
 
 | Piece | Setup |
 |-------|-------|
 | Workload | StatefulSet `semaphore/semaphore`, 1 replica |
-| Image | `ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r1` — custom (stock `semaphoreui` ansible-bundled base + pinned Galaxy collections + runtime pip deps baked; see "Custom image" below) |
+| Image | `ghcr.io/xiiisins/semaphore-homelab:v2.18.5-ansible2.16.5-r3` — custom (stock `semaphoreui` ansible-bundled base + pinned Galaxy collections + runtime pip deps baked; see "Custom image" below) |
 | Application state | PG on Patroni VIP `10.0.10.210:5432/semaphore` (per-service DB declared in `postgres_databases`, postgres-common provisions on leader) |
-| Inventory cache | PVC `inventory-cache-semaphore-0`, `synology-csi-iscsi-retain`, 1 Gi. Cache survives pod restart — saves a ~30s NetBox round-trip every restart |
+| Inventory cache | `emptyDir` at `~/.cache/ansible/netbox-inventory` (a PVC would cost an iSCSI LUN against the DS223J cap). A pod restart empties it; the `refresh-netbox-inventory` template or the next consumer run rebuilds it in ~30 s |
 | Internal DNS | `semaphore.niflheim.xiiisins.com` via Traefik HTTPRoute on niflheim Gateway (internal-only — no midgard / apex alias, no CF tunnel) |
 | Auth | Authentik OIDC (`semaphore-admins` group) + local break-glass admin |
-| Vault integration | Semaphore "Vault" credential type for runtime AppRole lookups (configured post-deploy in UI / via TF if provider mature) |
-| Ansible Vault password | Vault file credential, mounted/projected as `--vault-password-file` (configured post-deploy) |
+| Vault integration | The `ansible-awx` AppRole (role id and SecretID injected into the task environment, not a Semaphore credential type); the SecretID is never in Terraform state (rotation: `rotate-semaphore-approle`) |
+| Ansible Vault password | A Semaphore `ansible-vault-password` key, used as `--vault-password-file` |
 | Secrets | ESO from `secret/k8s/semaphore/{postgres-password,app,oidc}` — split across `terraform/vault/main.tf` + `terraform/authentik/semaphore.tf` |
 
 ### Repo wiring
 
-Semaphore project pointed at the homelab repo, branch `main`, working dir `ansible/`. Inventory and playbook paths resolved relative to that. The repo's `ansible/ansible.cfg` is the authoritative config (Semaphore inherits it).
+Semaphore project pointed at the homelab repo, branch `main`, working dir `ansible/`. Inventory and playbook paths resolved relative to that. The repo's `ansible/ansible.cfg` is the authoritative config (Semaphore inherits it). The project (`asgard`, which serializes runs: `max_parallel_tasks = 1`), its keys, repository, inventory, environment and every template and schedule are declared in `terraform/semaphore/` (the `semaphoreui` provider); a separate `aiops` project holds the action executor ([`aiops-actions.md`](../procedures/aiops-actions.md)).
 
 ### Custom image (collection pins)
 
-Semaphore runs a **custom image** (`docker/semaphore/Dockerfile` → `ghcr.io/xiiisins/semaphore-homelab`, built by `.github/workflows/build-semaphore-image.yml`), not the stock `semaphoreui` image. The stock image bundles its own Galaxy collection set and Semaphore never runs `ansible-galaxy collection install` — so the pins in `ansible/requirements.yml` (which the MacBook/Frigg controllers galaxy-install and honor) **never reached the Semaphore runtime**; every play silently ran on the older bundled collections. This surfaced when the `zabbix-agent` `register-host` task (4.x `community.zabbix` httpapi auth) passed from Frigg but failed from Semaphore, which had bundled 2.3.1. The custom image installs the pinned collections with `--force` directly into the ansible venv's `site-packages/ansible_collections` (overwriting the bundle) + bakes the runtime pip deps (`hvac`/`psycopg2-binary`/`pytz`, formerly a pod-start `pip install`). Site-packages is the load-bearing target: Semaphore runs tasks with the repo's `collections_path = collections` (empty) ansible.cfg and builds the task env itself, so a pod-spec `ANSIBLE_COLLECTIONS_PATH` never reaches the task — the only channel is Ansible's import finder scanning `sys.path`, which is the venv site-packages (exactly how MacBook/Frigg resolve 4.2.0). **Bump discipline:** changing `ansible/requirements.yml` (or the base image) means bumping `BASE_IMAGE` (Dockerfile) + `IMAGE_TAG` rN (workflow) + the StatefulSet image tag in one commit. First GHCR-hosted custom image in the homelab — the Dockerfile + workflow pattern is reusable for any future one. Full gotcha + diagnostic in CLAUDE.md "Known gotchas → Semaphore".
+Semaphore runs a **custom image** (`docker/semaphore/Dockerfile` → `ghcr.io/xiiisins/semaphore-homelab`, built by `.github/workflows/build-semaphore-image.yml`), not the stock `semaphoreui` image. The stock image bundles its own Galaxy collection set and Semaphore never runs `ansible-galaxy collection install` — so the pins in `ansible/requirements.yml` (which the MacBook/Frigg controllers galaxy-install and honor) **never reached the Semaphore runtime**; every play silently ran on the older bundled collections. This surfaced when the `zabbix-agent` `register-host` task (4.x `community.zabbix` httpapi auth) passed from Frigg but failed from Semaphore, which had bundled 2.3.1. The custom image installs the pinned collections with `--force` directly into the ansible venv's `site-packages/ansible_collections` (overwriting the bundle) + bakes the runtime pip deps (`hvac`/`psycopg2-binary`/`pytz`, formerly a pod-start `pip install`). Site-packages is the load-bearing target: Semaphore runs tasks with the repo's `collections_path = collections` (empty) ansible.cfg and builds the task env itself, so a pod-spec `ANSIBLE_COLLECTIONS_PATH` never reaches the task — the only channel is Ansible's import finder scanning `sys.path`, which is the venv site-packages (exactly how MacBook/Frigg resolve 4.2.0). **Bump discipline:** changing `ansible/requirements.yml` (or the base image) means bumping `BASE_IMAGE` (Dockerfile) + `IMAGE_TAG` rN (workflow) + the StatefulSet image tag in one commit. First GHCR-hosted custom image in the homelab — the Dockerfile + workflow pattern is reusable for any future one. Gotcha and diagnostic: [`known-issues/semaphore.md`](../known-issues/semaphore.md).
 
 ### Templates
 
-Five Semaphore task templates: three cover the drift loop, plus a daily fleet-wide agent reconverge and (Wave S4) an active infra-health prober. Add per-service variants only when a specific service needs different cadence/serial.
+Declared in `terraform/semaphore/templates.tf` (the authority; this is the shape). The drift/apply/agents templates run thin *wrapper* playbooks (`drift-check.yml`, `apply.yml`, `fleet-agents.yml`) so the `hermod_summary` callback, which infers the mode from the first playbook's filename, can tell same-file reuse apart.
 
 | Template | Cadence | What it runs | Notify on |
 |----------|---------|--------------|-----------|
-| `refresh-netbox-inventory` | Cron `every 4h` | Refreshes the cached NetBox inventory by deleting the cache file and re-querying NetBox once | Failure only (NetBox down or auth broken) |
-| `asgard-drift-check` | Cron `every 6h` | `ansible-playbook -i inventory/ site.yml --check --diff` | **Changes detected** → `tag: alert` to Hermod with the diff summary. Hard failure → `tag: alert`. Clean → no notification (audit trail in VL via vlagent) |
-| `asgard-apply` | Manual | `ansible-playbook -i inventory/ site.yml` | Failure → `tag: critical` (an apply blew up — manual intervention needed). Success → no notification |
-| `asgard-fleet-agents` | Cron `daily` | `fleet-agents.yml` — fleet-wide vlagent + zabbix-agent reconverge (defence-in-depth over the per-group roles in `site.yml`) | Failure → `tag: critical`. Success → no notification |
-| `infra-health-check` | Cron `every 12h` | `infra-health-check.yml` (`hosts: localhost` in the pod) — active prober: Cloudflare-token validity, served-cert expiry ×3 zones, Patroni REST `/cluster` + etcd `/health` quorum, PBS failed-tasks | Finding → `tag: critical`/`alert` POSTed by the playbook itself; clean → no notification. (The `hermod_summary` callback no-ops for non-drift/apply wrappers, so no double-post.) |
+| `refresh-netbox-inventory` | cron every 4 h | `ansible/scripts/refresh-netbox-inventory.sh`: wipe the cache and rebuild it, retrying NetBox 5xx blips until the result has a sane host count | Failure only |
+| `asgard-drift-check` | cron every 6 h | `site.yml --check --diff` | **Changes detected** → `alert` with the diff summary; hard failure → `alert`; clean → nothing (log in VL) |
+| `asgard-apply` | manual | `site.yml` | Failure → `critical`; success → nothing |
+| `asgard-os-updates` | manual | `os-updates.yml`: fleet OS patch and reboot, `serial: 1` per quorum group | |
+| `asgard-fleet-agents` | cron daily | `fleet-agents.yml`: vlagent + zabbix-agent reconverge across every host (defence-in-depth over the per-group roles) | Failure → `critical` |
+| `asgard-nonprod-drift-check` / `-apply` | cron daily / manual | `site-nonprod.yml` (canary pool) | Failures capped at `info`, title prefixed `[non-prod]` |
+| `infra-health-check` | cron every 12 h | `infra-health-check.yml` (`hosts: localhost` in the pod): Cloudflare-token validity, served-cert expiry ×3 zones, Patroni `/cluster` + etcd `/health` quorum, PBS failed tasks | The playbook posts `critical`/`alert` itself; clean → nothing. (`hermod_summary` no-ops for non-drift/apply wrappers, so no double post.) |
+| `pbs-restore-test` | cron weekly | Restore the newest backup of a canary and a rotating LXC into a scratch CT, verify, destroy ([procedure](../procedures/pbs-restore-test.md)) | The playbook posts its own result |
+| `aiops-*` | manual (`aiops-code-deploy` every 15 min) | The action registry's playbooks ([`aiops-actions.md`](../procedures/aiops-actions.md)) | |
 
-Per-service drift-check variants (e.g. `asgard-postgres-drift-check`) added later when a service needs a different cadence or has a known noisy-but-OK diff class that needs filtering before the alert fires.
+Per-service drift-check variants are added only when a service needs a different cadence or has a known noisy-but-OK diff class to filter before the alert fires.
 
-The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality, the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Deployed + validated in Wave S4 — see [`docs/plans/done/1.0-stabilization.md`](../plans/done/1.0-stabilization.md) + [`docs/procedures/s4-observability-validation.md`](../procedures/s4-observability-validation.md).
+The `infra-health-check` prober is the **active**-check complement to the drift loop's config-check: drift-check confirms Git == reality; the prober confirms live edge/app state (a token's validity, a served cert's expiry, cluster quorum, a backup's outcome) that no converge would catch. Plan and validation: [`1.0-stabilization.md`](../plans/done/1.0-stabilization.md), [`infra-health-check-validation.md`](../procedures/infra-health-check-validation.md).
 
 ## Inventory — NetBox dynamic + static fallback
 
 Two inventory sources, both authoritative for their domain:
 
-**Source 1: NetBox dynamic inventory** (primary). Plugin `netbox.netbox.nb_inventory` queries NetBox at runtime and projects hosts + groups from NetBox's metadata.
+**Source 1: NetBox dynamic inventory** (primary). `ansible/inventory/netbox.yml` uses `netbox.netbox.nb_inventory` (enabled explicitly in `ansible.cfg`, otherwise the file is silently skipped as unparseable YAML) with the read-only token at `ansible/netbox/inventory-token`:
 
-```yaml
-# ansible/inventory/netbox.yml (Phase 5h.3 deliverable)
-plugin: netbox.netbox.nb_inventory
-api_endpoint: https://netbox.niflheim.xiiisins.com
-token: "{{ lookup('community.hashi_vault.vault_kv2_get',
-                  'ansible/netbox/inventory-token').secret.value }}"
-validate_certs: true
-group_by:
-  - site         # niflheim
-  - tag          # ansible:postgres, ansible:k3s-cp, etc.
-  - role         # device role (proxmox-host, k3s-control-plane)
-  - cluster      # niflheim, niflheim-pg
-  - platform     # debian-13, rhel-9
-cache: true
-cache_plugin: jsonfile
-cache_timeout: 14400        # 4 hours
-cache_connection: /var/lib/semaphore/inventory-cache
-cache_prefix: netbox_asgard_
-```
-
-Group membership comes from NetBox **tags**. Tags in NetBox follow the convention `ansible:<group>` (e.g. `ansible:postgres`, `ansible:k3s-cp`, `ansible:hermod`). The dynamic inventory picks up these tags via `group_by: tag` and exposes them as Ansible groups verbatim.
+- Filters: active, with a primary IP, excluding firewall and NAS devices. `ansible_host` is composed from the primary IP.
+- Groups: NetBox tags `ansible:<group>` (the colon is stripped from the slug, so the tag `ansible:patroni` has slug `ansiblepatroni`) become groups via `keyed_groups`, plus computed `k3s` and `asgard_lxcs` (VMID 1100–1199) groups. Tags are declared in `terraform/netbox/tags.tf` and assigned in `devices.tf` / `vms.tf`.
+- Cache: `jsonfile` at `~/.cache/ansible/netbox-inventory`, prefix `netbox_asgard_`, **24 h TTL** with a 4 h refresh job, so consumers always hit a warm cache between refreshes. (A TTL equal to the refresh cadence left a race where a consumer between wipe and repopulate rebuilt cold against NetBox.)
 
 **Source 2: Static `hosts.yml`** (fallback + DR). Kept committed in `ansible/inventory/hosts.yml` permanently. Used when:
 - NetBox is down (cache expired *and* NetBox API unreachable)
 - Day-1 bootstrap (NetBox doesn't exist yet)
 - Disaster recovery (cluster being rebuilt from cold)
 
-Both sources merge transparently via Ansible's inventory plugin chain (`ansible/ansible.cfg` `inventory = inventory/netbox.yml, inventory/hosts.yml` — first-match wins per host). In practice NetBox is the source of truth during normal operations; `hosts.yml` exists as the emergency parachute.
+Both sources merge transparently via Ansible's inventory plugin chain (`ansible.cfg`: `inventory = inventory/netbox.yml, inventory/hosts.yml`). In practice NetBox is the source of truth during normal operations; `hosts.yml` exists as the emergency parachute.
 
 ### `group_vars/` and `host_vars/` overlay
 
-File-based `group_vars/` and `host_vars/` continue to work unchanged. Ansible's variable precedence merges file-based vars on top of dynamic-inventory-supplied facts, so per-group knobs (`group_vars/postgres_hosts/vars.yml`) and per-host overrides (`host_vars/fulla/vars.yml`) remain authoritative for Ansible-specific configuration that doesn't belong in NetBox.
+File-based `group_vars/` and `host_vars/` continue to work unchanged. Ansible's variable precedence merges file-based vars on top of dynamic-inventory-supplied facts, so per-group knobs (`group_vars/postgres.yml`) and per-host overrides (`host_vars/<host>.yml`) remain authoritative for Ansible-specific configuration that doesn't belong in NetBox.
 
 NetBox supplies: hostnames, IPs, group membership, platform/role tags, primary interface metadata.
 Files supply: passwords (via Vault lookup), tunable knobs, per-environment overrides, secret material.
@@ -154,7 +126,7 @@ Rule of thumb: if the value answers "what is this host?" → NetBox. If it answe
 
 ### Cache refresh
 
-The 4 h `cache_timeout` is the steady-state TTL. Manual refresh (e.g. just added a new VM in NetBox and want it picked up *now*) goes via the `refresh-netbox-inventory` Semaphore template — runs `rm /var/lib/semaphore/inventory-cache/netbox_asgard_*` then a no-op `ansible -m ping localhost` to repopulate.
+The `refresh-netbox-inventory` template (every 4 h, or on demand when a VM was just added in NetBox) runs `ansible/scripts/refresh-netbox-inventory.sh`, which rebuilds the cache with retries and refuses a result below the minimum host count (a malformed response can otherwise fall through to an implicit-localhost inventory, as happened in task 27). A pod restart wipes the `emptyDir`; `site.yml`'s preflight is the backstop if NetBox is also blipping.
 
 ## Drift detection — `--check --diff` against `site.yml`
 
@@ -197,28 +169,16 @@ Drift events tagged per the [notification design doc](../services/notifications.
 | Manual apply: failure | `critical` | Apply blew up — operator needs to act now |
 | Inventory refresh failure | `alert` | NetBox unreachable; cache will age out at 4 h |
 
-Semaphore's notification webhook config posts to Hermod at `http://hermod.niflheim.xiiisins.com:8000/notify/homelab` with the JSON schema specified in [notifications.md](../services/notifications.md).
+Semaphore's notification webhook config posts to Hermod at `http://hermod.niflheim.xiiisins.com/notify/<config-key>` (the `HERMOD_URL` environment, built from Vault) with the JSON schema specified in [notifications.md](../services/notifications.md).
 
-## What stays out of scope (for Phase 5h.3)
+## Out of scope
 
-- **Self-healing auto-apply.** Out by design — drift-check produces an alert and a human decides whether to converge. Removing the human is a separate decision with separate failure-mode implications.
+- **Scheduled auto-apply.** There is none: drift-check alerts and a human decides whether to converge. Autonomous healing is the separate, guarded Phase 10f (T1 actions on the canary pool first; [`aiops-autonomy.md`](../procedures/aiops-autonomy.md)), and fleet-wide auto-convergence is a direction, not a decision.
 - **PR-flow Ansible** (Atlantis-style). Already settled: not enabled. Solo dev, push-to-main matches existing Flux model. Decision row exists in `decisions.md`.
 - **Jotunheim Ansible.** Moot: Phase 7 (jotunheim K3s) was dropped 2026-10-05 for lack of resource capacity.
 - **Per-service Vault-AppRole isolation.** Today everything uses the shared `ansible-awx` AppRole (or `ansible-local` for MacBook runs). Per-service AppRole isolation is a follow-up if/when the blast radius becomes a real concern.
 
-## Implementation outline (Phase 5h.3 sub-phases)
+## Not done
 
-1. **5h.3.a** — Rename existing playbooks per the table above. Delete `test-vault-lookup.yml`. Add multi-play stages where `serial:` differs. Add `site.yml`.
-2. **5h.3.b** — Build NetBox-side: tag every device/VM with its `ansible:<group>` tag(s) via `terraform/netbox/` (additive change to the existing `tags` lists in `devices.tf` / `vms.tf`). Create a NetBox API token scoped to read-only inventory + write it to Vault at `secret/ansible/netbox/inventory-token`.
-3. **5h.3.c** — Add `ansible/inventory/netbox.yml` dynamic inventory + the cache directory layout. Local validation: `ansible-inventory --graph` against both sources, confirm groups + memberships match `hosts.yml`'s expected shape.
-4. **5h.3.d** — Deploy Semaphore in asgard K3s: `k8s/asgard/apps/semaphore/` (StatefulSet, PVC, Service, HTTPRoute on niflheim Gateway, ESO secrets, Authentik OIDC integration). Pinned chart or hand-rolled per the existing K3s pattern.
-5. **5h.3.e** — Semaphore project setup (templated as far as possible via Semaphore's API + Terraform if a provider is available; manual UI otherwise): repo + key + Vault integration + the three core task templates with their cron schedules + the Hermod webhook config.
-6. **5h.3.f** — Smoketest matrix: trigger drift-check manually against a clean fleet → no Hermod notification, VL has the log; mutate something on a host (`touch /etc/foo`) → drift-check detects → Hermod `alert` fires; manual apply converges → no notification; force a fail → Hermod `critical` fires.
-7. **5h.3.g** — Documentation pass: canonical `--check` mode caveats section in this doc (above), AGH rewrite for `semaphore.niflheim.xiiisins.com → 10.0.20.10`, post-flight (build-sequence tick, decisions row, incident retro, CLAUDE.md gotchas). Per-role README updates folded into the design-doc catalogue rather than duplicated 17 times — scope decision recorded 2026-05-27.
-
-## Open items at implementation time
-
-- Semaphore version pin — pick at deploy time from then-current release notes (concrete pin per CLAUDE.md IaC pin policy).
-- Inventory cache PVC vs emptyDir — PVC means cache survives pod restarts (better steady-state), emptyDir means restart = forced refresh (simpler, no PVC to manage). TBD.
-- Semaphore Terraform provider — check whether [semaphoreui/terraform-provider-semaphore](https://github.com/semaphoreui/terraform-provider-semaphore) is mature enough to manage the project/templates/schedules declaratively. If yes, add `terraform/semaphore/`; if no, document the manual UI setup in a `docs/procedures/semaphore-bootstrap.md`.
-- Whether `asgard-k3s.yml` should adopt the multi-play structure now (split agent rollout into its own play with parallelism) or leave as-is until adding a new agent forces the question.
+- `asgard-k3s.yml` multi-play split (above).
+- Per-service Vault AppRole isolation (above).

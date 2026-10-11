@@ -513,7 +513,7 @@ confused with a chart regression.
 (verify its EOL date). Current charts are tested against 1.34–1.36 (ESO 2.x,
 Vault chart 0.33+: 1.32–1.36). The K3s bump is a separate, bigger, quorum-critical
 operation (CPs one at a time, etcd quorum checks, workers drained,
-Calico-as-addon interaction — CLAUDE.md "Calico CNI is NOT Flux-managed"). Not
+Calico-as-addon interaction — CLAUDE.md "Calico is NOT Flux-managed"). Not
 covered here; worth its own plan and it unblocks §9.
 
 ---

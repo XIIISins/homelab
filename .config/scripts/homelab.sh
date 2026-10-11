@@ -950,7 +950,7 @@ __vault_homelab_default_addr='https://vault.niflheim.xiiisins.com'
 # fork-safe). The MacBook runs these roles fine now via the warm-inventory cache
 # (refresh-netbox-inventory / __homelab_ensure_netbox_inventory above). This var
 # stays the FQDN (public LE cert at Traefik → no internal-CA trust needed). See
-# CLAUDE.md "Frigg / control-node watchtower" + docs/procedures/vault-tls-migration.md.
+# CLAUDE.md "Frigg / control-node watchtower" + docs/procedures/vault-tls.md.
 __vault_homelab_ansible_addr='https://vault.niflheim.xiiisins.com'
 
 __vault_homelab_iac_path='secret/ansible/frigg/iac-env'

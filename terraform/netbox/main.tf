@@ -13,7 +13,7 @@
 # Source-of-truth model: TF declarations here are the spec for what
 # NetBox should contain; `terraform import` retrofits the existing
 # records hand-created via the web UI during Phase 5i.e (per the
-# procedure at docs/procedures/netbox-initial-data-import.md). Once
+# procedure at docs/procedures/archive/2026-05-24-netbox-initial-data-import.md). Once
 # imported, all future LXC/VM declarations in terraform/proxmox/*
 # MUST have matching netbox_* resources here (or in adjacent files
 # under this module) — see CLAUDE.md invariant.

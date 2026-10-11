@@ -254,7 +254,6 @@ After a rightsizing PR merges and the HelmRelease is Ready at the new revision, 
 | CPU limits | never added | throttling on 2-vCPU workers |
 | Testing | burst cluster (pod starts inside the new limits) + 72 h watch | the burst cluster has no real load, so the watch is the real proof |
 | In-place resize | not used | that would be VPA acting on its own |
-| Jotunheim | same pattern when Phase 7 deploys it | |
 
 ## Not in 10i
 
@@ -278,5 +277,3 @@ VPA updater or admission controller; autonomous apply or revert; HPA; resizing a
 ## Header status history
 
 *The status line this plan carried in its header, moved here verbatim when status consolidated into [`plans/README.md`](../README.md) (2026-10-10). It is a dated snapshot, not current status.*
-
-> Status: 🟡 10i0, 10i0b and 10i1 live 2026-10-05; 10i2 onward not built (10i2 waits for about 7 days of VPA history).

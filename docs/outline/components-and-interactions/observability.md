@@ -60,7 +60,7 @@ All log shipping uses **vlagent**, the official VictoriaLogs project shipper. CL
 
 ### Ingress endpoints
 
-The on-cluster DaemonSet writes directly to vlsingle via in-cluster Service DNS. Off-cluster shippers POST to vlsingle via an HTTPRoute on the niflheim Gateway — `https://logs.niflheim.xiiisins.com/insert/native`. K3s VM hosts are the awkward middle: their host network can't reach MetalLB VIPs from the same cluster, so a companion ClusterIP Service (`victorialogs-ingest`) is what they target, overridden in `group_vars/asgard_k3s.yml`.
+The on-cluster DaemonSet writes directly to vlsingle via in-cluster Service DNS. Off-cluster shippers POST to vlsingle via an HTTPRoute on the niflheim Gateway — `https://logs.niflheim.xiiisins.com/insert/native`. K3s VM hosts are the awkward middle: their host network can't reach MetalLB VIPs from the same cluster, so a companion ClusterIP Service (`victorialogs-ingest`) is what they target, overridden in `group_vars/k3s.yml`.
 
 ### Debian rsyslog
 

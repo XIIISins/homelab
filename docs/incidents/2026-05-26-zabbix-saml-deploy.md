@@ -2,7 +2,7 @@
 
 # Zabbix SAML SSO deploy — Phase 8c.3–8c.6 (2026-05-26)
 
-End-to-end first deploy of Authentik native SAML 2.0 against Zabbix 7.0 LTS on Hugin (LXC 1102). Procedure: [`docs/procedures/zabbix-saml-deploy.md`](../procedures/zabbix-saml-deploy.md). Outcome: ✅ all three documented validation paths work; 7 first-deploy findings landed as fix commits + 1 architectural limitation re-confirmed (midgard alias unusable for SAML, by design).
+End-to-end first deploy of Authentik native SAML 2.0 against Zabbix 7.0 LTS on Hugin (LXC 1102). Procedure: [`docs/procedures/archive/2026-05-26-zabbix-saml-deploy.md`](../procedures/archive/2026-05-26-zabbix-saml-deploy.md). Outcome: ✅ all three documented validation paths work; 7 first-deploy findings landed as fix commits + 1 architectural limitation re-confirmed (midgard alias unusable for SAML, by design).
 
 ## What landed
 
