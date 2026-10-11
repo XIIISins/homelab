@@ -4,6 +4,8 @@
 
 The household media server. It plays an anime library to family devices, transcoding in hardware when a device cannot play a file directly.
 
+![Jellyfin: media server on a privileged LXC with QuickSync](/api/attachments.redirect?id=b9218dc7-22ea-4aa6-ab85-14c0cba3a78a)
+
 ---
 
 ## Where it runs
@@ -46,3 +48,4 @@ The library sits on Munin's `media` share, mounted **read-only** inside the cont
 - **Hypervisors** (Hardware): the iGPU on Urd.
 - **Edge** (Components): why Jellyfin is internal-only.
 - **Storage** (Hardware): the media share on Munin.
+- **Jellyfin diagram** (Diagrams): the LXC, the two ways in and its neighbours.

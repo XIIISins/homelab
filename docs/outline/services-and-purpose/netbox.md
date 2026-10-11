@@ -4,6 +4,8 @@
 
 The queryable record of what the homelab is: every device, VM and LXC, IP address, VLAN and prefix, at `netbox.niflheim.xiiisins.com`. It also feeds the Ansible dynamic inventory.
 
+![NetBox: the queryable view of the lab](/api/attachments.redirect?id=810e3d41-000c-41ed-8188-d3b0d6a12025)
+
 ---
 
 ## The truth model
@@ -40,3 +42,4 @@ The Terraform provider authenticates with an admin API token (stored in 1Passwor
 - **GitOps & automation** (Components): the inventory and playbook structure.
 - **Compute & hypervisors** (Components): the ID scheme NetBox mirrors.
 - **Semaphore** (this section): the scheduler that consumes it.
+- **NetBox diagram** (Diagrams): who writes, who reads and what it depends on.

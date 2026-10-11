@@ -6,7 +6,7 @@
   },
   "components-and-interactions/compute-and-hypervisors.md": {
     "id": "a33ccc32-878c-43e0-9101-5c868a2b1d0b",
-    "sha": "d2dc553b275525ffa4fc70e4ebcb9931090fdb3aa8ea9e3c8b18d5277bd6b10e",
+    "sha": "18ccf20219c0cf66d51a95221ecca833d03eb3afe6a64c61720b5e488f6558ae",
     "title": "Compute & hypervisors"
   },
   "components-and-interactions/edge.md": {
@@ -26,28 +26,123 @@
   },
   "components-and-interactions/network.md": {
     "id": "1e78fed8-afe7-452a-ad08-f401bcb199b1",
-    "sha": "2f083f11ad9e4de881f348ebfeb84f73e37ba0c896683d6ba9af7d8ca6af0df0",
+    "sha": "1217e8d212960215124b8415dfb60978cc1787ee2ee5c624acfa50c44002f17d",
     "title": "Network"
   },
   "components-and-interactions/observability.md": {
     "id": "38df6945-9944-453f-ac8e-cec62ba97de6",
-    "sha": "3b739340b13a03b88160ffb7b3ef6f68a3678fecae4969d549b71267a8cb7adc",
+    "sha": "c09719246e1ff4274a143bcca6b6bbda11d533cb5d6cf9ce825b9db8cf879d44",
     "title": "Observability"
   },
   "components-and-interactions/storage-and-data.md": {
     "id": "f8159afb-4207-4da6-906f-bd027fcc7b83",
-    "sha": "1b54379753c65b3865b2432e1da291f318c20c3780f2b11ff057fa17e9a7cf78",
+    "sha": "716fe5334216e76a479b11c55eaeeb5108030fccec4b448ab335ac91aaf5757d",
     "title": "Storage & data"
   },
   "diagrams.md": {
     "id": "ef9a1660-5790-480c-b32f-28e80d55ddee",
-    "sha": "6f05e34f832084cc31ffb91679404f03e10d49e65f2d92a6c2b8beefb5c455cb",
+    "sha": "78dc3d938d428cd30f7adb78aa3351f5b5eeb712c83af108d7b3d48e814a1959",
     "title": "Diagrams"
+  },
+  "diagrams/adguard.md": {
+    "id": "5db5e274-9f85-4911-b196-4c8159b03125",
+    "sha": "9a41891a2e13b0c593f9bc06b051dd1a8330db45e23f7f10e63d4544e7efd2cf",
+    "title": "AdGuard diagram"
+  },
+  "diagrams/asgard-k3s.md": {
+    "id": "81582006-0b96-421b-a17c-a219d0ab63f1",
+    "sha": "73c850e4321034494c7908737806fd4763c5e8c6ab94e8dd29037f5d58442bc4",
+    "title": "Asgard K3s diagram"
+  },
+  "diagrams/asgard-lxcs.md": {
+    "id": "efaa5d40-d8b9-4a23-bff5-84a8de0ce0d8",
+    "sha": "32034bfd3a8020aaa0c9680cd5fdec41ebda4d44453c5feaf364c9cabfbc0699",
+    "title": "Asgard LXCs diagram"
+  },
+  "diagrams/factorio.md": {
+    "id": "f7a7df16-303d-48f7-a83e-bcb4f021207e",
+    "sha": "dc385a111c194a36aa6a2ef4ce6c53df9b4ecfa488868e9bbdfa38b415fc967e",
+    "title": "Factorio diagram"
+  },
+  "diagrams/garage.md": {
+    "id": "ad1741a0-94fc-405a-87ab-a791e5302de4",
+    "sha": "228627ceaebf49b9474bdecc6bc0a2881a3d29a3a5b5161a272beef772e5e615",
+    "title": "Garage diagram"
+  },
+  "diagrams/immich.md": {
+    "id": "65b10b36-f3e0-41a7-aec9-0298a62b39c9",
+    "sha": "fc3ddba536cf2f69df1e4b7cfd7f82a170a9b79dd7116e481e3d2a68cd93f423",
+    "title": "Immich diagram"
+  },
+  "diagrams/jellyfin.md": {
+    "id": "54f3ee9d-9278-4aff-9cda-8f8e97a7fc42",
+    "sha": "e310a0d46766267cccffb042133320bca0ebce7d41d4195af86df1d15a8693e4",
+    "title": "Jellyfin diagram"
+  },
+  "diagrams/media-automation.md": {
+    "id": "e69c2715-45e7-4de0-862a-dd0d2bdff470",
+    "sha": "7755f3345d642e8df53a1fe8877691dccb693dd94be640cd1e60cffa01698946",
+    "title": "Media automation diagram"
+  },
+  "diagrams/microbin.md": {
+    "id": "12c26b58-5225-4a35-9c21-1528cf93825c",
+    "sha": "9efdc60de9473905c035357fe03d81c3ef0a49f1e1fa0a90e92e1f4664541a5e",
+    "title": "MicroBin diagram"
+  },
+  "diagrams/netbox.md": {
+    "id": "7f587e71-5f47-4bf4-9e92-8ac38d5dd23a",
+    "sha": "63c01d571c5020685f8fbe6a62b45456a046b83ea0db002e7d6faada76e6f1ab",
+    "title": "NetBox diagram"
+  },
+  "diagrams/notifications.md": {
+    "id": "cc8692cb-8eb2-499f-9e1e-d137cb22b764",
+    "sha": "bd6be3c12982ef55a8709d5753eeca6fb0eca422ff980e5e57c69bf81eef19b4",
+    "title": "Notifications diagram"
+  },
+  "diagrams/observability.md": {
+    "id": "9125fb4c-9b5a-4942-9193-0b6854dcfb2a",
+    "sha": "6cc5cc8b00ea4f224bc06d5b86ef3cda5ed19d16c13035824c36c2b72c76a7b4",
+    "title": "Observability diagram"
+  },
+  "diagrams/outline.md": {
+    "id": "074f0e2e-f869-4aef-a7ff-ac809e6c6c5f",
+    "sha": "7f443c9c4c206df955e04a99a8aa9593320a2b7ccdbc0e373029b84237056b43",
+    "title": "Outline diagram"
+  },
+  "diagrams/overview-page.md": {
+    "id": "679f41b8-ed6a-417b-876c-bb473b99f3bf",
+    "sha": "2aff20b312030c0a5d07ef16e9a84b1b1f00672cb108d3a0abd038195f9e1843",
+    "title": "Overview page diagram"
   },
   "diagrams/overview.md": {
     "id": "57a4195f-c51e-4ddf-8a2c-2ab039fe2e6e",
     "sha": "c5789635baa1f4bb7640b31530a30b233f700e6a3ae2a3f60c2525dc0f361529",
     "title": "Overview diagram"
+  },
+  "diagrams/postgres.md": {
+    "id": "a86eec53-5750-47da-917a-39386c951912",
+    "sha": "a99aa8f59a709b936b69c469f5462646a83730dbf36d00cf213b803017dcd860",
+    "title": "PostgreSQL diagram"
+  },
+  "diagrams/startpage.md": {
+    "id": "600ba5e2-5077-41ac-b7ea-05d799130967",
+    "sha": "c523b12f22f29ba76709a9bfd25e3b95121d8dd7f66d466d5d5c315d49c8545b",
+    "title": "Startpage diagram"
+  },
+  "diagrams/synology.md": {
+    "id": "518b65d6-8c7c-499a-aaa1-5ddbdd0594c0",
+    "sha": "ae58e81a2d6820aba571147983b2988b6ba39fe6dc0b7b4fbb65905dfbd70df8",
+    "title": "Synology (Munin) diagram"
+  },
+  "diagrams/teamspeak.md": {
+    "id": "d7409784-3234-42e3-b3b1-948c4c4d6c06",
+    "sha": "778da261c6adf8ab03fc2ef13f6c0645ce49bc12b312e5279649e5e1cc2d729a",
+    "title": "TeamSpeak diagram"
+  },
+  "diagrams/zabbix.md": {
+    "id": "cfa1f65a-1e51-4e3e-922c-c1f0d7040026",
+    "sha": "c5f3b59e00aff9d6be81593a827485af308c7eecf884250d2e1173fcc285c3fc",
+    "title": "Zabbix diagram"
   },
   "hardware.md": {
     "id": "724c0516-21f0-45f3-b2f7-600a7048c482",
@@ -66,7 +161,7 @@
   },
   "hardware/storage.md": {
     "id": "4cc6c8a8-1ca6-4c67-9ef1-29c5b14cea82",
-    "sha": "573095b19ade328027248a9f833d892136a982b47352234e6e88e313b8cd99c6",
+    "sha": "88e8c15965f45c41bb2aeeb3b0069364159dd389f086c88dbff1fd7f766aae79",
     "title": "Storage"
   },
   "overview.md": {
@@ -151,47 +246,47 @@
   },
   "services-and-purpose/factorio.md": {
     "id": "94805e45-4ebe-4112-b91c-6a39d2c6377c",
-    "sha": "f159417c6fdf44be457644c668a9e96d1cc212a49aa11b173bfda4f707637d4b",
+    "sha": "81a73f1ed201ce58b32fde9cf664535e896fc33cef63f501aecf0ff681a4eb39",
     "title": "Factorio"
   },
   "services-and-purpose/hermod.md": {
     "id": "ae76acef-b618-450d-baa9-7f1ceac5874c",
-    "sha": "9453b9229a96336f989f91c033ecb46a6d075ac28c032cbad930e28cda4618a4",
+    "sha": "ceaa8d70c09e87eac472f59e5daa0570489d7414e7b2aff8eb5cf9d9ab306597",
     "title": "Hermod"
   },
   "services-and-purpose/immich.md": {
     "id": "85958779-55f6-42e0-8041-8952e25b567f",
-    "sha": "d218b4ef20b1797ea1235e8673d7fadaf63bc1fe796c121bb1446cd373e3e19d",
+    "sha": "5c3457ffe44504664897f0655f761909d9c9103a892afe54799ada0bc9f02dce",
     "title": "Immich"
   },
   "services-and-purpose/jellyfin.md": {
     "id": "98eaf8e6-c6aa-4f97-9173-d52a8ac6cb00",
-    "sha": "85c05eb6315921f431acba4e2c5e5efbd7888cc2d937b11ee485dc602163fc65",
+    "sha": "b453de5282ac72cbf023dc303c51e5c9783df8369c60502b4de87123d08786d8",
     "title": "Jellyfin"
   },
   "services-and-purpose/media-automation.md": {
     "id": "59a0bc04-f394-4d2b-8c4a-2c595882c3f0",
-    "sha": "59e639a73d479ab5ac425eabdc9b9069bb634162babfec7ab3fe20ef290e2332",
+    "sha": "d333edd2801adc7483a78fe3c41337b5e0c1081c784db0bcbf0d46b218347ddd",
     "title": "Media automation"
   },
   "services-and-purpose/microbin.md": {
     "id": "a8d90b99-7b60-4c11-957c-2e8c553303b9",
-    "sha": "95db567b5d28be89b3d3ad57df497ab0a3becc400a6e0ef01eca4969e0edfd0f",
+    "sha": "bd07c83fa6412fa61c07e054d501b3caa2d59f45a690222a8ddf41e2989d9a51",
     "title": "MicroBin"
   },
   "services-and-purpose/netbox.md": {
     "id": "9d445564-4366-4f6a-9af4-8785a4e64be6",
-    "sha": "311416369da2ec2ba9f0f8942b62f63aff82be1af1b973195aef63faa8c28ce5",
+    "sha": "7641ce40483b28c027a4e05be0606fea36fffe2fc1b9f1f0881b88265fedaff8",
     "title": "NetBox"
   },
   "services-and-purpose/outline.md": {
     "id": "8629747c-c7ff-4fe8-9a83-f747f87e4266",
-    "sha": "f75420431c0f3a4ad5503954fb9160237f29333373864807bc5a1b670ce81c83",
+    "sha": "e4cef92aa4391cb0ec675d92f08b246fa664b6bcbabad07fdf2ed4a9a888a267",
     "title": "Outline"
   },
   "services-and-purpose/overview.md": {
     "id": "c401c9b2-07c3-4703-a913-b24b47c9213f",
-    "sha": "e56687b19b2867b08ba99e010a0f3d6891913de72c2e1c7563f4b5b6d492cc1d",
+    "sha": "9d6d5300c145a315b02fe4e84764369bd0f9c37b84e5317a4eb378fe9294936f",
     "title": "Overview page"
   },
   "services-and-purpose/semaphore.md": {
@@ -201,17 +296,17 @@
   },
   "services-and-purpose/startpage.md": {
     "id": "e408ca98-5ae9-4d5c-973c-e0568ca9e6f3",
-    "sha": "44127ef5969acd00ce25f28c59ca30cd2f3b853176874dea8a6e16d7d36ed519",
+    "sha": "068607a63a270f1d62e8b5d93c00670dcc5c5b8dd6cf37c25257a3810517a550",
     "title": "Startpage"
   },
   "services-and-purpose/teamspeak.md": {
     "id": "4c50a57b-edf7-4876-af2e-df1831dd9c3a",
-    "sha": "f726495cab7d80a4000a3d801abf54fcb1a6fb7d00180fe7baad6e2aefea87fe",
+    "sha": "520c05d68e86601ee7e6a0436c8678a9710aa268e8574622c3ca0344e60646ce",
     "title": "Teamspeak"
   },
   "services-and-purpose/zabbix.md": {
     "id": "e1340ef1-3e33-4b67-9b67-5baf822f1cce",
-    "sha": "8c3afa1f73b3ab56348c89140189aa06773375f428584348d8c582c8dd51cab2",
+    "sha": "f6b4b5e6e190a8667753c2771c4963f4f60b7cc278a779fb70bc8fec40cd54ca",
     "title": "Zabbix"
   },
   "troubleshooting.md": {

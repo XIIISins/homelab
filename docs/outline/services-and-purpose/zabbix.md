@@ -4,6 +4,8 @@
 
 Host and LXC monitoring, on its own LXC (Hugin, `10.0.11.21`, on Urd) **outside Kubernetes on purpose**: when the cluster is the thing on fire, Zabbix is what tells you. It pairs with Munin in the naming scheme: one observes, one remembers.
 
+![Zabbix (Hugin): host and LXC monitoring outside K3s](/api/attachments.redirect?id=e5f667e2-5133-4ae6-85b7-1fa4138f2714)
+
 ---
 
 ## What it watches
@@ -31,3 +33,4 @@ A webhook media type on the standard "report problems" action sends events to **
 - **Observability** (Components): the monitoring split.
 - **Hermod** (this section): the notification hub.
 - **AIOps agent** (this section): the consumer of events.
+- **Zabbix diagram** (Diagrams): what it watches, how operators reach it and what it feeds.

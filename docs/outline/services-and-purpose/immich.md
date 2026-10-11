@@ -4,6 +4,8 @@
 
 A self-hosted photo and video library for the operator and close family. It is a **secondary copy** next to the phone vendors' own cloud backups, never the only copy, and that framing sets how much redundancy it gets.
 
+![Immich: family photo library](/api/attachments.redirect?id=1b0e336b-f9e2-499c-ba2e-60508a57c1d8)
+
 ---
 
 ## How it is built
@@ -37,3 +39,4 @@ One NAS with RAID 1, no offsite copy, and not part of the PBS job. That is a del
 - **Storage & data** (Components): the NFS tier and the Postgres cluster.
 - **Edge** (Components): the public path.
 - **Identity & secrets** (Components): the OIDC flow.
+- **Immich diagram** (Diagrams): the paths in, the pods and what they depend on.

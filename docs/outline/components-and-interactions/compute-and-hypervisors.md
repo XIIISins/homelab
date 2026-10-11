@@ -40,6 +40,8 @@ The reasons services sit outside Kubernetes are concrete, not stylistic:
 
 The three control planes are identical by rule, so failover is symmetric. They are tainted so only the workers run workloads. The workers are multi-homed because MetalLB announces service IPs on a dedicated VLAN (see **Network**). Authoritative specs live in `locals.control_planes` and `locals.workers` in `terraform/proxmox/asgard-k3s/main.tf`.
 
+![Asgard K3s: the one production cluster](/api/attachments.redirect?id=a4973a96-6a88-43ac-9557-120ff03f1ee7)
+
 ### LXCs
 
 One row per function; the full table with IPs is in the services docs.
@@ -53,6 +55,8 @@ One row per function; the full table with IPs is in the services docs.
 | 1190–1199 | AIOps canary pool | Three disposable canaries (1190–1192), Urd only |
 
 Trios are spread one per node, so a single node loss costs one member of each trio. Singleton roles avoid Skuld.
+
+![Asgard LXCs: what runs outside K3s, and where](/api/attachments.redirect?id=ead5cdd6-34d9-4db3-84e7-f895e9e55dff)
 
 ### Standalone VMs
 
@@ -109,3 +113,5 @@ The `k3s` Ansible role installs everything: prerequisites, network plumbing (the
 - **Storage & data** (this section): where guest and pod data lands.
 - **GitOps & automation** (this section): the Terraform, Ansible and Flux ownership boundary.
 - **Procedures**: K3s node rebuild, whole-cluster rebuild, Proxmox host patching.
+- **Asgard K3s diagram** (Diagrams): the VMs, the Flux chain and the platform.
+- **Asgard LXCs diagram** (Diagrams): which LXC runs on which host.

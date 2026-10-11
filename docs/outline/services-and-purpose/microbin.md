@@ -4,6 +4,8 @@
 
 A pastebin and file-share at `paste.xiiisins.com`: paste a script or share a file, with optional password, expiry and encryption. Anyone can create and view; a small trusted crew gets the cleanup pages.
 
+![MicroBin: public pastebin with a gated janitor door](/api/attachments.redirect?id=157e6443-751e-48a6-8592-b8b2c54add16)
+
 ---
 
 ## Why this tool
@@ -31,3 +33,4 @@ It is public through the Cloudflare tunnel only, with no LAN shortcut.
 
 - **Edge** (Components): the public path and ForwardAuth.
 - **Storage & data** (Components): the NFS tier.
+- **MicroBin diagram** (Diagrams): the open routes and the gated janitor routes.

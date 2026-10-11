@@ -4,6 +4,8 @@
 
 A Factorio headless game server, run by a trusted friend who has no shell on the machine. It is the template for operator-managed services in this homelab.
 
+![Factorio: a game server a friend runs through SFTP only](/api/attachments.redirect?id=899cb378-7226-4635-a91f-662a42afc8d2)
+
 ---
 
 ## The model
@@ -39,3 +41,4 @@ The RCON password is never in the operator's tree: a fresh one is generated on e
 
 - **Compute & hypervisors** (Components): why game servers are LXCs.
 - **GitOps & automation** (Components): the Ansible role and playbook.
+- **Factorio diagram** (Diagrams): the doors, the reconciler and the shared folder on one sheet.

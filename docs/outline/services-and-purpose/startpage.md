@@ -4,6 +4,8 @@
 
 The operator's personal browser homepage at `home.xiiisins.com`: a static page of bookmarks. The status-and-launcher view for homelab apps is a different page, the **Overview page**, which links back here as "Bookmarks".
 
+![Startpage: a static page cloned from Git at pod start](/api/attachments.redirect?id=8d7071f4-31e6-47f7-99da-04356634e838)
+
 ---
 
 ## How it works
@@ -20,3 +22,4 @@ Public through the Cloudflare tunnel only, with no sign-in. To publish a change:
 
 - **Overview page** (this section): the status page and app launcher.
 - **Edge** (Components): the public path.
+- **Startpage diagram** (Diagrams): the pod, the init clone and the deploy key.

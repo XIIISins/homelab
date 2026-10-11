@@ -4,6 +4,8 @@
 
 A one-screen status page and app launcher for the homelab at `overview.niflheim.xiiisins.com` (also `status.xiiisins.com`). Internal-only: the names exist only in AdGuard, so they resolve on the LAN and the tailnet and nowhere else.
 
+![Overview page: a status page that reads two APIs](/api/attachments.redirect?id=3e0c171a-72bc-41fd-8818-cad2b0d8d68c)
+
 ---
 
 ## What it shows
@@ -35,3 +37,4 @@ It has no sign-in: read-only numbers, LAN and tailnet only. Making it public wou
 - **Observability** (Components): the metrics it reads.
 - **Startpage** (this section): the personal bookmarks page.
 - **URLs**: the full hostname directory.
+- **Overview page diagram** (Diagrams): the two APIs Caddy proxies.

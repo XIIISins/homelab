@@ -4,6 +4,8 @@
 
 The notification hub: the single place every alert-producing system sends to, which fans alerts out to the right Discord channel by tag. Named for the messenger of the gods. When Postgres fails over or Zabbix trips a trigger, this is how the operator finds out.
 
+![Notifications: Hermod fans alerts out to Discord by tag](/api/attachments.redirect?id=9bfb4361-8d09-4eff-baba-ba60067580cb)
+
 ---
 
 ## Where it runs
@@ -45,3 +47,4 @@ Sonarr is the one deliberate exception: it posts to the media webhook directly b
 - **Observability** (Components): the full alerting picture.
 - **Storage & data** (Components): the Patroni failover events.
 - **Semaphore** (this section): the drift alerts.
+- **Notifications diagram** (Diagrams): producers, tags and channels on one sheet.

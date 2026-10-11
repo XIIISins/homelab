@@ -44,6 +44,8 @@ Cluster-internal ranges: pods `10.42.0.0/16`, services `10.43.0.0/16`.
 
 **AdGuard Home** runs on three LXCs (Saga, Mimir, Kvasir), one per node. A keepalived VIP (`10.0.10.200`) floats across them; clients and DHCP only ever know the VIP. Saga is the origin: `adguardhome-sync` pushes its configuration to the replicas every minute. The resolver does not forward to a public fallback resolver, because public resolvers return NXDOMAIN for the internal zones and clients cache that as truth.
 
+![AdGuard Home: DNS for the whole lab](/api/attachments.redirect?id=70798eb3-05ec-4819-b852-a2e056729d5a)
+
 **Three zones**, each with a clear job:
 
 | Zone | Served by | For |
@@ -112,3 +114,4 @@ Two highly available endpoints use keepalived VRRP on VLAN 10: the AdGuard VIP a
 - **Compute & hypervisors** (this section): which guests sit on which VLAN.
 - **Networking** (Hardware): the physical gear and firewall boundary.
 - **DNS & networking** troubleshooting (Troubleshooting): NXDOMAIN, VIP reachability, sync problems.
+- **AdGuard diagram** (Diagrams): the DNS address, the three containers and how a query is answered.
