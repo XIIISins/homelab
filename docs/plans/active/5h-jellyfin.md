@@ -58,7 +58,7 @@ fallback (K3s down) ── http ──────> jellyfin-direct.niflheim →
 LXC 1123:  /dev/dri/renderD128 (passed, gid=2001 `igpu`, 0660) → jellyfin-ffmpeg (iHD/QSV)
            /var/lib/jellyfin     rootfs, local-lvm, backed up    (config, SQLite DB, metadata)
            /var/cache/jellyfin   mount point, local-lvm, backup=false (transcodes, image cache)
-           /media                NFS ro 10.0.254.20:/volume5/media-backup, mounted in-container, RequiresMountsFor
+           /media                NFS ro 10.0.254.20:/volume5/media, mounted in-container, RequiresMountsFor
 ```
 
 Identity: **LXC 1123, `10.0.11.223`, VLAN 11, Urd** (next free in the 1120–1129 services range). Sizing: 4 cores (scans, subtitle extraction and the occasional software fallback; iGPU work does not count against them), 3 GB RAM + 1 GB swap, 16 GB rootfs, 40 GB cache mount point. Not in a PVE HA group (passthrough + in-guest NFS: moves are a deliberate `pct migrate --restart`).
@@ -73,7 +73,7 @@ J1 (host role, PRs #207/#212), J2 (Terraform, NetBox, AdGuard, #208/#209/#213), 
 
 ## J0 — Prerequisites and host checks (read-only, plus one DSM change)
 
-- [x] **Media share on Munin**: exists at `10.0.254.20:/volume5/media-backup` (operator, 2026-10-05). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media-backup`. ✅ Rule in place 2026-10-06 with Squash "Map all users to admin", Read only (the first attempt with "Map root to guest" denied everyone; see [`jellyfin.md`](../../known-issues/jellyfin.md)).
+- [x] **Media share on Munin**: exists at `10.0.254.20:/volume5/media` (operator, 2026-10-05; the shared folder was created as `media-backup` and renamed). Add an NFS permission rule for `10.0.11.223` (operator, DSM UI; Synology is not in IaC): read-only, `root_squash`, NFSv4.1 enabled. Then check from Urd: `showmount -e 10.0.254.20 | grep media`. ✅ Rule in place 2026-10-06 with Squash "Map all users to admin", Read only (the first attempt with "Map root to guest" denied everyone; see [`jellyfin.md`](../../known-issues/jellyfin.md)).
 - [x] **Urd headroom** ✅ 2026-10-06: **7.6 GB available** (0.75 GB "free" is mostly reclaimable cache), swap 2.3 of 8 GB, memory PSI 0.00, load 0.4-1.1 on 8 cores, `local-lvm` 758 GB free. Read as *available* (the figure that matters; page cache is reclaimable) the gate passes: **3 GB RAM + 1 GB swap, 4 cores, D-3 not triggered.** The LXC caps trim (Factorio 8 → 2 GB, Hugin 4 → 2 GB, HAProxy/etcd trio 2 → 1 GB) lowered Urd's configured guest RAM from 44.5 to 34 GB but frees no live RAM: caps are not reservations ([`lxc-proxmox.md`](../../known-issues/lxc-proxmox.md)). At the 3 GB cap Urd keeps about 4.6 GB available. **Portability:** Verd has 5.6 GB available (a migration there leaves ~2.5 GB: free room first), Skuld 7.2 GB with almost no swap but it is the node that hard-freezes.
 - [x] **Dual-channel RAM** ✅ 2026-10-06, **all three nodes**: two 16 GB DDR4-2400 DIMMs on separate controllers (`Controller0/1-ChannelA-DIMM0`), so dual-channel. J5 still measures tone-mapping capacity.
 - [x] **iGPU on the host** ✅ 2026-10-06, **all three nodes identical**: `pci-0000:00:02.0-render -> ../renderD128` (the only DRM render node), Alder Lake-UP3 GT1 `[8086:46b3]` on `i915`, `renderD128` is `root:render 0660`, **render gid 993** everywhere (matches the pinned gid in J2). Kernel `7.0.14-17-pve` on Urd and Verd, `-19` on Skuld.
@@ -100,7 +100,7 @@ Day-1 baseline as root, then the full play as `ansible`, per the LXC bootstrap f
 The `jellyfin` role:
 
 - `igpu` group (gid 2001, the passed device's gid); `jellyfin` user in `igpu` (and `video`, `media`).
-- NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media-backup /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
+- NFS: `nfs-common`, fstab entry `10.0.254.20:/volume5/media /media nfs4 ro,vers=4.1,hard,_netdev,noatime 0 0` (IP, not a name, like PBS: the mount must not depend on DNS), mount asserted.
 - Jellyfin apt repo + pinned `jellyfin` and `jellyfin-ffmpeg7`.
 - systemd drop-in: `RequiresMountsFor=/media /var/cache/jellyfin`, so Jellyfin never starts against an empty mount point and scans the library away.
 - Paths in `/etc/default/jellyfin` / `system.xml`: cache and transcodes under `/var/cache/jellyfin`; metadata under `/var/lib/jellyfin`.
@@ -181,7 +181,7 @@ Elsewhere:
 
 ## Operator steps (the ones Claude cannot do)
 
-1. Add the NFS permission rule for `10.0.11.223` on `volume5/media-backup` (J0).
+1. Add the NFS permission rule for `10.0.11.223` on `volume5/media` (J0).
 2. Answer D-3 if J0 triggers it; give the KPN upload rate for the remote bitrate limit.
 3. `terraform apply` in `asgard-lxcs-root` (needs `PROXMOX_VE_PASSWORD`), `netbox`, `adguard`, from the main checkout.
 4. Jellyfin first-run wizard (admin account, libraries), then create household accounts.

@@ -254,7 +254,6 @@ After a rightsizing PR merges and the HelmRelease is Ready at the new revision, 
 | CPU limits | never added | throttling on 2-vCPU workers |
 | Testing | burst cluster (pod starts inside the new limits) + 72 h watch | the burst cluster has no real load, so the watch is the real proof |
 | In-place resize | not used | that would be VPA acting on its own |
-| Jotunheim | same pattern when Phase 7 deploys it | |
 
 ## Not in 10i
 

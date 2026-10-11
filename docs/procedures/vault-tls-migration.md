@@ -188,4 +188,4 @@ Worst case, restore the pre-flight Raft snapshot.
 - [ ] `docs/operations/decisions.md` — already has the row (added with this branch).
 - [ ] `docs/operations/open-questions.md` — tick the "Vault listener TLS" item.
 - [ ] Forward-fit: the same `homelab-internal-ca` can later issue the Patroni
-  leader cert (retires Outline's `sslmode=no-verify`) and jotunheim in-cluster TLS.
+  leader cert (retires Outline's `sslmode=no-verify`).
