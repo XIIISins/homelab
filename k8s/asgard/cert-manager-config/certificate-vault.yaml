@@ -18,7 +18,7 @@
 # 1y duration: cert-manager renews vault-tls in place, but Vault does NOT
 # auto-reload listener certs — a rolling restart of the Vault StatefulSet
 # is required to pick up a renewed cert (30d grace via renewBefore). See
-# docs/procedures/vault-tls-migration.md "Cert renewal".
+# docs/procedures/vault-tls.md "Cert renewal".
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

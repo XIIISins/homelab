@@ -1059,7 +1059,7 @@ set -g __vault_homelab_default_addr 'https://vault.niflheim.xiiisins.com'
 # fine now via the warm-inventory cache (refresh-netbox-inventory /
 # __homelab_ensure_netbox_inventory above). This var stays the FQDN (public LE
 # cert at Traefik → no internal-CA trust needed, parity with VAULT_ADDR). See
-# CLAUDE.md "Frigg / control-node watchtower" + docs/procedures/vault-tls-migration.md.
+# CLAUDE.md "Frigg / control-node watchtower" + docs/procedures/vault-tls.md.
 set -g __vault_homelab_ansible_addr 'https://vault.niflheim.xiiisins.com'
 
 # Consolidated IaC bundle in Vault (KV v2, mount `secret`). Same paths Frigg
