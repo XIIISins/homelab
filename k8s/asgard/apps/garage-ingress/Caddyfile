@@ -28,6 +28,10 @@
 		path /outline/*
 	}
 	handle @read {
+		# Outline stores objects with a year-long Cache-Control, and Cloudflare
+		# caches the response by its full signed URL, so an expired link would
+		# keep working at the edge. `>` sets it after the upstream replies.
+		header >Cache-Control "private, no-store"
 		reverse_proxy garage-s3.garage.svc.cluster.local:3900
 	}
 
