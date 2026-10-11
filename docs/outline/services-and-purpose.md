@@ -2,87 +2,80 @@
 
 # Services and purpose
 
-What the homelab actually runs, and who each thing is for. The other sections describe the machinery; this one is the catalog — open it when you want to know "what does this homelab *do*," or which service to reach for.
-
-*Every service traces back to one of two audiences: the people the homelab serves, or the operator who keeps it running. If a service can't be placed in one of those, it probably belongs in **Components & interactions** as plumbing, not here.*
+What runs on the homelab, who it is for, and where to read more. Services are grouped by audience: the things friends and family use, the tools the operator uses, and the platform pieces everything else stands on. Where a service has its own page, it is linked; platform pieces are described here and in depth under **Components & interactions** and **Hardware**.
 
 ---
 
 ## For friends and family
 
-The point of the whole thing. Services that exist so people other than the operator get something useful.
-
-| Service | What it's for | Where it runs | Access |
+| Service | What it is | Address | Access |
 |---|---|---|---|
-| **Jellyfin** | Movies, TV, music streaming | Privileged LXC on Urd | `jellyfin.midgard.xiiisins.com` *(planned)* |
-| **TeamSpeak** | Voice chat for gaming and hanging out | asgard K3s | `ts3.xiiisins.com` (SRV) |
-| **Factorio** | Multiplayer game server | LXC 1120 | UDP game port + SFTP for admins |
-| **Outline** | Shared wiki / knowledge base | asgard K3s | `wiki.xiiisins.com` |
-| **Startpage** | Landing / dashboard page | asgard K3s | `home.xiiisins.com` |
-| **MicroBin** | Pastebin / quick file-share | asgard K3s | `paste.xiiisins.com` |
-| **Immich** *(planned)* | Photo and video library | asgard K3s | — |
-
----
+| **Jellyfin** | Media server with hardware transcoding, fed by the media-automation pipeline | `jellyfin.midgard.xiiisins.com` | Internal and Tailscale only; deliberately not on the internet |
+| **Teamspeak** | Voice server | `ts3.xiiisins.com` (DNS SRV) | Public UDP port-forward, with an offsite failover |
+| **Factorio** | Game server, managed by its operator over SFTP | `factorio.xiiisins.com` | Public game port; SFTP for the operator |
+| **Immich** | Photo and video library (a secondary copy) | `immich.xiiisins.com` | Public through Cloudflare, Authentik OIDC |
+| **Outline** | The wiki: how-tos and living notes (this page lives there) | `wiki.xiiisins.com` | Public through Cloudflare, Authentik OIDC |
+| **MicroBin** | Pastebin and file sharing | `paste.xiiisins.com` | Public; anonymous create and view, janitor routes gated |
+| **Startpage** | Browser homepage | `home.xiiisins.com` | Public, static |
 
 ## Operator tooling
 
-Services the operator uses to run, observe, and reason about the homelab. Not secret, just not interesting to the household.
+| Service | What it is | Address |
+|---|---|---|
+| **Overview page** | One-screen status page and app launcher | `overview.niflheim.xiiisins.com` |
+| **Media automation** | Sonarr, SABnzbd and Recyclarr, filling the Jellyfin library | `sonarr.` / `sabnzbd.niflheim.xiiisins.com` |
+| **NetBox** | IPAM/DCIM, and the Ansible inventory source | `netbox.niflheim.xiiisins.com` |
+| **Semaphore** | Ansible scheduler and drift-check | `semaphore.niflheim.xiiisins.com` |
+| **Zabbix** | Host and LXC monitoring | `hugin.xiiisins.com` |
+| **Hermod** | Notification hub to Discord | `hermod.niflheim.xiiisins.com` (internal, API only) |
+| **AIOps agent** | Diagnosis, approvals and healing (Gná and Ratatoskr) | Discord; no web UI |
+| VictoriaMetrics UI, VictoriaLogs UI | Metrics and log search | `metric.` / `logs.niflheim.xiiisins.com` |
+| Vault UI | Secret lookup | `vault.niflheim.xiiisins.com` |
 
-| Service | What it's for | Where it runs | Access |
-|---|---|---|---|
-| **NetBox** | IPAM / DCIM — source of truth for IPs, VLANs, devices, VMs | asgard K3s | `netbox.niflheim.xiiisins.com` |
-| **Semaphore** | Ansible orchestration + fleet drift-check | asgard K3s | `semaphore.niflheim.xiiisins.com` |
-| **n8n (AIOps agent)** | Diagnoses High/Disaster alerts with read-only tools and posts to `#diagnoses` | LXC 1121 (Gná) on Urd | internal only (ingest listener for Zabbix; editor via SSH tunnel) |
-| **Zabbix** (Hugin) | Host- and LXC-level monitoring | LXC 1102 (Hugin) on Urd | `hugin.xiiisins.com` |
-| **Hermod** | Notification hub — fans alerts to Discord | LXC 1103 on Verd | internal POST endpoint |
-| **Vault** | Machine secrets + human secret lookup | asgard K3s | `vault.niflheim.xiiisins.com` → **Identity & secrets** |
-| **vmui / VictoriaLogs UI** | In-cluster metrics + logs | asgard K3s | `metric.` / `logs.niflheim.xiiisins.com` → **Observability** |
+## Platform
 
----
+These have no subpage of their own: each is a catalog row here and a deep section elsewhere.
 
-## Platform services
-
-The layer everything else stands on. These are documented in depth under **Components & interactions** and **Hardware**; they appear here as catalog rows so the directory is complete, with a pointer to the real page.
-
-| Service | What it's for | Where it runs | Deep page |
-|---|---|---|---|
-| **Authentik** | Identity provider — OIDC, LDAP, SAML | asgard K3s | **Identity & secrets** |
-| **PostgreSQL** (Patroni) | Relational database for nearly every app | Fulla / Vör / Idunn LXCs | **Storage & data** |
-| **Garage** | S3-compatible object storage | asgard K3s | **Storage & data** |
-| **Munin** (Synology) | iSCSI block + NFS file storage | DS223J NAS | **Hardware → Storage** |
-| **AdGuard Home** | DNS resolution + rewrites | Saga / Mimir / Kvasir LXCs | **Network** |
-| **PBS** | Proxmox VM/LXC backups | LXC 1101 on Skuld | **Storage & data** |
-
----
-
-## Planned
-
-Services that are decided but not yet deployed. Listed here so the catalog reflects intent, not just current state.
-
-- **Jellyfin** — designed (privileged LXC on Urd, QuickSync passthrough); deployment pending. Has its own page already.
-- **Immich** — self-hosted photo/video library for the household, a secondary copy alongside iCloud/Google Photos. NFS-backed library (Immich has no native S3 support) + Postgres, same PG/identity shape as Outline.
-
-Startpage, MicroBin (which took the slot the originally-planned Privatebin would have), and n8n have since gone live — each now has its own subpage under this section.
+| Service | Role | Deep page |
+|---|---|---|
+| **Authentik** | Sign-in for every web service | **Identity & secrets** (Components) |
+| **HashiCorp Vault** | Runtime secrets | **Identity & secrets** |
+| **PostgreSQL (Patroni)** | The database cluster behind most apps | **Storage & data** |
+| **Garage** | S3 object storage for Outline | **Storage & data** |
+| **AdGuard Home** | DNS for the whole network | **Network** |
+| **Munin (Synology)** | NAS: backups, NFS, media | **Storage** (Hardware) |
+| **PBS** | VM and LXC backups | **Storage & data** |
+| **Traefik, Cloudflared, cert-manager** | Web edge | **Edge** |
+| **Tailscale** | Remote access | **Hardware** (Networking) |
+| **Frigg** | Control node | **GitOps & automation** |
 
 ---
 
-## Where to go deeper
+## Tiers of care
 
-Each family-facing and operator-tooling service with its own page:
+| Tier | Meaning | Examples |
+|---|---|---|
+| **Critical** | Absence felt household-wide within minutes. Runs with active redundancy. | DNS, the firewall, the Postgres VIP |
+| **Important** | Noticed within hours. A single node failure should be invisible. | Authentik, Jellyfin, Teamspeak, Hermod, Vault |
+| **Best-effort** | An outage is acceptable; the operator notices and fixes. | Factorio, the wiki, observability UIs, anything experimental |
 
-- **Jellyfin** — media server, QuickSync, why it's an LXC.
-- **TeamSpeak** — voice server, the SRV failover ring.
-- **Factorio** — game server, the SFTP self-service + reconcile-loop pattern.
-- **Outline** — the wiki you're reading, its Postgres + Garage + OIDC wiring.
-- **NetBox** — IPAM/DCIM truth and the Terraform standing pattern.
-- **Semaphore** — Ansible scheduler and the drift-check loop.
-- **Zabbix** — host monitoring in its own failure domain.
-- **Hermod** — the notification hub and its Discord tag taxonomy.
+---
+
+## Planned or in progress
+
+Open work is tracked in the build sequence rather than here. At the time of writing: household accounts and remote access for Jellyfin, a restore test for Sonarr's config, and the later stages of the AIOps tiers. A package mirror and a second Kubernetes cluster were both considered and dropped for lack of disk and RAM.
+
+---
+
+## Service pages
+
+- **Jellyfin**, **Media automation**, **Teamspeak**, **Factorio**, **Immich**, **Outline**, **MicroBin**, **Startpage**
+- **Overview page**, **NetBox**, **Semaphore**, **Zabbix**, **Hermod**, **AIOps agent**
 
 ---
 
 ## See also
 
-- **Components & interactions** — the platform services (Authentik, Postgres, Garage, etc.) and how every service wires together.
-- **URLs** — the flat directory of every hostname and how to log in.
-- **Troubleshooting** — when one of these services is misbehaving.
+- **Components & interactions**: how these services connect.
+- **URLs**: every hostname and how to sign in.
+- **Troubleshooting**: first checks when a service misbehaves.

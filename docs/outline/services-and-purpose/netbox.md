@@ -2,40 +2,41 @@
 
 # NetBox
 
-The homelab's IPAM/DCIM — the source of truth for what exists on the network: every device, VM, LXC, IP address, VLAN, and prefix. When you need to know "what is `10.0.11.230`" or "which VLAN is the storage network," NetBox is the authoritative answer.
+The queryable record of what the homelab is: every device, VM and LXC, IP address, VLAN and prefix, at `netbox.niflheim.xiiisins.com`. It also feeds the Ansible dynamic inventory.
 
 ---
 
-## Where it runs
+## The truth model
 
-NetBox 4.6.1 runs in **asgard K3s** (`netbox` namespace).
+**Git is the specification; NetBox is the queryable view of it.** Terraform writes NetBox (`terraform/netbox/`); people do not edit it, apart from notes and tags. The standing pattern: **every new LXC or VM Terraform resource gets a matching NetBox VM, interface and IP declaration in the same change** (physical devices go in a separate file). Because the Ansible inventory is built from NetBox tags, a guest that is missing from NetBox is also missing from the fleet's playbooks.
 
-- **Postgres** (external, via the Patroni VIP) for its data.
-- **Valkey** (a Redis fork), bundled with the chart in standalone mode, for caching and the task queue.
-- **Authentik OIDC** for login.
-- Internal-only at `netbox.niflheim.xiiisins.com`.
+The Terraform provider authenticates with an admin API token (stored in 1Password and Vault); the provider version is pinned because of known quirks. The Ansible inventory uses a separate read-only token.
 
 ---
 
-## The truth model — Git spec, NetBox view
+## How it runs
 
-NetBox sits in a specific relationship with the rest of the infrastructure-as-code:
-
-- **Git stays the spec.** The Terraform and Ansible in the repo are what *declare* the homelab into existence.
-- **NetBox is the queryable view of reality.** It mirrors what's actually deployed, in a form you can search, filter, and reason about — which flat HCL files don't give you.
-
-The two are kept in sync by a standing pattern in `terraform/netbox/`: **every new LXC or VM Terraform resource must have a matching NetBox virtual-machine + interface + IP-address declaration.** Provisioning a host isn't done until its NetBox row exists. That discipline is what keeps NetBox trustworthy as the source of truth rather than a stale side-record.
+| Aspect | Detail |
+|---|---|
+| Where | A Helm release in asgard K3s, from the project's OCI chart. Held on the 4.6 line because no released Terraform provider supports 4.7 and its database migration is irreversible. |
+| Database | The shared Postgres cluster through the HAProxy VIP. |
+| Cache | A bundled Valkey on emptyDir; rebuilds on restart. |
+| Sign-in | Authentik OIDC for the `netbox-admins` group, plus a local superuser for break-glass. NetBox-side permissions are assigned manually on first login. |
+| Access | Internal-only. Topology, IPs and device descriptions are reconnaissance gold, so even behind SSO there is no public ingress; remote access is over the tailnet. |
+| Sizing | Explicit requests and limits from measurement: the server was once OOM-killed during a Terraform apply, which refreshes state against the API heavily. |
 
 ---
 
-## Access and permissions
+## Who uses it
 
-- Login is Authentik OIDC. A first-time login provisions a NetBox user record automatically — but with **zero permissions**. NetBox-side permissions are assigned manually in the NetBox UI (via a break-glass local-superuser login) until automated group→permission mapping is worth building.
+- **Ansible**, as the dynamic inventory, filtered to active hosts with a primary IP.
+- **Semaphore**, which refreshes the inventory cache every four hours.
+- **The operator**, to answer "what is at this address" or "which VMID is that".
 
 ---
 
 ## See also
 
-- **GitOps & automation** (Components) — how NetBox feeds Ansible's dynamic inventory, and the Terraform → NetBox standing pattern.
-- **Network** (Components) — the VLAN and IP plan NetBox is the truth for.
-- **Compute & hypervisors** (Components) — the VM/LXC creation flow that includes the NetBox declaration step.
+- **GitOps & automation** (Components): the inventory and playbook structure.
+- **Compute & hypervisors** (Components): the ID scheme NetBox mirrors.
+- **Semaphore** (this section): the scheduler that consumes it.

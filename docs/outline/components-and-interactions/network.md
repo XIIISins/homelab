@@ -2,150 +2,113 @@
 
 # Network
 
-Network is the lowest layer with its own moving parts. The physical link (UCG-Ultra, switches, NICs, the 1 GbE fabric) lives in the **Hardware** section; this page is about everything above the wire — VLANs, IP plan, firewall posture, DNS resolution, and the in-cluster networking glue that makes the rest of the stack possible.
-
-Everything above this layer assumes the network works. When something higher up breaks in mysterious ways, this page is one of the first two to suspect.
-
----
-
-## Internet edge
-
-The KPN-supplied modem is in DMZ mode. Every unsolicited inbound packet (IPv4 + IPv6) lands on UCG-Ultra WAN. KPN itself filters nothing — it's a pass-through. There is no IaC for KPN; any change to it is recorded in the docs or it doesn't exist.
-
-The UCG-Ultra is **the sole firewall policy boundary**. Service exposure happens via UCG port-forwards (DNAT) only — never via per-host `nftables`. The KPN box never sees a port-forward rule; it doesn't have policy to begin with.
+How packets get around the homelab: the VLAN model, who answers DNS, how Kubernetes services get reachable addresses, and the handful of routing details that make multi-homed Kubernetes workers behave.
 
 ---
 
 ## VLAN model
 
-The UCG-Ultra carries ten VLANs. No workload lives on an untagged network — every Proxmox host, VM, LXC, and client device is in a VLAN. The VLAN-aware Linux bridge (`vmbr0`) on each Proxmox node carries every tag to every VM and LXC, so VLAN assignment is purely an interface-config concern.
+The UCG-Ultra routes all VLANs and is the only firewall boundary (see **Networking** under Hardware). The VLANs separate by role, not by trust: they all sit in the Internal zone.
 
-| VLAN | Subnet | Name | Purpose |
-|------|--------|------|---------|
-| 1 | `10.0.254.0/24` | HL-MGMT | Hypervisor + NAS management |
-| 10 | `10.0.10.0/24` | HL-ASG-VIP | Asgard VIPs (keepalived) |
-| 11 | `10.0.11.0/24` | HL-ASG-SVC | Asgard LXCs |
-| 20 | `10.0.20.0/24` | HL-ASG-K3S-VIP | Asgard K3s MetalLB |
-| 21 | `10.0.21.0/24` | HL-ASG-K3S-NODE | Asgard K3s nodes (CPs + workers) |
-| 30 | `10.0.30.0/24` | HL-JOT-K3S-VIP | Jotunheim K3s MetalLB |
-| 31 | `10.0.31.0/24` | HL-JOT-K3S-NODE | Jotunheim K3s nodes |
-| 60 | `10.0.60.0/24` | HL-CLIENT | Personal devices |
-| 100 | `10.0.100.0/24` | HL-STOR | Storage / NFS |
-| 222 | `10.0.222.0/24` | Untrusted | Quarantine |
+| VLAN | Subnet | Purpose |
+|---|---|---|
+| 1 | `10.0.254.0/24` | Management: Proxmox nodes, Munin, the UCG-Ultra |
+| 10 | `10.0.10.0/24` | Asgard VIPs (keepalived): the AdGuard and Postgres VIPs |
+| 11 | `10.0.11.0/24` | Asgard LXCs and the control-node VM |
+| 20 | `10.0.20.0/24` | K3s service VIPs (MetalLB pool) and worker eth1 |
+| 21 | `10.0.21.0/24` | K3s nodes (control planes and worker eth0) |
+| 30 / 31 | `10.0.30.0/24`, `10.0.31.0/24` | Reserved, unused (the dropped second cluster) |
+| 60 | `10.0.60.0/24` | Personal devices |
+| 100 | `10.0.100.0/24` | Storage / NFS |
+| 222 | `10.0.222.0/24` | Untrusted / quarantine |
 
-The management subnet is `10.0.254.0/24`. (Earlier drafts had `10.0.1.0/24` and the mistake nearly resulted in a correct iSCSI portal being "fixed." Mentioned here so the muscle memory stays accurate.)
+The management subnet is `10.0.254.0/24`, not `10.0.1.0/24`; an old draft recorded it wrongly and the live network has always been `.254`.
 
----
+### Key addresses
 
-## Firewall posture
+| Address | What |
+|---|---|
+| `10.0.10.200` | AdGuard VIP: the only DNS address clients are given |
+| `10.0.10.210` | Postgres VIP (HAProxy) |
+| `10.0.20.10` | Traefik: every K8s-fronted web name resolves here |
+| `10.0.20.11` / `.12` | Vault UI / Teamspeak (pinned MetalLB addresses) |
+| `10.0.21.11–.13` | K3s control planes |
+| `10.0.21.21–.23` | K3s workers (eth0); eth1 is `10.0.20.201–.203` |
+| `10.0.11.x` | LXCs, e.g. PBS `.20`, Hugin `.21`, Hermod `.22`, Factorio `.220`, Jellyfin `.223`, Postgres `.230–.232`, HAProxy `.233–.235`, Frigg `.30` |
 
-UCG-Ultra zone defaults are:
-
-- **Internal → Any:** Allow.
-- **External → Internal:** Allow Return.
-- **Any → Any:** Deny (last).
-
-That posture means workloads can freely reach each other across VLANs by default — segmentation is a tool for blast-radius management, not a friction layer. External traffic gets in only via explicit UCG port-forwards plus the cloudflared tunnel (which lands inside the cluster, not at the UCG).
-
----
-
-## DNS architecture
-
-### Three zones, one TLS posture per zone
-
-- **`xiiisins.com`** — apex. Externally resolvable via Cloudflare. Publicly-reachable services land here.
-- **`midgard.xiiisins.com`** — internal alias for publicly-reachable services. Same backend as the apex; AdGuard resolves it internally → Traefik directly, no Cloudflare tunnel in the path.
-- **`niflheim.xiiisins.com`** — internal-only. AdGuard resolves; the UCG firewall blocks any attempt to reach it externally. Operator tooling lives here (`vault`, `netbox`, `semaphore`, `logs`, `metric`).
-
-Each zone gets its own wildcard certificate via cert-manager DNS-01 against the same zone-scoped Cloudflare token. The **Edge** subpage covers cert issuance and routing in detail.
-
-### AdGuard Home topology
-
-Three AdGuard instances run as LXCs on VLAN 11 — Saga, Mimir, Kvasir. Clients only ever talk to a single keepalived VIP at `10.0.10.200`.
-
-- **Saga is the rewrite origin.** All AdGuard rewrites are Terraform-managed in `terraform/adguard/`; the provider writes to Saga's API only — the UI is never hand-edited.
-- **Mimir and Kvasir sync from Saga** every minute via `adguardhome-sync`. One minute is short enough that a keepalived failover doesn't serve stale answers.
-- **Upstream resolvers** come from baseline configuration on each AdGuard host. The fallback never points at public DNS — public resolvers return NXDOMAIN for internal zones, and glibc + CoreDNS cache that NXDOMAIN as authoritative.
-
-### In-cluster DNS rewrites
-
-A pod inside the K3s cluster can't reach a MetalLB-announced VIP from the same cluster. L2 only ARPs for the VIP; the elected node has no kube-proxy DNAT in its root netns to back-door the packet to the actual pod. Result: a hang.
-
-The fix is a CoreDNS rewrite in `k8s/asgard/infrastructure/coredns-custom/`. Internal FQDNs that AdGuard resolves to the Traefik VIP for *external* clients — `authentik.midgard.xiiisins.com`, `vault.niflheim.xiiisins.com`, `wiki.midgard.xiiisins.com`, and so on — are rewritten cluster-side to Traefik's ClusterIP DNS name. Traefik routes by SNI + Host header to the right backend; external clients are unaffected because their resolution path is AdGuard, not CoreDNS.
-
-The rewrite list grows by one entry per K8s-fronted internal FQDN. It only applies to FQDNs that resolve to a MetalLB VIP — FQDNs pointing at LXCs or VMs (Postgres VIP, AdGuard VIP, Zabbix LXC) don't need rewriting.
+Cluster-internal ranges: pods `10.42.0.0/16`, services `10.43.0.0/16`.
 
 ---
 
-## MetalLB
+## DNS
 
-K3s clusters use MetalLB in **L2 mode** for in-cluster Service load-balancing. The IP pool sits on a dedicated VLAN — VLAN 20 for asgard, VLAN 30 for jotunheim. The pool is shaped as:
+**AdGuard Home** runs on three LXCs (Saga, Mimir, Kvasir), one per node. A keepalived VIP (`10.0.10.200`) floats across them; clients and DHCP only ever know the VIP. Saga is the origin: `adguardhome-sync` pushes its configuration to the replicas every minute. The resolver does not forward to a public fallback resolver, because public resolvers return NXDOMAIN for the internal zones and clients cache that as truth.
 
-- `10.0.20.10` — Traefik VIP (the most-used entry point; everything internal lands here).
-- `10.0.20.11` upward — other LoadBalancer Services (Vault UI, Teamspeak, future workloads).
-- `10.0.20.201–203` — worker `eth1` IPs, **outside** the pool. These are real interface IPs, not allocatable VIPs.
+**Three zones**, each with a clear job:
 
-Constraints to know:
+| Zone | Served by | For |
+|---|---|---|
+| `xiiisins.com` | Cloudflare (public) | Services reachable from the internet |
+| `midgard.xiiisins.com` | AdGuard (internal) | Internal alias of those same services, so LAN clients skip the Cloudflare tunnel |
+| `niflheim.xiiisins.com` | AdGuard (internal) | Internal-only services and every host |
 
-- **L2 only ARPs for the VIP** — no BGP. The elected node responds to ARP for the VIP and forwards packets via the K3s network stack.
-- **Control planes are excluded from MetalLB election** via `nodeSelector`. CPs have a single NIC (no `eth1`), so announcing from a CP would announce to nowhere.
-- **MetalLB VIPs do not respond to ICMP.** L2 doesn't synthesise an ICMP responder; the elected node's kernel sees a packet for an IP it doesn't own. Test reachability with TCP (curl, nc) on a defined port — never ping.
-- **A new LoadBalancer Service without `loadBalancerIP`** gets a dynamic allocation from the pool bottom, which can shift on Service recreate. Pin a static `loadBalancerIP` for any Service that other things target by IP.
+**Rewrites are Terraform-managed.** A name is added to `locals.rewrites` in `terraform/adguard/rewrites.tf`; the provider writes to Saga and sync fans it out. Hand-editing in the AdGuard UI is outside the spec and is overwritten. A one-step end-to-end check exists: `curl https://smoketest.niflheim.xiiisins.com/anything` returns "smoketest ok" if the rewrite, Traefik routing and a backend all work.
 
----
+**In-cluster split horizon.** Pods resolve through CoreDNS. For internal FQDNs that Traefik serves, a `coredns-custom` rewrite points the name at Traefik's in-cluster service instead of the MetalLB VIP. Reason: in MetalLB's L2 mode, a pod dialling a VIP on the same VLAN as its node hairpins badly, so pods are routed to the cluster-internal path.
 
-## Multi-homed worker landmines
-
-K3s workers are multi-homed precisely so MetalLB can announce on `eth1` (VLAN 20) without disturbing cluster-internal traffic on `eth0` (VLAN 21). Multi-homing surfaces four kernel-level gotchas, all corrected unconditionally by the K3s Ansible role in `roles/k3s/tasks/network.yml`.
-
-1. **Calico autodetection pinned to the cluster CIDR.** Default `firstFound` binds the VXLAN overlay to `eth1` (VLAN 20), which breaks cross-node pod-to-pod traffic. Fix: pin Calico's `nodeAddressAutodetectionV4` to `10.0.21.0/24` (the cluster-node VLAN). Reverting to `firstFound` is the kind of "harmless cleanup" that silently breaks the cluster.
-2. **`rp_filter = 2` (loose mode).** Strict mode silently drops MetalLB LoadBalancer traffic arriving on `eth1` — the source IP doesn't match a route via the inbound interface, and strict mode rejects it. Loose mode allows the asymmetric ingress. Do not "harden" back to strict.
-3. **`route_localnet = 1`.** L2 only ARPs for the VIP. Without `route_localnet=1`, the elected node's kernel drops packets destined for an IP it doesn't think it owns.
-4. **Source-based policy routing for VLAN 20.** Reply packets from MetalLB VIPs source from `eth1`'s VLAN-20 IP. Without policy routing, those replies exit via `eth0` (the default route lives on VLAN 21) → asymmetric path → UCG's stateful firewall drops them. Fix: a systemd oneshot (`vlan20-policy-routing.service`) installs `from 10.0.20.0/24 lookup vlan20` + a VLAN-20 default route in that table.
-
-The four fixes together are what makes the multi-homed L2 model actually work. Skip any one and packets disappear in the kernel — `tcpdump` shows the asymmetry, but no error reaches user space.
+**Tailnet clients** get MagicDNS plus split DNS for `niflheim` and `midgard` to the AdGuard VIP over the Tailscale subnet routers; the public apex is deliberately not split.
 
 ---
 
-## Source-based policy routing, generalised
+## MetalLB and service addresses
 
-The VLAN-20 fix above is one instance of a broader pattern: any host carrying an IP on a VLAN that differs from its default-route VLAN needs source-based policy routing for replies sourced from that IP. Otherwise: asymmetric reply path → stateful firewall drop.
+Kubernetes `LoadBalancer` services get addresses from MetalLB in **L2 mode**: one worker answers ARP for the VIP and traffic flows to it. The pool is `10.0.20.10–.99`, and every service pins its address (Traefik `.10`, Vault UI `.11`, Teamspeak `.12`) so nothing races for the bottom of the pool.
 
-The pattern is generalised in the `keepalived` Ansible role via the `keepalived_source_policy_routing` option (N-entry capable). Today's consumers:
+Two consequences worth remembering:
 
-- **K3s workers** — VLAN 20 IPs vs VLAN 21 default route. Handled by the K3s role.
-- **HAProxy + etcd LXCs** (Hlin / Eir / Snotra) — carry the Postgres VIP on VLAN 10 while their default route is VLAN 11. Handled by the keepalived role.
-
-Any future VIP host on a non-default VLAN follows the same pattern. Adding a new entry is a group-vars edit, not a role fork.
+- **A VIP does not answer ping.** L2 mode only ARPs; ICMP to the VIP finds no kube-proxy rule and returns host-unreachable. Test with TCP.
+- **Host processes on a K3s node cannot dial a MetalLB VIP from the same cluster.** Anything running outside a pod on a node (like a host-installed log shipper) uses a companion ClusterIP instead.
 
 ---
 
-## Key IPs
+## The multi-homed worker rules
 
-Selected static IPs for orientation. The authoritative source is NetBox; this table exists so a reader doesn't have to leave the page to recognise a hostname.
+Workers have two NICs because MetalLB advertises on VLAN 20 while the nodes live on VLAN 21. That makes the workers the only multi-homed guests, and four settings, all laid down by the `k3s` Ansible role, keep it working. They look like things to harden; they must not be hardened away.
 
-| IP | Host | Purpose |
-|----|------|---------|
-| `10.0.254.1` | UCG-Ultra | Router, firewall, VLAN routing |
-| `10.0.254.11/12/13` | Urd / Verd / Skuld | Proxmox host management |
-| `10.0.254.20` | Munin | Synology NAS |
-| `10.0.10.200` | AdGuard VIP | DNS resolver (keepalived) |
-| `10.0.10.210` | Patroni HAProxy VIP | Postgres entry point |
-| `10.0.20.10` | Traefik MetalLB VIP | Internal ingress |
-| `10.0.11.201/202/203` | Saga / Mimir / Kvasir | AdGuard trio |
-| `10.0.11.230/231/232` | Fulla / Vör / Idunn | Postgres trio |
-| `10.0.11.233/234/235` | Hlin / Eir / Snotra | HAProxy + etcd trio |
-| `10.0.21.11/12/13` | Göndul / Hlökk / Sigrún | Asgard K3s control planes |
-| `10.0.21.21/22/23` | Einherjar-urd/verd/skuld | Asgard K3s workers (`eth0`) |
-| `10.0.20.201/202/203` | Einherjar workers (`eth1`) | MetalLB announcement source |
+| Setting | Why it exists |
+|---|---|
+| Calico autodetection pinned to `10.0.21.0/24` | The default "first found" binds the overlay to eth1 and breaks cross-node traffic. |
+| `rp_filter = 2` (loose) | Strict reverse-path filtering silently drops LoadBalancer traffic arriving on eth1. |
+| `route_localnet = 1` | MetalLB only ARPs the VIP; without this the kernel drops packets to the unbound address. |
+| VLAN 20 source-based policy routing | Replies from a VIP must leave via eth1; otherwise the reply is asymmetric and the UCG-Ultra's stateful firewall drops it. |
 
-**Cluster CIDRs** (both K3s clusters, by convention): pod `10.42.0.0/16`, service `10.43.0.0/16`.
+The MetalLB `L2Advertisement` is restricted to workers, since control planes have no eth1 and an election there would announce nowhere. The same source-routing idea appears on the HAProxy and AdGuard LXCs, which have a VIP on one VLAN and a default route on another.
+
+The CNI is Calico (VXLAN cross-subnet, MTU pinned to 1450). It is installed as K3s addon files, not by Flux.
+
+---
+
+## VIPs and keepalived
+
+Two highly available endpoints use keepalived VRRP on VLAN 10: the AdGuard VIP and the Postgres HAProxy VIP. Each LXC has an eth0 on VLAN 11 for management and an eth1 on VLAN 10 for the VIP. Peers all start as BACKUP with distinct priorities so a simultaneous boot cannot produce two masters, and a track script demotes a holder whose service is down.
+
+---
+
+## Failure surfaces
+
+| What fails | Effect |
+|---|---|
+| One AdGuard node | The VIP moves in seconds; unnoticed. |
+| All AdGuard nodes | Internal names stop resolving; pods flap. Public sites are unaffected (Cloudflare). |
+| A MetalLB-speaking worker | Another worker takes the ARP election; a few seconds of loss for that VIP. |
+| UCG-Ultra | Everything routed between VLANs stops; the cluster keeps running internally on each VLAN. |
+| A "hardened" multi-homed setting | LoadBalancer services intermittently time out for no visible reason; check the four rules above first. |
 
 ---
 
 ## See also
 
-- **Hardware** section — physical network gear (UCG-Ultra, switches), 1 GbE link layer, cabling.
-- **Compute & hypervisors** (this section) — how VMs and LXCs land on these VLANs at create time.
-- **Edge** (this section) — Traefik, Cloudflared, cert-manager, the three DNS zones at the certificate layer.
-- **Identity & secrets** (this section) — AdGuard rewrite credential management, Cloudflare API token scopes.
+- **Edge** (this section): how requests enter through Traefik, Cloudflared and the Gateways.
+- **Compute & hypervisors** (this section): which guests sit on which VLAN.
+- **Networking** (Hardware): the physical gear and firewall boundary.
+- **DNS & networking** troubleshooting (Troubleshooting): NXDOMAIN, VIP reachability, sync problems.

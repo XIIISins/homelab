@@ -2,39 +2,42 @@
 
 # Outline
 
-The homelab's wiki — the knowledge base you're reading right now. Outline is an open-source team wiki: markdown documents, collections, full-text search, and a clean editor. It serves double duty as a household-shared knowledge space and the operator's documentation home.
+The wiki you are reading. It holds the operational notebook: how-tos, how-to-use-the-homelab pages for family, and notes that are still evolving. The git-tracked `docs/` tree is the other half: it records how the homelab is *built* (decisions, services, incidents, runbooks).
 
 ---
 
-## Where it runs
+## These pages come from Git
 
-Outline runs in **asgard K3s** (`outline` namespace) as a single-replica Deployment with a `Recreate` update strategy.
-
-- **Single replica + Recreate** because Outline runs its database migrations on container start. Two replicas would race on migrations; `Recreate` makes restarts serial at the cost of a few seconds' downtime on each roll — fine for a wiki.
-- Runs as numeric UID 1001 (the image's `nodejs` user).
+The pages in the `Homelab` collection are generated from Markdown in the repository (`docs/outline/`) by a sync script, which updates or creates pages through Outline's API. Edit the Markdown, run the sync, and the wiki converges. A page edited only in Outline is not reverted until its source changes, so edit at the source.
 
 ---
 
-## Dependencies
+## What it is wired to
 
-Outline is the first service to lean on the full modern stack at once:
+Outline is a showcase of an app that touches every layer.
 
-- **Postgres** (Patroni VIP) for documents and metadata, connected with `?sslmode=no-verify` — Outline's Node Postgres client treats plain `require` as full certificate verification and would reject the cluster's self-signed cert, so `no-verify` keeps the TLS envelope without the chain check.
-- **Garage (S3)** for attachments and uploads — Outline is the **first consumer of the homelab's object-storage layer**. Future services (Immich, backups) follow the same pattern.
-- **Redis** as a session/cache store, run as a sidecar on `emptyDir`. Cache-class state that's cheap to rebuild, so it deliberately avoids spending an iSCSI LUN against the NAS's LUN cap.
+| Need | Provided by |
+|---|---|
+| Database | The shared Postgres cluster, via the HAProxy VIP |
+| File attachments | **Garage** S3 (bucket and key provisioned by Terraform, credentials in Vault) |
+| Queues and collaboration state | A small Redis on emptyDir; all of it is transient and recoverable from Postgres |
+| Sign-in | Authentik OIDC, restricted to the `outline-users` group |
+| Public access | `wiki.xiiisins.com` through the Cloudflare tunnel; `wiki.midgard.xiiisins.com` and `wiki.niflheim.xiiisins.com` are internal names for the same instance |
+
+The deployment uses the **Recreate** strategy because the container runs its database migrations at start-up, and two replicas rolling at once would race for the migration lock.
+
+The container image comes from Docker Hub, not GitHub's registry, which refuses anonymous pulls.
 
 ---
 
-## Access and identity
+## Secrets
 
-- **Authentik OIDC**, gated on the `outline-users` group. Membership is declared per-user in `terraform/authentik/users.yaml` — being in Authentik isn't enough; you have to be granted the Outline app specifically.
-- The OIDC redirect path is `/auth/oidc.callback` (Outline-specific; not the same path as NetBox or other apps).
-- **Three hostnames:** `wiki.xiiisins.com` (external, via Cloudflared), `wiki.midgard.xiiisins.com` and `wiki.niflheim.xiiisins.com` (LAN, via AdGuard → Traefik).
+Four Vault paths feed it (app keys, database password, S3 credentials, OIDC client). The Redis secret is separate from the app's, so Redis can start before S3 and OIDC exist; the app pod waits in a visible "secret not synced" state until Terraform has provisioned the rest.
 
 ---
 
 ## See also
 
-- **Storage & data** (Components) — the Garage S3 layer Outline pioneered and the Patroni Postgres it persists to.
-- **Identity & secrets** (Components) — the Authentik OIDC group-gate model.
-- **Edge** (Components) — how the three `wiki.*` hostnames resolve and route.
+- **Storage & data** (Components): Garage and the Postgres cluster.
+- **Identity & secrets** (Components): the OIDC flow and where the secrets live.
+- **Edge** (Components): the three hostnames.

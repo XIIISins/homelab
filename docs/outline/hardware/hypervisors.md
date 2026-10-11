@@ -2,58 +2,63 @@
 
 # Hypervisors
 
-The three physical boxes that run Proxmox. This page is about the metal — CPUs, memory, drives, and the one hardware difference that actually matters operationally. The software that runs on them (Proxmox cluster, K3s, VMs vs LXCs) lives in **Compute & hypervisors**.
-
-The nodes are named for the Norns: **Urd**, **Verd**, **Skuld**.
+Urd, Verd and Skuld: three identical MSI Cubi mini-PCs forming the Proxmox cluster `niflheim`. They are deliberately the same machine, so any VM can run on any node and failover is symmetric.
 
 ---
 
-## The three nodes
+## The nodes
 
-| Node | Model | CPU | RAM | NVMe |
-|---|---|---|---|---|
-| **Urd** | MSI Cubi 5 (NUC-class) | i3-1215u (6c/8t, 2 P-cores) | 32 GB DDR4 | Lexar NM790 1 TB (Gen 4, DRAM-less) |
-| **Verd** | MSI Cubi 5 (NUC-class) | i3-1215u (6c/8t, 2 P-cores) | 32 GB DDR4 | Samsung 970 EVO 1 TB (Gen 3, DRAM) |
-| **Skuld** | MSI Cubi 5 (NUC-class) | i3-1215u (6c/8t, 2 P-cores) | 32 GB DDR4 | SK Hynix PC300 512 GB (Gen 3, DRAM) |
+| | Urd | Verd | Skuld |
+|---|---|---|---|
+| Management IP | `10.0.254.11` | `10.0.254.12` | `10.0.254.13` |
+| CPU | i3-1215U (6c/8t) | same | same |
+| RAM | 32 GB DDR4 | 32 GB DDR4 | 32 GB DDR4 |
+| NVMe | Lexar NM790 1 TB (Gen 4, DRAM-less, HMB) | Samsung 970 EVO 1 TB (Gen 3, DRAM) | SK Hynix PC300 512 GB (Gen 3, DRAM) |
+| Notable | Hosts PBS, Zabbix, Jellyfin (QuickSync) | Hosts Frigg (HA-managed) | Open hardware fault, hard-freezes |
 
-All three nodes are identical MSI Cubi 5's — same CPU, same memory. Failover is symmetric: any node can run any other's workload, and control-plane sizing is uniform everywhere. The only hardware that differs between them is the NVMe, and it matters for exactly one thing — etcd.
-
----
-
-## Storage tier — why it matters for etcd
-
-The drives differ in a way that's invisible most of the time but real for one workload: **etcd**, the K3s control-plane datastore, fsyncs on every write and is sensitive to sync latency.
-
-For sustained fsync consistency the ranking is **Verd ≈ Skuld > Urd**.
-
-That ordering is counter-intuitive — Urd's drive is the newest and fastest on paper (Gen 4 vs Gen 3). The catch is that Urd's NM790 is **DRAM-less**: it borrows host memory over the PCIe bus (Host Memory Buffer) for its flash-translation table instead of carrying its own DRAM. That adds a PCIe round-trip of latency to every metadata sync, which is exactly the pattern etcd hammers. Verd's and Skuld's DRAM-equipped Gen 3 drives are steadier under that load.
-
-All three are comfortably within etcd's tolerance — this is a *preference* ranking for control-plane placement, not a hard constraint. Full drive specs are on the **Storage** subpage.
+Management traffic uses VLAN 1 (`10.0.254.0/24`). Each node has a VLAN-aware bridge (`vmbr0`) so guests attach to any VLAN by tag.
 
 ---
 
-## Disk layout
+## Proxmox setup
 
-Each node carries a single internal NVMe holding both the Proxmox root LV and the local LVM-thin pool for VM/LXC disks. The root LV is 20 GB; the rest is LVM-thin.
-
-| Node | Drive | LVM-thin (approx) |
-|---|---|---|
-| Urd | 1 TB | ~950 GB |
-| Verd | 1 TB | ~950 GB |
-| Skuld | 512 GB | ~450 GB |
-
-The pools differ in size only because Skuld's drive is smaller (512 GB vs 1 TB) — the nodes are otherwise identical. VM and LXC disks live on local LVM-thin by design — network-backed VM disks were ruled out because fsync latency over 1 GbE is the wrong shape for write-heavy workloads like Postgres and etcd. (The full storage-backend rationale is in **Storage & data**.)
+- **Proxmox VE 9.x** on Debian 13, no-subscription repository, cluster name `niflheim`.
+- **VLAN-aware `vmbr0`** on every node; guests choose their VLAN per NIC.
+- **Small root, big thin pool.** The root logical volume is ~20 GB and the rest of the NVMe is an LVM-thin pool holding every VM and LXC disk. Local thin storage beats NFS for guest disks at 1 GbE, which matters most for Postgres (fsync and WAL latency).
+- **No shared storage between nodes.** Guests are pinned to a node's local pool; moving one is a deliberate migrate (`pct migrate --restart` for LXCs), not a transparent live failover. Resilience comes from replication at the application layer (Patroni, Raft, keepalived pairs), not from the hypervisor.
+- **PBS** backs up every guest daily (see **Storage & data**, Components).
 
 ---
 
-## QuickSync (Urd)
+## NVMe tier and etcd
 
-Every node's i3-1215u includes Intel UHD Graphics with a capable QuickSync transcode engine, so any of the three could host hardware transcoding. The long-term plan designates **Urd** as the home for a dedicated Jellyfin LXC with `/dev/dri` passthrough — a deliberate placement choice rather than a hardware-forced one, keeping the transcode workload on a known node. (Jellyfin itself: **Services and purpose**.)
+The K3s control planes run etcd, which is sensitive to `fsync` latency. Ranking the drives for sustained sync workloads:
+
+**Verd ≈ Skuld > Urd.**
+
+Urd's Lexar NM790 is the newest (Gen 4) but DRAM-less: it uses host-memory-buffer (HMB), which adds PCIe round-trips per metadata update. The Gen 3 drives in Verd and Skuld have their own DRAM (Skuld's controller reports no HMB). All three are well inside etcd's tolerance, so the control planes are placed identically on all three nodes (one each) with no node excluded. The ranking only explains why Urd is the node to watch if etcd latency alerts ever fire.
+
+---
+
+## QuickSync
+
+The i3-1215U's integrated UHD graphics has Intel QuickSync. Jellyfin runs in a **privileged LXC on Urd** with `/dev/dri` passed through, so transcodes are hardware-accelerated while the media library stays on Munin. Because that device passthrough needs root-ticket authentication in the Proxmox API, the Jellyfin LXC lives in the root-auth Terraform module (see **Compute & hypervisors**).
+
+---
+
+## Skuld
+
+Skuld hard-freezes occasionally (an unresolved hardware fault, tracked as an incident). The operating rules that follow from it:
+
+- Singleton roles do not sit on Skuld when they can sit elsewhere: PBS, the Tailscale exit node.
+- Paired or quorum roles can: one Skuld freeze costs one member of a pair or one voter of three.
+- A frozen Skuld is a recognised alert shape for the AIOps diagnosis agent.
 
 ---
 
 ## See also
 
-- **Compute & hypervisors** (Components & interactions) — the Proxmox `niflheim` cluster, the K3s topology, and the VM/LXC decision that runs on these nodes.
-- **Storage** (this section) — full per-node NVMe specs and the Synology NAS.
-- **Networking** (this section) — the physical network gear the nodes plug into.
+- **Hardware** (this section): the physical overview and topology.
+- **Storage** (this section): the NAS and how the local drives are split.
+- **Compute & hypervisors** (Components): VMs, LXCs, ID scheme, bootstrap flow.
+- **Troubleshooting**: what to check when a node misbehaves.

@@ -2,53 +2,54 @@
 
 # Networking
 
-The physical network gear and how the boxes are wired. This page covers the hardware — the router, the switches, the ISP boundary, and the out-of-band path. The logical network that runs over it (VLANs, IP assignments, firewall policy, DNS) lives in the **Network** page under Components & interactions.
+The physical network is small on purpose: one router/firewall, two switches that do nothing but carry tags, and an ISP box configured to get out of the way. Policy lives in exactly one place.
 
 ---
 
-## The gear
+## The devices
 
 | Device | Role |
 |---|---|
-| UniFi Cloud Gateway Ultra (UCG-Ultra) | Router, firewall, VLAN routing. Static WAN IP. The **sole firewall policy boundary**. |
-| KPN Experia Box | ISP modem/router, run in DMZ ("exposed host") mode — forwards all unsolicited inbound (IPv4 + IPv6) at the UCG and filters nothing of its own. |
-| Dumb switch ×2 | Unmanaged switches that pass VLAN tags transparently. No routing, no policy. |
-| Tailscale on Synology (DSM package) | Out-of-band access that survives a complete homelab failure. |
+| **UCG-Ultra** | Router, VLAN routing, zone-based firewall. Static public WAN IP, no CGNAT. The sole firewall policy boundary. |
+| **KPN Experia Box** | ISP modem/router in exposed-host (DMZ) mode. Forwards all unsolicited inbound traffic, IPv4 and IPv6, to the UCG-Ultra WAN address. Keeps doing outbound NAT only for the `192.168.2.0/24` set-top and family devices. |
+| **Two unmanaged switches** | Layer-2 only. They pass 802.1Q tags transparently and have no configuration to drift. |
+
+The KPN box is consumer hardware without a useful API, so it is **never in IaC**: its current configuration is recorded in the docs, and a change that is not written down does not exist. Port-forwards for new internet-facing services are created on the UCG-Ultra only (the forward plus its generated allow rule); the KPN box is not touched.
 
 ---
 
 ## Link layer
 
-Every link is **1 GbE**. No 2.5 GbE is planned.
-
-The switches are unmanaged — they fan a port out to several devices and forward 802.1Q tags without inspecting them. All VLAN routing and all firewall policy happen on the UCG-Ultra. Each Proxmox node presents a single VLAN-aware bridge that carries every tag to the VMs and LXCs on that node, so a single physical uplink per node is enough to serve every VLAN that node participates in.
-
-The physical cabling layout is drawn on the **Hardware** overview.
+- **Everything is 1 GbE.** Nodes, NAS and uplinks. No 2.5 GbE is planned.
+- Which room a device sits in only affects cabling: the clients (MacBook dock, game PC, Hue bridge) connect via one switch and the Proxmox nodes plus Munin via the other, both trunking back to the UCG-Ultra.
+- Each Proxmox node uses one uplink with a VLAN-aware bridge. K3s workers are the one place a guest is multi-homed: eth0 on the node VLAN and eth1 on the MetalLB VLAN (explained on **Network**, Components).
 
 ---
 
-## The ISP boundary
+## Firewall boundary
 
-The KPN Experia Box is the only thing between the homelab and the internet, and it's deliberately kept dumb:
+The UCG-Ultra's zone-based firewall, in order:
 
-- It runs in **DMZ / exposed-host mode**, pointing all inbound traffic (both IPv4 and IPv6) at the UCG-Ultra's WAN port.
-- It does **outbound NAT only for the family device range** (`192.168.2.0/24`) — set-top box, family devices — which stay on the KPN LAN, untouched by the homelab.
-- It holds **no port-forwards and no firewall rules**. Every forwarding and policy decision lives one hop further in, on the UCG.
+| From | To | Policy |
+|---|---|---|
+| Internal | Any | Allow |
+| External | Internal | Allow return traffic only |
+| Hotspot | Internal | Allow return traffic only |
+| Any | Any | Deny (last) |
 
-The KPN box is never in IaC. Because it can't be expressed as code, any change to it is recorded in these docs — or, by the homelab's own rule, it doesn't exist.
+Every homelab VLAN sits in the Internal zone, so inter-VLAN traffic is allowed by default and the protection is at the edge. Nodes do not run host firewalls (`firewalld` is disabled on the K3s nodes); the UCG-Ultra is the firewall. Two AIOps hosts (the diagnosis agent and the Discord bot) get tighter, egress-only allow-lists with a final deny, because they run an LLM-driven agent and a chat bot with outbound reach.
 
 ---
 
 ## Out-of-band access
 
-The control path of last resort is the **Synology's DSM Tailscale package** (Munin). It matters because it depends on nothing else in the homelab — not the Proxmox nodes, not the K3s clusters, not the UCG's policy engine being sane. If the whole virtual stack is down or misconfigured, the Synology is still reachable over the tailnet, which is enough to begin recovery — including reaching the NAS itself when its LAN is broken.
-
-It also acts as a **Tailscale subnet router**, advertising the `10.0.0.0/16` homelab supernet onto the tailnet so remote access reaches internal hosts without a per-host client. Critically it runs **advertiser-only** — `--advertise-routes` but **never** `--accept-routes` (and no exit-node consumption). The advertised supernet *contains the NAS's own subnet*, so accepting routes would divert Munin's own LAN traffic into the tailnet and cut its LAN entirely (online in tailnet, dead on the LAN IP). Bring it up via the CLI authkey, not the package web-UI login (which applies default flags). If it ever does cut its own LAN, the break-glass is to reach it over its tailnet IP and `tailscale down`.
+Tailscale runs **on Munin itself** (a DSM package), advertising the `10.0.0.0/16` supernet. It does not depend on Proxmox, K3s or any VM being up, so a complete hypervisor outage still leaves a path into the management network. Day-to-day remote access goes through the Tailscale LXCs (two subnet routers and an exit node) instead; Munin is the survives-everything fallback. Its auth key is minted by hand in the Tailscale UI and kept in 1Password, deliberately outside Vault, because Vault may be what is broken.
 
 ---
 
 ## See also
 
-- **Network** (Components & interactions) — the VLAN table, IP assignments, firewall posture, and DNS architecture that ride on this gear.
-- **Edge** (Components & interactions) — how externally-reachable services get out (Cloudflared tunnel) rather than via inbound port-forwards.
-- **Hardware** (this section) — the physical cabling topology.
+- **Hardware** (this section): the physical overview.
+- **Network** (Components): VLANs, addressing, DNS, MetalLB and the multi-homed-worker rules.
+- **Edge** (Components): how public and internal traffic enters the cluster.
+- **DNS & networking** troubleshooting (Troubleshooting): VIP reachability and DNS faults.

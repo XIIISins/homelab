@@ -2,40 +2,32 @@
 
 # MicroBin
 
-A public pastebin and quick file-share at **`paste.xiiisins.com`** — internet-reachable, for sharing snippets, files, and password-protected text with expiry. Anyone can create and view pastes anonymously; a small trusted "janitor" crew gets a gated admin surface for cleanup.
+A pastebin and file-share at `paste.xiiisins.com`: paste a script or share a file, with optional password, expiry and encryption. Anyone can create and view; a small trusted crew gets the cleanup pages.
 
 ---
 
-## Where it runs
+## Why this tool
 
-A single-replica deployment in **asgard K3s**, exposed externally via the Cloudflare tunnel → Traefik. No database or object store — MicroBin keeps a local JSON DB plus attachments on an **NFS** volume (file-class, survives restarts and reschedules).
+Several pastebins were compared against four needs at once: syntax highlighting, file sharing with expiry, password sharing with expiry, and a private cleanup surface. MicroBin was the only single tool covering the first three. The cost is that it has **no accounts**, so the "private" part is a gate in front of specific paths, and cleanup is shared janitor duty rather than per-user ownership.
 
----
-
-## Access model
-
-MicroBin has **no user accounts** — it's anonymous by design. Access is split at the proxy:
+## Access
 
 | Path | Who |
 |---|---|
-| Create, view, upload, download | Anyone (anonymous) |
-| `/list` (browse all pastes) | Janitors — Authentik ForwardAuth (`paste-janitors`) |
-| `/admin` (delete any paste) | Janitors — ForwardAuth **+** a shared MicroBin admin password |
+| Create, view, upload | Anyone on the internet |
+| `/list` and `/admin` | Authentik sign-in (ForwardAuth middleware), janitor group only |
 
-Only the `/list` and `/admin` routes carry the Authentik gate (a Traefik filter on those specific HTTPRoute rules); everything else is open. Because there are no accounts, a janitor can delete **any** paste — cleanup is shared duty, not per-owner ownership.
+It is public through the Cloudflare tunnel only, with no LAN shortcut.
 
-Pastes can opt into encryption: the *secret* level is client-side zero-knowledge (the server can't read it — use it for passwords), the *private* level is server-side and hidden from `/list`. Default is plaintext. URLs are hashed (unguessable), and there's no URL-based deletion — all deletion goes through the gated admin.
+## How it runs
 
----
-
-## Why MicroBin
-
-Chosen over PrivateBin, Cryptgeon, Opengist, and others because it was the only single tool covering the full need in one box: syntax highlighting **and** file/image sharing **and** password sharing **and** expiry **and** opt-in encryption. The tradeoff for that coverage is that it's accountless — hence the proxy-level janitor gate and shared-cleanup model rather than per-user ownership.
+- A small Deployment in K3s using a **patched build** of the upstream image. Upstream has a bug in its JSON database mode where cleaning up an expired paste can panic while holding the data lock, after which every POST returns 502 while the pod still looks healthy. The patched image is built from the repository's own Dockerfile by CI.
+- Data is a JSON file on an NFS volume (file-class, so the right tier).
+- Estate-wide security headers apply to it like every other route.
 
 ---
 
 ## See also
 
-- **Edge** (Components) — the Cloudflare tunnel path and how a single route can be partially gated.
-- **Identity & secrets** (Components) — the `paste-janitors` group and Authentik ForwardAuth.
-- **Storage & data** (Components) — the NFS file-class tier MicroBin's JSON DB lives on.
+- **Edge** (Components): the public path and ForwardAuth.
+- **Storage & data** (Components): the NFS tier.

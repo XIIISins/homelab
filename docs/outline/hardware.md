@@ -2,76 +2,74 @@
 
 # Hardware
 
-The physical layer: three small Proxmox nodes, one NAS, one router/firewall, and two dumb switches. Everything else in the homelab — every VM, LXC, cluster, and service — is virtual and runs on top of these few boxes.
-
-*Three nodes small enough that any one can be lost and rebuilt — resilience comes from the cluster, not from any single machine.*
+The physical layer: three identical mini-PCs running Proxmox, one small NAS, one router/firewall and two unmanaged switches. Everything above this layer is code; this is the part that is bought, racked and plugged in. The sub-pages go deeper on the hypervisors, the network gear and the storage.
 
 ---
 
-## The physical kit
+## The kit
 
-| Device | Class | Role | Name |
+| Device | Spec | Role | Name |
 |---|---|---|---|
-| MSI Cubi 5 (NUC-class) | i3-1215u / 32 GB DDR4 | Proxmox node | **Urd** |
-| MSI Cubi 5 (NUC-class) | i3-1215u / 32 GB DDR4 | Proxmox node | **Verd** |
-| MSI Cubi 5 (NUC-class) | i3-1215u / 32 GB DDR4 | Proxmox node | **Skuld** |
-| Synology DS223J | 2-bay NAS, ~3.5 TB RAID 1 | iSCSI target + NFS server | **Munin** |
-| UniFi Cloud Gateway Ultra | — | Router, firewall, VLAN routing | UCG-Ultra |
-| KPN Experia Box | — | ISP modem, DMZ pass-through | — |
-| Dumb switch ×2 | — | VLAN-transparent fan-out | — |
+| MSI Cubi (NUC-class) | i3-1215U (6 cores / 8 threads, 2 P-cores), 32 GB DDR4, 1 TB NVMe | Proxmox node 1 | **Urd** |
+| MSI Cubi | i3-1215U, 32 GB DDR4, 1 TB NVMe | Proxmox node 2 | **Verd** |
+| MSI Cubi | i3-1215U, 32 GB DDR4, 512 GB NVMe | Proxmox node 3 | **Skuld** |
+| Synology DS223J | Realtek RTD1619B (ARM), 1 GB RAM, two drives in RAID 1 (~3.5 TB usable) | NAS: backups, K8s file storage, media | **Munin** |
+| UniFi Cloud Gateway Ultra (UCG-Ultra) | Static public WAN IP | Router, VLAN routing, the only firewall policy boundary | n/a |
+| KPN Experia Box | ISP modem/router in exposed-host (DMZ) mode | Pass-through to the UCG-Ultra WAN | n/a |
+| Two unmanaged switches | Pass 802.1Q tags through | Layer-2 fabric | n/a |
 
-All three nodes are identical MSI Cubi 5's (i3-1215u, 32 GB DDR4) — failover is symmetric and any node can stand in for any other. The whole footprint is NUC-class mini-PCs plus a 2-bay NAS: low power, low noise, one site. The one place the nodes still differ is their NVMe drives — see the storage tier below.
+The three Proxmox nodes are the Norns (Urd, Verd, Skuld); the NAS is Munin, Odin's raven of memory. The naming scheme is Norse throughout: the primary of a group defines the theme and its replicas expand within it. Every link in the building is **1 GbE**, and no 2.5 GbE upgrade is planned. That single fact shapes a lot of the design above this layer (where databases may live, why the NAS carries only file-class traffic).
 
 ---
 
-## Physical topology
-
-The cabling view — everything hangs off the UCG-Ultra, which sits behind the ISP box in DMZ mode:
+## Topology
 
 ```
 Internet
-  └── KPN Experia Box (192.168.2.0/24) — DMZ → UCG-Ultra WAN
-        ├── Family devices, set-top box — untouched, on the KPN LAN
-        └── UCG-Ultra (static WAN IP) — router, firewall, VLAN routing
-              ├── Dumb switch (room)
-              │     ├── MacBook dock   (VLAN 60)
-              │     ├── Game PC        (VLAN 60)
-              │     └── Hue bridge     (VLAN 60)
-              └── Dumb switch (spare bedroom)
-                    ├── Urd   (10.0.254.11)
-                    ├── Verd  (10.0.254.12)
-                    ├── Skuld (10.0.254.13)
-                    └── Munin (10.0.254.20)
+  └── KPN Experia Box (192.168.2.0/24, DMZ → UCG-Ultra WAN)
+        ├── Set-top box, family devices (untouched)
+        └── UCG-Ultra (static public IP)
+              ├── LAN 1 → switch (office)
+              │     ├── MacBook dock (clients VLAN)
+              │     ├── Game PC
+              │     └── Hue bridge
+              └── LAN 2 → switch (spare room)
+                    ├── Urd   10.0.254.11
+                    ├── Verd  10.0.254.12
+                    ├── Skuld 10.0.254.13
+                    └── Munin 10.0.254.20
 ```
 
-The switches are unmanaged — they pass VLAN tags transparently and do no routing. All policy lives on the UCG.
+The KPN box forwards every unsolicited inbound packet (IPv4 and IPv6) to the UCG-Ultra, so the UCG-Ultra is the single place firewall policy lives. The switches do no policy: they carry VLAN tags and nothing else. VLANs, subnets and addressing live on the **Network** page (Components).
 
 ---
 
-## Link layer
+## What lives where
 
-Everything runs at **1 GbE**. No 2.5 GbE is planned — the workloads that would benefit (iSCSI, NFS, replication) are all sized to stay comfortable inside a gigabit link, and the design accounts for it (local LVM-thin for write-heavy VM disks rather than network-backed storage).
+| Layer | Placement |
+|---|---|
+| Hypervisor | Proxmox VE 9 (Debian 13) on Urd, Verd and Skuld, clustered as `niflheim`. |
+| VM and LXC disks | Local LVM-thin on each node's NVMe. |
+| K3s | Six VMs (three control planes, three workers), one of each per node. |
+| Services outside K3s | LXCs spread across the three nodes (DNS, Postgres, monitoring, PBS, Jellyfin, game server, AIOps hosts). |
+| Backups | PBS in an LXC on Urd, datastore on Munin over NFS. |
+| K8s file storage and media | Munin: an NFS share, one iSCSI LUN class and the media library. |
+| Out-of-band access | Tailscale running on Munin itself, so a total hypervisor outage still leaves a way in. |
 
-A single VLAN-aware bridge on each node carries every VLAN tag to every VM and LXC; the dumb switches forward those tags without inspecting them.
+One physical node is not equal to the others in practice: **Skuld has an open hardware fault** and hard-freezes occasionally. That is why PBS was moved off it, why singleton roles (the Tailscale exit node, backups) avoid it, and why the AIOps tooling treats a Skuld freeze as a known incident shape. Details are on the **Hypervisors** page.
 
 ---
 
-## The storage tier
+## Sub-pages
 
-The three nodes do not have identical NVMe, and the difference is deliberate to know about: etcd (the K3s control-plane datastore) is fsync-sensitive, and the drives differ in how cleanly they handle sustained syncs. The short version — DRAM-equipped Gen 3 drives beat the DRAM-less Gen 4 drive for that workload. The **Hypervisors** and **Storage** subpages carry the detail.
-
----
-
-## Where to go deeper
-
-- **Hypervisors** — per-node CPU / RAM / NVMe, the storage-tier ranking that informs etcd placement, disk layout, QuickSync.
-- **Networking** — UCG-Ultra, the dumb switches, the KPN DMZ boundary, and out-of-band access.
-- **Storage** — the Synology NAS, its drives and RAID, and the per-node NVMe specs.
+- **Hypervisors**: the three nodes, their NVMe drives (and why Urd's is the slowest for etcd), disk layout, QuickSync.
+- **Networking**: the UCG-Ultra, switches, the KPN DMZ boundary, the 1 GbE link layer, out-of-band access.
+- **Storage**: the Synology NAS (drives, RAID, the iSCSI LUN ceiling), the per-node NVMe, and how the backends split.
 
 ---
 
 ## See also
 
-- **Compute & hypervisors** (Components & interactions) — the Proxmox cluster, K3s, and the VM/LXC split that runs on this hardware.
-- **Network** (Components & interactions) — the logical VLAN / IP / firewall model layered over the physical gear.
-- **Storage & data** (Components & interactions) — how the physical drives are consumed (Synology CSI, iSCSI, LVM-thin, NFS).
+- **Compute & hypervisors** (Components): what runs on the hardware, VM/LXC decisions, ID scheme.
+- **Network** (Components): VLANs, addressing, firewall and DNS.
+- **Storage & data** (Components): how the storage backends are used by workloads.

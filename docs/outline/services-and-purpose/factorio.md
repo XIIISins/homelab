@@ -2,32 +2,40 @@
 
 # Factorio
 
-A dedicated Factorio multiplayer server for the friend group. Interesting less for the game and more for the **self-service pattern** it pioneered — a template the homelab reuses for any operator-managed service where someone other than the platform owner needs to make changes.
+A Factorio headless game server, run by a trusted friend who has no shell on the machine. It is the template for operator-managed services in this homelab.
 
 ---
 
-## Where it runs
+## The model
 
-Factorio runs in **LXC 1120** (`10.0.11.220`) — a normal unprivileged service LXC. The game server itself is self-contained: no database, no Authentik, no shared dependencies. It listens on the standard Factorio UDP game port.
+The container (LXC 1120 on Urd, `10.0.11.220`) runs the game server and **SFTPGo** side by side. The operator logs into SFTPGo only: no SSH, no web UI. They control the server entirely by editing files over SFTP.
+
+| Path (under `/factorio/`) | Operator can | Purpose |
+|---|---|---|
+| `mods/`, `saves/`, `scenarios/` | read/write | Game content |
+| `control/factorio-control.json` | read/write | Desired state: `version`, `state` (running or stopped), `restart` |
+| `control/restart-now` | create | Touching the file triggers an immediate restart |
+| `status/factorio-status.json` | read | What the reconciler actually did |
+| `logs/`, `script-output/` | read | Logs and game output |
 
 ---
 
-## The self-service pattern
+## The reconcile loop
 
-The design goal: let a trusted operator manage the server (upload saves, change settings, swap mods) **without ever giving them a shell** on the box. The pattern has three pieces:
+A root-owned systemd timer runs a small Python script every 30 seconds. It reads the control file, resolves "stable" or "experimental" to a concrete version through the Factorio API, downloads and checksum-verifies missing versions into versioned directories, swaps the active symlink atomically, makes the service match the requested state, and writes the status file. The operator declares intent; the machine converges. The same declare-then-converge shape is used everywhere else in the homelab.
 
-1. **SFTPGo** gives the operator SFTP-only access into `/factorio/`. They can drop files and edit JSON control files — but they get no login shell, no `sudo`, no ability to run arbitrary code.
-2. **JSON control files** are the interface. The operator expresses desired state (which save is active, server settings, mod list) by editing those files over SFTP.
-3. **A root-owned Python reconcile loop** (a systemd timer firing every 30 seconds) reads the control files and converges the actual server state to match — starting, stopping, or reconfiguring the game server as needed.
+The RCON password is never in the operator's tree: a fresh one is generated on every service start, and the server is launched with a shim that scrubs it from the process list.
 
-The operator describes *what they want*; the reconcile loop makes it so. It's the same converge-to-desired-state philosophy as Flux and Patroni, applied at the single-service level, with a hard security boundary (SFTP, no shell) in the middle.
+---
 
-This is the **template for future operator-managed services** — game servers, voice servers, anything where a non-platform-owner needs day-to-day control without root.
+## Access
+
+- Game port: UDP 34197, public via a UCG-Ultra port-forward to the LXC, with `factorio.xiiisins.com` resolving straight to the container for LAN clients (a bypass rewrite).
+- Admin: SFTP for the operator; Ansible for the platform side.
 
 ---
 
 ## See also
 
-- **Compute & hypervisors** (Components) — the LXC model Factorio runs in.
-- **GitOps & automation** (Components) — the same converge-to-desired-state idea at the fleet level.
-- **Services and purpose** — the catalog this is part of.
+- **Compute & hypervisors** (Components): why game servers are LXCs.
+- **GitOps & automation** (Components): the Ansible role and playbook.

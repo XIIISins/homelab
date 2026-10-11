@@ -2,38 +2,28 @@
 
 # Homelab — overview & design
 
-A 3-node Proxmox cluster running a small set of reliable services for friends and family, doubling as a senior-level infrastructure portfolio and a Kubernetes learning environment. Everything is defined as code; nothing in production exists outside of Git, Terraform state, or NetBox.
+A three-node Proxmox cluster running a small set of reliable services for friends and family, doubling as a Kubernetes learning environment and a senior-level infrastructure portfolio. Everything is defined as code; nothing in production exists outside Git, Terraform state or NetBox.
 
 ---
 
 ## Goals
 
-- **Reliable services for friends and family.** Jellyfin, Teamspeak, Factorio, Immich (planned), Outline. Uptime that doesn't require nursing.
-- **Kubernetes as a learning environment.** Real workloads, real failure modes — not a toy cluster.
-- **Portfolio at senior/principal infrastructure level.** The repo should read as evidence of how the operator approaches design, not just what they built.
+- **Reliable services for friends and family.** Jellyfin, Teamspeak, Factorio, Immich, a wiki. Uptime that does not need nursing.
+- **Kubernetes as a learning environment.** Real workloads and real failure modes, not a toy. Deep experiments go on an ephemeral cloud cluster, not on the production one.
+- **A portfolio at senior and principal infrastructure level.** The repository should read as evidence of how the operator designs, not just what was built.
 
 ## Scope
 
-**In scope.**
+**In scope.** Self-hosted services for friends and family; operator tooling (NetBox, Vault, observability, automation); a platform for learning Kubernetes, GitOps and modern operations.
 
-- Self-hosted services for friends and family — media, voice, games, photos, wiki.
-- Operator tooling — NetBox, Vault, Outline, observability.
-- Learning environment for Kubernetes, GitOps, and modern platform patterns.
-
-**Out of scope.**
-
-- Multi-region or geographically-redundant operation. One physical site.
-- Multi-tenancy. One operator, occasional collaborators — not a shared platform.
-- Public CI/CD, public build platforms, or externally-facing customer workloads.
-- Public-cloud workload hosting. Cloud is used for bootstrap concerns only: AWS KMS for Vault auto-unseal, S3 for Terraform state, Cloudflare for DNS and tunnels.
-- Compliance-bearing workloads (HIPAA, PCI, SOC). No regulated data lives here.
+**Out of scope.** Multi-region operation (one physical site); multi-tenancy; public CI or customer-facing workloads; public-cloud workload hosting (cloud is used for bootstrap and edge: AWS KMS and S3, Cloudflare, a DigitalOcean offsite node and burst cluster); regulated data.
 
 ## Design principles
 
-- **Everything is defined as code before it exists in production.** Terraform for API-driven resources, Ansible for OS-level state, Flux for in-cluster state. If a knob isn't in code, it doesn't exist.
-- **Complexity only where it serves a purpose.** No multi-region, no service mesh, no GitOps-for-GitOps. Every moving part earns its place.
-- **Self-healing at every layer.** Patroni for Postgres, keepalived for VIPs, Flux for cluster drift, Semaphore drift-check for fleet drift. Operator notification is a fallback, not the primary mechanism.
-- **Full audit trail.** Every change traceable to a human commit or an automated reconciliation. Conventional commits, NetBox as IPAM truth, decisions log for the *why*.
+- **Everything is defined as code before it exists in production.** Terraform for anything with an API, Ansible for operating systems, Flux for the cluster. If a knob is not in code, it does not exist.
+- **Complexity only where it serves a purpose.** No multi-region, no service mesh. Every moving part earns its place; features are dropped when the hardware cannot carry them.
+- **Self-healing at every layer.** Patroni for Postgres, keepalived for VIPs, Flux for the cluster, a drift-check for the fleet. Telling the operator is the fallback, not the mechanism.
+- **A full audit trail.** Every change traces to a human commit or an automated reconciliation.
 
 ---
 
@@ -41,20 +31,20 @@ A 3-node Proxmox cluster running a small set of reliable services for friends an
 
 | Layer | What |
 |---|---|
-| Hypervisors | 3× MSI Cubi (i3-1215u, 32 GB) — Urd, Verd, Skuld |
-| NAS | Synology DS223J — Munin |
-| Orchestration | Two K3s clusters (asgard + jotunheim) — both production |
-| GitOps | Flux CD reconciles from this repo |
-| Identity | Authentik — OIDC for web apps, LDAP for SSH via SSSD |
-| Secrets | HashiCorp Vault (runtime) + 1Password (bootstrap + offline mirror) + Ansible Vault (narrow bootstrap-only) |
-| IPAM/DCIM | NetBox — source of truth for devices, VMs, IPs, VLANs |
-| DNS | AdGuard Home — three nodes, keepalived VIP |
-| Storage | Synology iSCSI (K8s persistent state) + local LVM-thin (VM/LXC disks) |
-| Postgres | Patroni cluster (Fulla/Vör/Idunn) behind HAProxy VIP |
-| Observability | VictoriaMetrics + VictoriaLogs in-cluster, Zabbix LXC for hosts |
-| Ansible orchestration | Semaphore in asgard K3s — NetBox dynamic inventory, drift-check every 6h |
+| Hypervisors | 3× MSI Cubi (i3-1215U, 32 GB): Urd, Verd, Skuld |
+| NAS | Synology DS223J: Munin |
+| Orchestration | One K3s cluster, asgard: three control planes, three workers |
+| GitOps | Flux CD reconciles from this repository |
+| Identity | Authentik: OIDC, SAML and ForwardAuth |
+| Secrets | HashiCorp Vault (runtime), 1Password (bootstrap and offline mirror), Ansible Vault (narrow bootstrap) |
+| IPAM/DCIM | NetBox: devices, VMs, IPs, VLANs, and the Ansible inventory source |
+| DNS | AdGuard Home on three LXCs behind a keepalived VIP |
+| Storage | Tiered: local LVM-thin, `local-path`, NFS, a little iSCSI, emptyDir |
+| Database | PostgreSQL under Patroni, behind a HAProxy VIP |
+| Observability | VictoriaMetrics and VictoriaLogs in-cluster; Zabbix and Hermod outside it |
+| Automation | Semaphore (drift-check every 6 h), plus an approval-gated AIOps tier |
 
-All nodes are 1 GbE. No 2.5 GbE planned.
+All links are 1 GbE; no 2.5 GbE is planned.
 
 ---
 
@@ -63,82 +53,71 @@ All nodes are 1 GbE. No 2.5 GbE planned.
 ```
 Internet
   └── KPN Experia Box (DMZ → UCG-Ultra WAN)
-        └── UCG-Ultra (sole firewall policy boundary)
-              ├── Clients VLAN — MacBook, game PC, Hue bridge
-              └── Infra VLANs — 3× Proxmox + NAS
-                    ├── Asgard K3s (production-stable)
-                    │     ├── CP: Göndul / Hlökk / Sigrún
+        └── UCG-Ultra (the only firewall policy boundary)
+              ├── Clients VLAN: MacBook, game PC, Hue bridge
+              └── Infrastructure VLANs: 3× Proxmox + NAS
+                    ├── Asgard K3s
+                    │     ├── Control planes: Göndul / Hlökk / Sigrún
                     │     └── Workers: Einherjar-urd / verd / skuld
-                    ├── Jotunheim K3s (production-experimental, planned)
-                    └── LXCs: AdGuard, Postgres, HAProxy, Tailscale, Zabbix, Hermod, Factorio, PBS, ...
+                    └── LXCs and VMs: AdGuard, Postgres, HAProxy, Tailscale,
+                        Zabbix, Hermod, Factorio, PBS, Jellyfin, AIOps hosts, Frigg
 ```
 
-KPN sits in DMZ mode — every unsolicited inbound packet (IPv4 + IPv6) lands on UCG-Ultra. KPN itself is never in IaC; changes are recorded in docs or they don't exist.
+KPN is in DMZ mode: every unsolicited inbound packet lands on the UCG-Ultra. KPN itself is never in IaC, so its configuration is recorded in the docs.
+
+A second Kubernetes cluster (Jotunheim) was designed and dropped for lack of RAM; its network and ID ranges stay reserved.
 
 ---
 
 ## Architecture invariants
 
-These are the load-bearing design choices. Any of them changing is a deliberate re-evaluation, not a drive-by edit.
+The load-bearing choices. Changing one is a deliberate re-evaluation, not a drive-by edit.
 
 ### Orchestration
-- **K3s only.** No Docker Swarm, no plain k8s.
-- **Two K3s clusters — asgard and jotunheim — both production.** Separation is failure-domain risk management, not a maturity ladder.
-- **GitOps via Flux.** No ArgoCD. No manual `kubectl apply` for production.
-- **Calico CNI is a K3s addon, not Flux-managed.** Avoids the CNI bootstrap chicken-and-egg.
+- **K3s only.** One production cluster.
+- **GitOps via Flux.** No ArgoCD, and no manual `kubectl apply` against production.
+- **Calico is a K3s addon, not Flux-managed**, installed and upgraded by Ansible playbooks. It avoids a CNI bootstrap loop, and K3s pruning per addon file makes hand edits dangerous.
 
 ### Identity, network, storage
-- **Authentik is the only identity provider.** OIDC for web apps, LDAP for SSH via SSSD. Local accounts as break-glass.
-- **NetBox is the IPAM/DCIM source of truth.** Git stays the IaC spec; NetBox is the queryable view of reality.
-- **AdGuard Home is the DNS resolver.** Three nodes (Saga/Mimir/Kvasir), keepalived VIP. Rewrites are Terraform-managed against the origin; the other two sync from it.
-- **UCG-Ultra is the sole firewall policy boundary.** KPN is pass-through. Default posture: Internal → Any allow, External → Internal allow-return, default deny.
-- **MetalLB L2 for cluster-internal load balancing.** Workers are multi-homed (eth0 on the node VLAN, eth1 on the MetalLB VLAN).
-- **Tiered storage by access pattern.** iSCSI (block) for the few memory-mapped single-instance stores that genuinely need it (LMDB/BoltDB), NFS for file-class state, node-local `local-path` for app-replicated state like Vault's Raft, emptyDir for caches. Each workload gets the tier that fits it rather than defaulting everything onto block — which keeps the NAS's iSCSI LUN budget for the workloads that truly need it.
+- **Authentik is the only identity provider**, with local break-glass accounts.
+- **NetBox is the IPAM source of truth.** Git is the spec; NetBox is the queryable view.
+- **AdGuard Home is the resolver**, with Terraform-managed rewrites.
+- **The UCG-Ultra is the sole firewall boundary.** KPN is pass-through.
+- **MetalLB runs in L2 mode.** Workers are multi-homed and a set of routing settings must never be "hardened" away.
+- **Storage is tiered by access pattern** because the NAS allows only about ten iSCSI LUNs: block for the few memory-mapped stores, NFS for file-class data, node-local disks for replicated state, emptyDir for caches.
 
 ### Data
-- **PostgreSQL only.** No MySQL/Galera. Patroni HA across three nodes, etcd DCS on a separate HAProxy/etcd trio, a single HAProxy VIP for all consumers.
-- **VM/LXC disks live on local LVM-thin.** Not NFS — fsync latency over 1 GbE is the wrong shape for write-heavy workloads (PG in particular).
+- **PostgreSQL only**, with Patroni HA, etcd on a separate HAProxy trio and a single VIP for all consumers.
+- **VM and LXC disks live on local LVM-thin**, never NFS.
 
-### Observability
-- **VictoriaMetrics + VictoriaLogs.** No Prometheus, no Loki, no Grafana. vmui + the native VictoriaLogs UI cover homelab-scale dashboards.
-- **Zabbix runs in its own LXC, outside K3s.** Host- and LXC-level monitoring stays in a separate failure domain from the cluster it watches.
-
-### Automation
-- **Ansible orchestration via Semaphore in asgard K3s.** NetBox dynamic inventory, per-host-group playbooks, drift-check (`--check --diff`) every 6 hours, alerts to Hermod on diff or failure.
-- **Conventional commits, Norse mythology naming.** Primary defines the theme; replicas expand within it (Fulla/Vör/Idunn are Frigg's handmaidens, etc.).
+### Observability and automation
+- **VictoriaMetrics and VictoriaLogs; no Prometheus, Loki or Grafana.**
+- **Zabbix sits outside K3s**, in its own failure domain.
+- **Semaphore schedules Ansible** against a NetBox dynamic inventory.
+- **Conventional commits and Norse naming**: the primary defines the theme, replicas expand within it.
 
 ---
 
 ## Secrets
 
-Three stores, one rule per consumer class.
+Three stores, one rule per consumer.
 
-**Machines at runtime — HashiCorp Vault.**
-K8s workloads read via External Secrets Operator. Ansible on LXCs reads via AppRole. K8s + AppRole auth methods, KV-v2 backend, Raft HA across three nodes with AWS KMS auto-unseal.
+- **Machines at runtime: HashiCorp Vault.** Workloads read through External Secrets; Ansible through AppRole. Raft HA with AWS KMS auto-unseal.
+- **Machines at bootstrap: Ansible Vault.** Only what is needed before Vault exists.
+- **Humans, homelab-scoped: the Vault UI**, behind Authentik.
+- **Humans, bootstrap and everything else: 1Password.** The Homelab vault holds credentials that must survive Vault being down plus an offline mirror of every Vault secret. Credentials for infrastructure beneath the homelab (Proxmox, Synology, the router, the ISP) and personal ones live outside it.
 
-**Machines at bootstrap — Ansible Vault (in repo).**
-Narrowly scoped to what's needed *before* HashiCorp Vault is reachable: K3s join token, RHEL subscription keys, SSH pubkeys, AWS KMS re-seal copy. Nothing else.
-
-**Humans, homelab-scoped — Vault UI.**
-Authentik-gated. Primary access point for looking up any homelab-scoped credential.
-
-**Humans, fallback + bootstrap — 1Password (Homelab vault).**
-Two roles. (1) Offline mirror of every homelab Vault secret — discipline rule, manually maintained, periodically audited. (2) Bootstrap credentials that must survive Vault being down: Vault root token, AWS KMS unseal token, SSH recovery key, sealed-secrets master keypair backup, AppRole creds for the MacBook control node.
-
-**Everything else — 1Password (outside the Homelab vault).**
-Personal credentials and infrastructure *beneath* the homelab: Proxmox root, Synology admin, UCG-Ultra, KPN, banking, family-shared.
-
-Scope rule: anything that exists *because the homelab exists* lives in the Homelab vault or HashiCorp Vault. Anything beneath the homelab — the hypervisors themselves, the ISP modem, personal accounts — lives in 1Password outside the Homelab vault.
+Scope rule: what exists *because the homelab exists* is in Vault or the Homelab vault; what sits beneath or beside it is in 1Password.
 
 ---
 
 ## DNS and TLS
 
-Three zones, each with its own wildcard cert (cert-manager DNS-01 against Cloudflare):
+Three zones, each with a wildcard certificate (cert-manager DNS-01 against Cloudflare):
 
-- **`xiiisins.com`** — apex, externally resolvable, fronted by Cloudflare. Public-facing entrypoints land here (`wiki.xiiisins.com`, `authentik.xiiisins.com`).
-- **`midgard.xiiisins.com`** — internal alias for publicly-reachable services. Same backends as the apex, resolved internally by AdGuard, served by Traefik directly (no Cloudflare tunnel).
-- **`niflheim.xiiisins.com`** — internal-only. AdGuard resolves; UCG firewall blocks external. Operator tooling lives here (`vault`, `netbox`, `semaphore`, `logs`, `metric`).
+- **`xiiisins.com`**: public, fronted by Cloudflare.
+- **`midgard.xiiisins.com`**: internal alias of public services.
+- **`niflheim.xiiisins.com`**: internal-only, where operator tooling lives.
 
 ---
 
@@ -146,43 +125,37 @@ Three zones, each with its own wildcard cert (cert-manager DNS-01 against Cloudf
 
 ### Service tiers
 
-- **Critical.** Services whose absence is felt across the household within minutes. DNS (AdGuard VIP), the UCG firewall, the Postgres VIP. Run with active redundancy.
-- **Important.** Services whose absence is noticed within hours. Authentik, Jellyfin, Teamspeak, Hermod (Discord notifications), Vault. Single-node failure should be invisible; multi-node failure is acceptable downtime.
-- **Best-effort.** Services where a planned or unplanned outage is fine. Factorio, the wiki, observability dashboards, anything experimental in jotunheim. Operator notices and fixes.
+- **Critical.** DNS, the firewall and the Postgres VIP. Active redundancy.
+- **Important.** Authentik, Jellyfin, Teamspeak, Hermod, Vault. One node failure is invisible.
+- **Best-effort.** Factorio, the wiki, observability UIs, anything experimental.
 
 ### Self-healing posture
 
-- **Postgres.** Patroni runs continuous leader election; HAProxy routes only to the current primary via the `/master` REST check; keepalived floats the HAProxy VIP across the trio. Single-node failure recovers without operator intervention.
-- **Cluster state (asgard K3s).** Flux reconciles every manifest from this repo on a continuous loop. Drift in cluster state is corrected automatically.
-- **Fleet state (LXCs and VMs).** Semaphore runs an Ansible `--check --diff` drift-check across the fleet every six hours and alerts on diff or failure. Today apply is operator-driven; the direction is auto-remediation in two shapes — small drift (config gone wrong) converged automatically by re-applying the IaC, and larger failures (a VM that crashes, hangs, or otherwise misbehaves) handled by tearing the VM down and rebuilding it from scratch with no manual steps in the loop. Same posture as Patroni and Flux, extended to the fleet layer.
-- **DNS.** Three AdGuard nodes with a keepalived VIP and one-minute sync from the origin. Single-node loss is invisible.
-- **Observability.** Zabbix sits in its own LXC, outside K3s. If K3s breaks, Zabbix still notifies.
+- **Postgres.** Patroni elects a leader, HAProxy follows via a REST check, keepalived floats the VIP. Failover takes 10–30 seconds.
+- **The cluster.** Flux reconciles continuously.
+- **The fleet.** Semaphore runs a check-and-diff of every LXC and VM every six hours and alerts on drift. The direction is auto-convergence of small drift and rebuild-from-scratch for larger failures.
+- **DNS.** Three AdGuard nodes with a VIP and one-minute sync.
+- **Monitoring.** Zabbix and Hermod are outside K3s, so a cluster outage still pages.
+- **Automation with a human in the loop.** An approval-gated AIOps tier diagnoses alerts and, with the operator's approval, acts on them; autonomous action is confined to disposable canaries.
 
 ### Change model
 
-Three named paths. Nothing legitimate happens outside them.
-
-1. **Git push.** A Terraform plan/apply, an Ansible playbook run, or a Flux reconcile picks up a commit to this repo. Reviewed before merge; nothing lands in production by accident.
-2. **Drift-check + apply.** Semaphore runs an Ansible drift-check across the fleet every six hours and notifies on diff or failure. Today the apply is operator-driven — the operator inspects the diff, then either updates the IaC to match reality or runs the playbook to converge reality to IaC. The direction is auto-convergence: Semaphore applies the IaC automatically on detected drift, with the operator notified after the fact. The spec stays in the repo; reality converges to it.
-3. **Break-glass.** Direct edits on a host are explicitly out-of-band. They're logged, and the IaC must be reconciled the same day. The `recovery` user exists for this and only this.
+1. **Git push.** A branch and pull request pass a static CI gate and a diff review; merging to `main` is the Kubernetes deploy, and Terraform and Ansible are applied deliberately.
+2. **Drift-check and apply.** The scheduled check tells the operator when reality differs from Git; the IaC is then corrected or applied.
+3. **Break-glass.** Direct edits on a host are out-of-band, logged, and reconciled into the IaC the same day.
 
 ---
 
-## Phase posture
+## Current posture
 
-The build is sequenced as numbered phases (1 through 8) tracked in the build sequence doc. Asgard K3s and its core services are live; Jotunheim K3s is planned for Phase 7. The 1.0 stabilization waves (validation, recovery hardening, role debt, observability depth) completed in May 2026. The current focus is Phase 6 — Vault as the human secret-lookup point via Authentik OIDC, plus the Frigg control-node watchtower — alongside the last application rollouts (Immich is the remaining service).
+The platform is built: the cluster, identity, secrets, storage, observability and the application set are live. The media stack (Jellyfin and its automation) is in acceptance. The remaining work is mostly hardening the control node and maturing the AIOps tiers (autonomous healing, a fleet rebuild loop, agent-authored pull requests and rightsizing). A vm-operator migration and a second cluster are deferred or dropped.
 
 ---
 
 ## Where to go next
 
-Three reader paths.
+**I'm on call and something is wrong.** Start with **Troubleshooting** for symptoms and first checks, then the relevant **Services and purpose** page, and **Procedures** if a rebuild is on the table.
 
-**I'm on call — something's wrong.**
-Start with **Troubleshooting** for common symptoms and the first three things to check. Move to the relevant **Service** page for deeper context. Reach for **Procedures** if a rebuild is on the table.
+**I'm new to the homelab.** Read **Components & interactions** for how the pieces wire together, then **Hardware** for the physical layer. **Services and purpose** is the catalog.
 
-**I'm new to the homelab.**
-You're in the right place. From here: **Components & interactions** for how the pieces wire together, then **Hardware** for the physical layer. **Services** is the catalog when you're ready to dig into any one of them.
-
-**I want a URL or a login.**
-Open the **URLs** page. **Services** has a one-paragraph summary of what each one is for if you're not sure which to pick.
+**I want a URL or a login.** Open **URLs**.
