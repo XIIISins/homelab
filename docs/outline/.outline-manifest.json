@@ -41,7 +41,7 @@
   },
   "diagrams.md": {
     "id": "ef9a1660-5790-480c-b32f-28e80d55ddee",
-    "sha": "78dc3d938d428cd30f7adb78aa3351f5b5eeb712c83af108d7b3d48e814a1959",
+    "sha": "160f8eadaa5b6e51c63e216f7d991e61970e7c0743d4297eeae57bb5ffc1f181",
     "title": "Diagrams"
   },
   "diagrams/adguard.md": {
@@ -116,7 +116,7 @@
   },
   "diagrams/overview.md": {
     "id": "57a4195f-c51e-4ddf-8a2c-2ab039fe2e6e",
-    "sha": "c5789635baa1f4bb7640b31530a30b233f700e6a3ae2a3f60c2525dc0f361529",
+    "sha": "7a7e6bdd034cb2bc5c90a43cc0829d62fb6719a6a947b0b54ae2b2f31ab5548d",
     "title": "Overview diagram"
   },
   "diagrams/postgres.md": {

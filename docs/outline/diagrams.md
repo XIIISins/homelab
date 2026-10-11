@@ -52,7 +52,7 @@ Each service diagram is also embedded at the top of its service page, and the pl
 - **No addresses or IDs in a diagram.** No IP addresses, VM or container IDs, VLAN numbers or subnets. Those live in the text pages (**Hardware**, **Components & interactions**), so a diagram can be shared or reused without leaking the addressing plan.
 - **Colour means role, everywhere.** Blue is Kubernetes (VMs and platform), green is DNS and Tailscale, purple is PostgreSQL, orange is backup, monitoring and storage-side services, yellow is workloads people use, teal is automation and control, red is the firewall and edge, grey is outside the lab.
 - **Hand-drawn on purpose.** The diagrams are drawn in Excalidraw's sketch style to read as a map, not a spec.
-- **Service diagrams are dark with a transparent background**, so the page behind the picture is the background. On a light page the light ink is hard to read.
+- **Dark, with a transparent background.** Every diagram is drawn in Excalidraw's dark mode with no background fill, so the page behind the picture is the background. On a light page the light ink is hard to read.
 
 ---
 
@@ -62,7 +62,7 @@ Every diagram page has an `.excalidraw` file attached. To change one:
 
 1. Download the `.excalidraw` file from its page.
 2. Open <https://excalidraw.com>, choose **Open** (Cmd/Ctrl+O) and pick the file.
-3. Edit, then export a PNG and an SVG. For a service diagram turn **Dark mode** on and **Background** off; the overview diagram uses a solid background with **Dark mode** off.
+3. Edit, then export a PNG and an SVG with **Dark mode** on and **Background** off.
 4. Replace the attachments on the page. The same sources live in Git: `docs/architecture/` for the overview, `docs/services/diagrams/` for the rest.
 
 The picture inside Outline is a PNG, so it only changes when the page is edited.
