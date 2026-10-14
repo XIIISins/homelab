@@ -1,0 +1,83 @@
+# ansible/roles/net-posture/tasks/main.yml
+---
+- name: Install the probe's tools (curl, ss)
+  ansible.builtin.apt:
+    name:
+      - curl
+      - iproute2
+    state: present
+  tags: [net-posture, net-posture:packages]
+
+- name: Create the probe's system user (no shell, no home)
+  ansible.builtin.user:
+    name: "{{ net_posture_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  tags: [net-posture, net-posture:user]
+
+- name: Create the state directory
+  ansible.builtin.file:
+    path: "{{ net_posture_state_dir }}"
+    state: directory
+    owner: "{{ net_posture_user }}"
+    group: "{{ net_posture_user }}"
+    mode: "0755" # world-readable: zabbix-agent2 reads the status file
+  tags: [net-posture, net-posture:script]
+
+- name: Install the probe script
+  ansible.builtin.template:
+    src: net-posture.sh.j2
+    dest: "{{ net_posture_script }}"
+    mode: "0755"
+  tags: [net-posture, net-posture:script]
+
+- name: Install the probe unit and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - net-posture.service
+    - net-posture.timer
+  notify: Reload systemd (net-posture)
+  tags: [net-posture, net-posture:script]
+
+- name: Flush handlers (the units must be known before they are enabled)
+  ansible.builtin.meta: flush_handlers
+  tags: [net-posture, net-posture:script]
+
+- name: Enable the per-minute probe timer
+  ansible.builtin.systemd:
+    name: net-posture.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+  tags: [net-posture, net-posture:script]
+
+# One run now so the status file exists before the first Zabbix poll. The result is NOT asserted: a failing probe is what
+# Zabbix is there to report, and the Deploy Window may legitimately be open while this play runs.
+- name: Run the probe once
+  ansible.builtin.systemd:
+    name: net-posture.service
+    state: started
+  when: not ansible_check_mode
+  tags: [net-posture, net-posture:script]
+
+# The zabbix-agent role installs the agent later in the play; the .d directory is plain root-owned config, so create it here
+# and the agent picks the file up on its first start. The matching items and triggers are the server-side template.
+- name: Create the zabbix agent drop-in directory
+  ansible.builtin.file:
+    path: "{{ net_posture_zabbix_userparameter_file | dirname }}"
+    state: directory
+    mode: "0755"
+  tags: [net-posture, net-posture:zabbix]
+
+- name: Install the net-posture zabbix UserParameters
+  ansible.builtin.template:
+    src: zabbix-net-posture.conf.j2
+    dest: "{{ net_posture_zabbix_userparameter_file }}"
+    mode: "0644"
+  notify: Restart zabbix-agent2 (net-posture items)
+  tags: [net-posture, net-posture:zabbix]

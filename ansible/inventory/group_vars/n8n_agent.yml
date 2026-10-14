@@ -64,3 +64,31 @@ vlagent_log_inputs:
 # Caddyfile changes must APPLY: the role's Caddyfile has `admin off`, so `systemctl reload caddy` cannot work
 # (docs/known-issues/caddy.md). A sub-second restart does; certs persist on disk.
 caddy_reload_method: restarted
+
+# -----------------------------------------------------------------------------
+# net-posture: does Gna's network behaviour still match the UCG egress policy and the design?
+# -----------------------------------------------------------------------------
+# Probed from Gna every minute (roles/net-posture), alerted by the "Gna network posture" Zabbix template
+# (playbooks/files/zabbix/gna-network-posture.yml). The lists mirror the UCG policy table in
+# docs/architecture/network.md ("Egress allow-list for Gna"): change one, change the other in the same PR.
+net_posture_egress_allow:
+  - api.anthropic.com # AIOps - Allow discord-claude: the diagnosis agent's model
+  - discord.com # same policy: the #diagnoses webhook
+  - deb.debian.org # Allow OS Updates
+net_posture_egress_deny:
+  - example.com # Egress Default Deny, by name
+  - 1.1.1.1 # ... and by raw IP, so a missing DNS answer cannot pass for a block
+net_posture_egress_window:
+  - github.com # AIOps - Deploy Window: paused except while the n8n / vlagent roles run
+# Non-loopback listeners that are expected: sshd, Caddy (the one off-host surface), vlagent's metrics port, zabbix-agent2.
+net_posture_listen_allow_ports: [22, 8081, 9429, 10050]
+
+# -----------------------------------------------------------------------------
+# Zabbix: the stock Linux template plus the Gna network posture one (egress/ingress alerts), imported by
+# playbooks/zabbix-host-groups.yml from playbooks/files/zabbix/gna-network-posture.yml.
+# -----------------------------------------------------------------------------
+zabbix_agent_host_groups:
+  - "Linux servers"
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"
+  - "Gna network posture"

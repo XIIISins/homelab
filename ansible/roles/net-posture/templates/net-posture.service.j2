@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Network posture probe (egress allow/deny, listening surface)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User={{ net_posture_user }}
+Group={{ net_posture_user }}
+ExecStart={{ net_posture_script }} probe
+TimeoutStartSec=60
+# Read-only everywhere except the state dir; the probe only needs the network and `ss`.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ net_posture_state_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK

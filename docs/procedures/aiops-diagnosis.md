@@ -166,6 +166,8 @@ Gná may reach the internet only for Discord (webhook posts), the Anthropic API 
 
 Other controls remain in force regardless: loopback-only editor, no `executeCommand`/SSH/file nodes (`NODES_EXCLUDE` + CI), workflows reviewed in PRs, n8n holds no read credentials, a dedicated spend-limited Anthropic key.
 
+**Probed since 2026-10-14.** The `Gna network posture` Zabbix template alerts when an allowed destination stops answering (High: the agent cannot reach its model and every alert becomes "Analysis unavailable"), when a default-deny destination answers (High), when the Deploy Window stays open for 30 minutes (Average), or when an unexpected listener or the n8n port `:5678` appears off-host. After unpausing the Deploy Window for a role run, pause it again: the window alert is the reminder. Detail: [`net-posture`](../../ansible/roles/net-posture/README.md), [`2026-10-14-gna-egress-after-restart.md`](../incidents/2026-10-14-gna-egress-after-restart.md).
+
 ## Rollback
 
 Disable the producer's n8n send (10d2+), `systemctl stop n8n`. To remove the host: `terraform destroy -target=proxmox_virtual_environment_container.gna` (main checkout), then the NetBox/AGH/Vault entries. The Discord path never changed.

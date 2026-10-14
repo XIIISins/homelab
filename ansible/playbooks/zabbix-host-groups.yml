@@ -119,7 +119,9 @@
     # group_vars/proxmox.yml). Sources: playbooks/files/zabbix/{jellyfin,proxmox-igpu}.yml.
     # Patroni replication (lag + not-streaming triggers for the PG nodes, group_vars/postgres.yml) rides the same loop:
     # playbooks/files/zabbix/patroni-replication.yml.
-    - name: Ensure the Jellyfin, Proxmox iGPU and Patroni replication templates exist in Zabbix
+    # Gna network posture (egress allow/deny + ingress surface of the AIOps agent host, group_vars/n8n_agent.yml):
+    # playbooks/files/zabbix/gna-network-posture.yml.
+    - name: Ensure the Jellyfin, Proxmox iGPU, Patroni replication and Gna network posture templates exist in Zabbix
       when:
         - not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
         - item.group in groups
@@ -130,6 +132,7 @@
         - {file: jellyfin.yml, group: media_server}
         - {file: proxmox-igpu.yml, group: proxmox}
         - {file: patroni-replication.yml, group: postgres}
+        - {file: gna-network-posture.yml, group: n8n_agent}
       loop_control:
         label: "{{ item.file }}"
       delegate_to: "{{ zabbix_agent_api_delegate }}"
@@ -147,4 +150,4 @@
                     zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
-      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template]
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template, zabbix-agent:gna-template]

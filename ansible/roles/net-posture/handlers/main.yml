@@ -1,0 +1,13 @@
+# ansible/roles/net-posture/handlers/main.yml
+---
+- name: Reload systemd (net-posture)
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart zabbix-agent2 (net-posture items)
+  ansible.builtin.systemd:
+    name: zabbix-agent2.service
+    state: restarted
+  # The agent is installed by the zabbix-agent role AFTER this role in the play; on a first run the unit does not exist
+  # yet and picks the drop-in up when it starts.
+  failed_when: false
