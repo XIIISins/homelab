@@ -4,7 +4,7 @@
 # Built for Gna (the UCG egress allow-list in docs/architecture/network.md); the lists are per-host group_vars, so another
 # policed host (Ratatoskr) can reuse the role with its own lists.
 #
-# Every minute a systemd timer probes the targets below with `curl` and audits the listening sockets, and writes ONE state
+# Every `net_posture_interval` a systemd timer probes the targets below with `curl` and audits the listening sockets, and writes ONE state
 # file; zabbix-agent2 UserParameters read it (the template is playbooks/files/zabbix/gna-network-posture.yml). A timer and a
 # state file rather than a probing UserParameter because the agent's item timeout (3 s default) is shorter than a dropped
 # connection's timeout, and a blocked target IS a dropped connection.
@@ -25,6 +25,11 @@ net_posture_listen_allow_ports: []
 
 # Seconds before a probe gives up. A dropped connection takes the whole timeout, so keep it short; the probes run in parallel.
 net_posture_curl_timeout: 5
+
+# How often the probe runs (systemd time span). The Zabbix template (playbooks/files/zabbix/gna-network-posture.yml) is sized for
+# 5 minutes: its item delays are 5m, the egress and listener triggers need two consecutive failed probes (an 11m window with
+# count >= 2), the Deploy Window trigger 31m / count >= 6, and the stalled-probe trigger 25 minutes. Change both together.
+net_posture_interval: 5min
 
 net_posture_user: netposture
 net_posture_state_dir: /var/lib/net-posture
