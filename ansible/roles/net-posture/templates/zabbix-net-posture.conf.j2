@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# net-posture items for zabbix-agent2. The server-side template (playbooks/files/zabbix/gna-network-posture.yml) reads these keys.
+# Each key prints one value from the status file the per-minute timer writes; `age` is how stale that file is.
+UserParameter=net.posture[*],{{ net_posture_script }} read $1

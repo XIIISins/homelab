@@ -36,6 +36,11 @@
     - role: vlagent
       tags: [vlagent]
 
+    # Egress allow/deny probe + listening-surface audit, read by the "Gna network posture" Zabbix template. Before
+    # zabbix-agent so the UserParameter drop-in exists when the agent first starts.
+    - role: net-posture
+      tags: [net-posture]
+
     - role: zabbix-agent
       tags: [zabbix-agent]
 

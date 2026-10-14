@@ -1,0 +1,223 @@
+# ansible/playbooks/files/zabbix/gna-network-posture.yml
+#
+# "Gna network posture": a Zabbix 7.0 template linked ONLY to the Gna LXC (group_vars/n8n_agent.yml). Imported by
+# playbooks/zabbix-host-groups.yml. It alerts when Gna's network behaviour stops matching the design:
+#
+#   EGRESS   (probed FROM Gna, roles/net-posture, once a minute; allow/deny lists in group_vars/n8n_agent.yml, rules in
+#             docs/architecture/network.md "Egress allow-list for Gna")
+#     allow.fail          allow-listed destinations (Anthropic, Discord, Debian) that did not answer. The diagnosis agent cannot
+#                         call its model, so every alert gets "Analysis unavailable" (found 2026-10-14, after the UCG restart).
+#     deny.leak           default-deny destinations that DID answer: the deny is not holding (a raw IP is in the list too).
+#     window.leak         Deploy-Window destinations that answer: the UCG "AIOps - Deploy Window" policy was left unpaused.
+#   INGRESS
+#     listen.unexpected   agent side: sockets listening off loopback outside the allowed ports (22, 8081, 9429, 10050).
+#     :8081 reachable     server side, from Hugin: the Caddy door every alert enters through. Closed = no alert reaches Gna.
+#     :5678 closed        server side, from Hugin: the n8n editor/API must stay loopback-only; open = exposed off-host.
+#   The probe itself: net.posture[age], so a stalled timer cannot read as "all quiet".
+#
+# Each count trigger also names its "(list)" item in the expression (nodata(...,5m)=0: true while the probe reports) purely
+# so {ITEM.LASTVALUE2} in the problem data is the list of offending hosts/sockets. (length() was tried first and
+# Zabbix 7.0 refuses it: "incorrect usage of function length"; configuration.importcompare does not catch that.)
+# Item keys are not keys that "Linux by Zabbix agent" defines (two linked templates must not define the same key on one
+# host). The two net.tcp.service items are SIMPLE checks run by the Zabbix SERVER against the host interface IP, so they
+# test the path an outside client takes. Severities: High reaches Hermod `critical` and the diagnosis agent (which, when
+# the fault IS its own egress, can only answer "Analysis unavailable": the Discord alert is the signal that matters).
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 77049309be0e4cde91868eefcad8d101
+      template: Gna network posture
+      name: Gna network posture
+      description: Egress allow/deny behaviour and ingress surface of the AIOps agent host (LXC 1121). Items come from roles/net-posture UserParameters plus two server-side TCP checks.
+      groups:
+        - name: Templates
+      items:
+        - uuid: e78add460b184d029c85dbcff84ae62d
+          name: 'Gna egress: allow-listed destinations unreachable (count)'
+          key: 'net.posture[allow.fail]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: How many allow-listed destinations (Anthropic API, Discord, Debian mirror) did not answer on the last probe. 0 is healthy.
+          triggers:
+            - uuid: 67fe05bd4fe3467fb4df3bd738804943
+              expression: 'min(/Gna network posture/net.posture[allow.fail],5m)>0 and nodata(/Gna network posture/net.posture[allow.fail.list],5m)=0 and count(/Gna network posture/net.posture[allow.fail],5m)>=4'
+              name: 'Gna egress: allow-listed destination unreachable'
+              opdata: 'Unreachable: {ITEM.LASTVALUE2}'
+              priority: HIGH
+              description: >-
+                Gna could not reach an allow-listed destination for 5 minutes (the list is in the problem data). Unreachable
+                api.anthropic.com means the diagnosis agent cannot call its model: every alert is posted as "Analysis
+                unavailable" and no autonomous heal runs. Check the UCG zone-pair view (Internal to External) for
+                "Allow OS Updates" and "AIOps - Allow discord-claude" ABOVE "AIOps - Egress Default Deny" and for a
+                paused or edited allow policy; wait a minute after any change. Seen after the 2026-10-12 UCG restart: it
+                cleared by itself within hours (docs/incidents/2026-10-14-gna-egress-after-restart.md).
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: c3160eff8de5473eadfbbe8503181b31
+          name: 'Gna egress: allow-listed destinations unreachable (list)'
+          key: 'net.posture[allow.fail.list]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          description: The destinations behind the count above, space-separated; "-" when none.
+        - uuid: 16ba8e5f12754ec3b4512af1c7e79185
+          name: 'Gna egress: default-deny destinations answering (count)'
+          key: 'net.posture[deny.leak]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: How many destinations that must be blocked (a domain and a raw IP) answered on the last probe. 0 is healthy.
+          triggers:
+            - uuid: 8e487e5060854780b41f4f908c78ac3e
+              expression: 'min(/Gna network posture/net.posture[deny.leak],5m)>0 and nodata(/Gna network posture/net.posture[deny.leak.list],5m)=0 and count(/Gna network posture/net.posture[deny.leak],5m)>=4'
+              name: 'Gna egress: default deny not holding'
+              opdata: 'Reachable: {ITEM.LASTVALUE2}'
+              priority: HIGH
+              description: >-
+                Gna reached a destination the UCG should block for 5 minutes. "AIOps - Egress Default Deny" is no longer
+                matching Gna's traffic: it was paused, its source no longer includes Gna, or an allow with a broad
+                destination sits above it. Gna holds the Anthropic key and the Discord webhook, so a hole here is a
+                security regression, not just a nuisance. Open the zone-pair view and check the order and the source.
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: 1a9286c8e0f245a3a7f87ae07c0445d5
+          name: 'Gna egress: default-deny destinations answering (list)'
+          key: 'net.posture[deny.leak.list]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          description: The destinations behind the count above, space-separated; "-" when none.
+        - uuid: a379e85204d44d478f58021f019b2b80
+          name: 'Gna egress: Deploy Window destinations answering (count)'
+          key: 'net.posture[window.leak]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: How many Deploy-Window destinations (github.com) answered on the last probe. Non-zero while the UCG "AIOps - Deploy Window" policy is unpaused.
+          triggers:
+            - uuid: 5adc7711a228475a902debad0a2d1328
+              expression: 'min(/Gna network posture/net.posture[window.leak],30m)>0 and nodata(/Gna network posture/net.posture[window.leak.list],5m)=0 and count(/Gna network posture/net.posture[window.leak],30m)>=25'
+              name: 'Gna egress: Deploy Window left open'
+              opdata: 'Reachable: {ITEM.LASTVALUE2}'
+              priority: AVERAGE
+              description: >-
+                A destination that only the "AIOps - Deploy Window" policy allows has answered for 30 minutes. The window is
+                meant to be unpaused only while the n8n or vlagent role runs; pause it again in the UCG
+                (Internal to External, policy "AIOps - Deploy Window").
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: 26338011cca54d1b80a2741ec3179d22
+          name: 'Gna egress: Deploy Window destinations answering (list)'
+          key: 'net.posture[window.leak.list]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          description: The destinations behind the count above, space-separated; "-" when none.
+        - uuid: 2fa0a690684b449ab7e52b1ba6190c5c
+          name: 'Gna ingress: unexpected listeners (count)'
+          key: 'net.posture[listen.unexpected]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: Sockets listening on a non-loopback address whose port is not in net_posture_listen_allow_ports (group_vars/n8n_agent.yml). 0 is healthy.
+          triggers:
+            - uuid: cc16b029f7684e39b7ba419b30a5a7fd
+              expression: 'min(/Gna network posture/net.posture[listen.unexpected],5m)>0 and nodata(/Gna network posture/net.posture[listen.unexpected.list],5m)=0 and count(/Gna network posture/net.posture[listen.unexpected],5m)>=4'
+              name: 'Gna ingress: unexpected listener'
+              opdata: 'Listening: {ITEM.LASTVALUE2}'
+              priority: HIGH
+              description: >-
+                Something on Gna listens off loopback outside the allowed ports (22 SSH, 8081 Caddy, 9429 vlagent, 10050
+                zabbix-agent2). The only intended off-host surface is Caddy's :8081, allow-listed and /webhook/* only. Find
+                the owner with `sudo ss -tulnp` on Gna; if it is legitimate, add the port to net_posture_listen_allow_ports
+                in the same change that adds the service.
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: 8ea1d2a798b3490c856c2f0f347fd13f
+          name: 'Gna ingress: unexpected listeners (list)'
+          key: 'net.posture[listen.unexpected.list]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          description: The sockets behind the count above (proto/address:port), space-separated; "-" when none.
+        - uuid: 0fa5834d1d774ac0abdb7122eafddfe2
+          name: 'Gna network posture: probe age'
+          key: 'net.posture[age]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          units: s
+          description: Seconds since the net-posture timer last wrote its status file (999999 when it never has).
+          triggers:
+            - uuid: 684bf63fd0b045419f2008ce86b267c8
+              expression: 'last(/Gna network posture/net.posture[age])>600'
+              name: 'Gna network posture: probe stalled'
+              priority: AVERAGE
+              description: >-
+                The per-minute net-posture probe has not written its status file for 10 minutes, so the egress and listener
+                checks above are blind. Check `systemctl status net-posture.timer net-posture.service` and
+                `journalctl -u net-posture` on Gna.
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: 53274c7ee65e48c78a7aa47edabab17a
+          name: 'Gna ingress: alert door (:8081) reachable from Hugin'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,8081]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 1 when Hugin (the Zabbix server) can open a TCP connection to Caddy on Gna :8081, 0 when it cannot.
+          triggers:
+            - uuid: c6b12137a5d74ab399d00646d957ba20
+              expression: 'max(/Gna network posture/net.tcp.service[tcp,,8081],3m)=0 and count(/Gna network posture/net.tcp.service[tcp,,8081],3m)>=4'
+              name: 'Gna ingress: alert door (:8081) closed'
+              priority: HIGH
+              description: >-
+                Hugin cannot connect to Caddy on Gna :8081 for 3 minutes. Every alert enters the diagnosis agent through
+                this door, so no Zabbix problem is being analysed. Check `systemctl status caddy n8n` on Gna and that
+                the LXC is up. (Hermod still posts the raw alert to Discord.)
+              tags:
+                - tag: scope
+                  value: gna-network
+        - uuid: b4af8a32919c412c88e3de630176dfc1
+          name: 'Gna ingress: n8n port (:5678) reachable from Hugin'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,5678]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: >-
+            1 when Hugin can open a TCP connection to Gna :5678 (the n8n editor and API). It must be 0, because n8n listens on
+            loopback only.
+          triggers:
+            - uuid: de02a3e36f6149aabc1371228ffff323
+              expression: 'min(/Gna network posture/net.tcp.service[tcp,,5678],3m)=1 and count(/Gna network posture/net.tcp.service[tcp,,5678],3m)>=4'
+              name: 'Gna ingress: n8n editor reachable off-host'
+              priority: HIGH
+              description: >-
+                Hugin can connect to n8n's port 5678 on Gna. n8n must listen on 127.0.0.1 only (n8n_listen_host); the editor
+                is reached through an SSH tunnel and Caddy fronts only /webhook/* on :8081. Check `ss -tlnp` on Gna and
+                the n8n environment file (N8N_LISTEN_ADDRESS).
+              tags:
+                - tag: scope
+                  value: gna-network

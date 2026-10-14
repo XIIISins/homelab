@@ -1,0 +1,32 @@
+# ansible/roles/net-posture/defaults/main.yml
+---
+# Network posture probe: does this host's egress and listening surface match what the firewall policy and the design say?
+# Built for Gna (the UCG egress allow-list in docs/architecture/network.md); the lists are per-host group_vars, so another
+# policed host (Ratatoskr) can reuse the role with its own lists.
+#
+# Every minute a systemd timer probes the targets below with `curl` and audits the listening sockets, and writes ONE state
+# file; zabbix-agent2 UserParameters read it (the template is playbooks/files/zabbix/gna-network-posture.yml). A timer and a
+# state file rather than a probing UserParameter because the agent's item timeout (3 s default) is shorter than a dropped
+# connection's timeout, and a blocked target IS a dropped connection.
+
+# Destinations the host MUST reach (the allow rules). Any HTTP answer counts, including 4xx: the test is the TCP+TLS path.
+net_posture_egress_allow: []
+
+# Destinations the host must NOT reach (the default deny). A raw IP is included on purpose: it proves the deny is not just
+# a missing DNS answer.
+net_posture_egress_deny: []
+
+# Destinations that are blocked EXCEPT while the operator has the UCG "Deploy Window" policy unpaused. Kept apart from the
+# deny list because an open window is expected during a role run; the trigger waits 30 minutes before it speaks.
+net_posture_egress_window: []
+
+# Ports the host may listen on at a non-loopback address (TCP and UDP). Anything else listening off-loopback is "unexpected".
+net_posture_listen_allow_ports: []
+
+# Seconds before a probe gives up. A dropped connection takes the whole timeout, so keep it short; the probes run in parallel.
+net_posture_curl_timeout: 5
+
+net_posture_user: netposture
+net_posture_state_dir: /var/lib/net-posture
+net_posture_script: /usr/local/bin/net-posture
+net_posture_zabbix_userparameter_file: /etc/zabbix/zabbix_agent2.d/net-posture.conf

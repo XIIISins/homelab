@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+#
+#   net-posture probe        run by net-posture.timer every minute; writes the status file
+#   net-posture read <name>  run by zabbix-agent2 (zabbix-net-posture.conf); prints one value from the status file
+#
+# Status file ({{ net_posture_state_dir }}/status), one `key=value` per line, lists are space-separated:
+#   ts                 epoch seconds of the last probe
+#   allow_fail         allow-listed destinations that did NOT answer         (must be empty)
+#   deny_leak          default-deny destinations that DID answer             (must be empty)
+#   window_leak        Deploy-Window destinations that DID answer            (empty unless the window is open)
+#   listen_unexpected  off-loopback listeners outside the allowed ports      (must be empty)
+#
+# "Answered" = curl got ANY HTTP status (a 404 is fine): the TCP connect and the TLS handshake went through. A dropped
+# connection (the UCG deny) and a DNS failure both read as "did not answer". A deny destination whose DNS fails would
+# therefore look blocked; the raw-IP entry in the deny list is what proves the deny is not just a missing DNS answer.
+set -u
+
+STATE_DIR="{{ net_posture_state_dir }}"
+STATUS="${STATE_DIR}/status"
+
+ALLOW=({% for h in net_posture_egress_allow %}"{{ h }}" {% endfor %})
+DENY=({% for h in net_posture_egress_deny %}"{{ h }}" {% endfor %})
+WINDOW=({% for h in net_posture_egress_window %}"{{ h }}" {% endfor %})
+ALLOWED_PORTS=" {% for p in net_posture_listen_allow_ports %}{{ p }} {% endfor %}"
+
+value_of() { sed -n "s/^$1=//p" "$STATUS" 2>/dev/null | head -n1; }
+
+read_one() {
+    local name="$1" key list
+    case "$name" in
+        age)
+            local ts
+            ts="$(value_of ts)"
+            if [ -n "$ts" ]; then echo $(( $(date +%s) - ts )); else echo 999999; fi
+            return ;;
+        allow.fail|allow.fail.list)       key=allow_fail ;;
+        deny.leak|deny.leak.list)         key=deny_leak ;;
+        window.leak|window.leak.list)     key=window_leak ;;
+        listen.unexpected|listen.unexpected.list) key=listen_unexpected ;;
+        *) echo "unknown value: $name" >&2; exit 1 ;;
+    esac
+    list="$(value_of "$key")"
+    case "$name" in
+        *.list) echo "${list:--}" ;;   # an empty answer is "unsupported" to the agent; "-" means none
+        *)      if [ -z "$list" ]; then echo 0; else wc -w <<<"$list" | tr -d ' '; fi ;;
+    esac
+}
+
+reachable() {  # reachable <host> -> up|down
+    local code
+    code="$(curl -4 -ksS -m {{ net_posture_curl_timeout }} -o /dev/null -w '%{http_code}' "https://$1/" 2>/dev/null)"
+    if [ -n "$code" ] && [ "$code" != "000" ]; then echo up; else echo down; fi
+}
+
+probe() {
+    local tmp h out
+    tmp="$(mktemp -d)"
+    trap "rm -rf '$tmp'" EXIT   # expanded now: $tmp is local, and gone by the time the trap runs
+
+    # Every target in parallel: a dropped connection costs the whole timeout, and 20 serial blocks would overrun the timer.
+    for h in "${ALLOW[@]:-}"; do [ -n "$h" ] && { reachable "$h" >"$tmp/allow.$h" & }; done
+    for h in "${DENY[@]:-}"; do [ -n "$h" ] && { reachable "$h" >"$tmp/deny.$h" & }; done
+    for h in "${WINDOW[@]:-}"; do [ -n "$h" ] && { reachable "$h" >"$tmp/window.$h" & }; done
+    wait
+
+    local allow_fail="" deny_leak="" window_leak=""
+    for h in "${ALLOW[@]:-}"; do [ -n "$h" ] && [ "$(cat "$tmp/allow.$h")" = down ] && allow_fail+="$h "; done
+    for h in "${DENY[@]:-}"; do [ -n "$h" ] && [ "$(cat "$tmp/deny.$h")" = up ] && deny_leak+="$h "; done
+    for h in "${WINDOW[@]:-}"; do [ -n "$h" ] && [ "$(cat "$tmp/window.$h")" = up ] && window_leak+="$h "; done
+
+    # Listening surface: anything off loopback whose port is not in the allow list. `ss` prints Local:Port in column 5
+    # (`*:8081`, `0.0.0.0:9429`, `[::1]:25`, `127.0.0.53%lo:53`).
+    local unexpected
+    unexpected="$(ss -H -tuln | awk -v allowed="$ALLOWED_PORTS" '
+        { addr = $5; port = addr; sub(/.*:/, "", port); host = addr; sub(/:[0-9]+$/, "", host)
+          if (host ~ /^127\./ || host == "[::1]") next
+          if (index(allowed, " " port " ")) next
+          print $1 "/" addr }' | sort -u | tr '\n' ' ')"
+
+    out="${STATUS}.$$"
+    {
+        echo "ts=$(date +%s)"
+        echo "allow_fail=${allow_fail% }"
+        echo "deny_leak=${deny_leak% }"
+        echo "window_leak=${window_leak% }"
+        echo "listen_unexpected=${unexpected% }"
+    } >"$out"
+    mv -f "$out" "$STATUS"
+}
+
+case "${1:-probe}" in
+    probe) probe ;;
+    read)  read_one "${2:?usage: net-posture read <name>}" ;;
+    *)     echo "usage: net-posture probe | read <name>" >&2; exit 2 ;;
+esac
