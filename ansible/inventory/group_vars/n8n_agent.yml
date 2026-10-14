@@ -68,7 +68,7 @@ caddy_reload_method: restarted
 # -----------------------------------------------------------------------------
 # net-posture: does Gna's network behaviour still match the UCG egress policy and the design?
 # -----------------------------------------------------------------------------
-# Probed from Gna every minute (roles/net-posture), alerted by the "Gna network posture" Zabbix template
+# Probed from Gna every 5 minutes (roles/net-posture), alerted by the "Gna network posture" Zabbix template
 # (playbooks/files/zabbix/gna-network-posture.yml). The lists mirror the UCG policy table in
 # docs/architecture/network.md ("Egress allow-list for Gna"): change one, change the other in the same PR.
 net_posture_egress_allow:
