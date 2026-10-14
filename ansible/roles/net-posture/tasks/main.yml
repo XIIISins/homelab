@@ -47,7 +47,7 @@
   ansible.builtin.meta: flush_handlers
   tags: [net-posture, net-posture:script]
 
-- name: Enable the per-minute probe timer
+- name: Enable the probe timer
   ansible.builtin.systemd:
     name: net-posture.timer
     enabled: true

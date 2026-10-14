@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # {{ ansible_managed }}
 #
-#   net-posture probe        run by net-posture.timer every minute; writes the status file
+#   net-posture probe        run by net-posture.timer every {{ net_posture_interval }}; writes the status file
 #   net-posture read <name>  run by zabbix-agent2 (zabbix-net-posture.conf); prints one value from the status file
 #
 # Status file ({{ net_posture_state_dir }}/status), one `key=value` per line, lists are space-separated:

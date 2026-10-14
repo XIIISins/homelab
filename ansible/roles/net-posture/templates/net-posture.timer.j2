@@ -1,10 +1,10 @@
 # {{ ansible_managed }}
 [Unit]
-Description=Network posture probe, every minute
+Description=Network posture probe, every {{ net_posture_interval }}
 
 [Timer]
 OnBootSec=30s
-OnUnitActiveSec=1min
+OnUnitActiveSec={{ net_posture_interval }}
 AccuracySec=5s
 
 [Install]

@@ -18,7 +18,7 @@ The UCG egress rules for Gná did not match Gná's traffic for at least hours af
 
 ## Fix
 
-A per-minute posture probe on Gná and a Zabbix template that alerts when it stops matching the design ([`net-posture`](../../ansible/roles/net-posture/README.md), [`gna-network-posture.yml`](../../ansible/playbooks/files/zabbix/gna-network-posture.yml)). Egress: allow-listed destinations must answer, the default-deny destinations (a domain and a raw IP) must not, the Deploy Window destination must not outside a deploy. Ingress: no listener off loopback outside the allowed ports, Caddy `:8081` reachable from Hugin, n8n `:5678` not.
+A posture probe on Gná (every 5 minutes) and a Zabbix template that alerts when it stops matching the design ([`net-posture`](../../ansible/roles/net-posture/README.md), [`gna-network-posture.yml`](../../ansible/playbooks/files/zabbix/gna-network-posture.yml)). Egress: allow-listed destinations must answer, the default-deny destinations (a domain and a raw IP) must not, the Deploy Window destination must not outside a deploy. Ingress: no listener off loopback outside the allowed ports, Caddy `:8081` reachable from Hugin, n8n `:5678` not.
 
 Deployed 2026-10-14 (template import, then the Gná play with `--tags net-posture,zabbix-agent`): 11 items supported, 7 triggers loaded, none firing, role idempotent in check mode.
 
