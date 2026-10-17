@@ -76,6 +76,7 @@ The policy artifact: every producer maps its native severity to a tag. Changes h
 | Zabbix | Disaster, High | `critical` |
 | Zabbix | Average | `alert` |
 | Zabbix | Disaster/High/Average on a `canary-*` host | `info` (capped in `hermod-webhook.js`) |
+| Zabbix | High trigger named `Unit down: ...` (AdGuardHome / tailscaled unit-state templates, 10f) | `alert` (capped in `hermod-webhook.js`; the trigger stays High so the AIOps agent receives it) |
 | Zabbix | Information, Warning | none (logged only) |
 | VMAlert (future, Phase 8b) | critical / warning | `critical` / `alert` |
 | Semaphore | apply failure / drift-check failure | `critical` / `alert` |
