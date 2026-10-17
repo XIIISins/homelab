@@ -187,7 +187,12 @@ def fast_rise(series: Series, now: float, window: float = 3600, baseline: float 
     return Finding(target=target, metric=metric, kind="fast-rise", ratio=None if ratio is None else round(ratio, 2),
                    confidence="medium" if len(recent) >= 6 else "low", ts=now,
                    evidence={"recent_rate_per_hour": r_rate, "baseline_rate_per_hour": b_rate,
-                             "recent_points": len(recent), "baseline_points": len(base), "window_s": window})
+                             "recent_points": len(recent), "baseline_points": len(base), "window_s": window,
+                             # Re-analysis evidence (labelled cases): the last <=6 samples, the current level and the jump, all in
+                             # the series' own unit. No GB field: the fs path carries pused/100 only, never the capacity in bytes.
+                             "recent_samples": [[int(t), round(v, 6)] for t, v in recent[-6:]],
+                             "last_value": round(recent[-1][1], 6),
+                             "jump": round(recent[-1][1] - recent[0][1], 6)})
 
 
 class Dedup:
