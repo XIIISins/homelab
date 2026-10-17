@@ -75,3 +75,7 @@ zabbix_agent_host_groups:
   - "Asgard/Control"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # playbooks/files/zabbix/asgard-services.yml: Toolbelt API, remote control, SSH agent, tailscaled, heartbeat timer
+  - "Frigg services"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"

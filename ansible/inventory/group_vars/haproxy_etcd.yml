@@ -151,6 +151,10 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/HAProxy-etcd"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # playbooks/files/zabbix/asgard-services.yml: keepalived and the VLAN 10 policy routing
+  - "HAProxy-etcd services"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"
   - "HAProxy by Zabbix agent"
   - "Etcd by HTTP"
 zabbix_agent_host_macros:

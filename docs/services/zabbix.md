@@ -66,18 +66,21 @@ All under `secret/ansible/…`, because the Ansible role is the consumer (the TF
 - **Plain HTTP to the API** on the internal LAN (`zabbix_agent_api_use_ssl: false`). Agent ↔ server traffic is unencrypted too (VLANs 11/21 only); move to PSK/cert (`zabbix_agent_tls_connect`/`_accept`) when the first cross-VLAN or tailnet-exposed agent lands.
 - Fleet-wide monitoring choices (QEMU discovery disabled, LXC load-average muted, canary smoke template) are decision rows in `decisions.md` ("VM/LXC monitoring source", "LXC load-average alerting", "Canaries carry their own Zabbix smoke-test template").
 
+## Service-level coverage
+
+The stock Linux template only says a host is up; the service each host exists for is watched by small templates in `ansible/playbooks/files/zabbix/` (imported by `zabbix-host-groups.yml`, linked per inventory group): `asgard-services.yml` (systemd unit state, TCP/UDP ports, per host class), `asgard-service-endpoints.yml` (web scenarios, the PostgreSQL VIP, Munin and gateway checks, run by Hugin on the agentless virtual host `asgard-services`, declared by `zabbix_virtual_hosts`), plus the older `canary-smoke-test`, `jellyfin`, `patroni-replication`, `gna-network-posture` and `proxmox-igpu`. [`zabbix-service-coverage.md`](../operations/zabbix-service-coverage.md) is the inventory: every service, what watches it, the severity chosen and why, who acts, and what is still unmonitored.
+
 ## Source of truth
 
 | Data | Spec lives in | Zabbix role |
 |------|---------------|-------------|
 | Host existence, IPs | `terraform/proxmox/*` + `terraform/netbox/` | Hosts are registered by the agent role from the Ansible inventory (NetBox dynamic inventory) |
-| Templates, items, triggers | Zabbix DB (UI-managed) | Authoritative; export to Git is a deferred polish item |
+| Templates, items, triggers | Stock templates: Zabbix DB. Custom templates: git (`ansible/playbooks/files/zabbix/*.yml`) | The custom ones are imported on every `zabbix-host-groups.yml` run; edit the file, not the UI (the next import overwrites). Exporting the stock ones stays deferred |
 | Notifications | Zabbix media types (declared by the server role) | Zabbix mints alerts, Hermod routes to Discord by severity→tag map ([`notifications.md`](notifications.md)) |
 
 NetBox says what exists, Zabbix says how it is: a new host in NetBox gets an inventory entry, then the agent, then a Zabbix record with the right groups, with no multi-tool data entry.
 
 ## Not done
 
-- **Templates as code:** export templates to Git once custom templates start to accumulate (the built-ins cover Linux, PostgreSQL and nginx today).
 - **Viewer access:** SAML maps one group (`zabbix-admins` → administrators). For read-only sharing, add `zabbix_viewers` in Authentik and a mapping rule.
 - **Trim 3× cluster-wide Proxmox-template discovery redundancy:** tracked in [`open-questions.md`](../operations/open-questions.md).

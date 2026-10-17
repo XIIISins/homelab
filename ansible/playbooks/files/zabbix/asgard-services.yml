@@ -1,0 +1,631 @@
+# ansible/playbooks/files/zabbix/asgard-services.yml
+#
+# Per-host-class service templates (docs/operations/zabbix-service-coverage.md is the inventory these close). Imported by
+# playbooks/zabbix-host-groups.yml and linked from group_vars/<group>.yml. Pattern, same as canary-smoke-test.yml:
+#   systemd.unit.info[UNIT,ActiveState]   agent2 (passive); the trigger is find(...,#5,"eq","active")=0, i.e. the unit was not
+#                                         active in any of the last five samples (a restart is absorbed, a stop is not)
+#   net.tcp.service[tcp,,PORT]            SIMPLE check run by the Zabbix SERVER against the host interface IP, so it
+#                                         tests the path a client takes; max()=0 over 5 minutes with count()>=8 samples
+#   net.udp.listen[PORT]                  agent check, 1 while the port is bound
+# A port trigger depends on its unit trigger so one stopped service is one problem, not two.
+#
+# Severity is a paging decision (Hermod: High and Disaster -> `critical`, wakes the operator; Average -> `alert`, hours; Warning
+# and below stay in the UI). High is used only for Hermod, the path every other alert leaves through. Gna receives High and
+# Disaster only, so nothing here but Hermod reaches the diagnosis agent or autonomous restart (aiops/alert-routing.yml).
+# Item keys are not keys the stock Linux template or the canary and Gna templates define (two linked templates must not define
+# the same key on one host). Trigger names avoid the phrases the Zabbix host-down route in aiops/alert-routing.yml matches
+# ("is not available", "unreachable", "host is down", "no data from").
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: c2ec4c9b271643e8a15ecf1c8871d0b6
+      template: vlagent log shipper
+      name: vlagent log shipper
+      description: 'systemd state of vlagent, the log shipper on every LXC, VM and Proxmox host (AdGuard and Tailscale LXCs and the canaries carry their own).'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 6b0d35125bf24ffa931aff231cc7ebb5
+          name: 'vlagent: vlagent.service state'
+          key: 'systemd.unit.info[vlagent.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of vlagent.service.
+          triggers:
+            - uuid: 1fb059bc881045f3b75db6fa2e3dc7fd
+              expression: 'find(/vlagent log shipper/systemd.unit.info[vlagent.service,ActiveState],#5,"eq","active")=0'
+              name: 'vlagent: vlagent.service is not active'
+              priority: AVERAGE
+              description: >-
+                The vlagent log shipper stopped on this host, so its logs stop reaching VictoriaLogs (the diagnosis
+                agent's evidence and the operator's search). Check `systemctl status vlagent` and `journalctl -u
+                vlagent`; a restart is safe.
+              tags:
+                - tag: scope
+                  value: vlagent
+    - uuid: bdf47dbab621426187cbbc47977d6b3f
+      template: Factorio services
+      name: Factorio services
+      description: 'Factorio game server and SFTPGo on the Factorio LXC (1120): units, the game''s UDP listener, the SFTP port and the reconcile timer.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: a4aa4ec93f33486a8cec513d5e78fd6c
+          name: 'Factorio: factorio.service state'
+          key: 'systemd.unit.info[factorio.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of factorio.service.
+          triggers:
+            - uuid: 1dac19044bbb46adbece86581a1c7780
+              expression: 'find(/Factorio services/systemd.unit.info[factorio.service,ActiveState],#5,"eq","active")=0'
+              name: 'Factorio: factorio.service is not active'
+              priority: AVERAGE
+              description: >-
+                The game server unit has not been active for 5 minutes (stopped or crash-looping). Friends cannot
+                connect. The operator restarts it by dropping a file into the SFTP restart-now path; on the host:
+                `systemctl status factorio`, `journalctl -u factorio -n 100`. A restart-now or config reconcile
+                restarts it briefly, which the 5-minute window absorbs.
+              tags:
+                - tag: scope
+                  value: factorio
+        - uuid: 33aa5dcbbcb34d0ba2fea0d9257d4210
+          name: 'Factorio: UDP 34197 listening'
+          key: 'net.udp.listen[34197]'
+          delay: 1m
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 1 while the Factorio game port is bound (agent check on the host itself).
+          triggers:
+            - uuid: 633235102750491eb00a3214c53b0e9d
+              expression: 'max(/Factorio services/net.udp.listen[34197],5m)=0 and count(/Factorio services/net.udp.listen[34197],5m)>=4'
+              name: 'Factorio: game port UDP 34197 not listening'
+              priority: AVERAGE
+              description: >-
+                Nothing has been bound to UDP 34197 for 5 minutes although the unit may report active (still loading a
+                save, or the server failed to bind). Check `journalctl -u factorio` for the bind error.
+              dependencies:
+                - name: 'Factorio: factorio.service is not active'
+                  expression: 'find(/Factorio services/systemd.unit.info[factorio.service,ActiveState],#5,"eq","active")=0'
+              tags:
+                - tag: scope
+                  value: factorio
+        - uuid: 8af6c0c893684ad4bcd5b2be9fa3530a
+          name: 'Factorio: sftpgo.service state'
+          key: 'systemd.unit.info[sftpgo.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of sftpgo.service.
+          triggers:
+            - uuid: 823825bfd6624798a85e59f3eee01324
+              expression: 'find(/Factorio services/systemd.unit.info[sftpgo.service,ActiveState],#5,"eq","active")=0'
+              name: 'Factorio: sftpgo.service is not active'
+              priority: AVERAGE
+              description: >-
+                SFTPGo (the operator's only way to edit Factorio's control files) is not active. Check `systemctl
+                status sftpgo` and `journalctl -u sftpgo`.
+              tags:
+                - tag: scope
+                  value: factorio
+        - uuid: f01822ced50f4b0f803d9cc987599ccb
+          name: 'Factorio: SFTP port 22022 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,22022]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: ea638f0d6c5c495fb22d7d928f2bf157
+              expression: 'max(/Factorio services/net.tcp.service[tcp,,22022],5m)=0 and count(/Factorio services/net.tcp.service[tcp,,22022],5m)>=8'
+              name: 'Factorio: SFTP port 22022 refuses connections'
+              priority: WARNING
+              description: >-
+                Hugin cannot connect to SFTPGo on 22022 for 5 minutes. The unit check above names the cause when the
+                service is down; otherwise suspect the UCG port-forward path or nftables.
+              tags:
+                - tag: scope
+                  value: factorio
+        - uuid: 1ca9db53d7634e079a067a86b39310e5
+          name: 'Factorio: factorio-reconcile.timer state'
+          key: 'systemd.unit.info[factorio-reconcile.timer,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of factorio-reconcile.timer.
+          triggers:
+            - uuid: 5caea961da2f4e30ab6ce8d856292f63
+              expression: 'find(/Factorio services/systemd.unit.info[factorio-reconcile.timer,ActiveState],#5,"eq","active")=0'
+              name: 'Factorio: factorio-reconcile.timer is not active'
+              priority: WARNING
+              description: >-
+                The reconcile timer is not active, so operator edits to the JSON control files are no longer
+                converged. Re-run `ansible-playbook playbooks/asgard-factorio.yml --tags factorio`.
+              tags:
+                - tag: scope
+                  value: factorio
+    - uuid: e41b37fdbcca4972881941712ddd28ec
+      template: PBS services
+      name: PBS services
+      description: 'Proxmox Backup Server LXC (1101): the two PBS daemons and the API port.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 056b2bbbb9234325994a953680c4bbb4
+          name: 'PBS: proxmox-backup-proxy.service state'
+          key: 'systemd.unit.info[proxmox-backup-proxy.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of proxmox-backup-proxy.service.
+          triggers:
+            - uuid: bfe8cd347891461599a488a30cc79bcf
+              expression: 'find(/PBS services/systemd.unit.info[proxmox-backup-proxy.service,ActiveState],#5,"eq","active")=0'
+              name: 'PBS: proxmox-backup-proxy.service is not active'
+              priority: AVERAGE
+              description: >-
+                The PBS API/web proxy (port 8007, also what the S4 prober and the Proxmox hosts talk to) is not
+                active. Backups, restore tests and the datastore view are down until it returns. `systemctl status
+                proxmox-backup-proxy` and `journalctl -u proxmox-backup-proxy` on the LXC (root SSH only).
+              tags:
+                - tag: scope
+                  value: pbs
+        - uuid: 9144b0a05d364e09ac98947c73206470
+          name: 'PBS: proxmox-backup.service state'
+          key: 'systemd.unit.info[proxmox-backup.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of proxmox-backup.service.
+          triggers:
+            - uuid: 6b36327dbe8341058e8f6d0d59a399d3
+              expression: 'find(/PBS services/systemd.unit.info[proxmox-backup.service,ActiveState],#5,"eq","active")=0'
+              name: 'PBS: proxmox-backup.service is not active'
+              priority: AVERAGE
+              description: >-
+                The PBS management daemon is not active. Same impact and checks as the proxy unit.
+              tags:
+                - tag: scope
+                  value: pbs
+        - uuid: aead1bd1e4a441ffb8073d592627d984
+          name: 'PBS: API port 8007 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,8007]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 40d8b6aa0c2a447cbf245dbf71ca8d4f
+              expression: 'max(/PBS services/net.tcp.service[tcp,,8007],5m)=0 and count(/PBS services/net.tcp.service[tcp,,8007],5m)>=8'
+              name: 'PBS: API port 8007 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the PBS API on 8007 for 5 minutes. Nightly backups fail while it is down.
+                Check the units above first, then that the Munin NFS datastore is still mounted inside the LXC.
+              dependencies:
+                - name: 'PBS: proxmox-backup-proxy.service is not active'
+                  expression: 'find(/PBS services/systemd.unit.info[proxmox-backup-proxy.service,ActiveState],#5,"eq","active")=0'
+              tags:
+                - tag: scope
+                  value: pbs
+    - uuid: c04e128aae8b400b9d79f84b2e22aedd
+      template: Hermod services
+      name: Hermod services
+      description: 'Hermod notification hub (LXC 1103): AppriseAPI, the Caddy front and the :80 listener every alert producer posts to.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 9ff3441d851241599f591e7b8868da6f
+          name: 'Hermod: caddy.service state'
+          key: 'systemd.unit.info[caddy.service,ActiveState]'
+          delay: 30s
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of caddy.service.
+          triggers:
+            - uuid: bb030407e0cd4bac80ea4f6a5df001fe
+              expression: 'find(/Hermod services/systemd.unit.info[caddy.service,ActiveState],#6,"eq","active")=0'
+              name: 'Hermod: caddy.service is not active'
+              priority: HIGH
+              description: >-
+                Caddy (the :80 listener with the producer IP allow-list) is not active, so no alert can reach Discord
+                through Hermod. The Zabbix to Gna path still carries High problems and Gatus on do1 watches this LXC
+                independently. `systemctl status caddy` and `journalctl -u caddy` on Hermod.
+              tags:
+                - tag: scope
+                  value: hermod
+        - uuid: 6a28a5c5f09c4adba71036c78c172ce9
+          name: 'Hermod: apprise-api.service state'
+          key: 'systemd.unit.info[apprise-api.service,ActiveState]'
+          delay: 30s
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of apprise-api.service.
+          triggers:
+            - uuid: d73adc3db31d4c208644b59b6ea5de35
+              expression: 'find(/Hermod services/systemd.unit.info[apprise-api.service,ActiveState],#6,"eq","active")=0'
+              name: 'Hermod: apprise-api.service is not active'
+              priority: HIGH
+              description: >-
+                AppriseAPI (the Discord fan-out behind Caddy) is not active, so Caddy answers 502 and no alert reaches
+                Discord through Hermod. `systemctl status apprise-api` and `journalctl -u apprise-api` on Hermod.
+              tags:
+                - tag: scope
+                  value: hermod
+        - uuid: ec5630660644404b8ffa557e31d927b9
+          name: 'Hermod: producer port 80 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,80]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 85138bd3fda04a17bc7c4c630deca8cb
+              expression: 'max(/Hermod services/net.tcp.service[tcp,,80],3m)=0 and count(/Hermod services/net.tcp.service[tcp,,80],3m)>=4'
+              name: 'Hermod: producer port 80 refuses connections'
+              priority: HIGH
+              description: >-
+                Hugin cannot connect to Hermod's :80 for 5 minutes, which is the connection Zabbix itself uses to post
+                alerts. Check the Caddy and AppriseAPI units, then the LXC (Proxmox: LXC not running).
+              dependencies:
+                - name: 'Hermod: caddy.service is not active'
+                  expression: 'find(/Hermod services/systemd.unit.info[caddy.service,ActiveState],#6,"eq","active")=0'
+              tags:
+                - tag: scope
+                  value: hermod
+    - uuid: 8928fc739f6e4fc0985283f19d5b8fe1
+      template: Gna services
+      name: Gna services
+      description: 'Gna AIOps agent host (LXC 1121): the n8n unit. Caddy''s :8081 door and the network posture have their own template.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: bbafbb842215439e986f1b286a9c693d
+          name: 'Gna: n8n.service state'
+          key: 'systemd.unit.info[n8n.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of n8n.service.
+          triggers:
+            - uuid: 6278d76580414ac9adf6849e8ab0c775
+              expression: 'find(/Gna services/systemd.unit.info[n8n.service,ActiveState],#5,"eq","active")=0'
+              name: 'Gna: n8n.service is not active'
+              priority: AVERAGE
+              description: >-
+                n8n (the diagnosis agent) is not active for 5 minutes, so no Zabbix problem is analysed and Discord
+                threads get no diagnosis. Hermod still posts the raw alert. `systemctl status n8n` and `journalctl -u
+                n8n -n 100` on Gna; the unit is not in the autonomous-restart scope.
+              tags:
+                - tag: scope
+                  value: gna
+    - uuid: 8f33f98db8d24fb386b82519d9773c86
+      template: Ratatoskr services
+      name: Ratatoskr services
+      description: 'Ratatoskr AIOps Discord bot (LXC 1122): outbound only, nothing listens.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 38eb3d63d5c94ef3a7bccecdbfdd1768
+          name: 'Ratatoskr: ratatoskr.service state'
+          key: 'systemd.unit.info[ratatoskr.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of ratatoskr.service.
+          triggers:
+            - uuid: 25fecb67d3e0475291b3f9a0ce668b28
+              expression: 'find(/Ratatoskr services/systemd.unit.info[ratatoskr.service,ActiveState],#5,"eq","active")=0'
+              name: 'Ratatoskr: ratatoskr.service is not active'
+              priority: AVERAGE
+              description: >-
+                The Discord bot is not active for 5 minutes. It is the only approver of AIOps actions and the chat
+                transport, so approval buttons and `/aiops` commands do nothing until it returns. `systemctl status
+                ratatoskr` and `journalctl -u ratatoskr` on the LXC.
+              tags:
+                - tag: scope
+                  value: ratatoskr
+    - uuid: 266a44f160c7497ba0777a9d9b09e4d9
+      template: Frigg services
+      name: Frigg services
+      description: 'Frigg control node (VM 2900): the AIOps Toolbelt API, Claude remote control, the SSH agent, Tailscale and the dead-man heartbeat timer.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 772f0313c401460da538f4c58e3f68b8
+          name: 'Frigg: aiops-toolbelt.service state'
+          key: 'systemd.unit.info[aiops-toolbelt.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of aiops-toolbelt.service.
+          triggers:
+            - uuid: bc31123fe0e147ea8967ca2cf9b2991a
+              expression: 'find(/Frigg services/systemd.unit.info[aiops-toolbelt.service,ActiveState],#5,"eq","active")=0'
+              name: 'Frigg: aiops-toolbelt.service is not active'
+              priority: AVERAGE
+              description: >-
+                The AIOps Toolbelt API (port 8090: read-only diagnosis tools, the audit log, the approval store) is
+                not active. The diagnosis agent loses its tools and Ratatoskr cannot record approvals. `systemctl
+                status aiops-toolbelt` and `journalctl -u aiops-toolbelt` on Frigg.
+              tags:
+                - tag: scope
+                  value: frigg
+        - uuid: 420a083320f34636a2fb8f0790840cad
+          name: 'Frigg: Toolbelt API port 8090 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,8090]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: c9021012e20e495992f7c020798ad241
+              expression: 'max(/Frigg services/net.tcp.service[tcp,,8090],5m)=0 and count(/Frigg services/net.tcp.service[tcp,,8090],5m)>=8'
+              name: 'Frigg: Toolbelt API port 8090 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the Toolbelt API on Frigg :8090 for 5 minutes (the Gna and Ratatoskr callers
+                use the same port).
+              dependencies:
+                - name: 'Frigg: aiops-toolbelt.service is not active'
+                  expression: 'find(/Frigg services/systemd.unit.info[aiops-toolbelt.service,ActiveState],#5,"eq","active")=0'
+              tags:
+                - tag: scope
+                  value: frigg
+        - uuid: 89a1d805797f442f86f96429d1e8cdb5
+          name: 'Frigg: claude-remote-control.service state'
+          key: 'systemd.unit.info[claude-remote-control.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of claude-remote-control.service.
+          triggers:
+            - uuid: 9d96b6ab10c64786887dbe2694d7a3dd
+              expression: 'find(/Frigg services/systemd.unit.info[claude-remote-control.service,ActiveState],#5,"eq","active")=0'
+              name: 'Frigg: claude-remote-control.service is not active'
+              priority: AVERAGE
+              description: >-
+                Claude remote control is not active, so the operator cannot drive the homelab from the phone.
+                `systemctl status claude-remote-control` on Frigg; a stale login shows in its journal (see known-
+                issues/frigg-control-node.md).
+              tags:
+                - tag: scope
+                  value: frigg
+        - uuid: a7d3aa1c4b2d4b61a9965dd446d9fef3
+          name: 'Frigg: frigg-ssh-agent.service state'
+          key: 'systemd.unit.info[frigg-ssh-agent.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of frigg-ssh-agent.service.
+          triggers:
+            - uuid: e9c61272214f420798396fa781d925dd
+              expression: 'find(/Frigg services/systemd.unit.info[frigg-ssh-agent.service,ActiveState],#5,"eq","active")=0'
+              name: 'Frigg: frigg-ssh-agent.service is not active'
+              priority: AVERAGE
+              description: >-
+                The operator SSH agent (keys from Vault) is not active, so unattended git push/sign/ssh on Frigg
+                fails.
+              tags:
+                - tag: scope
+                  value: frigg
+        - uuid: 8c5a120630b4459b9e4db820510a5b7f
+          name: 'Frigg: tailscaled.service state'
+          key: 'systemd.unit.info[tailscaled.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of tailscaled.service.
+          triggers:
+            - uuid: 55efc3e4dcc545b583b2310f4ec84923
+              expression: 'find(/Frigg services/systemd.unit.info[tailscaled.service,ActiveState],#5,"eq","active")=0'
+              name: 'Frigg: tailscaled.service is not active'
+              priority: AVERAGE
+              description: >-
+                Tailscale is not active on Frigg: tailnet SSH, the do1 Gatus heartbeat and remote access are cut.
+                `systemctl status tailscaled` on Frigg.
+              tags:
+                - tag: scope
+                  value: frigg
+        - uuid: d7756d36c74d40e2af0ca5b12241c704
+          name: 'Frigg: gatus-heartbeat.timer state'
+          key: 'systemd.unit.info[gatus-heartbeat.timer,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of gatus-heartbeat.timer.
+          triggers:
+            - uuid: 4b24af1f448c4417afb3066865cf4ed3
+              expression: 'find(/Frigg services/systemd.unit.info[gatus-heartbeat.timer,ActiveState],#5,"eq","active")=0'
+              name: 'Frigg: gatus-heartbeat.timer is not active'
+              priority: AVERAGE
+              description: >-
+                The timer that posts Frigg's dead-man heartbeat to Gatus on do1 is not active. Gatus will alert on its
+                own independent channel after about 15 minutes of silence; fix it before that: `systemctl status
+                gatus-heartbeat.timer` and `ansible-playbook playbooks/gatus-heartbeat.yml`.
+              tags:
+                - tag: scope
+                  value: frigg
+    - uuid: 2e31645d3af0474eba8d18f03339c5e4
+      template: Patroni service
+      name: Patroni service
+      description: 'Patroni on each PostgreSQL LXC (Fulla, Vor, Idunn): the unit and its REST API. PostgreSQL itself, replication and etcd have their own templates.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 4580079f7f8547569b885f28b3988bb9
+          name: 'Patroni: patroni.service state'
+          key: 'systemd.unit.info[patroni.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of patroni.service.
+          triggers:
+            - uuid: d9cb0ed330d94d95b28da7ed6046605d
+              expression: 'find(/Patroni service/systemd.unit.info[patroni.service,ActiveState],#5,"eq","active")=0'
+              name: 'Patroni: patroni.service is not active'
+              priority: AVERAGE
+              description: >-
+                Patroni is not active on this node for 5 minutes. On the leader this also stops PostgreSQL (a failover
+                follows and the stock PostgreSQL service-down trigger fires); on a replica the cluster silently runs
+                with one fewer standby. `systemctl status patroni` and `journalctl -u patroni -n 100` on the node,
+                then `patronictl list`.
+              tags:
+                - tag: scope
+                  value: patroni
+        - uuid: 59e07964a1164c42ae062ad963df40f7
+          name: 'Patroni: REST port 8008 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,8008]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 51695b5eea8f45afba5075310edf5ddf
+              expression: 'max(/Patroni service/net.tcp.service[tcp,,8008],5m)=0 and count(/Patroni service/net.tcp.service[tcp,,8008],5m)>=8'
+              name: 'Patroni: REST port 8008 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the Patroni REST API on :8008 for 5 minutes. HAProxy health-checks the leader
+                on this port, so the node drops out of the write path.
+              dependencies:
+                - name: 'Patroni: patroni.service is not active'
+                  expression: 'find(/Patroni service/systemd.unit.info[patroni.service,ActiveState],#5,"eq","active")=0'
+              tags:
+                - tag: scope
+                  value: patroni
+    - uuid: 8f10ee90b64f43e7ae4ddb488666238b
+      template: HAProxy-etcd services
+      name: HAProxy-etcd services
+      description: 'keepalived and the VLAN 10 policy routing on the HAProxy/etcd trio (Hlin, Eir, Snotra). HAProxy and etcd themselves are covered by their stock templates.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 1f9fe4a20ba34e8bab92b34a5a83fa32
+          name: 'HAProxy-etcd: keepalived.service state'
+          key: 'systemd.unit.info[keepalived.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of keepalived.service.
+          triggers:
+            - uuid: 3bab86c103a34ddd9d2ba8935148d9a4
+              expression: 'find(/HAProxy-etcd services/systemd.unit.info[keepalived.service,ActiveState],#5,"eq","active")=0'
+              name: 'HAProxy-etcd: keepalived.service is not active'
+              priority: AVERAGE
+              description: >-
+                keepalived is not active, so this node can no longer hold the PostgreSQL VIP 10.0.10.210. With the
+                other two nodes healthy nothing breaks, but failover capacity is down by one. `systemctl status
+                keepalived` and `journalctl -u keepalived` on the node.
+              tags:
+                - tag: scope
+                  value: haproxy-etcd
+        - uuid: eb0238fc7f694e4ca7418018a9fd949f
+          name: 'HAProxy-etcd: vlan10-policy-routing.service state'
+          key: 'systemd.unit.info[vlan10-policy-routing.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of vlan10-policy-routing.service.
+          triggers:
+            - uuid: 93c7d58ba45d4a91875a1f45c969ed86
+              expression: 'find(/HAProxy-etcd services/systemd.unit.info[vlan10-policy-routing.service,ActiveState],#5,"eq","active")=0'
+              name: 'HAProxy-etcd: vlan10-policy-routing.service is not active'
+              priority: AVERAGE
+              description: >-
+                The VLAN 10 policy-routing unit is not active. Without its rules the VIP's reply traffic leaves the
+                wrong interface, so clients cannot complete a connection when this node holds the VIP (see known-
+                issues/networking-multi-homed-workers.md for the same class).
+              tags:
+                - tag: scope
+                  value: haproxy-etcd
+    - uuid: 8bf4ef04fcbc4ef082d6220e4476250f
+      template: K3s node service
+      name: K3s node service
+      description: 'The k3s unit (server on the control planes, agent on the workers).'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 12d15317021443a48d4dfc3e7e06d60d
+          name: 'K3s: k3s.service state'
+          key: 'systemd.unit.info[k3s.service,ActiveState]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of k3s.service.
+          triggers:
+            - uuid: f3ff80aa4f6f4bbebda962d27fd957ec
+              expression: 'find(/K3s node service/systemd.unit.info[k3s.service,ActiveState],#5,"eq","active")=0'
+              name: 'K3s: k3s.service is not active'
+              priority: AVERAGE
+              description: >-
+                k3s is not active on this node for 5 minutes. A lone control plane or worker down degrades capacity
+                but the cluster keeps serving; two control planes down loses etcd quorum and the API. Pods on a worker
+                are rescheduled by Kubernetes after the eviction timeout. `systemctl status k3s` and `journalctl -u
+                k3s -n 100` on the node.
+              tags:
+                - tag: scope
+                  value: k3s
+    - uuid: a92a6ed502704086b277dad3ece0f6fd
+      template: K3s API
+      name: K3s API
+      description: 'The Kubernetes API port on the control planes, probed from outside the cluster.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 9d8c15fdf8794f4cb11b065e97db7161
+          name: 'K3s: API port 6443 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,,6443]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 084924e29a2c4d25a42e1b3faf57f29b
+              expression: 'max(/K3s API/net.tcp.service[tcp,,6443],5m)=0 and count(/K3s API/net.tcp.service[tcp,,6443],5m)>=8'
+              name: 'K3s: API port 6443 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the K3s API on :6443 for 5 minutes. Check the k3s unit on this control plane;
+                if two of the three show this, etcd quorum is gone (see docs/known-issues/k3s-lifecycle.md) and
+                kubectl/Flux stop working while running pods keep serving.
+              tags:
+                - tag: scope
+                  value: k3s

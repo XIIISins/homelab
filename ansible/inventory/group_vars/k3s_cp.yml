@@ -13,3 +13,8 @@ zabbix_agent_host_groups:
   - "Asgard/K3s/CP"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # playbooks/files/zabbix/asgard-services.yml: k3s.service; "K3s API" adds the :6443 port check
+  - "K3s node service"
+  - "K3s API"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"

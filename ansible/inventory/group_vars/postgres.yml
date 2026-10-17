@@ -136,6 +136,10 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/Postgres"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # playbooks/files/zabbix/asgard-services.yml: patroni.service and its REST port
+  - "Patroni service"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"
   - "PostgreSQL by Zabbix agent 2"
   # Replica lag >= 15 min and "not streaming" alerts (the stock template has no trigger on either):
   # playbooks/files/zabbix/patroni-replication.yml, imported by playbooks/zabbix-host-groups.yml.

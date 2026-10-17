@@ -71,3 +71,12 @@ vlagent_log_inputs:
 # Caddyfile changes must APPLY: the role's Caddyfile has `admin off`, so `systemctl reload caddy` cannot work
 # (docs/known-issues/caddy.md). A sub-second restart does; certs persist on disk.
 caddy_reload_method: restarted
+
+# -----------------------------------------------------------------------------
+# Zabbix: units and the :80 listener of the alert path (playbooks/files/zabbix/asgard-services.yml). Host groups stay at the
+# role default ("Linux servers"). High severity on purpose: Hermod is how every other alert reaches Discord.
+# -----------------------------------------------------------------------------
+zabbix_agent_link_templates:
+  - "Linux by Zabbix agent"
+  - "Hermod services"
+  - "vlagent log shipper"
