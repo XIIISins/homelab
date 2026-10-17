@@ -141,7 +141,7 @@ Frigg is a single control point: if it dies the loop dies. The outside watcher (
 
 ## 10f — Stage 3: autonomous T1 healing
 
-*As built 2026-10-03: [`10f-autonomous-healing.md`](10f-autonomous-healing.md). One policy (`restart-failed-unit`) is enabled, on the canaries only; the HelmRelease reset and drift-replay policies ship disabled; the syslog-flood vacuum and semaphore auto-apply-on-drift are deferred.*
+*As built 2026-10-03: [`10f-autonomous-healing.md`](../done/10f-autonomous-healing.md). One policy (`restart-failed-unit`) is enabled, on the canaries only; the HelmRelease reset and drift-replay policies ship disabled; the syslog-flood vacuum and semaphore auto-apply-on-drift are deferred.*
 
 - **10f1 — Guards first.** Kill switch (Vault KV flag + Discord command), per-target rate limit, circuit breaker, maintenance-window flag, check-mode/diff-scope gate (abort if the dry-run diff is outside the action's declared scope).
 - **10f2 — First classes (all T1).** Restart a failed stateless unit; `flux reconcile --reset` for `Stalled`/`RetriesExceeded` HelmReleases; replay drifted baseline on a replica LXC; known-condition cleanups (e.g. the syslog-flood vacuum); Semaphore **auto-apply on detected drift for T1 hosts only**, notify after the fact.

@@ -2,7 +2,7 @@
 
 # Phase 10g — Fleet rebuild loop: plan
 
-*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../../procedures/teardown-rebuild.md) (Appendix B, single worker).*
+*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10g. Mirrors the structure of [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](../done/10f-autonomous-healing.md). Predecessors: 10e (propose → approve → execute → verify) and 10f (the autonomy gate, breaker, kill switch). The rebuild procedures this loop automates are today manual: [`procedures/canary-pool.md`](../../procedures/canary-pool.md) ("Destroy / recreate"), [`procedures/teardown-rebuild.md`](../../procedures/teardown-rebuild.md) (Appendix B, single worker).*
 
 ---
 
