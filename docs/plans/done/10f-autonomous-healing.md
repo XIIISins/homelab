@@ -2,7 +2,7 @@
 
 # Phase 10f — Autonomous T1 healing: plan and as-built
 
-*Built 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10f. Procedure: [`procedures/aiops-autonomy.md`](../../procedures/aiops-autonomy.md). Predecessor: [`10e-approval-actions.md`](../done/10e-approval-actions.md).*
+*Built 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](../active/aiops-roadmap.md) §10f. Procedure: [`procedures/aiops-autonomy.md`](../../procedures/aiops-autonomy.md). Predecessor: [`10e-approval-actions.md`](../done/10e-approval-actions.md).*
 
 ---
 

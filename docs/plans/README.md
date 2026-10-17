@@ -20,7 +20,6 @@ Every multi-step build plan lives here, in one of three folders. **This index is
 | Plan | Phase | Scope |
 |---|---|---|
 | [`aiops-roadmap.md`](active/aiops-roadmap.md) | 10 | AIOps & self-healing umbrella: principles, blast-radius tiers, phase map 10a–10i. 10a–10e live; 10f–10i below. |
-| [`10f-autonomous-healing.md`](active/10f-autonomous-healing.md) | 10f | Autonomous T1 healing, deployed; exit criterion is the ~14-day canary soak. |
 | [`10g-rebuild-loop.md`](active/10g-rebuild-loop.md) | 10g | Fleet rebuild loop (canaries → replicas → workers); stage A proven. |
 | [`10h-predictive-change.md`](active/10h-predictive-change.md) | 10h | Forecasting, PR author, drift/incident drafts; live, exit criteria open. |
 | [`10h-k8s-burst-test.md`](active/10h-k8s-burst-test.md) | 10h | Burst-cluster tests for `k8s/` PRs (child of 10h); slices 1–4 built and live for `k8s/` PRs. |
@@ -33,6 +32,7 @@ Every multi-step build plan lives here, in one of three folders. **This index is
 | Plan | Phase | Scope |
 |---|---|---|
 | [`1.0-stabilization.md`](done/1.0-stabilization.md) | S1–S7 | Stabilization waves, complete 2026-05-31. |
+| [`10f-autonomous-healing.md`](done/10f-autonomous-healing.md) | 10f | Autonomous T1 healing, live on the canaries and real replicas (soak read-out 2026-10-17). |
 | [`10d-diagnosis-chatops.md`](done/10d-diagnosis-chatops.md) | 10d | Diagnosis-only chat-ops: Gná (n8n), Toolbelt read API, Zabbix → n8n. |
 | [`10e-approval-actions.md`](done/10e-approval-actions.md) | 10e | Approval-gated actions and the Discord bot (Ratatoskr). |
 

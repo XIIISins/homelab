@@ -2,7 +2,7 @@
 
 # Phase 10h — Predictive and agent-authored change: plan
 
-*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
+*Drafted 2026-10-03. Status: see [`plans/README.md`](../README.md). Parent: [`aiops-roadmap.md`](aiops-roadmap.md) §10h. Structure mirrors [`10e-approval-actions.md`](../done/10e-approval-actions.md) and [`10f-autonomous-healing.md`](../done/10f-autonomous-healing.md). Builds on the 10d Toolbelt (read-only tools, audit log, grounding gate) and the 10e bot; reuses the [`chart-bump`](../../../.claude/agents/chart-bump.md) agent's machinery for 10h2.*
 
 ---
 
