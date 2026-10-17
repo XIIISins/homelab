@@ -69,10 +69,14 @@ host_tiers:
 # switch, maintenance, circuit breaker) live in the Toolbelt and are driven from Discord (/aiops).
 autonomy:
   # Autonomous actions may target ONLY these hosts (a subset of host_tiers.T1). The disposable canaries passed their
-  # ~14-day soak (read-out 2026-10-17); real replicas are added one at a time (mimir first; then kvasir, the Tailscale
-  # LXCs, hermod), each a reviewed PR.
+  # ~14-day soak (read-out 2026-10-17). Real replicas: the AdGuard and Tailscale clusters. hermod (AppriseAPI + Caddy,
+  # a singleton and the alert transport) stays out until it has a replica or its own review.
   hosts:
     - mimir # AdGuard replica: AdGuardHome.service only (keepalived VIP and the Saga origin are not restartable here)
+    - kvasir # AdGuard replica
+    - bifrost # Tailscale LXC: tailscaled.service only
+    - heimdall # Tailscale LXC
+    - gjallarbru # Tailscale LXC
     - canary-1
     - canary-2
     - canary-3
