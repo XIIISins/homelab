@@ -44,7 +44,7 @@ This is the fault class `restart-failed-unit` heals. The unit must be on the `re
 
 A unit on a real replica reaches the loop only through a High Zabbix trigger named `Unit down: <unit> not active` (templates `AdGuard unit state` on mimir/kvasir, `Tailscale unit state` on bifrost/heimdall/gjallarbru; [`zabbix.md`](../known-issues/zabbix.md)), routed by `zbx-unit-down` to `RB-UNIT-STOPPED-T1`. Hermod caps it at the `alert` tag. A new `restart-unit` allow-list entry therefore needs a trigger, a link and a route in the same PR. The Toolbelt probes the host by **name**, so the name must resolve (`terraform/adguard/rewrites.tf`), or the diagnosis stays `unknown` and nothing is proposed.
 
-**Live drill 2026-10-17:** `systemctl stop AdGuardHome.service` on mimir was healed autonomously (incident 93, proposal 110: precheck, restart, verify, 29 s after the proposal). The same drill for `tailscaled` on heimdall opened incident 94 but the diagnosis was `unknown` (name did not resolve), so nothing ran; repeat it after the rewrites are applied.
+**Live drill 2026-10-17:** `systemctl stop AdGuardHome.service` on mimir was healed autonomously (incident 93, proposal 110: precheck, restart, verify, 29 s after the proposal). The first `tailscaled` drill (heimdall, incident 94) was diagnosed `unknown` because the name did not resolve, so nothing ran. After the rewrites were applied and Frigg's resolver cache flushed ([`dns-adguard.md`](../known-issues/dns-adguard.md)), `tailscaled` stopped on bifrost was healed (incident 95, proposal 111: opened 41 s after the stop, restarted and verified 2 min 46 s after the stop).
 
 ## Soak on the canaries (10f3): about 14 days
 
