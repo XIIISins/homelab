@@ -42,6 +42,10 @@ Without `HERMOD_URL` (a manual run) the notify tasks skip and the summary is pri
 
 To prove the sentinel path by hand: run once (writes the sentinel), `vzdump 1190 --storage pbs-backup --mode snapshot` on Urd, run again: the canary line must say "sentinel from the previous run found in the restored copy". Any run between the backup and the check rewrites the sentinel and makes the comparison skip ("live sentinel is newer than the backup").
 
+## Replica drill 2026-10-17
+
+Manual run `-e restore_test_vmid=1112` from the Mac (restore node urd, ISO week 42): canary-1 restored in 48 s with the sentinel found, kvasir (AdGuard replica, 1.7 GiB, 7.3 h old backup) restored in 42 s, rootfs and host key matched the live guest, scratch CT 1199 destroyed. Done as the replica leg of the 10g restore-drill gate; worker `/data` (VM) restore is still open.
+
 ## Proven 2026-10-10
 
 Manual runs from Frigg: canary-1 + ratatoskr on Urd (43 s + 33 s), canary-1 + `vor` (27 GiB) on Verd (346 s for the pair), the sentinel comparison, and a negative run (`restore_test_max_age_h=1`) that failed the right guest with the right message, cleaned up, and left no scratch CT or LV on any node.
