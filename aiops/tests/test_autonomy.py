@@ -55,7 +55,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(b(self.pol, {**self.p, "replay": True}, DIAG), "replay")
         self.assertEqual(b(self.pol, {**self.p, "source": "chat"}, DIAG), "not-a-diagnosis")
         self.assertEqual(b(None, self.p, DIAG), "no-policy")
-        self.assertEqual(b(self.pol, {**self.p, "params": {"target_host": "mimir", "unit": "AdGuardHome.service"}}, DIAG), "host-out-of-scope")
+        self.assertEqual(b(self.pol, {**self.p, "params": {"target_host": "kvasir", "unit": "AdGuardHome.service"}}, DIAG), "host-out-of-scope")
         self.assertEqual(b(self.pol, self.p, {**DIAG, "layer": "network"}), "layer")
         self.assertEqual(b(self.pol, self.p, {**DIAG, "confidence": "low"}), "confidence")
         self.assertEqual(b(self.pol, self.p, {**DIAG, "confidence": "medium"}), None)
@@ -172,7 +172,7 @@ class EngineGateTests(unittest.TestCase):
 
     # -- scope -------------------------------------------------------------------------------------------------
     def test_scope_and_diagnosis_gates_leave_the_proposal_for_a_human(self):
-        cases = [("mimir", "AdGuardHome.service", DIAG, "host-out-of-scope"),
+        cases = [("kvasir", "AdGuardHome.service", DIAG, "host-out-of-scope"),
                  ("canary-1", UNIT, {**DIAG, "confidence": "low"}, "confidence"),
                  ("canary-1", UNIT, {**DIAG, "layer": "network"}, "layer"),
                  ("canary-1", UNIT, {**DIAG, "runbook_id": "RB-DISK-FULL"}, "runbook-mismatch")]
@@ -258,7 +258,7 @@ class EngineGateTests(unittest.TestCase):
     def test_report_says_what_ran_and_why_things_did_not(self):
         self.build({"aiops-service-status": [status("failed"), status("active")], "aiops-restart-unit": [restart_ok()]})
         self.run_auto("canary-1")
-        p = self.propose("mimir", "AdGuardHome.service")
+        p = self.propose("kvasir", "AdGuardHome.service")
         self.eng.consider_auto(p["id"], DIAG)
         r = self.eng.report(14)
         self.assertEqual(r["autonomous_runs"], 1)

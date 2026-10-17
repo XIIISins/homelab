@@ -68,9 +68,11 @@ host_tiers:
 # The SCOPE autonomy may act in. Widening any list below is a reviewed PR; the runtime switches (autonomy on/off, kill
 # switch, maintenance, circuit breaker) live in the Toolbelt and are driven from Discord (/aiops).
 autonomy:
-  # Autonomous actions may target ONLY these hosts (a subset of host_tiers.T1). Start with the disposable canaries for
-  # the ~14-day soak; widen to real replicas (mimir, kvasir, the Tailscale LXCs, hermod) only after it passes.
+  # Autonomous actions may target ONLY these hosts (a subset of host_tiers.T1). The disposable canaries passed their
+  # ~14-day soak (read-out 2026-10-17); real replicas are added one at a time (mimir first; then kvasir, the Tailscale
+  # LXCs, hermod), each a reviewed PR.
   hosts:
+    - mimir # AdGuard replica: AdGuardHome.service only (keepalived VIP and the Saga origin are not restartable here)
     - canary-1
     - canary-2
     - canary-3
