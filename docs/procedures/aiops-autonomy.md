@@ -31,7 +31,7 @@ For a narrow, reviewed class of faults the Toolbelt may **approve and run a prop
 
 | Policy | Heals | Precheck | State |
 |---|---|---|---|
-| `restart-failed-unit` | an allow-listed unit that stopped on a host that is alive (`restart-unit`) | `service-status` shows ActiveState failed/inactive | **enabled**, canaries only |
+| `restart-failed-unit` | an allow-listed unit that stopped on a host that is alive (`restart-unit`) | `service-status` shows ActiveState failed/inactive | **enabled**, `autonomy.hosts` (canaries, mimir, kvasir, the Tailscale LXCs) |
 | `reset-stalled-helmrelease` | a Stalled HelmRelease of a stateless release (`flux-reconcile-reset`) | `kube.get` shows `Stalled=True` | disabled until the soak passes |
 | `replay-drifted-baseline` | role drift on a T1 host (`replay-role`) | the prior `replay-role-check` shows a non-empty diff of at most `max_changed` (10) | disabled until the soak passes and a drift trigger exists |
 
@@ -39,6 +39,12 @@ For a narrow, reviewed class of faults the Toolbelt may **approve and run a prop
 ## When an allow-listed unit stops on a T1 host while the host is alive
 
 This is the fault class `restart-failed-unit` heals. The unit must be on the `restart-unit` allow-list for that host (`actions.yml`: AdGuardHome on the AdGuard replicas, `tailscaled` on the Tailscale LXCs, apprise-api/caddy on Hermod, vlagent/zabbix-agent2 on the canaries); anything not on that list is never restarted by the loop. A restart has no inverse, so if the post-condition does not hold the thread says so and shows the rollback note: look at the unit's journal, do not loop. The breaker exists precisely to stop a unit that keeps failing from being restarted forever.
+
+### What raises the problem on real replicas
+
+A unit on a real replica reaches the loop only through a High Zabbix trigger named `Unit down: <unit> not active` (templates `AdGuard unit state` on mimir/kvasir, `Tailscale unit state` on bifrost/heimdall/gjallarbru; [`zabbix.md`](../known-issues/zabbix.md)), routed by `zbx-unit-down` to `RB-UNIT-STOPPED-T1`. Hermod caps it at the `alert` tag. A new `restart-unit` allow-list entry therefore needs a trigger, a link and a route in the same PR. The Toolbelt probes the host by **name**, so the name must resolve (`terraform/adguard/rewrites.tf`), or the diagnosis stays `unknown` and nothing is proposed.
+
+**Live drill 2026-10-17:** `systemctl stop AdGuardHome.service` on mimir was healed autonomously (incident 93, proposal 110: precheck, restart, verify, 29 s after the proposal). The same drill for `tailscaled` on heimdall opened incident 94 but the diagnosis was `unknown` (name did not resolve), so nothing ran; repeat it after the rewrites are applied.
 
 ## Soak on the canaries (10f3): about 14 days
 
@@ -85,5 +91,7 @@ The soak needs faults, and by hand there were few (the autonomy log's last real 
 | A fault was diagnosed but nothing ran | `/aiops report` lists the skip reason per proposal (`autonomy-off`, `maintenance`, `breaker-open`, `host-out-of-scope`, `runbook-mismatch`, `confidence`, `target-rate-limit`, ...); the diagnosis must name `RB-UNIT-STOPPED-T1` |
 | `skipped` instead of executed | the precheck found the unit already active: the world healed itself; working as intended |
 | `/aiops report` shows `not-applied` / `autonomy-off` for the injector, or no injections | `soak_skipped` lines in the Toolbelt journal name the closed gate (`not-applied` = the Terraform apply and the `applied: true` PR are still to do; `autonomy-off`, `kill-switch`, `maintenance`, `breaker-open`, `no-quiet-canary`, `ended`) |
+| A real-replica fault opens an incident but the diagnosis is `unknown`/low and nothing is proposed | check the evidence for `dns-failed` on `reach.tcp`: the host's name must resolve from Frigg (AdGuard rewrite in `terraform/adguard/rewrites.tf`); `getent hosts <host>` on Frigg |
+| A stopped service on a real replica raises no incident | the host has no `Unit down` trigger: the unit-state template is not linked (check `zabbix_agent_link_templates`, run `zabbix-agent.yml --tags zabbix-agent:register --limit <host>`) |
 | The breaker keeps tripping | the unit is not restart-healable (config/disk/port): fix the cause; do not raise the limits |
 | An autonomous action ran that surprised you | `/aiops autonomy off`, then read the thread card and `journalctl -u aiops-toolbelt` for `proposal_auto_approved`; tighten the policy by PR |

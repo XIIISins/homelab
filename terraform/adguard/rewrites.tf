@@ -93,6 +93,13 @@ locals {
     "adguard.niflheim.xiiisins.com"     = "10.0.11.201"
     "adguard-vip.niflheim.xiiisins.com" = "10.0.10.200"
 
+    # ── niflheim.xiiisins.com — Tailscale LXCs ─────────────────────
+    # The AIOps Toolbelt probes a faulting host by NAME (reach.tcp), so a name that does not resolve leaves the diagnosis at
+    # "unknown" and the 10f restart-failed-unit policy never fires (found 2026-10-17 drilling tailscaled on heimdall).
+    "bifrost.niflheim.xiiisins.com"    = "10.0.11.213"
+    "heimdall.niflheim.xiiisins.com"   = "10.0.11.214"
+    "gjallarbru.niflheim.xiiisins.com" = "10.0.11.215"
+
     # ── niflheim.xiiisins.com — Asgard K3s control planes ──────────
     "gondul.niflheim.xiiisins.com" = "10.0.21.11"
     "hlokk.niflheim.xiiisins.com"  = "10.0.21.12"
