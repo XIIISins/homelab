@@ -106,7 +106,7 @@ Nothing in this change touches `aiops/alert-routing.yml` or `autonomy.hosts`. On
 
 ## Verification (2026-10-17)
 
-Applied with `zabbix-host-groups.yml --tags zabbix-agent:bootstrap` (templates, virtual host) then `zabbix-agent.yml --tags zabbix-agent:register` and `asgard-zabbix.yml --tags zabbix-agent:register --limit hugin` (linking). All 124 host items created by the new templates were Supported with plausible values (every unit `active`, every TCP check 1, every web scenario passing); the open-problem list before and after was identical; a live stop of `vlagent` on Ratatoskr opened and then cleared the new Average problem (see the PR for timings). A quick re-check: Data collection, Hosts, filter by tag `scope`, or `item.get` on the template names.
+Applied with `zabbix-host-groups.yml --tags zabbix-agent:bootstrap` (templates, virtual host) then `zabbix-agent.yml --tags zabbix-agent:register` and `asgard-zabbix.yml --tags zabbix-agent:register --limit hugin` (linking). All 124 host items created by the new templates were Supported with plausible values (every unit `active`, every TCP check 1, every web scenario passing); the open-problem list before and after was identical; a live stop of `vlagent` on Ratatoskr (stopped 10:51:25) opened `vlagent: vlagent.service is not active` within the 5-sample window (seen at the 4.5-minute poll) and the problem cleared less than 30 seconds after the restart. A quick re-check: Data collection, Hosts, filter by tag `scope`, or `item.get` on the template names.
 
 ## Adding to this
 
