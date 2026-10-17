@@ -1,0 +1,73 @@
+{
+  "description": "The Tailscale unit-state template's High trigger routes to the unit-stopped runbook (10f scope)",
+  "received_at": "2026-10-17T18:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "52002",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "bifrost",
+    "host_id": "10533",
+    "host_ip": "10.0.11.213",
+    "host_groups": "Linux servers,Asgard/LXCs/Tailscale",
+    "trigger_id": "29002",
+    "trigger_name": "Unit down: tailscaled.service not active",
+    "trigger_description": "tailscaled.service reported a state other than active on two consecutive checks.",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "aiops",
+        "value": "unit-down"
+      }
+    ],
+    "runbook_id": "",
+    "items": [
+      {
+        "name": "Unit state: tailscaled.service",
+        "key": "systemd.unit.info[tailscaled.service,ActiveState]",
+        "value": "inactive"
+      }
+    ],
+    "opdata": "ActiveState: inactive",
+    "fired_at": "2026-10-17T18:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-17T18:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "critical",
+      "host": "bifrost",
+      "service": "workload",
+      "check": "unit-down-tailscaled-service-not-active",
+      "summary": "[Zabbix] High: Unit down: tailscaled.service not active",
+      "detail": "**Host:** bifrost\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Unit down: tailscaled.service not active\n**Severity:** High\n**Host:** bifrost\n**Started at:** 2026.10.17 20:00:00\n**Event ID:** 52002\n\nActiveState: inactive",
+      "runbook_id": "RB-UNIT-STOPPED-T1",
+      "fingerprint": "130578ff3aefe138",
+      "fired_at": "2026-10-17T18:00:00Z",
+      "received_at": "2026-10-17T18:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10533",
+        "zabbix_host_ip": "10.0.11.213",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs/Tailscale",
+        "zabbix_trigger_id": "29002",
+        "zabbix_trigger_description": "tailscaled.service reported a state other than active on two consecutive checks.",
+        "zabbix_opdata": "ActiveState: inactive",
+        "zabbix_tags": "[{\"tag\":\"aiops\",\"value\":\"unit-down\"}]",
+        "zabbix_items": "[{\"key\":\"systemd.unit.info[tailscaled.service,ActiveState]\",\"name\":\"Unit state: tailscaled.service\",\"value\":\"inactive\"}]",
+        "zabbix_sent_at": "2026-10-17T18:00:01Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "52002"
+    }
+  ]
+}

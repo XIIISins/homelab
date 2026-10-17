@@ -38,6 +38,15 @@ routes:
     runbook_id: RB-UNIT-STOPPED-T1
     note: The canary smoke-test template's service-fault triggers (ansible/playbooks/files/zabbix/canary-smoke-test.yml). The host answers, so this is the SERVICE; 10f's restart-failed-unit policy heals it.
 
+  - id: zbx-unit-down
+    source: zabbix
+    severity: any
+    match: 'Unit down: '
+    service: workload
+    check: '@slug'
+    runbook_id: RB-UNIT-STOPPED-T1
+    note: The AdGuard / Tailscale unit-state templates' High triggers (ansible/playbooks/files/zabbix/{adguard,tailscale}-unit-state.yml) for AdGuardHome.service on Mimir/Kvasir and tailscaled.service on the Tailscale LXCs. The host answers, so this is the SERVICE; 10f's restart-failed-unit heals it when the host is in autonomy.hosts. The title prefix "Unit down" is reserved for these; hermod-webhook.js caps it at the alert tag. Must stay ahead of zbx-host-unavailable.
+
   - id: zbx-canary-guest-down
     source: zabbix
     severity: any

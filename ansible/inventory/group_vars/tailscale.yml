@@ -10,5 +10,8 @@ baseline_manage_resolv_conf: false
 zabbix_agent_host_groups:
   - "Linux servers"
   - "Asgard/LXCs/Tailscale"
+# "Tailscale unit state" adds a High "Unit down: tailscaled.service not active" trigger (reaches Gna and the 10f restart-failed-unit
+# policy; playbooks/files/zabbix/tailscale-unit-state.yml).
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  - "Tailscale unit state"

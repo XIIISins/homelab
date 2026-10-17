@@ -121,7 +121,9 @@
     # playbooks/files/zabbix/patroni-replication.yml.
     # Gna network posture (egress allow/deny + ingress surface of the AIOps agent host, group_vars/n8n_agent.yml):
     # playbooks/files/zabbix/gna-network-posture.yml.
-    - name: Ensure the Jellyfin, Proxmox iGPU, Patroni replication and Gna network posture templates exist in Zabbix
+    # AdGuard / Tailscale unit state (High "Unit down" triggers so a stopped AdGuardHome / tailscaled reaches Gna and the 10f
+    # restart-failed-unit policy; group_vars/adguard.yml, group_vars/tailscale.yml): playbooks/files/zabbix/{adguard,tailscale}-unit-state.yml.
+    - name: Ensure the Jellyfin, Proxmox iGPU, Patroni replication, Gna network posture and unit-state templates exist in Zabbix
       when:
         - not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
         - item.group in groups
@@ -133,6 +135,8 @@
         - {file: proxmox-igpu.yml, group: proxmox}
         - {file: patroni-replication.yml, group: postgres}
         - {file: gna-network-posture.yml, group: n8n_agent}
+        - {file: adguard-unit-state.yml, group: adguard}
+        - {file: tailscale-unit-state.yml, group: tailscale}
       loop_control:
         label: "{{ item.file }}"
       delegate_to: "{{ zabbix_agent_api_delegate }}"
@@ -150,4 +154,4 @@
                     zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
-      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template, zabbix-agent:gna-template]
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template, zabbix-agent:gna-template, zabbix-agent:unit-state-template]
