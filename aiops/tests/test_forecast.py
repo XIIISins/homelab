@@ -138,6 +138,32 @@ class FastRiseTests(unittest.TestCase):
     def test_not_enough_data(self):
         self.assertIsNone(fc.fast_rise(self._series(1.0, 10.0)[-4:], NOW))
 
+    def test_evidence_keeps_the_rise_for_reanalysis(self):
+        f = fc.fast_rise(self._series(1.0, 10.0), NOW, factor=3.0, floor=2.0, target="vm", metric="m")
+        ev = f.evidence
+        self.assertLessEqual(len(ev["recent_samples"]), 6)
+        self.assertEqual(len(ev["recent_samples"]), 6)
+        self.assertTrue(all(len(p) == 2 for p in ev["recent_samples"]))
+        self.assertEqual(ev["last_value"], ev["recent_samples"][-1][1])
+        self.assertLessEqual(ev["recent_samples"][-1][0], NOW)
+        self.assertGreater(ev["jump"], 0)
+        self.assertNotIn("size_gb", ev)  # the fs data path carries pused/100 only, never the capacity in bytes
+        json.dumps(f.to_dict())  # stays serialisable
+        self.assertLess(len(json.dumps(ev)), 600)  # small and bounded
+
+    def test_firing_is_unchanged_by_the_extra_evidence(self):
+        # (base_rate, recent_rate, factor, floor) -> fires?, with the legacy evidence values pinned
+        cases = [(1.0, 10.0, 3.0, 2.0, True), (5.0, 6.0, 3.0, 1.0, False), (0.01, 0.5, 3.0, 2.0, False),
+                 (0.0, 10.0, 3.0, 2.0, True), (1.0, -10.0, 3.0, 0.0, False), (1.0, 10.0, 3.0, 11.0, False)]
+        for b, r, factor, floor, fires in cases:
+            f = fc.fast_rise(self._series(b, r), NOW, factor=factor, floor=floor)
+            self.assertEqual(f is not None, fires, (b, r, factor, floor))
+        f = fc.fast_rise(self._series(1.0, 10.0), NOW, factor=3.0, floor=2.0)
+        self.assertAlmostEqual(f.evidence["recent_rate_per_hour"], 10.0, places=6)
+        self.assertAlmostEqual(f.evidence["baseline_rate_per_hour"], 1.0, places=6)
+        self.assertEqual((f.evidence["recent_points"], f.evidence["window_s"]), (7, 3600))
+        self.assertEqual(f.confidence, "medium")
+
 
 class DedupTests(unittest.TestCase):
     def f(self, days):

@@ -76,6 +76,8 @@ The same job also runs the daily pod-rightsizing findings (`--rightsizing aiops/
 - (Built 2026-10-04: `aiops/tests/test_forecast_backtest.py` replays the syslog-flood shape through the real `fleet-fs-used` target: a root filesystem flat at 40 % that starts filling 4 points an hour is noted about 9.7 h before the 80 % alert, a 1.5-point-an-hour leak about 26 h before, and a flat or sawtooth series stays silent. A synthetic shape, not recorded Zabbix history: the first real-history backtest waits on the shadow period.)
 - (Built 2026-10-04: NVMe latency creep, SMART media errors and wear; see the targets table.) A memory allocation ledger, a GitHub-issue sink, SMART available-spare (not in the Zabbix template's items), etcd fsync metrics (not scraped).
 
+`fast_rise` evidence (stored as `evidence_json` in the Toolbelt SQLite, free-form, not schema-validated) keeps enough to re-analyse a labelled case later: the rates and point counts, plus `recent_samples` (the last up to 6 `[ts, value]` pairs of the rise), `last_value` (current level) and `jump` (last minus first recent value), all in the series' own unit (a ratio for filesystems). There is no absolute GB field: the Zabbix `fs` path carries only `pused / 100`, never the capacity in bytes, and adding it would need new queries.
+
 ## Adding a metric
 
 A VictoriaMetrics series: add a `Target` with a PromQL that returns one series per label set, the limit in the series' unit, an absolute `floor_per_hour` for `fast_rise` and `daily="max"|"min"` for a daily
