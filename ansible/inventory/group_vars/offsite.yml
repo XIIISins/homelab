@@ -20,9 +20,9 @@ tailscale_accept_dns: false
 # Phase 10b3: reach Hermod (10.0.11.22) through the homelab subnet routers for
 # the Gatus tailnet probe. Without it the tag:offsite -> 10.0.11.22 tcp:80 grant
 # is unusable (RouteAll=false, verified on the live node 2026-10-01). Blast
-# radius is bounded by the tailnet ACL (deny-by-default: only that one grant +
-# tcp:22 to tag:server); do1's own VPC ranges (10.18/16, 10.133/16) do not
-# overlap 10.0.0.0/16. Flip to false to drop the route (and the hermod-http probe).
+# radius is bounded by the tailnet ACL (deny-by-default: only the Hermod and Hugin
+# grants + tcp:22 to tag:server); do1's own VPC ranges (10.18/16, 10.133/16) do not
+# overlap 10.0.0.0/16. Flip to false to drop the route (and the hermod-http / hugin-* probes).
 tailscale_accept_routes: true
 # ...and keep the 10a2 co-location mitigation whole: with the homelab supernet
 # now routable via tailscale0, containers must not reach it either (the docker
@@ -106,3 +106,11 @@ gatus_tcp_endpoints:
   - name: hermod-http
     group: homelab
     url: "tcp://10.0.11.22:80"
+  # Zabbix on Hugin: 10051 is the zabbix-server trapper/active-check listener (10050 is only the local agent2 and says nothing
+  # about the server); 80 is nginx. Nothing else watches Zabbix itself. See docs/operations/zabbix-service-coverage.md.
+  - name: hugin-zabbix-server
+    group: homelab
+    url: "tcp://10.0.11.21:10051"
+  - name: hugin-http
+    group: homelab
+    url: "tcp://10.0.11.21:80"

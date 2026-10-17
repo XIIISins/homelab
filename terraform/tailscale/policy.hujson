@@ -109,6 +109,14 @@
             "dst": ["10.0.11.22"],
             "ip":  ["tcp:80"],
         },
+        // do1 -> Hugin (10.0.11.21, via the subnet routers): TCP connect probes
+        // of the Zabbix server's trapper port (10051, proves zabbix-server is
+        // listening) and of nginx (80). Connect only; no login path is opened.
+        {
+            "src": ["tag:offsite"],
+            "dst": ["10.0.11.21"],
+            "ip":  ["tcp:80", "tcp:10051"],
+        },
     ],
 
     // ---------------------------------------------------------------
