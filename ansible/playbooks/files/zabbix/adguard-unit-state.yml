@@ -1,0 +1,47 @@
+# ansible/playbooks/files/zabbix/adguard-unit-state.yml
+#
+# "AdGuard unit state": a High trigger for AdGuardHome.service stopping on the AdGuard replicas (Mimir, Kvasir). Why it exists (Phase 10f, found 2026-10-17): the stock
+# "Linux by Zabbix agent" template has nothing at High for a stopped service (its agent-unavailable trigger is Average), and the
+# AIOps diagnosis agent (Gna) receives only High and Disaster, so a stopped unit on these hosts raised no incident and the
+# autonomous restart-failed-unit policy (aiops/actions.yml) never saw it. aiops/alert-routing.yml route zbx-unit-down maps
+# this trigger to RB-UNIT-STOPPED-T1.
+#
+# NOT linked to Saga: Saga is the Terraform/sync origin and not an autonomous-restart target (aiops/actions.yml host_tiers), so a stopped unit there stays a human problem.
+# The item key `systemd.unit.info[AdGuardHome.service,ActiveState]` is not one "Linux by Zabbix agent" defines (two linked templates must
+# not define the same key on one host). Two consecutive non-"active" samples (30 s apart, so about a minute) are required, so
+# a clean restart (package upgrade, `systemctl restart`, `activating`) does not open a problem.
+# Hermod: hermod-webhook.js caps triggers named "Unit down: ..." at the `alert` tag (Mist, the tier the old Average
+# agent-unavailable trigger used), so the High severity (needed to reach Gna) does not page `critical` (Hrist).
+# Imported by playbooks/zabbix-host-groups.yml; linked via group_vars/adguard.yml (every host except adguard_primary_host).
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 0736008618f44d1a980fcd74db38cdbd
+      template: AdGuard unit state
+      name: AdGuard unit state
+      description: High trigger for AdGuardHome.service not active on an AdGuard replica (feeds the AIOps loop). Never link it to Saga.
+      groups:
+        - name: Templates
+      items:
+        - uuid: d787d692fce640c785df8d86652836ef
+          name: 'Unit state: AdGuardHome.service'
+          type: ZABBIX_PASSIVE
+          key: 'systemd.unit.info[AdGuardHome.service,ActiveState]'
+          delay: 30s
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of AdGuardHome.service ("active" while running).
+          triggers:
+            - uuid: 95d5833489084027afaf56f77384c49b
+              expression: 'last(/AdGuard unit state/systemd.unit.info[AdGuardHome.service,ActiveState])<>"active" and last(/AdGuard unit state/systemd.unit.info[AdGuardHome.service,ActiveState],#2)<>"active"'
+              name: 'Unit down: AdGuardHome.service not active'
+              priority: HIGH
+              description: AdGuardHome.service reported a state other than active on two consecutive checks (DNS is still served by the other two replicas and the keepalived VIP). The host itself answers the agent, so this is the service, not the guest.
+              opdata: 'ActiveState: {ITEM.LASTVALUE1}'
+              tags:
+                - tag: aiops
+                  value: unit-down

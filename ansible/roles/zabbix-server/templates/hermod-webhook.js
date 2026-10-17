@@ -21,6 +21,10 @@
 // through this media type. Keep the pattern in lockstep with
 // aiops/tools/normalize.py (_NONPROD_HOST) and docs/procedures/canary-pool.md.
 //
+// Unit-down cap (10f): triggers named "Unit down: ..." (playbooks/files/zabbix/{adguard,tailscale}-unit-state.yml) are High so
+// the AIOps agent receives them, but a stopped restart-healable unit is capped at "alert" (Mist), the tier the Average
+// agent-unavailable trigger used before, not "critical" (Hrist). A heal that fails raises its own card/alerts.
+//
 // event_value → type:
 //   1 (PROBLEM)  → "failure" → red embed
 //   0 (RECOVERY) → "success" → green embed
@@ -39,6 +43,10 @@ try {
         'Not classified':  null
     };
     var tag = tagMap[params.severity];
+
+    if (tag === 'critical' && /^Unit down: /.test(params.event_name || params.subject || '')) {
+        tag = 'alert';
+    }
 
     if (/^canary-[0-9]+$/.test(params.host_name || '') && tag) {
         tag = 'info';

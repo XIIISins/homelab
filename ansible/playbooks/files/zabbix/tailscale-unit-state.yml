@@ -1,0 +1,47 @@
+# ansible/playbooks/files/zabbix/tailscale-unit-state.yml
+#
+# "Tailscale unit state": a High trigger for tailscaled.service stopping on the Tailscale LXCs (Bifrost, Heimdall, Gjallarbru). Why it exists (Phase 10f, found 2026-10-17): the stock
+# "Linux by Zabbix agent" template has nothing at High for a stopped service (its agent-unavailable trigger is Average), and the
+# AIOps diagnosis agent (Gna) receives only High and Disaster, so a stopped unit on these hosts raised no incident and the
+# autonomous restart-failed-unit policy (aiops/actions.yml) never saw it. aiops/alert-routing.yml route zbx-unit-down maps
+# this trigger to RB-UNIT-STOPPED-T1.
+#
+# All three Tailscale LXCs are in aiops/actions.yml autonomy.hosts with tailscaled.service on the restart-unit allow-list.
+# The item key `systemd.unit.info[tailscaled.service,ActiveState]` is not one "Linux by Zabbix agent" defines (two linked templates must
+# not define the same key on one host). Two consecutive non-"active" samples (30 s apart, so about a minute) are required, so
+# a clean restart (package upgrade, `systemctl restart`, `activating`) does not open a problem.
+# Hermod: hermod-webhook.js caps triggers named "Unit down: ..." at the `alert` tag (Mist, the tier the old Average
+# agent-unavailable trigger used), so the High severity (needed to reach Gna) does not page `critical` (Hrist).
+# Imported by playbooks/zabbix-host-groups.yml; linked via group_vars/tailscale.yml.
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: 5be57e711ab14d9a85696c3f1afd52dd
+      template: Tailscale unit state
+      name: Tailscale unit state
+      description: High trigger for tailscaled.service not active on a Tailscale LXC (feeds the AIOps loop).
+      groups:
+        - name: Templates
+      items:
+        - uuid: 5f183556dd2d4c0fadb89044e982f0b8
+          name: 'Unit state: tailscaled.service'
+          type: ZABBIX_PASSIVE
+          key: 'systemd.unit.info[tailscaled.service,ActiveState]'
+          delay: 30s
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          description: systemd ActiveState of tailscaled.service ("active" while running).
+          triggers:
+            - uuid: fa6313556a0c42e894309d4b012dfab6
+              expression: 'last(/Tailscale unit state/systemd.unit.info[tailscaled.service,ActiveState])<>"active" and last(/Tailscale unit state/systemd.unit.info[tailscaled.service,ActiveState],#2)<>"active"'
+              name: 'Unit down: tailscaled.service not active'
+              priority: HIGH
+              description: tailscaled.service reported a state other than active on two consecutive checks (the tailnet path through this LXC is down). The host itself answers the agent, so this is the service, not the guest.
+              opdata: 'ActiveState: {ITEM.LASTVALUE1}'
+              tags:
+                - tag: aiops
+                  value: unit-down

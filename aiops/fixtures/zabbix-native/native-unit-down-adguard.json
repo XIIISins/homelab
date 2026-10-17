@@ -1,0 +1,73 @@
+{
+  "description": "The AdGuard unit-state template's High trigger on a real replica routes to the unit-stopped runbook (10f scope)",
+  "received_at": "2026-10-17T18:00:05Z",
+  "event": {
+    "schema_version": "aiops.zabbix-event/v1",
+    "source": "zabbix",
+    "status": "PROBLEM",
+    "event_id": "52001",
+    "recovery_event_id": "",
+    "severity": "High",
+    "host": "mimir",
+    "host_id": "10521",
+    "host_ip": "10.0.11.202",
+    "host_groups": "Linux servers,Asgard/LXCs/AdGuard",
+    "trigger_id": "29001",
+    "trigger_name": "Unit down: AdGuardHome.service not active",
+    "trigger_description": "AdGuardHome.service reported a state other than active on two consecutive checks.",
+    "trigger_expression": "",
+    "trigger_url": "",
+    "tags": [
+      {
+        "tag": "aiops",
+        "value": "unit-down"
+      }
+    ],
+    "runbook_id": "",
+    "items": [
+      {
+        "name": "Unit state: AdGuardHome.service",
+        "key": "systemd.unit.info[AdGuardHome.service,ActiveState]",
+        "value": "inactive"
+      }
+    ],
+    "opdata": "ActiveState: inactive",
+    "fired_at": "2026-10-17T18:00:00Z",
+    "resolved_at": "",
+    "sent_at": "2026-10-17T18:00:01Z"
+  },
+  "expected": [
+    {
+      "schema_version": "aiops.alert/v1",
+      "source": "zabbix",
+      "status": "firing",
+      "severity": "critical",
+      "host": "mimir",
+      "service": "workload",
+      "check": "unit-down-adguardhome-service-not-active",
+      "summary": "[Zabbix] High: Unit down: AdGuardHome.service not active",
+      "detail": "**Host:** mimir\n**Severity:** High\n\n**Status:** PROBLEM\n**Trigger:** Unit down: AdGuardHome.service not active\n**Severity:** High\n**Host:** mimir\n**Started at:** 2026.10.17 20:00:00\n**Event ID:** 52001\n\nActiveState: inactive",
+      "runbook_id": "RB-UNIT-STOPPED-T1",
+      "fingerprint": "505b83e902f84280",
+      "fired_at": "2026-10-17T18:00:00Z",
+      "received_at": "2026-10-17T18:00:05Z",
+      "labels": {
+        "apprise_tag": "critical",
+        "apprise_type": "failure",
+        "ingest_path": "direct",
+        "zabbix_host_id": "10521",
+        "zabbix_host_ip": "10.0.11.202",
+        "zabbix_host_groups": "Linux servers,Asgard/LXCs/AdGuard",
+        "zabbix_trigger_id": "29001",
+        "zabbix_trigger_description": "AdGuardHome.service reported a state other than active on two consecutive checks.",
+        "zabbix_opdata": "ActiveState: inactive",
+        "zabbix_tags": "[{\"tag\":\"aiops\",\"value\":\"unit-down\"}]",
+        "zabbix_items": "[{\"key\":\"systemd.unit.info[AdGuardHome.service,ActiveState]\",\"name\":\"Unit state: AdGuardHome.service\",\"value\":\"inactive\"}]",
+        "zabbix_sent_at": "2026-10-17T18:00:01Z",
+        "runbook_id_source": "routing"
+      },
+      "native_severity": "High",
+      "event_id": "52001"
+    }
+  ]
+}
