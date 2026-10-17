@@ -11,7 +11,7 @@
 | Duty | How |
 |------|-----|
 | Public endpoints | `xiiisins.com` WebFinger (body check), `home.`, `paste.`, and `do1`'s own `/health`; each also asserts latency and **TLS expiry > 7 d** |
-| Tailnet reachability | TCP connect to Frigg `:22` and Hermod `:80` (grants already in `policy.hujson`; TCP, not HTTP, because Hermod's Caddy 403s non-allowlisted sources) |
+| Tailnet reachability | TCP connect to Frigg `:22`, Hermod `:80`, and Hugin `:10051` (zabbix-server) and `:80` (grants in `policy.hujson`; TCP, not HTTP, because Hermod's Caddy 403s non-allowlisted sources). The Hugin probes are the only watcher of Zabbix itself; a pushed heartbeat from Zabbix is the stronger, unbuilt option ([`zabbix-service-coverage.md`](../operations/zabbix-service-coverage.md)) |
 | Dead-man's switch | external endpoint `homelab_frigg-heartbeat`; Frigg POSTs every 60 s; Gatus records a miss per 300 s of silence; alert after 3 misses = **15 min grace** (must exceed `do1`'s ~2-3 min unattended-upgrade reboot at 04:30; the role asserts this) |
 | Metrics | `/metrics` on the same tailnet-only listener (scrape wiring is a follow-up, see below) |
 
