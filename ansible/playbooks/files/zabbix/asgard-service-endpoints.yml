@@ -1,0 +1,385 @@
+# ansible/playbooks/files/zabbix/asgard-service-endpoints.yml
+#
+# "Asgard service endpoints": a Zabbix 7.0 template linked ONLY to the virtual host `asgard-services` (group_vars/zabbix.yml
+# declares it, playbooks/zabbix-host-groups.yml creates it; it has no agent). Everything here is probed by the Zabbix SERVER from
+# Hugin, outside K3s, so it keeps working when the cluster is the thing that broke, and it tests the path a client takes
+# (DNS through AdGuard, Traefik, the certificate, the backend). Inventory and rationale: docs/operations/zabbix-service-coverage.md.
+#
+# Web scenarios (web.test.fail[NAME], 0 when every step passed) check status code and a required string; the TCP and ICMP
+# checks are SIMPLE items. Severity: High only for the ingress (a Traefik outage takes every web app and the SAML login with it)
+# and the PostgreSQL VIP (every database-backed app); everything else is Average (Hermod `alert`, hours). The Munin iSCSI port is
+# Average, not High, because a DSM update reboot takes longer than the 5-minute window. Targets are macros so a moved VIP is a
+# host-macro change, not a template edit. The ingress probe's TCP check suppresses it through a trigger dependency.
+# The Vault scenario accepts 200 (active) and 429 (standby): Traefik balances over all three pods.
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 4a8f5f5fddc642b09d61847219a99b53
+      name: Templates
+  templates:
+    - uuid: a856bd51e5db4c9fa7adc9b044c90c08
+      template: Asgard service endpoints
+      name: Asgard service endpoints
+      description: 'Service endpoints probed by the Zabbix server from outside K3s: the ingress, the K3s-hosted web apps, the PostgreSQL VIP, the Munin NAS ports and the gateway. Linked to the virtual host asgard-services (no agent).'
+      groups:
+        - name: Templates
+      macros:
+        - macro: '{$SVC.TRAEFIK.IP}'
+          value: 10.0.20.10
+          description: Traefik / Gateway VIP (MetalLB).
+        - macro: '{$SVC.PGVIP.IP}'
+          value: 10.0.10.210
+          description: PostgreSQL HAProxy VIP (keepalived).
+        - macro: '{$SVC.MUNIN.IP}'
+          value: 10.0.254.20
+          description: Munin (Synology NAS) on the MGMT VLAN.
+        - macro: '{$SVC.TS3.IP}'
+          value: 10.0.20.12
+          description: TeamSpeak MetalLB VIP.
+        - macro: '{$SVC.GATEWAY.IP}'
+          value: 10.0.254.1
+          description: UCG-Ultra on the MGMT VLAN.
+      items:
+        - uuid: b13601aea9b44f3ba90ed7df2a5d3552
+          name: 'Ingress: Traefik VIP port 443 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.TRAEFIK.IP},443]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 033648bb443144d0bc5baf8c9470f97b
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TRAEFIK.IP},443],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TRAEFIK.IP},443],5m)>=8'
+              name: 'Ingress: Traefik VIP port 443 refuses connections'
+              priority: HIGH
+              description: >-
+                Hugin cannot connect to the Traefik VIP 10.0.20.10:443 for 5 minutes. Every web app, Authentik,
+                Vault's UI and the Cloudflare tunnel's origin sit behind it. Check MetalLB (the VIP is advertised by a
+                worker's eth1), the Traefik pods and the worker nodes (docs/known-issues/networking-multi-homed-
+                workers.md), then the K3s node alerts.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: 4d6f8bf25cd644ef9cef73a97fc9f3de
+          name: 'PostgreSQL: VIP 10.0.10.210 port 5432 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.PGVIP.IP},5432]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: c18d8faeb17d46c8bf7d7b8de2959ce4
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.PGVIP.IP},5432],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.PGVIP.IP},5432],5m)>=8'
+              name: 'PostgreSQL: VIP 10.0.10.210 port 5432 refuses connections'
+              priority: HIGH
+              description: >-
+                Hugin cannot connect to the PostgreSQL HAProxy VIP for 5 minutes. Authentik, NetBox, Outline, Immich,
+                Semaphore, TeamSpeak and Zabbix itself use this single address. Check which HAProxy node holds the VIP
+                (keepalived), then `patronictl list` for a leader. Note a connect only proves HAProxy is listening;
+                the stock HAProxy and PostgreSQL triggers say whether a leader backs it.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: bd0cd041a600438aa5fec9773a1c5d5d
+          name: 'TeamSpeak: file-transfer port 30033 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.TS3.IP},30033]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: c8a6ccbfae874bcc9e39e97be88fa274
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TS3.IP},30033],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TS3.IP},30033],5m)>=8'
+              name: 'TeamSpeak: file-transfer port 30033 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to TeamSpeak's TCP 30033 on the MetalLB VIP 10.0.20.12 for 5 minutes. The voice
+                port is UDP 9987 and cannot be probed this way; the same pod serves both.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: b40dfb96bf814563809f6a6ea2b19ec8
+          name: 'Munin: iSCSI portal 3260 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.MUNIN.IP},3260]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: e08922400ead48fd874c25cbc07ed6ae
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},3260],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},3260],5m)>=8'
+              name: 'Munin: iSCSI portal 3260 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the Synology iSCSI target on 3260 for 5 minutes. The single-instance database
+                PVCs on the iSCSI tier (for example Garage metadata) lose their volumes. A DSM update reboot takes
+                about this long; Average rather than High for that reason.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: 541b2d1a767b40adb099913a2d4f83eb
+          name: 'Munin: NFS port 2049 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.MUNIN.IP},2049]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 41170cace15847c9b158cbb920930848
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},2049],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},2049],5m)>=8'
+              name: 'Munin: NFS port 2049 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the Synology NFS server on 2049 for 5 minutes. The k8s-nfs share (every nfs-
+                client PVC), the PBS datastore and Jellyfin's media mount depend on it.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: 50fb16fedf10429a86412fcfd31511c4
+          name: 'Munin: DSM web port 5001 refuses connections (TCP check)'
+          type: SIMPLE
+          key: 'net.tcp.service[tcp,{$SVC.MUNIN.IP},5001]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 when the Zabbix server can open a TCP connection, 0 when it cannot.'
+          triggers:
+            - uuid: 86a5c15566624cd68169938241f1d4da
+              expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},5001],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.MUNIN.IP},5001],5m)>=8'
+              name: 'Munin: DSM web port 5001 refuses connections'
+              priority: AVERAGE
+              description: >-
+                Hugin cannot connect to the DSM web UI on 5001 for 5 minutes. The NAS may be down or rebooting; check
+                2049 and 3260 for the data path.
+              tags:
+                - tag: scope
+                  value: endpoints
+        - uuid: 6ff9ed0a705148c4831dd14bb49a5df3
+          name: 'Gateway: UCG ICMP reply'
+          type: SIMPLE
+          key: 'icmpping[{$SVC.GATEWAY.IP},3]'
+          delay: 30s
+          history: 14d
+          trends: 90d
+          value_type: UNSIGNED
+          description: '1 while the UCG-Ultra answers ICMP from the Zabbix server (fping), 0 when it does not.'
+          triggers:
+            - uuid: 4d1ca9b1b893418790e982d95ca7eafe
+              expression: 'max(/Asgard service endpoints/icmpping[{$SVC.GATEWAY.IP},3],5m)=0'
+              name: 'Gateway: UCG-Ultra answers no ICMP'
+              priority: AVERAGE
+              description: >-
+                The UCG-Ultra (10.0.254.1) has answered no ping for 5 minutes. All inter-VLAN routing, DNS fallback
+                and internet access go through it. Check power and the uplink; the Experia Box DMZ is separate (KPN is
+                not in IaC).
+              tags:
+                - tag: scope
+                  value: endpoints
+      httptests:
+        - uuid: cc861539b3d14163bcd82eb240575abd
+          name: Ingress smoketest
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /
+              url: 'https://smoketest.niflheim.xiiisins.com/'
+              timeout: 15s
+              required: smoketest ok
+              status_codes: '200'
+        - uuid: de6c93d004754379ac8a0c029f8a9464
+          name: Vault
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /v1/sys/health
+              url: 'https://vault.niflheim.xiiisins.com/v1/sys/health'
+              timeout: 15s
+              required: '"sealed":false'
+              status_codes: '200,429'
+        - uuid: d5b26cc9eda0432789b33824f5204375
+          name: Authentik
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /-/health/ready/
+              url: 'https://authentik.midgard.xiiisins.com/-/health/ready/'
+              timeout: 15s
+              status_codes: '200,204'
+        - uuid: a366c62ef4d74cf99932e275dfb6c9cc
+          name: NetBox
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /login/
+              url: 'https://netbox.niflheim.xiiisins.com/login/'
+              timeout: 15s
+              required: NetBox
+              status_codes: '200'
+        - uuid: 1ce68a721c464e9fb3e82d5de387772a
+          name: Semaphore
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /api/ping
+              url: 'https://semaphore.niflheim.xiiisins.com/api/ping'
+              timeout: 15s
+              required: pong
+              status_codes: '200'
+        - uuid: 4cf5f955ab554cdf84c351b1c8411bdd
+          name: Outline
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /_health
+              url: 'https://wiki.midgard.xiiisins.com/_health'
+              timeout: 15s
+              required: OK
+              status_codes: '200'
+        - uuid: a3c90865f1c3428f83388ab1aed87bf9
+          name: Immich
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /api/server/ping
+              url: 'https://immich.midgard.xiiisins.com/api/server/ping'
+              timeout: 15s
+              required: pong
+              status_codes: '200'
+        - uuid: 89dd25ef96e04ce4993a6d57d1516766
+          name: Jellyfin via ingress
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /health
+              url: 'https://jellyfin.midgard.xiiisins.com/health'
+              timeout: 15s
+              required: Healthy
+              status_codes: '200'
+        - uuid: 40cc0e843d9a429a8bc36aef3733b859
+          name: Garage S3
+          delay: 1m
+          verify_peer: 'YES'
+          verify_host: 'YES'
+          steps:
+            - name: GET /
+              url: 'https://s3.xiiisins.com/'
+              timeout: 15s
+              required: AccessDenied
+              status_codes: '403'
+  triggers:
+    - uuid: 1e347d6dc5134063982edd0028e882c7
+      expression: 'min(/Asgard service endpoints/web.test.fail[Ingress smoketest],5m)>0'
+      name: 'Ingress smoketest: endpoint check failing'
+      priority: HIGH
+      description: >-
+        The end-to-end ingress probe (DNS rewrite, Traefik, certificate, apex-static backend) failed for 5 minutes. A
+        TCP failure on the VIP shows as its own problem and suppresses this one; if only this fails, check DNS
+        (AdGuard answers the name), the wildcard certificate and the apex-static pod. Manual: `curl
+        https://smoketest.niflheim.xiiisins.com/anything`.
+      dependencies:
+        - name: 'Ingress: Traefik VIP port 443 refuses connections'
+          expression: 'max(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TRAEFIK.IP},443],5m)=0 and count(/Asgard service endpoints/net.tcp.service[tcp,{$SVC.TRAEFIK.IP},443],5m)>=8'
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: d1c8769bfe9e492b850767c04b22846f
+      expression: 'min(/Asgard service endpoints/web.test.fail[Vault],5m)>0'
+      name: 'Vault: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        Vault answers 5xx, a sealed state or nothing through Traefik for 5 minutes (200 active and 429 standby both
+        count as healthy). New pods and ESO refreshes cannot read secrets; running workloads keep their copies. Check
+        the vault pods and the AWS KMS auto-unseal (docs/known-issues/vault.md).
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: ddb7224d90894116a65a97e221da9450
+      expression: 'min(/Asgard service endpoints/web.test.fail[Authentik],5m)>0'
+      name: 'Authentik: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        Authentik's readiness endpoint fails for 5 minutes: OIDC and SAML logins (Zabbix SAML, Vault UI, ForwardAuth
+        apps) fail; existing sessions and the local break-glass admins still work. Check the authentik server/worker
+        pods and the PostgreSQL VIP.
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: 450cc509d04a4a0f8d0ab225cdd08ba6
+      expression: 'min(/Asgard service endpoints/web.test.fail[NetBox],5m)>0'
+      name: 'NetBox: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        NetBox's login page fails for 5 minutes. The Ansible dynamic inventory (every Semaphore run) and the NetBox
+        Terraform module read from it. Check the netbox pods and the PostgreSQL VIP.
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: ee73b3ceda374588abfbadd82fd2c673
+      expression: 'min(/Asgard service endpoints/web.test.fail[Semaphore],5m)>0'
+      name: 'Semaphore: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        Semaphore's /api/ping fails for 5 minutes: scheduled drift checks, the asgard-apply and the S4 infra-health
+        prober do not run.
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: 92da27b25d7543cd81c4ceec1441a077
+      expression: 'min(/Asgard service endpoints/web.test.fail[Outline],5m)>0'
+      name: 'Outline: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        The Outline wiki health endpoint fails for 5 minutes (pods, PostgreSQL VIP or the Garage S3 bucket).
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: 57e4917768bd4f9694dcb663958ca37f
+      expression: 'min(/Asgard service endpoints/web.test.fail[Immich],5m)>0'
+      name: 'Immich: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        Immich's ping fails for 5 minutes (photo uploads and the library for family users). Check the immich pods, the
+        PostgreSQL VIP and the NFS-backed library volume.
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: ba61f17786d247d5b515c1572261c1ab
+      expression: 'min(/Asgard service endpoints/web.test.fail[Jellyfin via ingress],5m)>0'
+      name: 'Jellyfin via ingress: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        Jellyfin does not answer Healthy through Traefik for 5 minutes. The LXC's own /health check is the Jellyfin
+        template; if only this fails, the problem is the jellyfin-ingress Service/EndpointSlice or Traefik, and
+        jellyfin-direct.niflheim still works.
+      tags:
+        - tag: scope
+          value: endpoints
+    - uuid: 4ec4ff95240042809b9a8b19641ba4fa
+      expression: 'min(/Asgard service endpoints/web.test.fail[Garage S3],5m)>0'
+      name: 'Garage S3: endpoint check failing'
+      priority: AVERAGE
+      description: >-
+        The Garage S3 API does not answer for 5 minutes (anonymous requests get 403 AccessDenied when it is healthy).
+        Outline attachments and future backup targets use it. Check the garage pods and their iSCSI metadata volume.
+      tags:
+        - tag: scope
+          value: endpoints

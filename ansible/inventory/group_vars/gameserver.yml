@@ -82,3 +82,7 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/Factorio"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # playbooks/files/zabbix/asgard-services.yml: factorio and sftpgo units, UDP 34197, SFTP port, reconcile timer
+  - "Factorio services"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"

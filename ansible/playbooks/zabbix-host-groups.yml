@@ -123,7 +123,7 @@
     # playbooks/files/zabbix/gna-network-posture.yml.
     # AdGuard / Tailscale unit state (High "Unit down" triggers so a stopped AdGuardHome / tailscaled reaches Gna and the 10f
     # restart-failed-unit policy; group_vars/adguard.yml, group_vars/tailscale.yml): playbooks/files/zabbix/{adguard,tailscale}-unit-state.yml.
-    - name: Ensure the Jellyfin, Proxmox iGPU, Patroni replication, Gna network posture and unit-state templates exist in Zabbix
+    - name: Ensure the Jellyfin, Proxmox iGPU, Patroni replication, Gna network posture, unit-state and Asgard service templates exist in Zabbix
       when:
         - not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
         - item.group in groups
@@ -137,6 +137,10 @@
         - {file: gna-network-posture.yml, group: n8n_agent}
         - {file: adguard-unit-state.yml, group: adguard}
         - {file: tailscale-unit-state.yml, group: tailscale}
+        # Per-host-class service templates (units, ports) and the virtual endpoints host's template; the inventory they close is
+        # docs/operations/zabbix-service-coverage.md. `all` is always a group, so these are imported on every run.
+        - {file: asgard-services.yml, group: all}
+        - {file: asgard-service-endpoints.yml, group: all}
       loop_control:
         label: "{{ item.file }}"
       delegate_to: "{{ zabbix_agent_api_delegate }}"
@@ -154,4 +158,59 @@
                     zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
         ansible_zabbix_url_path: ""
       no_log: true # token in vars
-      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template, zabbix-agent:gna-template, zabbix-agent:unit-state-template]
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:jellyfin-template, zabbix-agent:patroni-template, zabbix-agent:gna-template, zabbix-agent:unit-state-template, zabbix-agent:services-template]
+
+    # Virtual hosts: Zabbix hosts with no agent and no inventory entry, for checks the Zabbix server runs itself against things that
+    # are not hosts (the K3s-hosted apps, the PostgreSQL VIP, the NAS ports). `asgard-services` carries the "Asgard service
+    # endpoints" template (playbooks/files/zabbix/asgard-service-endpoints.yml); the list is zabbix_virtual_hosts in
+    # group_vars/all/zabbix.yml. A problem on it names the service, not a machine, so the diagnosis agent has no host to chase.
+    - name: Ensure the virtual hosts' groups exist in Zabbix
+      when: not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
+      community.zabbix.zabbix_group:
+        host_groups: "{{ zabbix_virtual_hosts | map(attribute='groups') | flatten | unique | sort }}"
+        state: present
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:services-template, zabbix-agent:virtual-hosts]
+
+    - name: Ensure the virtual hosts exist in Zabbix with their templates
+      when: not ansible_check_mode  # mutating Zabbix API; same scope note as host groups above
+      community.zabbix.zabbix_host:
+        host_name: "{{ item.name }}"
+        visible_name: "{{ item.visible_name | default(item.name) }}"
+        host_groups: "{{ item.groups }}"
+        link_templates: "{{ item.templates }}"
+        macros: "{{ item.macros | default([]) }}"
+        state: present
+      loop: "{{ zabbix_virtual_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      delegate_to: "{{ zabbix_agent_api_delegate }}"
+      run_once: true
+      throttle: 1
+      vars:
+        ansible_connection: httpapi
+        ansible_network_os: community.zabbix.zabbix
+        ansible_httpapi_port: "{{ zabbix_agent_api_port }}"
+        ansible_httpapi_use_ssl: "{{ zabbix_agent_api_use_ssl }}"
+        ansible_httpapi_validate_certs: false
+        ansible_user: "{{ zabbix_agent_api_user }}"
+        ansible_zabbix_auth_key: >-
+          {{ lookup('community.hashi_vault.vault_kv2_get',
+                    zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}
+        ansible_zabbix_url_path: ""
+      no_log: true # token in vars
+      tags: [zabbix-agent, zabbix-agent:register, zabbix-agent:bootstrap, zabbix-agent:services-template, zabbix-agent:virtual-hosts]

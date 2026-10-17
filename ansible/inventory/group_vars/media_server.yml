@@ -24,4 +24,6 @@ zabbix_agent_host_groups:
   - "Linux servers"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"
   - "Jellyfin"

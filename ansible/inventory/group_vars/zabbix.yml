@@ -33,6 +33,8 @@ zabbix_agent_host_groups:
   - "Asgard/LXCs/Zabbix"
 zabbix_agent_link_templates:
   - "Linux by Zabbix agent"
+  # vlagent.service state (playbooks/files/zabbix/asgard-services.yml)
+  - "vlagent log shipper"
   - "Zabbix server health"
   # Hugin runs nginx + php-fpm as the Zabbix frontend itself. Both
   # templates fetch via HTTP from localhost — zabbix-server role's

@@ -51,3 +51,15 @@ zabbix_global_macros:
   - { name: "{$VFS.FS.PUSED.MAX.CRIT}", value: "90" }
   - { name: "{$VFS.FS.INODE.PUSED.MAX.WARN}", value: "85" }
   - { name: "{$VFS.FS.INODE.PUSED.MAX.CRIT}", value: "95" }
+
+# Virtual Zabbix hosts (no agent, not in the inventory): created by playbooks/zabbix-host-groups.yml. `asgard-services` carries
+# the server-side endpoint checks (K3s-hosted web apps, PostgreSQL VIP, Munin ports, gateway); its macros are the template's
+# defaults restated nowhere on purpose, override a target here (`macros: [{macro: "{$SVC.TRAEFIK.IP}", value: ...}]`) when a
+# VIP moves. Inventory and severities: docs/operations/zabbix-service-coverage.md.
+zabbix_virtual_hosts:
+  - name: asgard-services
+    visible_name: Asgard services (virtual)
+    groups:
+      - "Asgard/Services"
+    templates:
+      - "Asgard service endpoints"
