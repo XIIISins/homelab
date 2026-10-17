@@ -24,6 +24,6 @@ Deployed 2026-10-14 (template import, then the Gná play with `--tags net-postur
 
 ## What it cost, and what to remember
 
-- Soak injections 25 to 27 (at least) are misses caused by the outage, not by the agent. The 10f read-out must exclude them ([`open-questions.md`](../operations/open-questions.md)).
+- Soak injections 23 to 27 (counted from the injections table at the 2026-10-17 read-out; #23 was injected after the restart) are misses caused by the outage, not by the agent. The 10f read-out must exclude them ([`open-questions.md`](../operations/open-questions.md)).
 - The detection gap is the finding, as with the Fulla replica ([`2026-10-06-fulla-stale-replica.md`](2026-10-06-fulla-stale-replica.md)): a dependency that is only used on an alert has no traffic to notice it by. Probe the path itself.
 - Writing the template taught two Zabbix lessons ([`zabbix.md`](../known-issues/zabbix.md)): `configuration.importcompare` does not validate trigger expressions, and 7.0 refuses `length()` on an item reference.
