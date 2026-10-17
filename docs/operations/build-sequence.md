@@ -12,7 +12,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 
 **Built, still open**
 - **5h Jellyfin + media automation:** the Sonarr config-loss recovery test, household accounts and the Tailscale ACL.
-- **10f autonomous healing:** the ~14-day canary soak read-out was taken 2026-10-17 (exit criteria met); widening `autonomy.hosts` is a separate reviewed PR, not before 2026-10-19.
+- **10f autonomous healing:** the ~14-day canary soak read-out was taken 2026-10-17 (exit criteria met); `mimir` (AdGuard replica, `AdGuardHome.service` only) added to `autonomy.hosts` as the first real replica; kvasir, the Tailscale LXCs and hermod follow one at a time.
 - **10g rebuild loop:** stage A (canaries) proven; replica and worker stages not built. PBS datastore capacity is no longer a prerequisite (67% on 2026-10-10).
 - **10h predictive changes and PR author:** all three parts live; exit criteria not yet met.
 - **10i rightsizing:** 10i2, 10i3 (digest), 10i5 (watch) and 10i4 (PRs) live; the exit criteria (digests at cadence, 3 merged PRs with a verdict) are what is left. VPA-based findings unlock once the recommendations are 7 days old (2026-10-12).
