@@ -76,10 +76,12 @@ resources:
   # (the personal bookmarks page at home.xiiisins.com), which it does not touch.
   # AGH rewrite in terraform/adguard/rewrites.tf; VPA in vpa-config/overview.yaml.
   - overview
-  # PHP watch: internal-only at php-watch.niflheim.xiiisins.com. Official php image
-  # + a ConfigMap'd site; reads php.net, the distro security trackers, Sury and
-  # Docker Hub server-side to answer "has a PHP fix shipped yet, and where?". AGH rewrite in
-  # terraform/adguard/rewrites.tf; VPA in vpa-config/php-watch.yaml.
+  # PHP watch: PUBLIC at php-watch.xiiisins.com (Cloudflare tunnel, no sign-in). Stock
+  # node image + ConfigMaps (a static page and a dependency-free TypeScript server that
+  # Node runs directly); reads php.net, the distro security trackers, Sury and Docker Hub
+  # server-side to answer "has a PHP fix shipped yet, and where?". CNAME in
+  # terraform/cloudflare/main.tf, tunnel rule in infrastructure/cloudflared, VPA in
+  # vpa-config/php-watch.yaml.
   - php-watch
   # Media automation (plan 5h M1): Sonarr + SABnzbd, internal-only, Authentik ForwardAuth. Static NFS volume of the DSM share `media`;
   # needs terraform/vault + authentik + adguard applied, the DSM share, and k8s/media/usenet seeded in Vault BEFORE merge.

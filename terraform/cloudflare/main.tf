@@ -143,6 +143,19 @@ resource "cloudflare_dns_record" "microbin" {
   ttl     = 1 # 1 = automatic, required when proxied = true
 }
 
+# PHP watch — public status page tunnelled through cloudflared. Cloudflared
+# ingress rule in k8s/asgard/infrastructure/cloudflared/configmap.yaml
+# (php-watch.xiiisins.com → Traefik backchannel). Anonymous, read-only; rate
+# limits live in the app (k8s/asgard/apps/php-watch/server/). External-only.
+resource "cloudflare_dns_record" "php_watch" {
+  zone_id = data.cloudflare_zone.xiiisins.id
+  name    = "php-watch.xiiisins.com"
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.asgard.id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1 # 1 = automatic, required when proxied = true
+}
+
 # Write tunnel credentials.json to Vault. This is what ESO will pull from in
 # 5e.2.e to materialize a K8s Secret for the cloudflared pods.
 #

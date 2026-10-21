@@ -1,8 +1,18 @@
 # k8s/asgard/apps/php-watch/httproute.yaml
 #
-# Internal-only, like the overview page: no Cloudflare tunnel rule and no public
-# DNS record. The name only resolves through AdGuard (terraform/adguard/rewrites.tf),
-# so it exists on the LAN and the tailnet and nowhere else.
+# PUBLIC, no sign-in. Same path as paste.xiiisins.com and home.xiiisins.com:
+#   client → Cloudflare edge → tunnel → cloudflared → Traefik (midgard apex
+#   listener) → here.
+# CF CNAME: cloudflare_dns_record.php_watch (terraform/cloudflare/main.tf).
+# cloudflared rule: k8s/asgard/infrastructure/cloudflared/configmap.yaml.
+#
+# Why no Authentik ForwardAuth: the page is read-only public information (PHP release
+# and advisory status). What an anonymous caller can do is bounded in the app itself
+# (server/server.ts): GET/HEAD only, a static-file allowlist, per-client and shared
+# rate limits on the one API endpoint, and a fixed list of upstream hosts. See
+# docs/services/php-watch.md "Going public".
+#
+# No AGH rewrite: LAN clients resolve the public name like everyone else.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -10,11 +20,11 @@ metadata:
   namespace: php-watch
 spec:
   parentRefs:
-    - name: niflheim
+    - name: midgard
       namespace: traefik
-      sectionName: websecure
+      sectionName: websecure-apex-wildcard
   hostnames:
-    - php-watch.niflheim.xiiisins.com
+    - php-watch.xiiisins.com
   rules:
     - matches:
         - path:

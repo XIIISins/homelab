@@ -114,6 +114,17 @@ data:
           httpHostHeader: immich.xiiisins.com
           noTLSVerify: true
 
+      # PHP watch — public status page (has a PHP fix shipped yet?). Same Traefik
+      # backchannel pattern; the midgard Gateway's apex-wildcard listener routes
+      # php-watch.xiiisins.com via the php-watch HTTPRoute (apps/php-watch/).
+      # Anonymous read-only; limits live in the app. CF DNS record:
+      # cloudflare_dns_record.php_watch in terraform/cloudflare/main.tf.
+      - hostname: php-watch.xiiisins.com
+        service: https://traefik.traefik.svc.cluster.local:443
+        originRequest:
+          httpHostHeader: php-watch.xiiisins.com
+          noTLSVerify: true
+
       # Garage S3, READ-ONLY, for Outline's images. The target is the Caddy
       # proxy in apps/garage-ingress (GET/HEAD of /outline/* only), NOT
       # Traefik, so uploads can only ever happen from the LAN/tailnet (where
