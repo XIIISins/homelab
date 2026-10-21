@@ -1,0 +1,109 @@
+# k8s/asgard/apps/php-watch/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-watch
+  namespace: php-watch
+spec:
+  # Two replicas on different workers, like the overview page it sits beside.
+  # Each keeps its own 15-minute cache of the Debian pages in an emptyDir.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: php-watch
+  template:
+    metadata:
+      labels:
+        app: php-watch
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - php-watch
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: php
+          # PHP's built-in web server: fine for a read-only page on the LAN, and it
+          # keeps this to one container with no web-server config. The image ships
+          # the curl and dom extensions the page needs.
+          image: php:8.5.11-cli-alpine
+          command:
+            - php
+            - -d
+            - memory_limit=64M
+            - -d
+            - expose_php=0
+            - -d
+            - display_errors=0
+            - -d
+            - log_errors=1
+            - -d
+            - error_log=/dev/stderr
+            - -S
+            - 0.0.0.0:8080
+            - -t
+            - /srv/site
+          env:
+            # Worker processes for the built-in server; without it one slow
+            # Debian fetch would block every other request.
+            - name: PHP_CLI_SERVER_WORKERS
+              value: "4"
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz.php
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz.php
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          # Starting point; the VPA object in vpa-config/php-watch.yaml records what it really uses.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: site
+              mountPath: /srv/site
+              readOnly: true
+            # The page cache for the Debian responses (api.php, sys_get_temp_dir()).
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: site
+          configMap:
+            name: php-watch-site
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi

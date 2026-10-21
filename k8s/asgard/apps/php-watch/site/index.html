@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#1a1b26" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#e1e2e7" media="(prefers-color-scheme: light)">
+  <title>PHP watch</title>
+  <meta name="description" content="Has Debian shipped a PHP fix yet? Watches the Debian security tracker. Reachable from the home network only.">
+  <link rel="preload" href="familjen-grotesk.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23bb9af7'/%3E%3C/svg%3E">
+  <script src="theme.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the page</a>
+  <div class="page" id="main">
+    <header class="top">
+      <div class="mark">
+        <svg class="mark-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v5.5c0 4.7 3.3 8.3 8 9.5 4.7-1.2 8-4.8 8-9.5V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        PHP watch
+      </div>
+      <div class="top-right">
+        <span class="stamp" id="stamp" role="status"><i class="live"></i><span id="stamp-text">Reading Debian…</span></span>
+        <button class="theme" id="theme" type="button" title="Switch between light and dark">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span class="vh">Switch between light and dark</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="verdict" id="verdict" data-state="none" aria-labelledby="verdict-title">
+      <h1 class="verdict-title" id="verdict-title">Checking Debian…</h1>
+      <div class="verdict-zone">
+        <p class="verdict-detail" id="verdict-detail">Asking the Debian security tracker whether PHP has fixes for the CVEs below.</p>
+        <ul class="attention" id="attention" hidden></ul>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="cves-title">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title" id="cves-title">Watched CVEs</h2>
+          <p class="card-note">Does Debian list a fix, per release that ships PHP.</p>
+        </div>
+        <form class="add" id="add" autocomplete="off">
+          <label class="vh" for="cve-input">Add a CVE id</label>
+          <input id="cve-input" name="cve" placeholder="CVE-2026-12345" pattern="(?i)CVE-\d{4}-\d{4,7}" spellcheck="false" required>
+          <button type="submit">Watch</button>
+        </form>
+      </div>
+      <ul class="cves" id="cves"></ul>
+    </section>
+
+    <section aria-labelledby="pkgs-title">
+      <h2 class="card-title section-title" id="pkgs-title">PHP in Debian</h2>
+      <div class="pkgs" id="pkgs"></div>
+    </section>
+
+    <p class="foot">Data: <a href="https://security-tracker.debian.org/tracker/">Debian security tracker</a> and <a href="https://sources.debian.org/">sources.debian.org</a>, cached up to 15 minutes on the server. A CVE the tracker has not triaged yet shows as "no Debian record".</p>
+  </div>
+</body>
+</html>
