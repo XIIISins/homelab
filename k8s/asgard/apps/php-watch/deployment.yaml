@@ -6,7 +6,7 @@ metadata:
   namespace: php-watch
 spec:
   # Two replicas on different workers, like the overview page it sits beside.
-  # Each keeps its own 15-minute cache of the Debian pages in an emptyDir.
+  # Each keeps its own 15-minute cache of the fetched source pages in an emptyDir.
   replicas: 2
   strategy:
     type: RollingUpdate
@@ -97,7 +97,7 @@ spec:
             - name: site
               mountPath: /srv/site
               readOnly: true
-            # The page cache for the Debian responses (api.php, sys_get_temp_dir()).
+            # The cache for the fetched source pages (lib.php, sys_get_temp_dir()).
             - name: tmp
               mountPath: /tmp
       volumes:

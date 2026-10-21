@@ -1,7 +1,7 @@
 <?php
 // GET /api.php?cve=CVE-2026-1&cve=CVE-2026-2   (no cve= -> the default watch list)
 declare(strict_types=1);
-require __DIR__ . '/lib.php';
+require __DIR__ . '/sources.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');

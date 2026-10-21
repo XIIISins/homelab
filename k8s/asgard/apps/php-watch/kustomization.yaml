@@ -1,7 +1,8 @@
 # k8s/asgard/apps/php-watch/kustomization.yaml
 #
-# PHP watch: internal-only at php-watch.niflheim.xiiisins.com. Answers "has
-# Debian shipped a fix for this PHP CVE yet?" from the Debian security tracker.
+# PHP watch: internal-only at php-watch.niflheim.xiiisins.com. Answers "has a PHP
+# fix shipped yet, and where?" from php.net, the Debian/Ubuntu/Red Hat/Alpine
+# trackers, Sury and the official Docker image.
 # Official php image + a ConfigMap'd site, no image build. The ConfigMap keeps
 # the default name hash, so a content change renames it, kustomize rewrites the
 # Deployment's reference and the pods roll on their own (no subPath mounts:
@@ -25,5 +26,6 @@ configMapGenerator:
       - site/theme.js
       - site/api.php
       - site/lib.php
+      - site/sources.php
       - site/healthz.php
       - site/familjen-grotesk.woff2

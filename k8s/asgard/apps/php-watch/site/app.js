@@ -1,6 +1,6 @@
 'use strict';
-// PHP watch: renders /api.php (the pod digests the Debian security tracker). All text goes in
-// with textContent, never innerHTML: CVE descriptions come from a third party.
+// PHP watch: renders /api.php (the pod digests php.net, Debian, Ubuntu, Red Hat, Alpine, Sury and Docker Hub).
+// All text goes in with textContent, never innerHTML: CVE descriptions come from third parties.
 
 const POLL_MS = 5 * 60 * 1000;
 const KEY = 'phpwatch.cves';
@@ -24,37 +24,49 @@ function saveWatched(list) {
 }
 
 const STATE_TEXT = {
-  fixed: 'Fixed in Debian',
-  vulnerable: 'Vulnerable in Debian',
-  tracked: 'Tracked, no stable impact',
-  unknown: 'No Debian record yet',
-  error: 'Tracker unreachable',
+  fixed: 'Fix recorded',
+  vulnerable: 'Vulnerable',
+  tracked: 'Listed, no fix recorded',
+  unknown: 'No record yet',
+  error: 'Sources unreachable',
 };
-const STATE_LEVEL = { fixed: 'ok', vulnerable: 'bad', tracked: 'none', unknown: 'warn', error: 'none' };
+const STATE_LEVEL = { fixed: 'ok', vulnerable: 'bad', tracked: 'warn', unknown: 'warn', error: 'none' };
+
+const upstreamNote = (c) => (c.upstream.length ? `named in php.net changelog for ${c.upstream.map((u) => u.version).join(', ')}` : '');
 
 function verdictOf(d) {
   const items = [];
   for (const c of d.cves) {
+    const up = c.upstream.length ? `; fixed upstream in ${c.upstream[0].version}` : '';
     if (c.state === 'vulnerable') {
-      const where = c.rows.filter((r) => r.level === 'bad').map((r) => `${r.release} (${r.package})`).join(', ');
-      items.push({ level: 'bad', area: c.id, text: `vulnerable in ${where}` });
+      const where = [];
+      for (const s of c.sources) for (const r of s.rows) if (r.level === 'bad') where.push(`${s.name} ${r.release}`);
+      items.push({ level: 'bad', area: c.id, text: `vulnerable in ${where.slice(0, 3).join(', ')}${where.length > 3 ? '…' : ''}${up}` });
+    } else if (c.state === 'tracked') {
+      const names = c.sources.filter((s) => s.rows.length).map((s) => s.name);
+      items.push({ level: 'warn', area: c.id, text: `listed by ${names.join(', ')}, no fix recorded${up}` });
     } else if (c.state === 'unknown') {
-      items.push({ level: 'warn', area: c.id, text: 'no Debian record yet' });
+      items.push({ level: 'warn', area: c.id, text: `no record in any tracker yet${up}` });
     } else if (c.state === 'error') {
-      items.push({ level: 'warn', area: c.id, text: 'tracker did not answer' });
+      items.push({ level: 'warn', area: c.id, text: 'trackers did not answer' });
     }
   }
-  for (const p of d.packages) {
-    if (p.open.length) items.push({ level: 'warn', area: p.name, text: `${p.open.length} open ${p.open.length === 1 ? 'issue' : 'issues'}` });
+  const behind = d.matrix.filter((r) => r.repo !== 'php.net' && Object.values(r.cells).some((x) => x && x.state === 'behind'));
+  if (behind.length) {
+    const names = [...new Set(behind.map((r) => (r.repo === 'Debian' ? `Debian ${r.label}` : r.repo.startsWith('Sury') ? `${r.repo} ${r.label}` : r.repo)))];
+    items.push({ level: 'warn', area: 'Behind php.net', text: `${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3}` : ''}` });
   }
-  const bad = items.filter((i) => i.level === 'bad').length;
+  for (const p of d.packages) {
+    if (p.open.length) items.push({ level: 'warn', area: p.name, text: `${p.open.length} open ${p.open.length === 1 ? 'issue' : 'issues'} in Debian` });
+  }
+  const bad = items.some((i) => i.level === 'bad');
   let state = 'ok';
   let title = 'PHP Patched';
   if (bad) { state = 'bad'; title = `PHP: ${items.length} ${items.length === 1 ? 'Issue' : 'Issues'}`; }
   else if (items.length) { state = 'warn'; title = `PHP: ${items.length} to Watch`; }
   const fixed = d.cves.filter((c) => c.state === 'fixed').length;
-  const summary = `${fixed} of ${d.cves.length} watched ${d.cves.length === 1 ? 'CVE is' : 'CVEs are'} fixed in Debian. ` +
-    d.packages.filter((p) => p.tracked).map((p) => `${p.release} runs ${p.name} ${p.current}.`).join(' ');
+  const latest = Object.entries(d.upstream).map(([b, u]) => u.version).join(', ');
+  const summary = `${fixed} of ${d.cves.length} watched ${d.cves.length === 1 ? 'CVE has' : 'CVEs have'} a recorded fix. php.net's latest: ${latest}.`;
   return { state, title, summary, items };
 }
 
@@ -86,6 +98,25 @@ function renderVerdict(v) {
   document.title = `PHP watch: ${v.state === 'ok' ? 'patched' : v.items.length + ' to watch'}`;
 }
 
+function sourceBlock(s) {
+  const box = el('div', 'src');
+  const head = el('div', 'src-head');
+  const a = el('a', 'src-name', s.name);
+  a.href = s.url;
+  a.rel = 'noopener noreferrer';
+  head.append(a);
+  box.append(head);
+  const rows = el('ul', 'rows');
+  for (const r of s.rows) {
+    const row = el('li', 'row');
+    row.dataset.level = r.level;
+    row.append(el('span', 'row-rel', r.release), el('span', 'row-pkg', r.package), el('span', 'row-ver', r.version), el('span', 'row-st', r.status));
+    rows.append(row);
+  }
+  box.append(rows);
+  return box;
+}
+
 function renderCves(d) {
   const ul = $('cves');
   ul.replaceChildren();
@@ -94,7 +125,7 @@ function renderCves(d) {
     li.dataset.level = STATE_LEVEL[c.state];
     const head = el('div', 'cve-head');
     const link = el('a', 'cve-id', c.id);
-    link.href = c.url;
+    link.href = `https://www.cve.org/CVERecord?id=${encodeURIComponent(c.id)}`;
     link.rel = 'noopener noreferrer';
     head.append(link, el('span', 'badge', STATE_TEXT[c.state]));
     const rm = el('button', 'rm', '×');
@@ -104,20 +135,55 @@ function renderCves(d) {
     rm.addEventListener('click', () => saveWatched(d.cves.map((x) => x.id).filter((id) => id !== c.id)));
     head.append(rm);
     li.append(head);
-    li.append(el('p', 'cve-desc', c.description || (c.state === 'unknown'
-      ? 'The Debian tracker has no entry for this id. It is either too new to be triaged or not a PHP CVE.'
-      : '')));
-    if (c.rows.length) {
-      const rows = el('ul', 'rows');
-      for (const r of c.rows) {
-        const row = el('li', 'row');
-        row.dataset.level = r.level;
-        row.append(el('span', 'row-rel', r.release), el('span', 'row-pkg', r.package), el('span', 'row-ver', r.version), el('span', 'row-st', r.status));
-        rows.append(row);
-      }
-      li.append(rows);
+    li.append(el('p', 'cve-desc', c.description || 'No description published yet.'));
+    const up = el('p', c.upstream.length ? 'chip chip-ok' : 'chip');
+    up.textContent = c.upstream.length ? `php.net: ${upstreamNote(c)}` : 'php.net: not named in the changelog yet (it may cite a GHSA id instead)';
+    li.append(up);
+    const srcs = el('div', 'srcs');
+    for (const s of c.sources.filter((x) => x.rows.length)) srcs.append(sourceBlock(s));
+    if (srcs.children.length) li.append(srcs);
+    // Sources with nothing to show share one line instead of one block each.
+    const quiet = c.sources.filter((x) => !x.rows.length);
+    if (quiet.length) {
+      const line = el('p', 'quiet');
+      line.append(document.createTextNode('No record at '));
+      quiet.forEach((s, i) => {
+        const a = el('a', 'src-name', s.name + (s.status === 'error' ? ' (unreachable)' : ''));
+        a.href = s.url;
+        a.rel = 'noopener noreferrer';
+        line.append(a, document.createTextNode(i < quiet.length - 1 ? ', ' : ''));
+      });
+      li.append(line);
     }
     ul.append(li);
+  }
+}
+
+function renderMatrix(d) {
+  const box = $('matrix');
+  box.replaceChildren();
+  const branches = Object.keys(d.matrix[0].cells);
+  const head = el('div', 'mx-row mx-head');
+  head.setAttribute('role', 'row');
+  head.append(el('span', 'mx-name', 'Repo'));
+  for (const b of branches) head.append(el('span', 'mx-cell', `PHP ${b}`));
+  box.append(head);
+  for (const r of d.matrix) {
+    const row = el('div', 'mx-row');
+    row.setAttribute('role', 'row');
+    const name = el('span', 'mx-name');
+    name.append(el('strong', null, r.repo), el('small', null, r.label));
+    row.append(name);
+    for (const b of branches) {
+      const c = r.cells[b];
+      const cell = el('span', 'mx-cell', c ? c.short : '–');
+      if (c) {
+        cell.dataset.state = c.state;
+        cell.title = c.version;
+      }
+      row.append(cell);
+    }
+    box.append(row);
   }
 }
 
@@ -171,8 +237,10 @@ async function load() {
     last = d;
     renderVerdict(verdictOf(d));
     renderCves(d);
+    renderMatrix(d);
     renderPackages(d);
-    stamp(d.stale ? `Debian unreachable, showing data from ${ago(d.age)}` : `Debian data ${ago(d.age)}`, d.stale ? 'stale' : '');
+    if (d.unreachable.length) stamp(`Unreachable: ${d.unreachable.join(', ')}`, 'stale');
+    else stamp(`Sources read ${ago(d.age)}`, '');
   } catch {
     if (last) stamp('Could not refresh, showing the last reading', 'stale');
     else {

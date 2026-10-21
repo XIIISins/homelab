@@ -384,3 +384,49 @@ a { color: var(--blue); }
 .foot { color: var(--fg-3); font-size: 0.8125rem; max-width: 70ch; }
 
 @media (prefers-reduced-motion: reduce) { .live { animation: none; } }
+
+/* ---------- Sources inside a CVE card ---------- */
+
+.chip-ok {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+  color: var(--ok);
+}
+.cve .chip { margin-top: 10px; }
+
+.srcs { display: grid; gap: 10px 22px; margin-top: 12px; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); }
+.src-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.src-name { font-size: 0.8125rem; font-weight: 650; color: var(--fg-2); text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.quiet { margin-top: 10px; font-size: 0.8125rem; color: var(--fg-3); }
+.quiet .src-name { font-weight: 500; color: var(--fg-3); }
+.srcs .row { grid-template-columns: 8px 5.5rem 4.5rem minmax(0, 1fr) auto; font-size: 0.8125rem; }
+.srcs .row-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Version matrix ---------- */
+
+.matrix { display: grid; margin-top: 14px; }
+
+.mx-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.6fr) repeat(4, minmax(4.5rem, 1fr));
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.9375rem;
+}
+.mx-head { border-top: 0; color: var(--fg-3); font-size: 0.8125rem; padding-top: 14px; }
+.mx-name { display: grid; line-height: 1.25; }
+.mx-name small { color: var(--fg-3); font-size: 0.75rem; }
+.mx-cell { text-align: left; color: var(--fg-3); display: flex; align-items: center; gap: 8px; }
+.mx-cell[data-state]::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--none); flex: none; }
+.mx-cell[data-state="current"] { color: var(--fg); }
+.mx-cell[data-state="current"]::before { background: var(--ok); }
+.mx-cell[data-state="behind"] { color: var(--warn); }
+.mx-cell[data-state="behind"]::before { background: var(--warn); }
+.mx-head .mx-cell { color: var(--fg-3); }
+
+@media (max-width: 560px) {
+  .mx-row { grid-template-columns: minmax(6.5rem, 1.4fr) repeat(4, minmax(3.2rem, 1fr)); column-gap: 6px; font-size: 0.8125rem; }
+  .mx-cell[data-state]::before { display: none; }
+}

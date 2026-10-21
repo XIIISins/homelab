@@ -77,8 +77,8 @@ resources:
   # AGH rewrite in terraform/adguard/rewrites.tf; VPA in vpa-config/overview.yaml.
   - overview
   # PHP watch: internal-only at php-watch.niflheim.xiiisins.com. Official php image
-  # + a ConfigMap'd site; reads the Debian security tracker server-side to answer
-  # "has Debian shipped a fix for this PHP CVE yet?". AGH rewrite in
+  # + a ConfigMap'd site; reads php.net, the distro security trackers, Sury and
+  # Docker Hub server-side to answer "has a PHP fix shipped yet, and where?". AGH rewrite in
   # terraform/adguard/rewrites.tf; VPA in vpa-config/php-watch.yaml.
   - php-watch
   # Media automation (plan 5h M1): Sonarr + SABnzbd, internal-only, Authentik ForwardAuth. Static NFS volume of the DSM share `media`;
