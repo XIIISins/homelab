@@ -1,0 +1,11 @@
+{
+  "name": "php-watch",
+  "private": true,
+  "type": "module",
+  "description": "PHP watch backend. Run directly by Node 24 (type stripping): node server.ts. No dependencies, no build.",
+  "scripts": {
+    "start": "node server.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc -p ."
+  }
+}

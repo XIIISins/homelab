@@ -5,8 +5,9 @@ metadata:
   name: php-watch
   namespace: php-watch
 spec:
-  # Two replicas on different workers, like the overview page it sits beside.
-  # Each keeps its own 15-minute cache of the fetched source pages in an emptyDir.
+  # Two replicas on different workers: it is public now, and each keeps its own
+  # in-memory cache of the source pages (refreshed in the background), so a pod
+  # that restarts only costs its own warm-up.
   replicas: 2
   strategy:
     type: RollingUpdate
@@ -38,45 +39,40 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: php
-          # PHP's built-in web server: fine for a read-only page on the LAN, and it
-          # keeps this to one container with no web-server config. The image ships
-          # the curl and dom extensions the page needs.
-          image: php:8.5.11-cli-alpine
+        - name: node
+          # Node 24 LTS runs the TypeScript directly (type stripping), so there is
+          # no build and no image of our own: the code is the php-watch-server
+          # ConfigMap. No dependencies, nothing is installed at start.
+          image: node:24.22.1-alpine
           command:
-            - php
-            - -d
-            - memory_limit=64M
-            - -d
-            - expose_php=0
-            - -d
-            - display_errors=0
-            - -d
-            - log_errors=1
-            - -d
-            - error_log=/dev/stderr
-            - -S
-            - 0.0.0.0:8080
-            - -t
-            - /srv/site
+            - node
+            - /srv/app/server.ts
           env:
-            # Worker processes for the built-in server; without it one slow
-            # Debian fetch would block every other request.
-            - name: PHP_CLI_SERVER_WORKERS
-              value: "4"
+            - name: PORT
+              value: "8080"
+            - name: SITE_DIR
+              value: /srv/site
+            - name: NODE_ENV
+              value: production
+            # Heap cap well under the container limit, so a leak ends as a clean
+            # restart instead of an OOM kill mid-response.
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=128
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /healthz.php
+              path: /healthz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          # Ready once the default CVE list is in memory (or after 45 s), so a new
+          # pod never serves a visitor from a cold cache.
           readinessProbe:
             httpGet:
-              path: /healthz.php
+              path: /readyz
               port: http
             initialDelaySeconds: 2
             periodSeconds: 5
@@ -84,9 +80,9 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 48Mi
+              memory: 96Mi
             limits:
-              memory: 192Mi
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -94,16 +90,16 @@ spec:
               drop:
                 - ALL
           volumeMounts:
+            - name: app
+              mountPath: /srv/app
+              readOnly: true
             - name: site
               mountPath: /srv/site
               readOnly: true
-            # The cache for the fetched source pages (lib.php, sys_get_temp_dir()).
-            - name: tmp
-              mountPath: /tmp
       volumes:
+        - name: app
+          configMap:
+            name: php-watch-server
         - name: site
           configMap:
             name: php-watch-site
-        - name: tmp
-          emptyDir:
-            sizeLimit: 32Mi

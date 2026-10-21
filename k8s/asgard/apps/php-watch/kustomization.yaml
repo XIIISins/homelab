@@ -1,12 +1,14 @@
 # k8s/asgard/apps/php-watch/kustomization.yaml
 #
-# PHP watch: internal-only at php-watch.niflheim.xiiisins.com. Answers "has a PHP
-# fix shipped yet, and where?" from php.net, the Debian/Ubuntu/Red Hat/Alpine
+# PHP watch: PUBLIC at php-watch.xiiisins.com (Cloudflare tunnel). Answers "has a
+# PHP fix shipped yet, and where?" from php.net, the Debian/Ubuntu/Red Hat/Alpine
 # trackers, Sury and the official Docker image.
-# Official php image + a ConfigMap'd site, no image build. The ConfigMap keeps
-# the default name hash, so a content change renames it, kustomize rewrites the
-# Deployment's reference and the pods roll on their own (no subPath mounts:
-# see docs/known-issues/flux-helm-kustomize.md).
+# Stock node image + two ConfigMaps (the static page, and the TypeScript server
+# that Node runs directly), no image build. Both keep the default name hash, so a
+# content change renames the ConfigMap, kustomize rewrites the Deployment's
+# reference and the pods roll on their own (no subPath mounts: see
+# docs/known-issues/flux-helm-kustomize.md). Tests and tsconfig.json stay out of
+# the ConfigMap on purpose.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -24,8 +26,15 @@ configMapGenerator:
       - site/style.css
       - site/app.js
       - site/theme.js
-      - site/api.php
-      - site/lib.php
-      - site/sources.php
-      - site/healthz.php
       - site/familjen-grotesk.woff2
+  - name: php-watch-server
+    namespace: php-watch
+    files:
+      - server/package.json
+      - server/server.ts
+      - server/sources.ts
+      - server/fetcher.ts
+      - server/html.ts
+      - server/ratelimit.ts
+      - server/types.ts
+      - server/versions.ts

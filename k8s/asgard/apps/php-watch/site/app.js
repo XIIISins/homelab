@@ -1,5 +1,5 @@
 'use strict';
-// PHP watch: renders /api.php (the pod digests php.net, Debian, Ubuntu, Red Hat, Alpine, Sury and Docker Hub).
+// PHP watch: renders /api/status (the pod digests php.net, Debian, Ubuntu, Red Hat, Alpine, Sury and Docker Hub).
 // All text goes in with textContent, never innerHTML: CVE descriptions come from third parties.
 
 const POLL_MS = 5 * 60 * 1000;
@@ -29,8 +29,9 @@ const STATE_TEXT = {
   tracked: 'Listed, no fix recorded',
   unknown: 'No record yet',
   error: 'Sources unreachable',
+  limited: 'Lookup limit reached',
 };
-const STATE_LEVEL = { fixed: 'ok', vulnerable: 'bad', tracked: 'warn', unknown: 'warn', error: 'none' };
+const STATE_LEVEL = { fixed: 'ok', vulnerable: 'bad', tracked: 'warn', unknown: 'warn', error: 'none', limited: 'none' };
 
 const upstreamNote = (c) => (c.upstream.length ? `named in php.net changelog for ${c.upstream.map((u) => u.version).join(', ')}` : '');
 
@@ -49,6 +50,8 @@ function verdictOf(d) {
       items.push({ level: 'warn', area: c.id, text: `no record in any tracker yet${up}` });
     } else if (c.state === 'error') {
       items.push({ level: 'warn', area: c.id, text: 'trackers did not answer' });
+    } else if (c.state === 'limited') {
+      items.push({ level: 'warn', area: c.id, text: 'too many new lookups right now, try again in a minute' });
     }
   }
   const behind = d.matrix.filter((r) => r.repo !== 'php.net' && Object.values(r.cells).some((x) => x && x.state === 'behind'));
@@ -135,10 +138,12 @@ function renderCves(d) {
     rm.addEventListener('click', () => saveWatched(d.cves.map((x) => x.id).filter((id) => id !== c.id)));
     head.append(rm);
     li.append(head);
-    li.append(el('p', 'cve-desc', c.description || 'No description published yet.'));
-    const up = el('p', c.upstream.length ? 'chip chip-ok' : 'chip');
-    up.textContent = c.upstream.length ? `php.net: ${upstreamNote(c)}` : 'php.net: not named in the changelog yet (it may cite a GHSA id instead)';
-    li.append(up);
+    li.append(el('p', 'cve-desc', c.state === 'limited' ? 'Too many new CVE lookups right now. Try again in a minute.' : c.description || 'No description published yet.'));
+    if (c.state !== 'limited') {
+      const up = el('p', c.upstream.length ? 'chip chip-ok' : 'chip');
+      up.textContent = c.upstream.length ? `php.net: ${upstreamNote(c)}` : 'php.net: not named in the changelog yet (it may cite a GHSA id instead)';
+      li.append(up);
+    }
     const srcs = el('div', 'srcs');
     for (const s of c.sources.filter((x) => x.rows.length)) srcs.append(sourceBlock(s));
     if (srcs.children.length) li.append(srcs);
@@ -231,7 +236,8 @@ function ago(sec) {
 async function load() {
   const qs = (watched || []).map((id) => 'cve=' + encodeURIComponent(id)).join('&');
   try {
-    const res = await fetch('api.php' + (qs ? '?' + qs : ''), { cache: 'no-store' });
+    const res = await fetch('api/status' + (qs ? '?' + qs : ''), { cache: 'no-store' });
+    if (res.status === 429) { stamp('Too many requests, slowing down', 'stale'); return; }
     if (!res.ok) throw new Error(res.status);
     const d = await res.json();
     last = d;
