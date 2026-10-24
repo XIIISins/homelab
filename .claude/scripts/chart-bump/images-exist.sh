@@ -11,6 +11,9 @@
 # Exit code 1 if any image is missing. Also run `uname -m`-matching platform check by eye:
 # Hub/ghcr lines print the architectures when available.
 set -u
+# Private ghcr packages answer an anonymous manifest request with 401, the same as a missing
+# one, so they cannot be verified here. Listed by repo (no tag); anything else still fails on 401.
+PRIVATE_IMAGES=(ghcr.io/xiiisins/startpage)
 refs=()
 if [[ $# -eq 1 && -f "$1" ]]; then
   while IFS= read -r l; do refs+=("$l"); done < <(grep -E '^\s+(- )?image:|--[a-z0-9-]*image=' "$1" | sed -E 's/.*image[=:] *//; s/"//g; s/^- //' | sort -u)
@@ -38,7 +41,9 @@ for ref in "${refs[@]}"; do
       code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $tok" \
         -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json" \
         "https://ghcr.io/v2/$path/manifests/$tag")
-      [[ "$code" == 200 ]] && res="OK   (ghcr)" || res="MISSING (HTTP $code)" ;;
+      if [[ "$code" == 200 ]]; then res="OK   (ghcr)"
+      elif [[ "$code" == 401 && " ${PRIVATE_IMAGES[*]} " == *" $repo "* ]]; then res="SKIP (private, unverifiable anonymously)"
+      else res="MISSING (HTTP $code)"; fi ;;
     quay.io)
       n=$(curl -s "https://quay.io/api/v1/repository/$path/tag/?specificTag=$tag&onlyActiveTags=true" | yq -p json '.tags | length' 2>/dev/null)
       [[ "${n:-0}" -ge 1 ]] && res="OK   (quay)" || res="MISSING" ;;

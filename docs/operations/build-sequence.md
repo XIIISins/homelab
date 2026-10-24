@@ -72,7 +72,7 @@ Status: ✅ done · 🟡 built, with open work · 🔲 not started or deferred �
 | Phase | Status | Outcome |
 |-------|--------|---------|
 | 5j Outline + Garage | ✅ 2026-05-26 | Garage v2.3.0 single-node S3 and Outline 1.8.0 in K3s on Patroni, OIDC via Authentik; 16 findings ([incident log](../incidents/2026-05-26-outline-garage-deploy.md)). |
-| Startpage | ✅ 2026-05-31 | `home.xiiisins.com`, Caddy serving a whitelist-copy of the private startpage repo. Update: push, then `kubectl rollout restart deployment/startpage -n startpage`. [Service doc](../services/startpage.md). |
+| Startpage | ✅ 2026-05-31 | `home.xiiisins.com`, nginx running the private `ghcr.io/xiiisins/startpage` image (CI-built, sha-pinned; 2026-10-24, was a Caddy git-clone). Update: bump the sha tag in `deployment.yaml` via PR. [Service doc](../services/startpage.md). |
 | MicroBin | ✅ 2026-05-31 | `paste.xiiisins.com`; NFS-backed JSON DB, partial Authentik ForwardAuth (`/list`, `/admin`). [Service doc](../services/microbin.md). |
 | n8n (asgard) | ✅ → 🗑 removed 2026-10-03 | Built 2026-06-01, removed when it proved unused; the AIOps agent runs a separate n8n on Gná (10d). |
 | Immich | ✅ 2026-09-03 | NFS library, Patroni with pgvector, Authentik OIDC; secondary copy only. [Service doc](../services/immich.md). |
