@@ -532,6 +532,8 @@ __homelab_ensure_netbox_inventory() {
     [ "$(uname -s)" = Darwin ] || return 0
     local repo cache
     repo=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    # any git repo has a toplevel, so also require the script to be the homelab's
+    [ -x "$repo/.config/scripts/refresh-netbox-inventory-cache.sh" ] || return 0
     cache="$repo/ansible/inventory/.netbox-cache.yml"
     if [ "${1:-}" = refresh ] || [ ! -f "$cache" ]; then
         if ! "$repo/.config/scripts/refresh-netbox-inventory-cache.sh"; then
