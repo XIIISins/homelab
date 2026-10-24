@@ -1025,7 +1025,7 @@ class Toolbelt:
         """One read-only tool call for the engine's autonomy prechecks (the same allow-list the agent is held to)."""
         if self.cfg.live is None:
             raise tools.ToolError(501, "live tools are not configured")
-        return tools.live(self.cfg.live, name, tools.validate(name, args))
+        return tools.live(self.cfg.live, name, tools.validate(name, args, internal=True))
 
     def _propose_from(self, diag: dict, inc) -> tuple[list, list]:
         """Turn a validated diagnosis's proposed_actions into stored proposals (never executions). One that fails the

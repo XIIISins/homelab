@@ -309,7 +309,9 @@ Applied from the operator's local `main` (plan reviewed first, each plan purely 
 
 **Test-harness notes.** (1) `pct destroy` removes the per-VMID ACL on `/vms/<vmid>`, so after a deliberate destroy the plan 403s until `terraform apply` in `terraform/proxmox/asgard-pools` recreates it (a genuinely dead guest keeps its ACL, so only the test destroy needs this). (2) Frigg's systemd-resolved, fed the fleet pair AdGuard VIP + UCG fallback, can stick to the UCG after a blip, and the UCG does not know `*.niflheim` names: the Toolbelt then fails with `semaphore unreachable: URLError`. `systemctl restart systemd-resolved` clears it; the durable fix is open (see open-questions). (3) The rate limits (class and per-target per day) count test applies; the test reset only clears `apply_started_at` on the test rows.
 
-**Still off:** the autonomous canary policy and `autonomy_rebuild` (the next PR, after the 10f soak read), the replica stage and `rebuild-worker`.
+**Still off (as of 2026-10-24):** the autonomous canary policy and `autonomy_rebuild`, `rebuild-dead-replica` and `rebuild-worker`.
+
+**Replica stage built 2026-10-24 (B1).** Design question 1 is closed: the operator accepted the runner exception (CLAUDE.md hard rule 4, [`decisions.md`](../../operations/decisions.md)) and the widening to Mimir and Kvasir. Applied: the `aiops-replica` pool, its ACL and per-VMID ACLs for 1111/1112 (4 resources; the token answers 200 for Mimir, Kvasir and the canaries and 403 for Saga, PBS and Fulla); the runner's `adguard-replica` row; a class-aware converge guard (runs `asgard-adguard.yml`) and replica verify post-conditions (read-only, proven live against Mimir, all true); an internal `pve.backups` read that feeds the last-chance backup guard. **Not yet done:** the runner and Toolbelt deploy to Frigg, the two approved rebuilds of Mimir and then of Kvasir, and the policy PR. Design questions (2)-(7) are unchanged; (6) is settled as "accept the flapping alert".
 
 ## Header status history
 

@@ -30,7 +30,7 @@ There is no way to send it a command, an address, a variable or a path. Errors c
 | Plan check | `rebuild.check_plan` (reused, not copied): exactly one `replace` (or `create`, for a guest deleted behind Terraform) of the expected address; name, VMID, node, IP, VLAN, template unchanged; nothing else in the plan; no drift elsewhere | the model, the Toolbelt |
 | Saved-plan apply | the plan file is hashed again before apply and must equal the id; the checkout must be clean, HEAD must equal the planned commit and `git fetch` must show `origin/main` unchanged; a plan is single use | time of check vs time of use |
 | Single flight | one operation fleet-wide; a second caller gets `busy` | engine queue length 1 |
-| **Proxmox** | the PVE API token belongs to `aiops-rebuild@pve`, whose ACLs are the `aiops-canary` pool plus the storage and SDN entries needed to allocate a rootfs and attach a NIC; **no ACL on `/`**. A guest outside the pool (PBS 1101 included) answers 403 to this token even if every check above were bypassed | all software |
+| **Proxmox** | the PVE API token belongs to `aiops-rebuild@pve`, whose ACLs are the `aiops-canary` and `aiops-replica` pools (plus per-VMID guest ACLs) and the storage and SDN entries needed to allocate a rootfs and attach a NIC; **no ACL on `/`**. A guest outside the pool (PBS 1101 included) answers 403 to this token even if every check above were bypassed | all software |
 | Credentials | the PVE token, a **state-only** AWS identity and the public SSH key; no operator admin credential, no Vault write, no Proxmox root. Held by systemd on tmpfs; the service user cannot read the env file | |
 
 **What it cannot do:** touch any guest outside the pool; plan or apply any module other than `asgard-lxcs`; run a command; write to Vault or Proxmox ACLs; apply a plan it did not make; apply across a moved `main`; set LXC `features` other than nesting or device passthrough (PVE reserves those to `root@pam`, which is why the Tailscale LXCs stay out of its scope). **What it still is:** a privileged path on Frigg, T3 infrastructure: changes to the runner, its unit, its table or its Vault policy are human-reviewed. A bug in `CLASS_TABLE` is bounded by the pool; a compromise of the runner user is bounded by the pool plus the state identity (which can write Terraform state for `asgard-lxcs` and nothing else once the narrow IAM identity exists).
@@ -51,7 +51,7 @@ Why not Semaphore, GitHub Actions or the PVE API directly: see the options table
 
 ## Class → module → address (how `CLASS_TABLE` is derived)
 
-For each class the table row is read off the real module, never guessed: the Terraform **module directory**, the **resource address** (the `for_each` key is the registry target name) and a regex plus the VMIDs of the module's own definition. For `canary`: `terraform/proxmox/asgard-lxcs/lxcs.tf` declares `proxmox_virtual_environment_container.canary` with `for_each = local.canary_nodes` (keys `canary-1..3`), so the address is `proxmox_virtual_environment_container.canary["canary-2"]`, the exact one [`canary-pool.md`](canary-pool.md) already uses by hand. A unit test pins the row to the HCL (`TableTests`). To enable another class: verify its address against the module (a single resource? a `for_each`? which provider attributes carry name/VMID/IP, see `rebuild.IDENTITY_PATHS`), add the row, add its pool, extend the tests, and review it as T3.
+For each class the table row is read off the real module, never guessed: the Terraform **module directory**, the **resource address** (the `for_each` key is the registry target name) and a regex plus the VMIDs of the module's own definition. For `canary`: `terraform/proxmox/asgard-lxcs/lxcs.tf` declares `proxmox_virtual_environment_container.canary` with `for_each = local.canary_nodes` (keys `canary-1..3`), so the address is `proxmox_virtual_environment_container.canary["canary-2"]`, the exact one [`canary-pool.md`](canary-pool.md) already uses by hand. A unit test pins the row to the HCL (`TableTests`). The second row, `adguard-replica` (2026-10-24), is `proxmox_virtual_environment_container.adguard["mimir"|"kvasir"]` in the same module: `for_each = local.adguard_nodes` also holds Saga, so the row's regex and VMID set (1111, 1112) are what keep Saga out, and Saga is not in the `aiops-replica` pool either, so the PVE token answers 403 for it. To enable another class: verify its address against the module (a single resource? a `for_each`? which provider attributes carry name/VMID/IP, see `rebuild.IDENTITY_PATHS`), add the row, add its pool, extend the tests, and review it as T3.
 
 ## Deploy order (operator; Claude does none of these)
 
@@ -88,6 +88,25 @@ Run as the Toolbelt user (e.g. `sudo -u aiops-toolbelt python3 -c ...` sending `
 - **SecretID expiry** stops the runner from starting after 90 days: re-mint (step 6) and re-run the playbook with the two `-e` values. A health alert for this expiry is an open item (the existing AppRole-expiry check does not know this role).
 - **Deprecation warnings** on `terraform validate` for `proxmox_virtual_environment_acl` / `_user_token` (the provider renames them `proxmox_acl` / `proxmox_user_token` before 1.0) are the same ones the other Proxmox modules carry; migrate them together.
 
+## Replica class (stage B1, 2026-10-24)
+
+Mimir (1111, Verd) and Kvasir (1112, Skuld) are rebuilt like a canary, with three differences.
+
+| | Canary | AdGuard replica |
+|---|---|---|
+| PVE pool and ACLs | `aiops-canary`, VMIDs 1190-1192 | `aiops-replica`, VMIDs 1111-1112 (`terraform/proxmox/asgard-pools`); **Saga 1110 has none** |
+| Converge | `asgard-canary.yml` | `asgard-adguard.yml`, limited to the one host (baseline, AdGuard, keepalived, hardening, agents); the rewrites come back through adguardhome-sync from Saga |
+| Last-chance backup | none | a dead replica needs a PBS backup of at most 36 h (`pve.backups`, an **internal** read: it is not in the agent's tool contract) |
+| Verify | `ssh_as_ansible`, agents, Zabbix group and template, `alert_cleared` | `ssh_as_ansible`, agents, `alert_cleared`, `adguard_answers_rewrite` (the smoketest rewrite on its own address), `keepalived_priority` (active and equal to `keepalived_priorities`), `sync_parity` (every Terraform-managed rewrite answers the same as on Saga, retried about 10 min while the sync catches up), `vip_answers` (the VIP answers throughout) |
+
+The existing guests were added to the pool with the PVE API (`PUT /pools/aiops-replica` with `vms=1111,1112`), as the canaries were: `pool_id` is in the resource's `ignore_changes` because the provider never reads it back and a change forces replacement. A **new or `-replace`d** replica is still created in the pool. The `asgard-lxcs` plan after the change is "No changes".
+
+**Negative proof (2026-10-24, the runner's own token):** status of Mimir, Kvasir and a canary answers 200; Saga (1110), PBS (1101) and Fulla (1130) answer 403.
+
+**Approval first, one node at a time.** Replicas are approval-gated until each has two clean approved rebuilds (the registry's `approvals_before_auto`), Mimir completely before Kvasir. A replica is made dead for the test with the PVE API (`status/stop` on the guest, as the plan's replica test says), with a client running `dig @10.0.10.200` once a second throughout. `rebuild-dead-replica` stays `enabled: false` until both nodes have their two approvals; that is a reviewed PR.
+
+**Test-harness note:** a `pct destroy` removes the per-VMID ACL, so after a deliberate destroy the plan 403s until `terraform apply` in `terraform/proxmox/asgard-pools` recreates it. A stop (the replica test) leaves it in place.
+
 ## Not built yet
 
-The Toolbelt client and the `rebuild-guest` / `rebuild-plan` actions (slice A); converge and verify playbooks, runbooks, routing, the canary High trigger and the fault helper (slice C); the narrow state IAM identity (`terraform/aws`); the `aiops-replica` pool and every non-canary class.
+The Toolbelt client and the `rebuild-guest` / `rebuild-plan` actions (slice A); converge and verify playbooks, runbooks, routing, the canary High trigger and the fault helper (slice C); every class except `canary` and `adguard-replica` (Tailscale, offsite, worker).

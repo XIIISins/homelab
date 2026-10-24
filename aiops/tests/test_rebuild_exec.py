@@ -916,6 +916,22 @@ class ChecklistAndFacts(unittest.TestCase):
         f = peers.facts("mimir", rep)
         self.assertEqual((f["is_leader"], f["peers_healthy"]), (True, True))
         self.assertIsNone(peers.worker_manifest("einherjar-urd"))  # no PV read tool yet: a worker rebuild stays blocked
+        # the last-chance backup age comes from the PBS read; an unreadable or empty answer stays None (backup-stale)
+        aged = rebuild_exec.ReaderFacts(reader({"pve.node_status": online, "pve.guests": g2, "reach.tcp": {"open": True}, "zabbix.host": zbx_ok,
+                                                "pve.backups": {"vmid": 1111, "latest_age_hours": 7.5, "backups": []}}))
+        self.assertEqual(aged.facts("mimir", rep)["last_backup_age_hours"], 7.5)
+        none_yet = rebuild_exec.ReaderFacts(reader({"pve.node_status": online, "pve.guests": g2, "reach.tcp": {"open": True}, "zabbix.host": zbx_ok,
+                                                    "pve.backups": {"vmid": 1111, "latest_age_hours": None, "backups": []}}))
+        self.assertIsNone(none_yet.facts("mimir", rep)["last_backup_age_hours"])
+        broken = rebuild_exec.ReaderFacts(reader({"pve.node_status": online, "pve.guests": g2, "reach.tcp": {"open": True}, "zabbix.host": zbx_ok,
+                                                  "pve.backups": RuntimeError("pbs down")}))
+        self.assertIsNone(broken.facts("mimir", rep)["last_backup_age_hours"])
+        # a class with no backup (canary) never asks for one
+        canary_cls = SHIPPED.rebuild.classes["canary"]
+        asked = []
+        probe = rebuild_exec.ReaderFacts(lambda n, a: (asked.append(n), reader({"pve.node_status": online, "pve.guests": guests, "reach.tcp": {"open": True}, "zabbix.host": zbx_ok})(n, a))[1])
+        probe.facts("canary-2", canary_cls)
+        self.assertNotIn("pve.backups", asked)
 
 
 class BotText(unittest.TestCase):

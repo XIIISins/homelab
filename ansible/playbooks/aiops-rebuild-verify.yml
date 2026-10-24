@@ -2,6 +2,7 @@
 ---
 # Phase 10g step 7 `rebuild-verify` (T0, read-only) - canary class post-conditions from
 # docs/plans/active/10g-rebuild-loop.md ("Class post-conditions"). Registry action `rebuild-verify`.
+# The canary plays run only for a canary target; the AdGuard-replica plays (mimir, kvasir) are at the end of the file.
 #
 # Checks, each reported as its own boolean field of the result line:
 #   ssh_as_ansible          the guest answers SSH as `ansible` (root is locked out by hardening)
@@ -20,8 +21,25 @@
 #
 # Extra-vars: target (one canary name).
 
+- name: AIOps rebuild-verify - scope tripwire
+  # hosts: all + run_once, like the converge guard: a target outside both classes matches no class play below, which
+  # would otherwise skip everything and exit 0 without a result line.
+  hosts: all
+  gather_facts: false
+  become: false
+  any_errors_fatal: true
+  run_once: true
+  tasks:
+    - name: Assert the target is a canary or an AdGuard replica
+      ansible.builtin.assert:
+        that:
+          - target is defined
+          - target is match('^canary-[123]$') or target in ['mimir', 'kvasir']
+        fail_msg: "rebuild-verify refused: {{ target | default('<unset>') }} is neither a canary (canary-1..3) nor an AdGuard replica (mimir, kvasir)."
+        quiet: true
+
 - name: AIOps rebuild-verify - guard
-  hosts: "{{ target | default('aiops-no-target') }}" # default only keeps --syntax-check/ansible-lint parseable
+  hosts: "{{ target if (target is defined and target is match('^canary-[123]$')) else 'aiops-no-target' }}" # default only keeps --syntax-check/ansible-lint parseable
   gather_facts: false
   become: false
   any_errors_fatal: true
@@ -46,7 +64,7 @@
         quiet: true
 
 - name: AIOps rebuild-verify - read the post-conditions
-  hosts: "{{ target | default('aiops-no-target') }}"
+  hosts: "{{ target if (target is defined and target is match('^canary-[123]$')) else 'aiops-no-target' }}"
   gather_facts: false
   become: false
   vars:
@@ -134,6 +152,201 @@
           alert_cleared: "{{ (_aiops_zbx_host.json.result | default([]) | length == 1) and (_aiops_zbx_problems.json.result | default([1]) | length == 0) }}"
       vars:
         _zhost: "{{ (_aiops_zbx_host.json.result | default([{}]))[0] | default({}) }}"
+
+    - name: Emit machine-readable result
+      ansible.builtin.debug:
+        msg: "AIOPS_RESULT {{ _aiops_result | to_json }}"
+      vars:
+        _aiops_result: "{{ {'action': 'rebuild-verify', 'ok': _aiops_fields.values() | map('bool') | min, 'target': target} | combine(_aiops_fields) }}"
+
+    - name: Fail the run if any post-condition is not met
+      ansible.builtin.assert:
+        that: _aiops_fields.values() | map('bool') | min
+        fail_msg: "rebuild-verify: {{ target }} failed post-conditions: {{ _aiops_fields }}"
+        quiet: true
+
+# ---- AdGuard replica class (mimir, kvasir) -----------------------------------------------------------------------
+# Post-conditions of the `adguard-replica` class (aiops/actions.yml rebuild.classes.adguard-replica):
+#   ssh_as_ansible, vlagent_active, zabbix_agent2_active, alert_cleared   as for the canaries
+#   adguard_answers_rewrite   the replica answers the smoketest rewrite on its OWN address (10.0.20.10)
+#   keepalived_priority       keepalived.service active and the configured priority equals keepalived_priorities
+#   sync_parity               every Terraform-managed rewrite answers the same on the replica as on Saga
+#                             (adguardhome-sync runs from Saga every minute: retried for ~10 min)
+#   vip_answers               the VIP 10.0.10.200 answers the smoketest rewrite (the VIP never stopped serving)
+# All checks are reads: DNS lookups and GETs; the helper runs on the replica itself so the resolver sees the same
+# network path a client would.
+
+- name: AIOps rebuild-verify - replica guard
+  hosts: "{{ target if (target is defined and target in ['mimir', 'kvasir']) else 'aiops-no-target' }}"
+  gather_facts: false
+  become: false
+  any_errors_fatal: true
+  vars:
+    _registry: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../aiops/actions.yml') | from_yaml }}"
+    _replicas: "{{ _registry.rebuild.classes['adguard-replica'].hosts }}"
+    _deny: "{{ _registry.rebuild.deny }}"
+  tasks:
+    - name: Assert the target is a registered AdGuard replica and any --limit equals it
+      ansible.builtin.assert:
+        that:
+          - target in ['mimir', 'kvasir']
+          - ansible_limit is not defined or ansible_limit == target
+          - target in _replicas
+          - target in groups['adguard']
+          - target not in _deny.names
+          - _replicas[target].vmid not in _deny.vmids
+          - "_replicas[target].vmid | int == {'mimir': 1111, 'kvasir': 1112}[target]"
+        fail_msg: "rebuild-verify refused: {{ target | default('<unset>') }} is not a registered AdGuard replica (mimir 1111, kvasir 1112)."
+        quiet: true
+
+- name: AIOps rebuild-verify - read the replica post-conditions
+  hosts: "{{ target if (target is defined and target in ['mimir', 'kvasir']) else 'aiops-no-target' }}"
+  gather_facts: false
+  become: false
+  vars:
+    _zbx_host: "{{ hostvars[zabbix_agent_api_delegate].ansible_host }}"
+    _zbx_url: "http://{{ _zbx_host }}:{{ zabbix_agent_api_port }}/api_jsonrpc.php"
+    _dns_helper: "{{ playbook_dir }}/files/aiops/dns_query.py"
+    _smoke: smoketest.niflheim.xiiisins.com
+    _smoke_ip: 10.0.20.10
+    _vip: 10.0.10.200
+    _saga: "{{ hostvars['saga'].ansible_host }}"
+    # Every rewrite name Terraform manages (the sync's content), read from the repo, never typed here twice.
+    _rewrite_names: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../terraform/adguard/rewrites.tf') | regex_findall('(?m)^\\s{4}\"([a-z0-9][a-z0-9.-]+)\"\\s*=\\s*\"[0-9.]+\"') | unique | list }}"
+  tasks:
+    - name: Probe SSH as ansible (ping module, never fails the play)
+      ansible.builtin.ping:
+      register: _aiops_ping
+      ignore_unreachable: true
+      failed_when: false
+      check_mode: false
+      retries: 6
+      delay: 10
+      until: _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong'
+
+    - name: Read unit state (no state => read-only)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      loop: [vlagent.service, zabbix-agent2.service, AdGuardHome.service, keepalived.service]
+      register: _aiops_units
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      when: _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong'
+
+    - name: Read the keepalived configuration
+      ansible.builtin.slurp:
+        src: /etc/keepalived/keepalived.conf
+      register: _aiops_kc
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      when: _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong'
+
+    - name: Ask the replica itself for the smoketest rewrite, and the VIP
+      ansible.builtin.script: "{{ _dns_helper }} {{ item }} {{ _smoke }}"
+      args:
+        executable: python3
+      loop: ["{{ ansible_host }}", "{{ _vip }}"]
+      register: _aiops_dns
+      failed_when: false
+      ignore_unreachable: true
+      changed_when: false
+      check_mode: false
+      retries: 12
+      delay: 10
+      until: >-
+        _aiops_dns is not unreachable and (_aiops_dns.rc | default(1)) == 0 and
+        (_aiops_dns.stdout | default('{}') | from_json | default({})).get(_smoke) == [_smoke_ip]
+      when: _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong'
+
+    - name: Compare every managed rewrite on Saga and on the replica (the sync's end state), retried while sync catches up
+      ansible.builtin.script: "{{ _dns_helper }} --compare {{ _saga }} {{ ansible_host }} {{ _rewrite_names | join(' ') }}"
+      args:
+        executable: python3
+      register: _aiops_parity
+      failed_when: false
+      ignore_unreachable: true
+      changed_when: false
+      check_mode: false
+      retries: 30
+      delay: 20
+      until: >-
+        _aiops_parity is not unreachable and (_aiops_parity.rc | default(1)) == 0 and
+        (_aiops_parity.stdout | default('{}') | from_json).get('equal') == true
+      when: _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong'
+
+    - name: Read the Zabbix host record
+      ansible.builtin.uri:
+        url: "{{ _zbx_url }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ lookup('community.hashi_vault.vault_kv2_get', zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}"
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          id: 1
+          method: host.get
+          params:
+            filter: {host: ["{{ target }}"]}
+            output: [hostid, host]
+        status_code: 200
+      delegate_to: localhost
+      register: _aiops_zbx_host
+      failed_when: false
+      check_mode: false
+      no_log: true # bearer token in the request
+
+    - name: Read open High or Disaster problems of that host (retried while the agent heartbeat recovers)
+      ansible.builtin.uri:
+        url: "{{ _zbx_url }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ lookup('community.hashi_vault.vault_kv2_get', zabbix_agent_api_token_vault_path).secret[zabbix_agent_api_token_vault_field] }}"
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          id: 2
+          method: problem.get
+          params:
+            hostids: "{{ _aiops_zbx_host.json.result[0].hostid | default('0') }}"
+            severities: [4, 5]
+            suppressed: false
+            output: [eventid, name, severity]
+        status_code: 200
+      delegate_to: localhost
+      register: _aiops_zbx_problems
+      until: _aiops_zbx_problems.json.result | default([1]) | length == 0
+      retries: 20
+      delay: 15
+      failed_when: false
+      check_mode: false
+      no_log: true
+      when: _aiops_zbx_host.json.result | default([]) | length == 1
+
+    - name: Compute the post-condition fields
+      ansible.builtin.set_fact:
+        _aiops_fields:
+          ssh_as_ansible: "{{ _up }}"
+          vlagent_active: "{{ _unit['vlagent.service'] == 'active' }}"
+          zabbix_agent2_active: "{{ _unit['zabbix-agent2.service'] == 'active' }}"
+          adguard_answers_rewrite: "{{ _up and _own.get(_smoke) == [_smoke_ip] and _unit['AdGuardHome.service'] == 'active' }}"
+          keepalived_priority: "{{ _up and _unit['keepalived.service'] == 'active' and (_kc_priority | string) == (keepalived_priorities[target].VI_ADGUARD | string) }}"
+          sync_parity: "{{ _up and (_parity.get('equal') | default(false)) == true and (_parity.get('answered') | default(0)) | int > 0 }}"
+          vip_answers: "{{ _up and _vip_answer.get(_smoke) == [_smoke_ip] }}"
+          alert_cleared: "{{ (_aiops_zbx_host.json.result | default([]) | length == 1) and (_aiops_zbx_problems.json.result | default([1]) | length == 0) }}"
+      vars:
+        _up: "{{ _aiops_ping is not unreachable and (_aiops_ping.ping | default('')) == 'pong' }}"
+        _unit: >-
+          {{ {'vlagent.service': '', 'zabbix-agent2.service': '', 'AdGuardHome.service': '', 'keepalived.service': ''} |
+             combine(dict((_aiops_units.results | default([]) | map(attribute='item') | list) |
+                          zip(_aiops_units.results | default([]) | map(attribute='status.ActiveState', default='') | list))) }}
+        _kc_text: "{{ (_aiops_kc.content | default('') | b64decode) if (_aiops_kc.content is defined) else '' }}"
+        _kc_priority: "{{ (_kc_text | regex_search('(?m)^\\s*priority\\s+([0-9]+)', '\\1') | default([''], true) | first) }}"
+        _dns_out: "{{ _aiops_dns.results | default([]) }}"
+        _own: "{{ (_dns_out[0].stdout | default('{}') | from_json) if (_dns_out | length > 0 and _dns_out[0].rc | default(1) == 0) else {} }}"
+        _vip_answer: "{{ (_dns_out[1].stdout | default('{}') | from_json) if (_dns_out | length > 1 and _dns_out[1].rc | default(1) == 0) else {} }}"
+        _parity: "{{ (_aiops_parity.stdout | default('{}') | from_json) if (_aiops_parity.rc | default(1) == 0) else {} }}"
 
     - name: Emit machine-readable result
       ansible.builtin.debug:
