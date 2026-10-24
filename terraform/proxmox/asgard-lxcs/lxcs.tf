@@ -407,9 +407,11 @@ resource "proxmox_virtual_environment_container" "haproxy_etcd" {
 
 locals {
   adguard_nodes = {
-    saga   = { node = "urd", vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201" }
-    mimir  = { node = "verd", vmid = 1111, ip = "10.0.11.202", vlan10_ip = "10.0.10.202" }
-    kvasir = { node = "skuld", vmid = 1112, ip = "10.0.11.203", vlan10_ip = "10.0.10.203" }
+    # pool: the PVE pool the rebuild runner's token is confined to (Phase 10g stage B1). Saga is null on purpose: it is the
+    # Terraform/sync origin and VRRP priority holder, so no runner token may reach it.
+    saga   = { node = "urd", vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201", pool = null }
+    mimir  = { node = "verd", vmid = 1111, ip = "10.0.11.202", vlan10_ip = "10.0.10.202", pool = "aiops-replica" }
+    kvasir = { node = "skuld", vmid = 1112, ip = "10.0.11.203", vlan10_ip = "10.0.10.203", pool = "aiops-replica" }
   }
 }
 
@@ -448,6 +450,10 @@ resource "proxmox_virtual_environment_container" "adguard" {
       # heavier than the value — ignore it. AGH doesn't depend on keyctl
       # either way.
       features[0].keyctl,
+      # The provider does not read pool_id back and a change to it forces replacement (same finding as the canaries,
+      # 2026-10-03). Mimir and Kvasir were added to the pool through the PVE API (`pvesh set /pools/aiops-replica --vms
+      # 1111,1112`, see docs/procedures/aiops-rebuild.md); a `-replace`d one is still created in it.
+      pool_id,
     ]
   }
 
@@ -456,6 +462,7 @@ resource "proxmox_virtual_environment_container" "adguard" {
   node_name = each.value.node
   vm_id     = each.value.vmid
   tags      = ["asgard", "lxc", "adguard", "managed-by-terraform"]
+  pool_id   = each.value.pool
 
   unprivileged  = true
   start_on_boot = true

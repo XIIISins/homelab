@@ -36,6 +36,14 @@ resource "proxmox_virtual_environment_pool" "aiops_canary" {
   comment = "AIOps canary LXCs (1190-1192): the only guests the rebuild runner may touch. Managed by terraform/proxmox/asgard-pools."
 }
 
+# Phase 10g stage B1: the AdGuard replicas (Mimir 1111, Kvasir 1112). Saga (1110) is the Terraform/sync origin and the VRRP
+# priority holder: it is NEVER a member, so the token cannot touch it. A second pool (not the canary pool) keeps the two
+# classes separately auditable and lets either be revoked alone.
+resource "proxmox_virtual_environment_pool" "aiops_replica" {
+  pool_id = var.replica_pool_id
+  comment = "AIOps AdGuard replica LXCs (Mimir 1111, Kvasir 1112): rebuildable by the runner, never Saga. Managed by terraform/proxmox/asgard-pools."
+}
+
 resource "proxmox_virtual_environment_role" "rebuild_guest" {
   role_id = "AiopsRebuildGuest"
   privileges = [
@@ -88,13 +96,20 @@ resource "proxmox_virtual_environment_acl" "rebuild_pool" {
   propagate = true
 }
 
-# Per-VMID ACLs on EXACTLY the canary VMIDs (never a wildcard), with the same guest role as the pool. Two live findings
+resource "proxmox_virtual_environment_acl" "rebuild_pool_replica" {
+  path      = "/pool/${proxmox_virtual_environment_pool.aiops_replica.pool_id}"
+  role_id   = proxmox_virtual_environment_role.rebuild_guest.role_id
+  user_id   = proxmox_virtual_environment_user.aiops_rebuild.user_id
+  propagate = true
+}
+
+# Per-VMID ACLs on EXACTLY the canary and replica VMIDs (never a wildcard), with the same guest role as the pool. Two live findings
 # (2026-10-03): (1) a destroyed canary leaves the pool, so the pool ACL stops covering its VMID and a refresh of
 # /vms/<vmid> answers 403 (VM.Audit) instead of "not found"; (2) creating a container with a fresh VMID checks the config
 # privileges (VM.Config.Options, ...) on /vms/<vmid> itself, which a pool ACL does not cover until the guest exists.
 # Without these the runner can neither plan nor re-create a guest that was deleted behind Terraform's back.
 resource "proxmox_virtual_environment_acl" "rebuild_vm" {
-  for_each = toset([for v in var.canary_vmids : tostring(v)])
+  for_each = toset([for v in concat(var.canary_vmids, var.replica_vmids) : tostring(v)])
 
   path      = "/vms/${each.value}"
   role_id   = proxmox_virtual_environment_role.rebuild_guest.role_id
