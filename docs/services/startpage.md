@@ -1,9 +1,7 @@
 <!-- docs/services/startpage.md -->
 # Startpage
 
-![Startpage: a static page baked into a ghcr image](diagrams/startpage.svg)
-
-*Sketch of how it fits together; editable source: [`startpage.excalidraw`](diagrams/startpage.excalidraw), see [`diagrams/README.md`](diagrams/README.md).*
+<!-- The diagram (diagrams/startpage.*) still shows the old git-clone flow and is not embedded until redrawn: open-questions.md "Startpage ghcr follow-ups". -->
 
 Personal browser-homepage served at **`home.xiiisins.com`** (public, external-only).
 A static site (the [`XIIISins/startpage`](https://github.com/XIIISins/startpage) repo,
