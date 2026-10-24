@@ -95,8 +95,16 @@ SPEC: dict[str, dict[str, Arg]] = {
 }
 
 
-def validate(name: str, args: object) -> dict:
-    spec = SPEC.get(name)
+# Read tools the Toolbelt's own engine uses for its guards and that the diagnosis agent does NOT get: they are absent
+# from SPEC, so the agent's `call_tool` route answers 404 for them (and the n8n contract lists exactly SPEC).
+INTERNAL_SPEC: dict[str, dict[str, Arg]] = {
+    "pve.backups": {"vmid": I(100, 9999, True)},
+}
+PBS_STORAGE = "pbs-backup"  # the PBS datastore as PVE sees it (the 10h pbs-backup forecast reads the same storage)
+
+
+def validate(name: str, args: object, internal: bool = False) -> dict:
+    spec = SPEC.get(name, INTERNAL_SPEC.get(name) if internal else None)  # `is None`, not falsy: a tool with no args has {}
     if spec is None:
         raise ToolError(404, f"unknown tool {name!r}")
     if not isinstance(args, dict):
@@ -268,6 +276,20 @@ _NODE_FIELDS = ("node", "status", "uptime", "cpu", "mem", "maxmem", "maxcpu")
 
 
 def _pve(cfg: LiveConfig, name: str, args: dict) -> dict:
+    if name == "pve.backups":
+        # internal: the age of the newest PBS backup of one guest (the rebuild engine's last-chance-backup guard)
+        nodes = _pve_get(cfg, "/cluster/resources?type=node")
+        up = sorted(str(n.get("node")) for n in nodes if n.get("status") == "online" and n.get("node"))
+        if not up:
+            raise ToolError(502, "no online node to read the backup storage from")
+        rows = _pve_get(cfg, f"/nodes/{up[0]}/storage/{PBS_STORAGE}/content?content=backup&vmid={int(args['vmid'])}")
+        now = time.time()
+        found = sorted(({"volid": str(r.get("volid", ""))[:120], "ctime": int(r["ctime"]),
+                         "age_hours": round(max(0.0, now - int(r["ctime"])) / 3600, 2)}
+                        for r in rows if isinstance(r, dict) and isinstance(r.get("ctime"), (int, float))),
+                       key=lambda r: r["ctime"], reverse=True)
+        return {"vmid": args["vmid"], "storage": PBS_STORAGE, "backups": found[:3],
+                "latest_age_hours": found[0]["age_hours"] if found else None}
     if name == "pve.guests":
         rows = _pve_get(cfg, "/cluster/resources?type=vm")
         keep = [{k: r.get(k) for k in _VM_FIELDS} for r in rows if not args.get("node") or r.get("node") == args["node"]]

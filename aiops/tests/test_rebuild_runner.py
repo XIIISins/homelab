@@ -468,13 +468,18 @@ class SocketTests(Base):
 
 
 class TableTests(unittest.TestCase):
-    def test_only_canary_has_a_class_table_row_and_address_is_for_each_key(self):
-        self.assertEqual(set(rr.CLASS_TABLE), {"canary"})
+    def test_only_canary_and_replica_have_a_class_table_row_and_address_is_for_each_key(self):
+        self.assertEqual(set(rr.CLASS_TABLE), {"canary", "adguard-replica"})
         text = (REPO / "terraform/proxmox/asgard-lxcs/lxcs.tf").read_text()
         self.assertIn('resource "proxmox_virtual_environment_container" "canary"', text)
         self.assertIn("for_each = local.canary_nodes", text)
+        self.assertIn('resource "proxmox_virtual_environment_container" "adguard"', text)
+        self.assertIn("for_each = local.adguard_nodes", text)
         row = rr.CLASS_TABLE["canary"]
         self.assertEqual(row["address"].format(target="canary-3"), 'proxmox_virtual_environment_container.canary["canary-3"]')
+        self.assertTrue((REPO / row["module_dir"]).is_dir())
+        row = rr.CLASS_TABLE["adguard-replica"]
+        self.assertEqual(row["address"].format(target="mimir"), 'proxmox_virtual_environment_container.adguard["mimir"]')
         self.assertTrue((REPO / row["module_dir"]).is_dir())
 
     def test_registry_canaries_match_the_table(self):
@@ -483,6 +488,24 @@ class TableTests(unittest.TestCase):
         hosts = reg["rebuild"]["classes"]["canary"]["hosts"]
         self.assertEqual({int(h["vmid"]) for h in hosts.values()}, set(rr.CLASS_TABLE["canary"]["vmids"]))
         self.assertTrue(all(rr.CLASS_TABLE["canary"]["target_re"].fullmatch(n) for n in hosts))
+
+    def test_registry_replicas_match_the_table_and_saga_is_outside_it(self):
+        import yaml
+        reg = yaml.safe_load((REPO / "aiops/actions.yml").read_text())
+        row = rr.CLASS_TABLE["adguard-replica"]
+        hosts = reg["rebuild"]["classes"]["adguard-replica"]["hosts"]
+        self.assertEqual(set(hosts), {"mimir", "kvasir"})
+        self.assertEqual({int(h["vmid"]) for h in hosts.values()}, set(row["vmids"]))
+        self.assertTrue(all(row["target_re"].fullmatch(n) for n in hosts))
+        self.assertIsNone(row["target_re"].fullmatch("saga"))
+        self.assertNotIn(1110, row["vmids"])
+
+    def test_the_replica_pool_and_acls_exclude_saga_and_the_hcl_agrees(self):
+        pools = (REPO / "terraform/proxmox/asgard-pools/variables.tf").read_text()
+        self.assertIn("default     = [1111, 1112]", pools)
+        lxcs = (REPO / "terraform/proxmox/asgard-lxcs/lxcs.tf").read_text()
+        self.assertIn('saga   = { node = "urd", vmid = 1110, ip = "10.0.11.201", vlan10_ip = "10.0.10.201", pool = null }', lxcs)
+        self.assertEqual(lxcs.count('pool = "aiops-replica"'), 2)
 
 
 if __name__ == "__main__":

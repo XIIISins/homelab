@@ -283,6 +283,34 @@ class Pve(unittest.TestCase):
         self.assertEqual([g["name"] for g in out], ["einherjar-skuld", "pbs"])  # sorted by node name, then vmid
         self.assertEqual({m for m, _ in f.seen}, {"GET"})
 
+    def test_backup_age_is_internal_only_and_reads_the_newest_pbs_backup(self):
+        import time as _time
+        from unittest import mock
+        now = _time.time()
+        calls = []
+
+        def fake(cfg, path):
+            calls.append(path)
+            if "type=node" in path:
+                return [{"node": "verd", "status": "online"}, {"node": "urd", "status": "online"}, {"node": "skuld", "status": "offline"}]
+            return [{"volid": "pbs-backup:backup/ct/1111/old", "ctime": int(now - 100 * 3600)},
+                    {"volid": "pbs-backup:backup/ct/1111/new", "ctime": int(now - 5 * 3600)}, {"volid": "x"}]
+        with mock.patch.object(tools, "_pve_get", fake):
+            out = tools.live(self.tb.cfg.live, "pve.backups", tools.validate("pve.backups", {"vmid": 1111}, internal=True))
+        self.assertAlmostEqual(out["latest_age_hours"], 5.0, delta=0.1)
+        self.assertEqual([b["volid"].rsplit("/", 1)[1] for b in out["backups"]], ["new", "old"])
+        self.assertTrue(calls[-1].startswith("/nodes/urd/storage/pbs-backup/content?content=backup&vmid=1111"))  # first online node by name
+        with mock.patch.object(tools, "_pve_get", lambda cfg, path: [{"node": "urd", "status": "online"}] if "type=node" in path else []):
+            self.assertIsNone(tools.live(self.tb.cfg.live, "pve.backups", {"vmid": 1111})["latest_age_hours"])
+        # the diagnosis agent's route never reaches it: not in SPEC, so validation answers 404 unless the caller is internal
+        self.assertNotIn("pve.backups", tools.SPEC)
+        with self.assertRaises(tools.ToolError) as ctx:
+            tools.validate("pve.backups", {"vmid": 1111})
+        self.assertEqual(ctx.exception.status, 404)
+        for bad in ({"vmid": 5}, {"vmid": "1111"}, {"vmid": True}, {"vmid": 1111, "storage": "x"}, {}):
+            with self.assertRaises(tools.ToolError):
+                tools.validate("pve.backups", bad, internal=True)
+
     def test_guest_list_can_be_limited_to_one_node(self):
         self.pve()
         out = self.tb.call_tool("pve.guests", {"node": "skuld"}, self.inc)["result"]["guests"]

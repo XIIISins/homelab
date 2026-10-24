@@ -218,13 +218,18 @@ class ReaderFacts:
     def facts(self, target: str, cls: rb.GuestClass) -> dict:
         info = cls.hosts[target]
         out: dict = {"guest_state": "unknown", "node_online": False, "node_guests_ok": False, "probe_ok": None, "agent_silent": None,
-                     "last_backup_age_hours": None,  # no PBS read tool yet: a class that needs a backup stops on backup-stale
+                     "last_backup_age_hours": None,  # stays None unless the PBS read answers: a class that needs a backup then stops on backup-stale
                      "peers_healthy": None, "is_leader": bool(cls.leader_aware),  # unknown master is treated as the master
                      "drift_changed": None, "replay_converges": None}
         ns = self._try("pve.node_status", {"node": info["node"]})
         if not ns or (ns.get("cluster_view") or {}).get("status") != "online":
             return out
         out["node_online"] = True
+        if cls.backup == "pbs-last-chance":
+            bk = self._try("pve.backups", {"vmid": info["vmid"]})
+            age = (bk or {}).get("latest_age_hours")
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                out["last_backup_age_hours"] = float(age)
         gs = self._try("pve.guests", {"node": info["node"]})
         if gs is None:
             return out

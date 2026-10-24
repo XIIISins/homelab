@@ -25,12 +25,12 @@ Defence in depth, each layer independent of the Toolbelt that calls us:
   1. the socket is group-readable only by `aiops-rebuild-clients` and every connection's uid is checked (SO_PEERCRED)
      against an allow-list;
   2. the target is re-validated here against the registry in OUR OWN clean checkout (aiops/actions.yml): the deny
-     list, the class allow-list, the class->module/address table below (only `canary` is enabled);
+     list, the class allow-list, the class->module/address table below (`canary` and `adguard-replica`);
   3. the plan is machine-checked with rebuild.check_plan (exactly one in-scope replace/create, identity unchanged);
   4. apply takes only a plan id we made, unexpired (registry plan_max_age_seconds), whose planfile still hashes to its
      id, from a checkout whose HEAD is still origin/main;
   5. one operation at a time, fleet-wide (`busy`);
-  6. (outside this file) the PVE API token can only touch the `aiops-canary` pool.
+  6. (outside this file) the PVE API token can only touch the `aiops-canary` and `aiops-replica` pools.
 
 Stdlib + PyYAML (to read the registry, same dependency as the Toolbelt) + aiops/toolbelt/rebuild.py (reused, not copied).
 """
@@ -74,9 +74,13 @@ _WORD = re.compile(r"^[a-z0-9-]{1,32}$")
 #           proxmox_virtual_environment_container.canary["canary-2"]. The documented lossless `-replace` in
 #           docs/procedures/canary-pool.md uses exactly this address.
 #
-# Every other registry class (adguard-replica: its resources are individual, not a for_each; tailscale-router: root
-# ticket module; offsite: digitalocean; worker: asgard-k3s) has NO entry here, so it is `denied` by construction until
-# a later slice adds a verified row. `target_re` and `vmids` are a second, registry-independent gate on the target.
+#   adguard-replica  the same file: `resource "proxmox_virtual_environment_container" "adguard"` with
+#           `for_each = local.adguard_nodes` keyed saga/mimir/kvasir. The row admits ONLY mimir (1111) and kvasir
+#           (1112): Saga (1110) is the sync origin and VRRP priority holder, matches neither `target_re` nor `vmids`,
+#           and has no ACL for the PVE token (it is not in the aiops-replica pool).
+#
+# Every other registry class (tailscale-router: root ticket module; offsite: digitalocean; worker: asgard-k3s) has NO
+# entry here, so it is `denied` by construction until a later slice adds a verified row. `target_re` and `vmids` are a second, registry-independent gate on the target.
 # ---------------------------------------------------------------------------------------------------------------------
 CLASS_TABLE: dict[str, dict] = {
     "canary": {
@@ -85,6 +89,13 @@ CLASS_TABLE: dict[str, dict] = {
         "type": "proxmox_virtual_environment_container",
         "target_re": re.compile(r"^canary-[123]$"),
         "vmids": frozenset({1190, 1191, 1192}),
+    },
+    "adguard-replica": {
+        "module_dir": "terraform/proxmox/asgard-lxcs",
+        "address": 'proxmox_virtual_environment_container.adguard["{target}"]',
+        "type": "proxmox_virtual_environment_container",
+        "target_re": re.compile(r"^(mimir|kvasir)$"),
+        "vmids": frozenset({1111, 1112}),
     },
 }
 
