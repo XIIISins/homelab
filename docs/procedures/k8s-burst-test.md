@@ -75,7 +75,7 @@ It does not exercise the Synology iSCSI/NFS back ends, MetalLB, Cloudflare tunne
 |---|---|
 | `main`, platform core only | PASSED in 137 s (cluster built from Terraform + Ansible, 1 control plane + 3 workers) |
 | `main`, `--only apex-static` | PASSED (the workload was waited for, not just the HelmReleases) |
-| `main`, `--only startpage` | fails on the baseline: its init container clones a private repo with a deploy key, so it is waived by name with that reason (the ExternalSecret DID sync from the throwaway Vault) |
+| `main`, `--only startpage` | fails on the baseline: its private ghcr image needs a pull PAT the burst cluster lacks, so it is waived by name with that reason (the ExternalSecret DID sync from the throwaway Vault) |
 | branch with a typo'd Vault path (`k8s/netbox/appp`), `--only netbox` | offline gate FAILED in seconds, no cluster built, names the unknown path |
 | agent PR #174 end to end (2026-10-05): `/aiops draft` k8s (a label on `apex-static`) -> PR -> `pr-burst-test` card (proposal 33) -> approved -> runner | PASSED in 458 s, the PR description gained the `## Burst-cluster test` section (what was installed, what was not, phases), the cluster was gone afterwards (no `burst` droplets) |
 | agent PR #177 (2026-10-05): a rename of the microbin ExternalSecret's Vault key to a path that does not exist | FAILED in 5 s at the offline gate (no cluster built), the PR description named `k8s/microbin/admin-credentials`; no droplets left. (CR 12, which asked the agent to plant a typo on purpose, made no change: the author declines deliberate breakage, so use a plausible wrong request for failure cases.) |
