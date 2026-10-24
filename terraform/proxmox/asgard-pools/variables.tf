@@ -34,3 +34,15 @@ variable "canary_vmids" {
   type        = list(number)
   default     = [1190, 1191, 1192]
 }
+
+variable "replica_pool_id" {
+  description = "PVE resource pool the AdGuard replica LXCs (Mimir, Kvasir) live in; Saga, the sync origin, is never a member (terraform/proxmox/asgard-lxcs sets pool_id to this literal)"
+  type        = string
+  default     = "aiops-replica"
+}
+
+variable "replica_vmids" {
+  description = "VMIDs of the AdGuard replica LXCs (asgard-lxcs adguard_nodes: mimir 1111, kvasir 1112; NOT saga 1110). Same per-VMID guest ACL as the canaries so a destroyed replica can be refreshed and re-created."
+  type        = list(number)
+  default     = [1111, 1112]
+}
