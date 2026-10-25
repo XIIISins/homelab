@@ -42,7 +42,7 @@ spec:
   accessModes:
     - ReadOnlyMany
   storageClassName: ""
-  volumeName: manga-data
+  volumeName: kavita-media
   resources:
     requests:
       storage: 1Ti
