@@ -109,6 +109,14 @@ postgres_databases:
       - vector
       - cube
       - earthdistance
+  # md-downloader (MangaDex downloader), asgard K3s (k8s/asgard/apps/md-downloader/).
+  # Standard CREATE DATABASE md_downloader OWNER md_downloader. Password minted by
+  # terraform/vault/ as random_password.md_downloader_postgres, dual-pathed to
+  # ansible/postgres/md-downloader-password (this role) and
+  # k8s/md-downloader/postgres-password (ESO in the md-downloader namespace).
+  - name: md_downloader
+    owner: md_downloader
+    password_vault_path: ansible/postgres/md-downloader-password
 
 # -----------------------------------------------------------------------------
 # Zabbix host record taxonomy (Round 2 — PG monitoring depth)

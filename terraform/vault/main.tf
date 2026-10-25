@@ -796,6 +796,50 @@ resource "vault_kv_secret_v2" "outline_app" {
 }
 
 # -----------------------------------------------------------------------------
+# md-downloader — PG password (dual-path) + daemon token (k8s-only)
+# -----------------------------------------------------------------------------
+# PG password: ansible/postgres/md-downloader-password (postgres-common role) and
+# k8s/md-downloader/postgres-password (ESO). daemon-token authenticates the
+# downloader daemon to the API (DOWNLOADER_TOKEN); rotating it needs a rollout of
+# the api and daemon pods.
+#
+# k8s/md-downloader/mangadex (client_id, client_secret, username, password) is the
+# operator's MangaDex API credential and is NOT minted here: the operator seeds it.
+resource "random_password" "md_downloader_postgres" {
+  length  = 32
+  special = false
+}
+
+resource "vault_kv_secret_v2" "md_downloader_postgres_ansible" {
+  mount = vault_mount.kv.path
+  name  = "ansible/postgres/md-downloader-password"
+  data_json = jsonencode({
+    value = random_password.md_downloader_postgres.result
+  })
+}
+
+resource "vault_kv_secret_v2" "md_downloader_postgres_k8s" {
+  mount = vault_mount.kv.path
+  name  = "k8s/md-downloader/postgres-password"
+  data_json = jsonencode({
+    value = random_password.md_downloader_postgres.result
+  })
+}
+
+resource "random_password" "md_downloader_daemon_token" {
+  length  = 48
+  special = false
+}
+
+resource "vault_kv_secret_v2" "md_downloader_daemon_token" {
+  mount = vault_mount.kv.path
+  name  = "k8s/md-downloader/daemon-token"
+  data_json = jsonencode({
+    value = random_password.md_downloader_daemon_token.result
+  })
+}
+
+# -----------------------------------------------------------------------------
 # Semaphore (Phase 5h.3 — Ansible orchestrator, asgard K3s)
 # -----------------------------------------------------------------------------
 # Three secret paths:

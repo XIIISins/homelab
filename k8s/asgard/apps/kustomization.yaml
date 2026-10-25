@@ -82,3 +82,8 @@ resources:
   # Kavita manga/PDF readers (two instances: manga + manga2), internal-only. Read-only NFS of the DSM share `media` (Manga/, Manga2/), config on local-path.
   # needs terraform/adguard + authentik applied BEFORE merge.
   - kavita
+  # md-downloader (MangaDex downloader: web UI, API, sync worker, downloader daemon), internal-only at
+  # md-downloader.niflheim.xiiisins.com. Phase 0 is the namespace and the read-write NFS volume of the DSM share `media`
+  # (Manga/); workloads follow once the app repo and images exist. Needs terraform/vault + adguard applied and the
+  # postgres playbook run BEFORE the workloads land.
+  - md-downloader
