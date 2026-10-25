@@ -64,8 +64,15 @@ spec:
               memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
               # /usr/bin/caddy carries file capabilities (cap_net_bind_service); with the bounding set emptied the
               # kernel refuses to exec it ("operation not permitted"). Listening is on :8080, so this is never used.
               add: [NET_BIND_SERVICE]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
