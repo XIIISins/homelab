@@ -50,7 +50,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: startpage
-          image: ghcr.io/xiiisins/startpage:sha-6101fcf
+          image: ghcr.io/xiiisins/startpage:sha-c1203d4
           ports:
             - name: http
               containerPort: 80
