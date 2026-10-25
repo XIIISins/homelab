@@ -1,0 +1,25 @@
+# k8s/asgard/apps/md-downloader/httproute.yaml
+#
+# md-downloader.niflheim.xiiisins.com on the niflheim Gateway: internal-only, no Cloudflare tunnel, no Authentik. Access
+# control is the network: LAN + tailnet (subnet routers), by design (no app-level auth). The AdGuard rewrite is in
+# terraform/adguard/rewrites.tf. TLS terminates at Traefik with the niflheim wildcard; the pod speaks plain HTTP on 8080.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: md-downloader
+  namespace: md-downloader
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - md-downloader.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: md-downloader-web
+          port: 8080

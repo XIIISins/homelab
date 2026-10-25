@@ -1,0 +1,59 @@
+# k8s/asgard/apps/md-downloader/deployment-sync.yaml
+#
+# The sync worker (`-sync`): the ONLY component that calls MangaDex, so exactly one replica and Recreate (never two
+# overlapping pods). No port, no probes: it is restartable. /data is scratch (emptyDir).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: md-downloader-sync
+  namespace: md-downloader
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: md-downloader-sync
+  template:
+    metadata:
+      labels:
+        app: md-downloader-sync
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sync
+          image: ghcr.io/xiiisins/md-downloader:sha-78b1271
+          args: ["-sync", "-sync-interval", "1h"]
+          env:
+            - name: TZ
+              value: Europe/Amsterdam
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: md-downloader-db
+                  key: DATABASE_URL
+          envFrom:
+            - secretRef:
+                name: md-downloader-mangadex
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

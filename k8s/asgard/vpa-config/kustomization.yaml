@@ -23,6 +23,7 @@ resources:
   - garage.yaml
   - immich.yaml
   - local-path-storage.yaml
+  - md-downloader.yaml
   - metallb-system.yaml
   - microbin.yaml
   - monitoring.yaml
