@@ -81,27 +81,7 @@ resource "authentik_policy_binding" "victorialogs_admins_gate" {
 }
 
 # -----------------------------------------------------------------------------
-# Embedded outpost — manual provider attachment (one-time, per apply)
+# Embedded outpost
 # -----------------------------------------------------------------------------
-# Authentik's embedded outpost (running INSIDE authentik-server, same
-# pod) needs the proxy providers explicitly attached. Without this,
-# the outpost won't handle ForwardAuth requests for these apps and
-# Traefik gets a 404 on the auth endpoint for unrecognized hostnames.
-#
-# After a `terraform apply` that lands the resources above for the
-# FIRST time, the operator does this one-time UI step:
-#
-#   1. Authentik admin UI → Applications → Outposts
-#   2. Edit "authentik Embedded Outpost"
-#   3. In the Providers selector, add: VictoriaMetrics + VictoriaLogs
-#   4. Save
-#
-# Why not TF-managed? `authentik_outpost` with the same name as the
-# auto-created embedded outpost has tricky import + ignore_changes
-# semantics + can conflict with Authentik's own management of the
-# singleton outpost. Manual one-time-per-new-proxy-provider is the
-# safer path until a future hardening pass.
-#
-# Symptom of forgetting this step: browser hitting metric./logs.
-# loops on the Authentik login page or gets 500-class errors from
-# the outpost endpoint.
+# The embedded outpost only answers ForwardAuth for proxy providers attached to it. The attachment is Terraform-managed
+# in outpost.tf (every `forward_single` provider in this module must be listed there).

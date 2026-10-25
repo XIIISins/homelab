@@ -40,16 +40,7 @@ resource "authentik_policy_binding" "microbin_janitors_gate" {
 }
 
 # -----------------------------------------------------------------------------
-# Embedded outpost — manual provider attachment (one-time, per new provider)
+# Embedded outpost
 # -----------------------------------------------------------------------------
-# As with the observability providers (observability.tf), the embedded
-# outpost needs the MicroBin proxy provider explicitly attached or the
-# ForwardAuth endpoint 404s for paste.xiiisins.com. After the first apply:
-#
-#   1. Authentik admin UI → Applications → Outposts
-#   2. Edit "authentik Embedded Outpost"
-#   3. In Providers, add: MicroBin   →   Save
-#
-# (Or PATCH the embedded outpost via the API to append this provider id.)
-# Symptom of forgetting: /pastalist + /admin loop on the login page or
-# 500 from the outpost endpoint.
+# The MicroBin provider is attached to the embedded outpost in outpost.tf; without the attachment ForwardAuth 404s for
+# paste.xiiisins.com.

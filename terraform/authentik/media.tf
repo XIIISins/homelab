@@ -5,9 +5,8 @@
 # Same forward_single pattern as observability.tf; the Traefik Middleware is k8s/asgard/apps/media/middleware-
 # authentik-forward-auth.yaml. Both apps are configured for external auth, so this is the only login.
 #
-# One-time UI step after the FIRST apply (see the end of observability.tf for why this is not TF-managed): Authentik
-# admin -> Applications -> Outposts -> "authentik Embedded Outpost" -> add the Sonarr + SABnzbd providers -> Save.
-# Symptom of forgetting it: the browser loops on the Authentik login page.
+# Both providers are attached to the embedded outpost in outpost.tf (add every new proxy provider there; forgetting it
+# loops the browser on the Authentik login page).
 
 resource "authentik_provider_proxy" "sonarr" {
   name               = "Sonarr"

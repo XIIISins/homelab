@@ -5,9 +5,8 @@
 # middleware-authentik-forward-auth.yaml. The regular instance (manga.niflheim.xiiisins.com) has no Authentik gate:
 # Kavita's own accounts are its only login, which keeps OPDS and mobile readers working.
 #
-# One-time UI step after the FIRST apply (see the end of observability.tf for why this is not TF-managed): Authentik
-# admin -> Applications -> Outposts -> "authentik Embedded Outpost" -> add the Kavita Manga2 provider -> Save.
-# Symptom of forgetting it: the browser loops on the Authentik login page.
+# The provider is attached to the embedded outpost in outpost.tf (add every new proxy provider there; forgetting it
+# loops the browser on the Authentik login page).
 
 resource "authentik_provider_proxy" "kavita_manga2" {
   name               = "Kavita Manga2"
