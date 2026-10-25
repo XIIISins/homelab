@@ -1,0 +1,45 @@
+# k8s/asgard/apps/md-downloader/storage.yaml
+#
+# Read-write static NFS volume of the DSM shared folder `media` (docs/services/synology.md), used only by the
+# md-downloader daemon, which mounts it with subPath `Manga` at /data and writes into the same Manga/ directory the
+# Kavita pods read (their own PV, k8s/asgard/apps/kavita/storage.yaml, is read-only). The share's NFS rule for the
+# workers (10.0.21.21-23) is read-write. Static-PV pattern as k8s/asgard/apps/media/storage.yaml; names are
+# namespaced (md-downloader-media) because a PV is cluster-scoped.
+#
+# The library is shared: the daemon must never delete or rewrite files it did not download itself, and must ignore the
+# Synology `@eaDir` metadata directories.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: md-downloader-media
+spec:
+  capacity:
+    storage: 1Ti # nominal; NFS does not enforce it
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "" # static: never matches a dynamic class
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - noatime
+  nfs:
+    server: 10.0.254.20
+    path: /volume5/media
+  claimRef:
+    namespace: md-downloader
+    name: md-downloader-media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: md-downloader-media
+  namespace: md-downloader
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: md-downloader-media
+  resources:
+    requests:
+      storage: 1Ti
