@@ -1,6 +1,6 @@
 # Traefik ForwardAuth Middleware for the media apps (same-namespace extensionRef, the vmui pattern; explained in
 # k8s/asgard/infrastructure/monitoring-namespace/middleware-authentik-forward-auth.yaml). The Authentik application and
-# proxy providers are in terraform/authentik/media.tf (needs the one-time embedded-outpost attach).
+# proxy providers are in terraform/authentik/media.tf (attached to the embedded outpost in outpost.tf).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:

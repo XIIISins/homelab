@@ -11,4 +11,4 @@ Two Kavita instances in the `kavita` namespace (`k8s/asgard/apps/kavita/`), both
 - **Storage:** one static, read-only NFS PV of `10.0.254.20:/volume5/media` (the same export as the media apps, claimed by a second PV) shared by both; each Deployment mounts its own subPath. Config (SQLite, covers) is a `local-path` PVC per instance, never NFS. Single replica, `Recreate`.
 - **Adding content:** put files in `Manga/` or `Manga2/` on the `media` share (SMB), then scan the library in Kavita. PDFs group into series by folder; follow Kavita's naming for volumes.
 - **First start:** the first visitor to each instance creates its admin account; do that immediately. Add the libraries at `/manga`.
-- **Auth/DNS:** `terraform/authentik/kavita.tf` (needs the one-time embedded-outpost attach for the manga2 provider), `terraform/adguard/rewrites.tf`.
+- **Auth/DNS:** `terraform/authentik/kavita.tf` (the provider is attached to the embedded outpost in `outpost.tf`), `terraform/adguard/rewrites.tf`.

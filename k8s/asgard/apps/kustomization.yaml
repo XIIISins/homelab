@@ -80,5 +80,5 @@ resources:
   # needs terraform/vault + authentik + adguard applied, the DSM share, and k8s/media/usenet seeded in Vault BEFORE merge.
   - media
   # Kavita manga/PDF readers (two instances: manga + manga2), internal-only. Read-only NFS of the DSM share `media` (Manga/, Manga2/), config on local-path.
-  # needs terraform/adguard + authentik applied (and the one-time outpost attach for the manga2 provider) BEFORE merge.
+  # needs terraform/adguard + authentik applied BEFORE merge.
   - kavita

@@ -98,12 +98,7 @@ browser → Cloudflare edge → tunnel → cloudflared → Traefik → microbin
 
 `forward_single` proxy provider (`external_host=https://paste.xiiisins.com`) +
 application + policy binding gating on the `paste-janitors` group (membership in
-`users.yaml`). **One-time manual step after `terraform apply`:** attach the
-MicroBin provider to the embedded outpost (TF doesn't manage it) —
-`curl -X PATCH .../api/v3/outposts/instances/<embedded-pk>/ -d
-'{"providers":[<existing…>,<microbin-pk>]}'`, or via the UI (Applications →
-Outposts → edit embedded → add MicroBin). Forgetting it = gated routes loop on
-login / 500 from the outpost.
+`users.yaml`). The provider is attached to the embedded outpost in `terraform/authentik/outpost.tf`; forgetting that = gated routes loop on login / 500 from the outpost.
 
 ## Troubleshooting
 
