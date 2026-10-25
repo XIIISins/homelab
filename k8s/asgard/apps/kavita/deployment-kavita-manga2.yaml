@@ -1,0 +1,70 @@
+# Kavita (second library, manga2). Official image pinned to an exact tag; bumps go through the chart-bump agent. Kavita keeps its own
+# user accounts (first visitor creates the admin), so the manga2 instance is internal-only and additionally gated by Authentik ForwardAuth (manga2).
+# Config (SQLite) on local-path; library is the read-only NFS share, subPath `manga2`. Single replica, Recreate: the
+# SQLite DB must never be opened by two pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kavita-manga2
+  namespace: kavita
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kavita-manga2
+  template:
+    metadata:
+      labels:
+        app: kavita-manga2
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kavita
+          image: jvmilazz0/kavita:0.9.1
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: TZ
+              value: Europe/Amsterdam
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /kavita/config
+            - name: manga
+              mountPath: /manga
+              subPath: manga2
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: kavita-manga2-config
+        - name: manga
+          persistentVolumeClaim:
+            claimName: manga-data
+            readOnly: true

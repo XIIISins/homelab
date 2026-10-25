@@ -1,0 +1,73 @@
+# k8s/asgard/apps/kavita/storage.yaml
+#
+# One static, read-only NFS volume of the DSM shared folder `manga` (docs/services/synology.md), shared by both Kavita
+# instances. Each instance mounts its own subPath: `manga/` for kavita, `manga2/` for kavita-manga2, so the two libraries
+# never see each other's files. The share's NFS rule for the workers (10.0.21.21-23) must allow them; read-only is
+# enforced here by the mount, so a Kavita bug or a bad delete click cannot touch the library. Add files over SMB/NFS
+# from the NAS side. Same static-PV pattern as k8s/asgard/apps/media/storage.yaml.
+#
+# Config (SQLite DB, covers, bookmarks) is NOT on NFS: SQLite over NFS corrupts. It lives on one local-path PVC per
+# instance below.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: manga-data
+spec:
+  capacity:
+    storage: 1Ti # nominal; NFS does not enforce it
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: "" # static: never matches a dynamic class
+  mountOptions:
+    - nfsvers=4.1
+    - hard
+    - noatime
+    - ro
+  nfs:
+    server: 10.0.254.20
+    path: /volume5/manga
+    readOnly: true
+  claimRef:
+    namespace: kavita
+    name: manga-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: manga-data
+  namespace: kavita
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: manga-data
+  resources:
+    requests:
+      storage: 1Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kavita-config
+  namespace: kavita
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kavita-manga2-config
+  namespace: kavita
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
