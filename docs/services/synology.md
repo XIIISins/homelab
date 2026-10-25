@@ -33,8 +33,8 @@ The DSM-wide iSCSI LUN cap (~10) is why K8s storage is tiered; see [`storage-isc
 
 | Folder | Protocol | Purpose |
 |--------|----------|---------|
-| `media` | NFS+SMB | Movies, TV. **Live export `10.0.254.20:/volume5/media`**, read-only for Jellyfin (LXC 1123, [`jellyfin.md`](jellyfin.md)) and read/write for the media-automation pods ([`media-automation.md`](media-automation.md)) |
-| `manga` | NFS+SMB | Manga — Komga |
+| `media` | NFS+SMB | Movies, TV, manga (`Manga/`, `Manga2/`, Kavita, read-only). **Live export `10.0.254.20:/volume5/media`**, read-only for Jellyfin (LXC 1123, [`jellyfin.md`](jellyfin.md)) and read/write for the media-automation pods ([`media-automation.md`](media-automation.md)) |
+| `manga` | NFS+SMB | Manga — Komga. **Superseded:** Kavita reads `media/Manga` and `media/Manga2` ([`kavita.md`](kavita.md)); check it is empty before removing |
 | `downloads` | NFS | sabnzbd landing zone |
 | `immich` | NFS | Not a separate folder — Immich's library is a PVC on the existing `k8s-nfs` share/`nfs-client` StorageClass (same as MicroBin), deployed 2026-09-03. See [`services/immich.md`](immich.md). |
 

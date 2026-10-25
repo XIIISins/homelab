@@ -1,0 +1,70 @@
+# Kavita (manga library). Official image pinned to an exact tag; bumps go through the chart-bump agent. Kavita keeps its own
+# user accounts (first visitor creates the admin), so the manga instance is internal-only and protected only by Kavita's login.
+# Config (SQLite) on local-path; library is the read-only NFS share, subPath `Manga`. Single replica, Recreate: the
+# SQLite DB must never be opened by two pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kavita
+  namespace: kavita
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kavita
+  template:
+    metadata:
+      labels:
+        app: kavita
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kavita
+          image: jvmilazz0/kavita:0.9.1
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: TZ
+              value: Europe/Amsterdam
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /kavita/config
+            - name: manga
+              mountPath: /manga
+              subPath: Manga
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: kavita-config
+        - name: manga
+          persistentVolumeClaim:
+            claimName: kavita-media
+            readOnly: true

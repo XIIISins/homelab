@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kavita
+  namespace: kavita
+spec:
+  selector:
+    app: kavita
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kavita-manga2
+  namespace: kavita
+spec:
+  selector:
+    app: kavita-manga2
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000

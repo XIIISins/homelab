@@ -141,6 +141,9 @@ locals {
     # Media automation (plan 5h M1): Sonarr + SABnzbd, internal-only behind Authentik ForwardAuth.
     "sonarr.niflheim.xiiisins.com"  = "10.0.20.10"
     "sabnzbd.niflheim.xiiisins.com" = "10.0.20.10"
+    # Kavita manga readers: internal-only. manga2 is additionally behind Authentik ForwardAuth (manga2 group).
+    "manga.niflheim.xiiisins.com"  = "10.0.20.10"
+    "manga2.niflheim.xiiisins.com" = "10.0.20.10"
     # Phase 10d2 - Frigg-only read-only query routes for the AIOps Toolbelt (k8s/asgard/apps/victoria*/httproute-aiops-read.yaml)
     "logs-read.niflheim.xiiisins.com"    = "10.0.20.10"
     "metrics-read.niflheim.xiiisins.com" = "10.0.20.10"

@@ -79,3 +79,6 @@ resources:
   # Media automation (plan 5h M1): Sonarr + SABnzbd, internal-only, Authentik ForwardAuth. Static NFS volume of the DSM share `media`;
   # needs terraform/vault + authentik + adguard applied, the DSM share, and k8s/media/usenet seeded in Vault BEFORE merge.
   - media
+  # Kavita manga/PDF readers (two instances: manga + manga2), internal-only. Read-only NFS of the DSM share `media` (Manga/, Manga2/), config on local-path.
+  # needs terraform/adguard + authentik applied (and the one-time outpost attach for the manga2 provider) BEFORE merge.
+  - kavita

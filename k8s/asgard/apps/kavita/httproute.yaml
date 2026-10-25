@@ -1,0 +1,51 @@
+# Internal-only routes on the niflheim Gateway. AGH rewrites to the Traefik VIP are in terraform/adguard/rewrites.tf.
+# kavita: Kavita's own login only (OPDS and mobile readers keep working). kavita-manga2: Authentik ForwardAuth
+# (manga2) in front of Kavita's login, so a leaked Kavita account alone cannot reach the manga2 library; OPDS and
+# mobile apps cannot pass ForwardAuth, so the manga2 instance is browser-only by design.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kavita
+  namespace: kavita
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - manga.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kavita
+          port: 5000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kavita-manga2
+  namespace: kavita
+spec:
+  parentRefs:
+    - name: niflheim
+      namespace: traefik
+      sectionName: websecure
+  hostnames:
+    - manga2.niflheim.xiiisins.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: authentik-forward-auth
+      backendRefs:
+        - name: kavita-manga2
+          port: 5000

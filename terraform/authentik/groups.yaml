@@ -128,3 +128,9 @@ media-admins:
   # (sabnzbd.niflheim.xiiisins.com), gated by Authentik ForwardAuth through
   # Traefik (see media.tf). Both apps are set to external auth, so access =
   # full control of the media automation. Operator-only.
+
+manga2:
+  is_superuser: false
+  # Members can open the manga2 Kavita instance (manga2.niflheim.xiiisins.com),
+  # gated by Authentik ForwardAuth through Traefik (see kavita.tf). Kavita's own
+  # login still applies behind it. The regular manga instance has no Authentik gate.
