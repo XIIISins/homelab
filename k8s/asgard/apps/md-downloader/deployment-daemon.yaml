@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: daemon
-          image: ghcr.io/xiiisins/md-downloader:sha-78b1271
+          image: ghcr.io/xiiisins/md-downloader:sha-e432506
           args: ["-daemon", "-daemon-addr", "0.0.0.0:8081", "-out", "/media/Manga", "-workers", "4"]
           ports:
             - name: health
