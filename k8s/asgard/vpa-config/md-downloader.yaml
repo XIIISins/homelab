@@ -1,0 +1,53 @@
+# k8s/asgard/vpa-config/md-downloader.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: md-downloader-api
+  namespace: md-downloader
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: md-downloader-api
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: md-downloader-web
+  namespace: md-downloader
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: md-downloader-web
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: md-downloader-sync
+  namespace: md-downloader
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: md-downloader-sync
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: md-downloader-daemon
+  namespace: md-downloader
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: md-downloader-daemon
+  updatePolicy:
+    updateMode: "Off"

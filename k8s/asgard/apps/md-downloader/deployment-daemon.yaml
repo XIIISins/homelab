@@ -1,0 +1,83 @@
+# k8s/asgard/apps/md-downloader/deployment-daemon.yaml
+#
+# The downloader daemon (`-daemon`), a SINGLETON: pulls jobs from Postgres and writes the library on the Munin NFS share.
+# Recreate, 1 replica. No Service: its queue API is Host-restricted and unreachable; only /healthz answers other hosts.
+#
+# The library is mounted with subPath Manga at /media/Manga (not the whole share at /media): the daemon can only touch
+# Manga/, and a missing NFS mount keeps the pod in ContainerCreating instead of letting it write to local disk.
+# Written files appear on the share as the squashed owner (library is 1026:100, mode 777); Kavita reads them read-only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: md-downloader-daemon
+  namespace: md-downloader
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: md-downloader-daemon
+  template:
+    metadata:
+      labels:
+        app: md-downloader-daemon
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: daemon
+          image: ghcr.io/xiiisins/md-downloader:sha-78b1271
+          args: ["-daemon", "-daemon-addr", "0.0.0.0:8081", "-out", "/media/Manga", "-workers", "4"]
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: TZ
+              value: Europe/Amsterdam
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: md-downloader-db
+                  key: DATABASE_URL
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 4
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: media
+              mountPath: /media/Manga
+              subPath: Manga
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: media
+          persistentVolumeClaim:
+            claimName: md-downloader-media

@@ -5,3 +5,11 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - storage.yaml
+  - externalsecret-db.yaml
+  - externalsecret-mangadex.yaml
+  - service.yaml
+  - deployment-api.yaml
+  - deployment-web.yaml
+  - deployment-sync.yaml
+  - deployment-daemon.yaml
+  - httproute.yaml

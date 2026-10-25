@@ -1,0 +1,68 @@
+# k8s/asgard/apps/md-downloader/deployment-web.yaml
+#
+# Caddy with the static web UI (plain HTTP :8080, /healthz); proxies /api/* to the api Service via API_UPSTREAM.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: md-downloader-web
+  namespace: md-downloader
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: md-downloader-web
+  template:
+    metadata:
+      labels:
+        app: md-downloader-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: md-downloader-web
+      containers:
+        - name: web
+          image: ghcr.io/xiiisins/md-downloader-web:sha-78b1271
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: TZ
+              value: Europe/Amsterdam
+            - name: API_UPSTREAM
+              value: md-downloader-api:8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
