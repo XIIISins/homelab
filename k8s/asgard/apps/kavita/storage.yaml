@@ -1,8 +1,9 @@
 # k8s/asgard/apps/kavita/storage.yaml
 #
-# One static, read-only NFS volume of the DSM shared folder `manga` (docs/services/synology.md), shared by both Kavita
-# instances. Each instance mounts its own subPath: `manga/` for kavita, `manga2/` for kavita-manga2, so the two libraries
-# never see each other's files. The share's NFS rule for the workers (10.0.21.21-23) must allow them; read-only is
+# One static, read-only NFS volume of the DSM shared folder `media` (docs/services/synology.md), shared by both Kavita
+# instances: manga is media like Anime/, so it lives on the same share and needs no extra export. Each instance mounts
+# its own subPath (capitalised: NFS is case-sensitive): `Manga/` for kavita, `Manga2/` for kavita-manga2, so the two libraries
+# never see each other's files. The share's existing NFS rule for the workers (10.0.21.21-23) already covers this; read-only is
 # enforced here by the mount, so a Kavita bug or a bad delete click cannot touch the library. Add files over SMB/NFS
 # from the NAS side. Same static-PV pattern as k8s/asgard/apps/media/storage.yaml.
 #
@@ -11,7 +12,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: manga-data
+  name: kavita-media
 spec:
   capacity:
     storage: 1Ti # nominal; NFS does not enforce it
@@ -26,16 +27,16 @@ spec:
     - ro
   nfs:
     server: 10.0.254.20
-    path: /volume5/manga
+    path: /volume5/media
     readOnly: true
   claimRef:
     namespace: kavita
-    name: manga-data
+    name: kavita-media
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: manga-data
+  name: kavita-media
   namespace: kavita
 spec:
   accessModes:

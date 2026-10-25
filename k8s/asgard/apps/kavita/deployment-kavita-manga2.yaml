@@ -1,6 +1,6 @@
 # Kavita (second library, manga2). Official image pinned to an exact tag; bumps go through the chart-bump agent. Kavita keeps its own
 # user accounts (first visitor creates the admin), so the manga2 instance is internal-only and additionally gated by Authentik ForwardAuth (manga2).
-# Config (SQLite) on local-path; library is the read-only NFS share, subPath `manga2`. Single replica, Recreate: the
+# Config (SQLite) on local-path; library is the read-only NFS share, subPath `Manga2`. Single replica, Recreate: the
 # SQLite DB must never be opened by two pods.
 apiVersion: apps/v1
 kind: Deployment
@@ -58,7 +58,7 @@ spec:
               mountPath: /kavita/config
             - name: manga
               mountPath: /manga
-              subPath: manga2
+              subPath: Manga2
               readOnly: true
       volumes:
         - name: config
@@ -66,5 +66,5 @@ spec:
             claimName: kavita-manga2-config
         - name: manga
           persistentVolumeClaim:
-            claimName: manga-data
+            claimName: kavita-media
             readOnly: true
