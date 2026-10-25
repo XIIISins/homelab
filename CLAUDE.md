@@ -10,7 +10,7 @@ A ground-up homelab on 3 physical nodes (Urd / Verd / Skuld) plus a Synology NAS
 1. **Never put a credential literal in a tool call or chat** — resolve it inside the shell process (see [Secrets in commands](#secrets-in-commands)).
 2. **`main` is protected: land changes through a branch + PR**, never push or ff-merge `main` (see [Mutating operations](#mutating-operations)). Merging to `main` IS the K8s deploy.
 3. **No `kubectl apply`/`kubectl edit` against production** — Flux reconciles. Never replace K3s addon files (Calico) by hand.
-4. **`terraform apply` only from the main checkout**; **one `ansible-playbook` at a time** across all agents.
+4. **`terraform apply` only from the main checkout** (exception: Frigg rebuild runner, `-replace` of allow-listed guests); **one `ansible-playbook` at a time** across all agents.
 5. **Pre-flight before proposing new work** (below), and **post-flight docs before calling it done**.
 6. The repo is **public**: no secrets, ever; every push is secret-scanned.
 
@@ -77,7 +77,7 @@ When asked "let's deploy X" / "what's next?" / "plan Y":
 3. **Read the matching [`docs/known-issues/`](docs/known-issues/) file(s)** — for X *and* for the systems X depends on (storage class, secret store, networking, DNS, consuming-workload pattern). Open more than one when X has dependencies.
 4. **Treat pending tasks as prerequisites, not backlog**; propose the sequence with prerequisites first (Phase 0 / 4a) and say *why* each is a prerequisite.
 
-Output is "I checked these; here's what I found", not clarifying questions. "Skip the pre-flight" → skip it. Flag only real prerequisites. (Origin: the 2026-05-17 Authentik deploy hit the un-closed CP-taint task — [retro](docs/incidents/2026-05-17-evening-authentik-redis.md).)
+Output is "I checked these; here's what I found", not clarifying questions. "Skip the pre-flight" → skip it. Flag only real prerequisites. ([Origin](docs/incidents/2026-05-17-evening-authentik-redis.md).)
 
 ### Post-flight — after work lands
 1. **Update docs** — each piece has one home:
