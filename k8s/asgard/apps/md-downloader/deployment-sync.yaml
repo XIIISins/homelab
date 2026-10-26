@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sync
-          image: ghcr.io/xiiisins/md-downloader:sha-fb6b6c0
+          image: ghcr.io/xiiisins/md-downloader:sha-8aca4f3
           args: ["-sync", "-sync-interval", "1h"]
           env:
             - name: TZ
