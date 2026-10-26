@@ -29,7 +29,7 @@ spec:
       containers:
         - name: sync
           image: ghcr.io/xiiisins/md-downloader:sha-8aca4f3
-          args: ["-sync", "-sync-interval", "1h"]
+          args: ["-sync", "-sync-interval", "1h", "-ratings", "safe,suggestive,erotica,pornographic"]
           env:
             - name: TZ
               value: Europe/Amsterdam

@@ -33,7 +33,7 @@ spec:
       containers:
         - name: daemon
           image: ghcr.io/xiiisins/md-downloader:sha-8aca4f3
-          args: ["-daemon", "-daemon-addr", "0.0.0.0:8081", "-out", "/media/Manga", "-workers", "4"]
+          args: ["-daemon", "-daemon-addr", "0.0.0.0:8081", "-out", "/media/Manga", "-workers", "4", "-ratings", "safe,suggestive,erotica,pornographic"]
           ports:
             - name: health
               containerPort: 8081
