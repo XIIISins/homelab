@@ -34,7 +34,7 @@ spec:
                     app: md-downloader-web
       containers:
         - name: web
-          image: ghcr.io/xiiisins/md-downloader-web:sha-14a5890
+          image: ghcr.io/xiiisins/md-downloader-web:sha-b242505
           ports:
             - name: http
               containerPort: 8080
