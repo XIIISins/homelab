@@ -36,7 +36,7 @@ spec:
                     app: md-downloader-api
       containers:
         - name: api
-          image: ghcr.io/xiiisins/md-downloader:sha-8aca4f3
+          image: ghcr.io/xiiisins/md-downloader:sha-69ad033
           args: ["-api", "-addr", "0.0.0.0:8080", "-ratings", "safe,suggestive,erotica,pornographic"]
           ports:
             - name: http
