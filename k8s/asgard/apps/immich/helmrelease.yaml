@@ -78,11 +78,12 @@ spec:
             main:
               # Phase 10i (2026-10-05): no requests before. From 30 days of
               # VictoriaMetrics history: CPU = max(1.5 x median daily p95, worst-day
-              # p95). Memory spikes far above the usual level (p95 3970Mi, max
-              # 5167Mi), so the request is 1.2 x p95 and peaks run above it; 1.2 x
-              # max (6.2Gi) would book a third of a worker for a rare peak. No limit.
+              # p95). Memory spiked far above the usual level then (p95 3970Mi, max
+              # 5167Mi). Re-measured 2026-10-28: 30d max 2113Mi, p95 1636Mi, no OOM
+              # (the early burst aged out of the window), so the request is 2304Mi.
+              # A big import can push it back up; no limit.
               resources:
-                requests: {cpu: 50m, memory: 4768Mi}
+                requests: {cpu: 50m, memory: 2304Mi}
       ingress:
         main:
           enabled: false # Gateway API HTTPRoute instead (httproute.yaml)

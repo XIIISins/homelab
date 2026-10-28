@@ -166,13 +166,14 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 752Mi # Phase 10i: 30d max working set 622Mi (Ansible runs)
+              memory: 1104Mi # 30d max working set 853Mi (Ansible runs)
             limits:
               # Ansible runs spawn ansible-playbook subprocesses inside
               # the same container; memory ceiling tuned for a fleet
               # the size of niflheim (~25 hosts) running site.yml
               # under --check. Bump if a per-template run OOMs.
-              memory: 1Gi
+              # 30d max 853Mi is above 0.8 x the old 1Gi: 1.5 x the request.
+              memory: 1664Mi
           securityContext:
             # semaphoreui/semaphore upstream Dockerfile USERs the
             # `semaphore` account at UID 1001. K8s runAsNonRoot needs

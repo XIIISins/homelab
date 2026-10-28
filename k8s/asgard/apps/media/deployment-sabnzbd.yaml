@@ -128,7 +128,7 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 1280Mi # 30d max working set 1066Mi (page cache under NFS writeback counts)
             limits:
               cpu: "1"
               # 4Gi, not 2Gi: the cgroup is killed when page cache under NFS writeback fills it, not when SABnzbd's own
