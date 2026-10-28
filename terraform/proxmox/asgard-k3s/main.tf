@@ -107,11 +107,14 @@ resource "proxmox_virtual_environment_vm" "worker" {
 
   # `floating` is the balloon minimum: with no balloon device the host keeps every
   # page the guest ever cached (workers sat at ~15 GB RSS for ~5 GB in use, host
-  # swapping, 2026-10-28). Reclaim only happens under host pressure. Keep it well
-  # above the ~5-7 GB working set. Applied on the next deliberate power-cycle.
+  # swapping, 2026-10-28). Reclaim only happens under host pressure. Keep it above
+  # pod requests + 2036 Mi kubelet reserve/eviction + ~650 Mi balloon overhead:
+  # kubelet reads MemTotal once at start, so a worker restarted while ballooned
+  # down advertises floor-sized allocatable and pods go Pending (Urd requests
+  # ~9.8 GiB => floor >= ~12.2 GiB). Applied on the next deliberate power-cycle.
   memory {
     dedicated = each.value.memory
-    floating  = 10240
+    floating  = 12800
   }
 
   # OS/ephemeral disk is NOT backed up to PBS (backup = false): it holds only the
