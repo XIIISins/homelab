@@ -58,7 +58,7 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 384Mi
+              memory: 640Mi # 30d max working set 521Mi
             limits:
               memory: 1Gi
           securityContext:

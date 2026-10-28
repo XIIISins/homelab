@@ -49,3 +49,16 @@ spec:
       mountOptions:
         - nfsvers=4.1
         - hard
+    # Chart default requests are 20Mi per container; the 30d max working set is
+    # 33-85Mi, so these were below their own use. Request = 1.2 x max, rounded up
+    # to 16Mi. Limits stay at the chart defaults.
+    controller:
+      resources:
+        csiProvisioner: {requests: {memory: 112Mi}}
+        csiResizer: {requests: {memory: 112Mi}}
+        csiSnapshotter: {requests: {memory: 96Mi}}
+    node:
+      resources:
+        livenessProbe: {requests: {memory: 64Mi}}
+        nodeDriverRegistrar: {requests: {memory: 64Mi}}
+        nfs: {requests: {memory: 96Mi}}
