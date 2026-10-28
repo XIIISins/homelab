@@ -198,14 +198,25 @@ spec:
     # CPU-requested, which is what deadlocks surge rollouts
     # (known-issues/k8s-scheduling.md). The limit, not the request, is
     # what the refresh bursts need.
+    # One granian worker (2026-10-28): the image defaults to 4 spawned workers,
+    # each a full Django copy at 300-400Mi (1.3Gi total) for a read-only UI plus
+    # the Ansible inventory. --backpressure defaults to the worker count, so it
+    # is pinned at the old per-worker 4 to keep in-flight concurrency. The
+    # request follows one worker (~410Mi) plus headroom; the limit stays at the
+    # 1536Mi migration floor (known-issues/netbox.md).
+    extraEnvs:
+      - name: GRANIAN_WORKERS
+        value: "1"
+      - name: GRANIAN_BACKPRESSURE
+        value: "4"
     resourcesPreset: "none"
     resources:
       requests:
         cpu: 360m
-        memory: 1968Mi
+        memory: 768Mi
       limits:
         cpu: 1500m
-        memory: 2560Mi
+        memory: 1536Mi
     replicaCount: 1 # bump to 2 once steady-state, for rolling-update headroom
 
     worker:
