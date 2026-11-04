@@ -204,16 +204,24 @@ spec:
     # is pinned at the old per-worker 4 to keep in-flight concurrency. The
     # request follows one worker (~410Mi) plus headroom; the limit stays at the
     # 1536Mi migration floor (known-issues/netbox.md).
+    # Two workers (2026-11-04): with one, an inventory/API burst delayed
+    # /login/ past the chart's 1s readiness probe, the pod flapped Unready
+    # (3195 probe failures in 7 days) and Traefik returned 503, which emptied
+    # the Ansible dynamic inventory and fired false Patroni/Frigg alerts.
+    # Two workers plus a 5s probe timeout keep the pod in the endpoints.
     extraEnvs:
       - name: GRANIAN_WORKERS
-        value: "1"
+        value: "2"
       - name: GRANIAN_BACKPRESSURE
         value: "4"
+    readinessProbe:
+      timeoutSeconds: 5
+      failureThreshold: 6
     resourcesPreset: "none"
     resources:
       requests:
         cpu: 360m
-        memory: 768Mi
+        memory: 1Gi
       limits:
         cpu: 1500m
         memory: 1536Mi
