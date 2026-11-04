@@ -25,6 +25,14 @@
 #      itself is kept — LXC up/down is useful; LXC memory health is owned
 #      by the in-guest agent).
 #
+#   3. LXC discovery filter: exclude the PBS restore-test scratch CT (id 1199,
+#      `pbs-restore-test.yml`) so a weekly create/destroy never raises
+#      "Not running" / "restarted" problems, and sweep what was already
+#      discovered for it. Only that one id is excluded; every other LXC
+#      stays discovered. Deliberately a filter, NOT a shorter lost-resource
+#      lifetime: lifetime_type=2 would delete a real LXC's history on one
+#      failed poll.
+#
 # Node / Storage / Cluster discovery are left intact (genuine PVE-only
 # signals — hypervisor RAM, datastores, cluster quorum).
 #
@@ -51,6 +59,12 @@
     zbx_lxc_mem_value: "100"
     # Filter value the QEMU LLD will never match → discovers zero VMs.
     zbx_qemu_nomatch: "^__pve_qemu_discovery_disabled__$"
+    # PBS restore-test scratch CT (pbs-restore-test.yml; keep in step with
+    # restore_test_vmid there). {#LXC.ID} is "lxc/<vmid>".
+    zbx_scratch_lxc_id_regex: "^lxc/1199$"
+    zbx_scratch_lxc_key_part: "[lxc/1199]"
+    # !unsafe: a literal "{#" would otherwise open a Jinja comment.
+    zbx_lxc_id_macro: !unsafe "{#LXC.ID}"
   module_defaults:
     ansible.builtin.uri:
       method: POST
@@ -258,3 +272,90 @@
         - _lxc_macro.value | default('') != zbx_lxc_mem_value
       changed_when: true
       failed_when: _lxc.json.error is defined
+
+    # --- 3. Exclude the restore-test scratch CT from LXC discovery --------
+    - name: Get master LXC discovery rule (template) and its filter
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: discoveryrule.get
+          params:
+            output: [itemid]
+            selectFilter: extend
+            hostids: ["{{ _tmpl_id }}"]
+            filter: { key_: "proxmox.lxc.discovery" }
+          id: 1
+      register: _lxc_rule
+      no_log: true
+      check_mode: false   # read-only discoveryrule.get — must run under drift-check (--check)
+      failed_when: _lxc_rule.json.error is defined or (_lxc_rule.json.result | length) == 0
+
+    - name: Work out whether the scratch-CT exclusion is already in the filter
+      ansible.builtin.set_fact:
+        _lxc_filter_has_exclusion: >-
+          {{ _lxc_rule.json.result[0].filter.conditions
+             | selectattr('macro', 'equalto', zbx_lxc_id_macro)
+             | selectattr('operator', 'in', [9, '9'])
+             | selectattr('value', 'equalto', zbx_scratch_lxc_id_regex)
+             | list | length > 0 }}
+
+    # evaltype 0 = and/or: conditions on different macros are ANDed, so this
+    # reads "type is lxc AND id is not the scratch CT".
+    - name: Add the scratch-CT exclusion to the LXC discovery filter
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: discoveryrule.update
+          params:
+            itemid: "{{ _lxc_rule.json.result[0].itemid }}"
+            filter:
+              evaltype: 0
+              conditions:
+                - { macro: !unsafe "{#RESOURCE.TYPE}", value: "^lxc$", operator: 8 }
+                - { macro: !unsafe "{#LXC.ID}", value: "{{ zbx_scratch_lxc_id_regex }}", operator: 9 }
+          id: 1
+      register: _lxc_filter
+      no_log: true
+      when:
+        - not ansible_check_mode  # mutating discoveryrule.update — out of drift-check scope
+        - not (_lxc_filter_has_exclusion | bool)
+      changed_when: true
+      failed_when: _lxc_filter.json.error is defined
+
+    - name: Find scratch-CT items already discovered on the PVE hosts
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: item.get
+          params:
+            output: [itemid]
+            hostids: "{{ _pve_host_ids }}"
+            search: { key_: "{{ zbx_scratch_lxc_key_part }}" }
+          id: 1
+      register: _scratch_items
+      no_log: true
+      check_mode: false   # read-only item.get — must run under drift-check (--check)
+      failed_when: _scratch_items.json.error is defined
+
+    # Best effort: without this, the already-discovered CT1199 entities (and
+    # their open "Not running" problems) age out only after the rule's 7d
+    # lost-resource lifetime. Tolerant, because the API may refuse to delete
+    # discovered items; the filter above already stops new ones either way.
+    - name: Delete already-discovered scratch-CT items (triggers and problems go with them)
+      ansible.builtin.uri:
+        url: "{{ zbx_api_url }}"
+        body:
+          jsonrpc: "2.0"
+          method: item.delete
+          params: "{{ _scratch_items.json.result | map(attribute='itemid') | list }}"
+          id: 1
+      register: _scratch_del
+      no_log: true
+      when:
+        - not ansible_check_mode  # mutating item.delete — out of drift-check scope
+        - (_scratch_items.json.result | length) > 0
+      changed_when: _scratch_del.json.error is not defined
+      failed_when: false
