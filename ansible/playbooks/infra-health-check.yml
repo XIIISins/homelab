@@ -227,6 +227,36 @@
           loop_control:
             label: "{{ item.item.host }}"
 
+        # --- Inventory sanity (guards checks 3, 4 and 7) ---------------
+        # Checks 3, 4 and 7 take their targets from the NetBox dynamic
+        # inventory. When NetBox is down or flapping Unready (503 /
+        # Bad Gateway) the inventory comes back with those groups empty,
+        # and the checks would report "Patroni UNREACHABLE on all 0 nodes"
+        # and "frigg state=unreachable" about healthy systems (2026-11-04,
+        # known-issues/netbox.md). An empty group is a blind prober, not a
+        # down service: skip the dependent check and warn once instead.
+        - name: Detect empty inventory groups
+          ansible.builtin.set_fact:
+            _inv_postgres_empty: "{{ (groups['postgres'] | default([]) | length) == 0 }}"
+            _inv_etcd_empty: "{{ (groups['haproxy_etcd'] | default([]) | length) == 0 }}"
+            _inv_control_empty: "{{ (groups['control'] | default([]) | length) == 0 }}"
+
+        - name: Record empty-inventory finding
+          ansible.builtin.set_fact:
+            warn_findings: >-
+              {{ warn_findings | default([])
+                 + ['Inventory groups EMPTY: ' ~ _empty_groups | join(', ')
+                    ~ ' — the NetBox dynamic inventory is likely down or flapping'
+                    ~ ' Unready, so the dependent checks (Patroni/etcd/Frigg RC) were'
+                    ~ ' SKIPPED this run, not passed. Check `kubectl -n netbox get pods`'
+                    ~ ' and `/api/status/`; see docs/known-issues/netbox.md.'] }}
+          vars:
+            _empty_groups: >-
+              {{ (['postgres'] if _inv_postgres_empty | bool else [])
+                 + (['haproxy_etcd'] if _inv_etcd_empty | bool else [])
+                 + (['control'] if _inv_control_empty | bool else []) }}
+          when: _inv_postgres_empty | bool or _inv_etcd_empty | bool or _inv_control_empty | bool
+
         # --- 3. Patroni cluster health --------------------------------
         # Hit one PG node's REST /cluster; each node reports the whole
         # cluster view. Fall through the list so a single dead node
@@ -242,12 +272,14 @@
             label: "{{ item }}"
           register: patroni_probe
           failed_when: false
+          when: not (_inv_postgres_empty | bool)
 
         - name: Evaluate Patroni cluster health
           ansible.builtin.set_fact:
             crit_findings: >-
               {{ crit_findings | default([])
                  + ([_patroni_msg] if _patroni_bad else []) }}
+          when: not (_inv_postgres_empty | bool)
           vars:
             # First successful /cluster response, if any.
             _ok: "{{ patroni_probe.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list }}"
@@ -273,6 +305,7 @@
             label: "{{ item }}"
           register: etcd_probe
           failed_when: false
+          when: not (_inv_etcd_empty | bool)
 
         - name: Evaluate etcd quorum
           ansible.builtin.set_fact:
@@ -281,6 +314,7 @@
                  + (['etcd quorum LOST: only ' ~ _healthy ~ '/' ~ _total
                      ~ ' DCS nodes report health=true (need >= 2).']
                     if (_total | int > 0 and _healthy | int < 2) else []) }}
+          when: not (_inv_etcd_empty | bool)
           vars:
             _total: "{{ groups['haproxy_etcd'] | default([]) | length }}"
             # etcd /health returns Content-Type: text/plain, so ansible's
@@ -404,6 +438,7 @@
                      ~ ' on an invalidated login, `claude auth login` then'
                      ~ ' `systemctl restart claude-remote-control`.']
                     if _rc_state != 'running' else []) }}
+          when: not (_inv_control_empty | bool)
           vars:
             _rc_unit: >-
               {{ (hostvars['frigg'].ansible_facts.services | default({}))
