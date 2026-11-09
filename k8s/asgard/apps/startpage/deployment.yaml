@@ -9,6 +9,9 @@
 # `latest`) so a rollout is a reviewed git change and Flux reverts cleanly.
 # The rolling update (maxSurge 0 / maxUnavailable 1) keeps the service up.
 #
+# The image runs nginx-unprivileged, so it listens on 8080 (the Service maps
+# 80 -> the named port `http`).
+#
 # The image is private; the pull credential comes from Vault via ESO
 # (externalsecret.yaml).
 apiVersion: apps/v1
@@ -53,7 +56,7 @@ spec:
           image: ghcr.io/xiiisins/startpage:sha-0c2e90c
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
               protocol: TCP
           # nginx has no /healthz; the index page is the health signal.
           livenessProbe:
