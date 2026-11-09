@@ -51,7 +51,7 @@ browser → Cloudflare edge → tunnel → cloudflared pod → Traefik → start
 - **HTTPRoute:** attaches to the midgard Gateway `websecure-apex-wildcard` listener
   (the same listener `wiki.xiiisins.com` uses).
 
-nginx serves plain HTTP on `:80` inside the pod; TLS terminates at Traefik upstream
+nginx serves plain HTTP on `:8080` inside the pod (nginx-unprivileged; the Service exposes 80); TLS terminates at Traefik upstream
 (`*.xiiisins.com` LE wildcard). There is no AGH rewrite — LAN clients trombone out to
 Cloudflare and back (accepted; it's a tiny page).
 
